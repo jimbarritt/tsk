@@ -14,7 +14,7 @@ is different is that it models all four of these dimensions explicitly. Other to
 only model some parts of these dimensions, and end up being a little too abstract (in the wrong direction) to really give
  a holistic abstraction.
 
-tsk is very opinionated but within a very specific abstraction. It has a lot of flexibility but in the right dimensions.and
+tsk is very opinionated but within a very specific abstraction. It has a lot of flexibility but in the right dimensions.
 
 The four dimensions are:
 
