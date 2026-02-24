@@ -1,0 +1,14 @@
+[package]
+name = "tsk-bin"
+version = "0.1.0"
+edition = "2021"
+description = "tsk — work with a clear context"
+homepage = "https://github.com/jimbarritt/tsk"
+repository = "https://github.com/jimbarritt/tsk"
+license = "MIT"
+keywords = ["task", "cli", "delivery", "navigation", "agile", "flow", "project", "agent", "mcp", "agentic"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "tsk"
+path = "src/main.rs"
