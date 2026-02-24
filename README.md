@@ -3,7 +3,7 @@ tsk is about tasks. Big and small. From working out your next sequence of moves 
 large scale cross team initiatives.
 
 It is also designed from the ground up to work in the world of agentic engineering. With a native MCP you can have tsk 
-running alongside your agent and keep track of where you both are, or where youre *teams* of agents are for that matter.
+running alongside your agent and keep track of where you both are, or where youre *teams* of agents are for that matter. Or even where you, your human colleagues and their agents are!
 
 It's your "sat nav" for work. Keep your human cognitive context and that of your agents clear and keep track of all the work threads you are context switching to.
 
