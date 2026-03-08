@@ -774,7 +774,7 @@ dependencies = [
 
 [[package]]
 name = "tsk-bin"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "clap",
  "crossterm",
@@ -786,7 +786,7 @@ dependencies = [
 
 [[package]]
 name = "tsk-core"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -795,7 +795,7 @@ dependencies = [
 
 [[package]]
 name = "tskd"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
