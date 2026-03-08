@@ -102,6 +102,45 @@ cargo test -p tsk-core
 cargo test --workspace
 ```
 
+### Publishing to crates.io
+
+This is a Cargo workspace with three crates. They must be published individually in dependency order, since crates.io resolves packages independently (it doesn't understand workspace-local paths).
+
+**Order:** `tsk-core` → `tskd` → `tsk-bin`
+
+**1. Login** (once, stored in `~/.cargo/credentials`):
+
+```bash
+cargo login
+```
+
+**2. Ensure inter-crate dependencies specify both `path` and `version`.**
+
+Crates.io ignores `path` and uses `version` instead. Both must be present when publishing a crate that depends on another local workspace crate:
+
+```toml
+# In cli/Cargo.toml and daemon/Cargo.toml:
+tsk-core = { version = "0.1.0", path = "../core" }
+```
+
+**3. Publish in order:**
+
+```bash
+# Core library first
+cargo publish -p tsk-core
+
+# Then the binaries (either order, both depend only on tsk-core)
+cargo publish -p tskd
+cargo publish -p tsk-bin
+```
+
+**4. Bump versions** before each publish. Crates.io rejects re-publishing an existing version. Update `version` in the relevant `Cargo.toml` and update the `version` in any crates that depend on it.
+
+**Notes:**
+- `cargo publish --dry-run -p <crate>` to validate packaging without uploading
+- New versions appear on crates.io within a few minutes but index propagation can take up to a minute
+- The published crate name for the CLI is `tsk-bin` (installs the `tsk` binary)
+
 ### How it works
 
 `tskd` is a headless daemon that owns all state. `tsk` is a thin client — in CLI mode it sends a JSON-RPC request over a Unix socket and exits; in TUI mode it polls the daemon to render the thread list. Multiple clients (CLI, TUI, agents) can talk to the daemon concurrently. See `doc/arch/` and `doc/adr/` for the full architecture.

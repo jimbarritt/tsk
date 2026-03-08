@@ -79,12 +79,18 @@ impl std::fmt::Display for ThreadState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Thread {
-    pub hash: String,
-    pub short_hash: String,
+    pub id: u32,
     pub slug: String,
     pub state: ThreadState,
     pub priority: Priority,
     pub description: String,
+}
+
+impl Thread {
+    /// Zero-padded 4-digit string representation of the id (e.g. "0001").
+    pub fn id_str(&self) -> String {
+        format!("{:04}", self.id)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -92,12 +98,20 @@ pub struct Thread {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThreadStartedEvent {
+pub struct ThreadCreatedEvent {
     pub event: String,
-    pub hash: String,
+    pub id: u32,
     pub slug: String,
     pub priority: Priority,
     pub description: String,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreadSwitchedEvent {
+    pub event: String,
+    pub active_id: u32,
+    pub paused_ids: Vec<u32>,
     pub timestamp: u64,
 }
 
@@ -153,20 +167,6 @@ impl JsonRpcResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Thread ID generation
-// ---------------------------------------------------------------------------
-
-/// Returns (full_sha256_hex, short_7_char_hash) for the given slug.
-pub fn thread_hash(slug: &str) -> (String, String) {
-    let mut hasher = Sha256::new();
-    hasher.update(slug.as_bytes());
-    let result = hasher.finalize();
-    let full: String = result.iter().map(|b| format!("{:02x}", b)).collect();
-    let short = full[..7].to_string();
-    (full, short)
-}
-
-// ---------------------------------------------------------------------------
 // Storage paths
 // ---------------------------------------------------------------------------
 
@@ -190,8 +190,9 @@ pub fn index_path(project_root: &Path) -> PathBuf {
     threads_dir(project_root).join("index.json")
 }
 
-pub fn thread_dir(project_root: &Path, short_hash: &str, slug: &str) -> PathBuf {
-    threads_dir(project_root).join(format!("{}-{}", short_hash, slug))
+/// Thread working directory: `tsk/threads/{id:04}-{slug}/`
+pub fn thread_dir(project_root: &Path, id: u32, slug: &str) -> PathBuf {
+    threads_dir(project_root).join(format!("{:04}-{}", id, slug))
 }
 
 // ---------------------------------------------------------------------------
@@ -263,36 +264,37 @@ pub fn send_request(
 }
 
 // ---------------------------------------------------------------------------
-// Unit tests — written first, drive the implementation above
+// Unit tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // --- thread_hash ---
+    // --- Thread id_str ---
 
     #[test]
-    fn thread_hash_returns_64_char_full_and_7_char_short() {
-        let (full, short) = thread_hash("fix-login");
-        assert_eq!(full.len(), 64, "full hash should be 64 hex chars");
-        assert_eq!(short.len(), 7, "short hash should be 7 chars");
-        assert!(full.starts_with(&short), "short hash should be prefix of full");
+    fn thread_id_str_zero_pads_to_four_digits() {
+        let t = Thread {
+            id: 1,
+            slug: "fix-login".to_string(),
+            state: ThreadState::Active,
+            priority: Priority::Priority,
+            description: "Fix it".to_string(),
+        };
+        assert_eq!(t.id_str(), "0001");
     }
 
     #[test]
-    fn thread_hash_is_deterministic() {
-        let (full1, short1) = thread_hash("fix-login");
-        let (full2, short2) = thread_hash("fix-login");
-        assert_eq!(full1, full2);
-        assert_eq!(short1, short2);
-    }
-
-    #[test]
-    fn thread_hash_differs_for_different_slugs() {
-        let (full1, _) = thread_hash("fix-login");
-        let (full2, _) = thread_hash("update-deps");
-        assert_ne!(full1, full2);
+    fn thread_id_str_handles_larger_numbers() {
+        let t = Thread {
+            id: 42,
+            slug: "foo".to_string(),
+            state: ThreadState::Paused,
+            priority: Priority::Background,
+            description: "".to_string(),
+        };
+        assert_eq!(t.id_str(), "0042");
     }
 
     // --- Priority ---
@@ -358,14 +360,14 @@ mod tests {
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             id: 1,
-            method: "thread.start".to_string(),
+            method: "thread.create".to_string(),
             params: serde_json::json!({"slug": "fix-login"}),
         };
         let s = serde_json::to_string(&req).unwrap();
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
         assert_eq!(v["jsonrpc"], "2.0");
         assert_eq!(v["id"], 1);
-        assert_eq!(v["method"], "thread.start");
+        assert_eq!(v["method"], "thread.create");
         assert_eq!(v["params"]["slug"], "fix-login");
     }
 
@@ -388,34 +390,31 @@ mod tests {
         assert!(v.get("result").is_none() || v["result"].is_null());
     }
 
-    // --- ThreadStartedEvent ---
+    // --- ThreadCreatedEvent ---
 
     #[test]
-    fn thread_started_event_roundtrips() {
-        let (hash, _) = thread_hash("fix-login");
-        let event = ThreadStartedEvent {
-            event: "ThreadStarted".to_string(),
-            hash: hash.clone(),
+    fn thread_created_event_roundtrips() {
+        let event = ThreadCreatedEvent {
+            event: "ThreadCreated".to_string(),
+            id: 1,
             slug: "fix-login".to_string(),
             priority: Priority::Priority,
             description: "Fix the login bug".to_string(),
             timestamp: 1234567890,
         };
         let s = serde_json::to_string(&event).unwrap();
-        let back: ThreadStartedEvent = serde_json::from_str(&s).unwrap();
+        let back: ThreadCreatedEvent = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.id, 1);
         assert_eq!(back.slug, "fix-login");
         assert_eq!(back.priority, Priority::Priority);
-        assert_eq!(back.hash, hash);
     }
 
     // --- Thread model ---
 
     #[test]
-    fn thread_serialises_with_hash_fields() {
-        let (hash, short_hash) = thread_hash("fix-login");
+    fn thread_serialises_with_id_field() {
         let thread = Thread {
-            hash: hash.clone(),
-            short_hash: short_hash.clone(),
+            id: 1,
             slug: "fix-login".to_string(),
             state: ThreadState::Active,
             priority: Priority::Priority,
@@ -423,8 +422,7 @@ mod tests {
         };
         let s = serde_json::to_string(&thread).unwrap();
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-        assert_eq!(v["hash"], hash);
-        assert_eq!(v["short_hash"], short_hash);
+        assert_eq!(v["id"], 1);
         assert_eq!(v["slug"], "fix-login");
         assert_eq!(v["state"], "active");
         assert_eq!(v["priority"], "PRIO");
@@ -453,5 +451,13 @@ mod tests {
         let p1 = socket_path(std::path::Path::new("/project/a"));
         let p2 = socket_path(std::path::Path::new("/project/b"));
         assert_ne!(p1, p2);
+    }
+
+    // --- thread_dir ---
+
+    #[test]
+    fn thread_dir_uses_zero_padded_id() {
+        let dir = thread_dir(std::path::Path::new("/proj"), 1, "fix-login");
+        assert!(dir.to_str().unwrap().contains("0001-fix-login"));
     }
 }
