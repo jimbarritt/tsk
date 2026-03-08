@@ -14,7 +14,7 @@ name = "tsk"
 path = "src/main.rs"
 
 [dependencies]
-tsk-core = { path = "../core" }
+tsk-core = { version = "0.1.0",  path = "../core" }
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }
 ratatui = "0.28"
