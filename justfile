@@ -18,3 +18,12 @@ build:
 uninstall:
     cargo uninstall tsk-bin
     cargo uninstall tskd
+
+# Publish all crates to crates.io
+# core must be published first; sleep gives crates.io time to index it
+# before tsk-bin and tskd resolve the version dependency
+publish:
+    cargo publish --package tsk-core
+    sleep 30
+    cargo publish --package tsk-bin
+    cargo publish --package tskd
