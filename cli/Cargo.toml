@@ -19,3 +19,4 @@ serde_json = "1"
 clap = { version = "4", features = ["derive"] }
 ratatui = "0.28"
 crossterm = "0.28"
+notify = { version = "6", default-features = false, features = ["macos_kqueue"] }
