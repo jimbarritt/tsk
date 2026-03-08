@@ -4,7 +4,7 @@ Date: 2026-03-08
 
 ## Status
 
-Accepted
+Accepted (partially superseded by [ADR 0004](0004-unified-tsk-binary.md) — the three-binary structure is now two binaries)
 
 ## Context
 
