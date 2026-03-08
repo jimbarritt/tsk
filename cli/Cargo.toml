@@ -12,3 +12,10 @@ categories = ["command-line-utilities", "development-tools"]
 [[bin]]
 name = "tsk"
 path = "src/main.rs"
+
+[dependencies]
+tsk-core = { path = "../core" }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+ratatui = "0.28"
+crossterm = "0.28"
