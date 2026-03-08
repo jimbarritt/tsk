@@ -1,13 +1,13 @@
 [package]
 name = "tsk-core"
-version = "0.1.2"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "tsk-core - core libs shared with cli and tskd"
-homepage = "https://github.com/jimbarritt/tsk"
-repository = "https://github.com/jimbarritt/tsk"
-license = "MIT"
-keywords = ["task", "project", "flow", "agent", "mcp"]
-categories = ["command-line-utilities", "development-tools"]
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
