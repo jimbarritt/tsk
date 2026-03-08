@@ -20,6 +20,8 @@ enum Commands {
         #[command(subcommand)]
         action: ThreadCommands,
     },
+    /// Print agent context: conceptual overview, commands, and current thread state
+    Context,
 }
 
 #[derive(Subcommand)]
@@ -122,6 +124,36 @@ fn run_cli(cli: Cli) -> Result<(), String> {
                 Ok(())
             }
         },
+        Some(Commands::Context) => {
+            const AGENT_CONTEXT: &str = include_str!("agent-context.md");
+            print!("{}", AGENT_CONTEXT);
+
+            // Append live thread state if the daemon is running
+            match send_request(&sock, "thread.list", serde_json::json!({})) {
+                Ok(result) => {
+                    let threads = result["threads"].as_array().cloned().unwrap_or_default();
+                    if threads.is_empty() {
+                        println!("No threads exist yet.");
+                    } else {
+                        for t in &threads {
+                            let id = t["id"].as_u64().unwrap_or(0);
+                            let slug = t["slug"].as_str().unwrap_or("?");
+                            let state = t["state"].as_str().unwrap_or("?");
+                            let priority = t["priority"].as_str().unwrap_or("?");
+                            let description = t["description"].as_str().unwrap_or("");
+                            println!(
+                                "- {:04} {:20} {:6} {:6} {}",
+                                id, slug, priority, state, description
+                            );
+                        }
+                    }
+                }
+                Err(_) => {
+                    println!("(tskd is not running — start it with: tskd)");
+                }
+            }
+            Ok(())
+        }
         None => Ok(()),
     }
 }
