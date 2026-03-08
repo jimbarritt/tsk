@@ -23,17 +23,15 @@ The four dimensions are:
 - Product
 - Scale
 
-## Getting started (Delta 1)
-
-### Build
+## Installation
 
 ```bash
-cargo build --workspace --release
+cargo install tsk-bin tskd
 ```
 
-Binaries land in `target/release/`:
-- `tskd` — the daemon
-- `tsk` — the unified CLI + TUI
+This installs two binaries: `tsk` (CLI + TUI) and `tskd` (daemon).
+
+## Getting started
 
 ### Usage
 
@@ -48,7 +46,7 @@ The daemon creates a `tsk/` directory in the current folder (committed to source
 **2. Create a thread:**
 
 ```bash
-tsk thread start fix-login PRIO "Fix the login bug"
+tsk thread create fix-login PRIO "Fix the login bug"
 ```
 
 Priorities: `BG` (background), `PRIO` (priority), `INC` (incident).
@@ -56,28 +54,37 @@ Priorities: `BG` (background), `PRIO` (priority), `INC` (incident).
 Output is JSON — useful for agents and scripting:
 ```json
 {
-  "hash": "a3f1b2c4...",
-  "short_hash": "a3f1b2c",
+  "id": 1,
   "slug": "fix-login",
-  "state": "active",
+  "state": "paused",
   "priority": "PRIO",
-  "description": "Fix the login bug"
+  "description": "Fix the login bug",
+  "dir": "/your/project/tsk/threads/0001-fix-login"
 }
 ```
 
-**3. List threads:**
+New threads start paused. Use `switch-to` to activate one.
+
+**3. Switch to a thread:**
+
+```bash
+tsk thread switch-to 1        # by id
+tsk thread switch-to fix-login # by slug
+```
+
+**4. List threads:**
 
 ```bash
 tsk thread list
 ```
 
-**4. Launch the TUI** (no arguments):
+**5. Launch the TUI** (no arguments):
 
 ```bash
 tsk
 ```
 
-Displays a live table of threads, refreshing every 2 seconds. Press `q` to quit.
+Displays threads grouped by section (Active / Priority & Incidents / Background). Updates instantly when the CLI makes changes. Press `q` to quit.
 
 ### Project storage
 
@@ -86,10 +93,10 @@ Everything under `tsk/` is committed to source control:
 ```
 tsk/
   event-log/
-    events.ndjson       # append-only audit trail of all events
+    events.ndjson        # append-only audit trail of all events
   threads/
-    index.json          # authoritative thread state
-    a3f1b2c-fix-login/  # per-thread context directory
+    index.json           # authoritative thread state
+    0001-fix-login/      # per-thread context directory
 ```
 
 ### Running tests
@@ -98,49 +105,36 @@ tsk/
 # Unit tests only
 cargo test -p tsk-core
 
-# All tests including e2e (builds binaries first)
+# All tests including e2e (requires cargo build --workspace first)
 cargo test --workspace
+```
+
+### Building from source
+
+```bash
+cargo build --workspace --release
+```
+
+Binaries land in `target/release/`: `tsk` and `tskd`.
+
+Or install locally with `just`:
+
+```bash
+just build-install   # builds and installs to ~/.cargo/bin
+just test            # run all tests
+just publish         # publish all crates to crates.io (bump versions first)
 ```
 
 ### Publishing to crates.io
 
-This is a Cargo workspace with three crates. They must be published individually in dependency order, since crates.io resolves packages independently (it doesn't understand workspace-local paths).
-
-**Order:** `tsk-core` → `tskd` → `tsk-bin`
-
-**1. Login** (once, stored in `~/.cargo/credentials`):
+Bump the `version` field in each `Cargo.toml` that changed, then:
 
 ```bash
-cargo login
+just publish
 ```
 
-**2. Ensure inter-crate dependencies specify both `path` and `version`.**
-
-Crates.io ignores `path` and uses `version` instead. Both must be present when publishing a crate that depends on another local workspace crate:
-
-```toml
-# In cli/Cargo.toml and daemon/Cargo.toml:
-tsk-core = { version = "0.1.0", path = "../core" }
-```
-
-**3. Publish in order:**
-
-```bash
-# Core library first
-cargo publish -p tsk-core
-
-# Then the binaries (either order, both depend only on tsk-core)
-cargo publish -p tskd
-cargo publish -p tsk-bin
-```
-
-**4. Bump versions** before each publish. Crates.io rejects re-publishing an existing version. Update `version` in the relevant `Cargo.toml` and update the `version` in any crates that depend on it.
-
-**Notes:**
-- `cargo publish --dry-run -p <crate>` to validate packaging without uploading
-- New versions appear on crates.io within a few minutes but index propagation can take up to a minute
-- The published crate name for the CLI is `tsk-bin` (installs the `tsk` binary)
+This publishes `tsk-core` first, waits 30 seconds for crates.io to index it, then publishes `tsk-bin` and `tskd`. The published crate name for the CLI is `tsk-bin` (it installs the `tsk` binary).
 
 ### How it works
 
-`tskd` is a headless daemon that owns all state. `tsk` is a thin client — in CLI mode it sends a JSON-RPC request over a Unix socket and exits; in TUI mode it polls the daemon to render the thread list. Multiple clients (CLI, TUI, agents) can talk to the daemon concurrently. See `doc/arch/` and `doc/adr/` for the full architecture.
+`tskd` is a headless daemon that owns all state. `tsk` is a thin client — in CLI mode it sends a JSON-RPC request over a Unix socket and exits; in TUI mode it watches `tsk/threads/index.json` for changes and re-renders instantly. Multiple clients (CLI, TUI, agents) can talk to the daemon concurrently. See `doc/arch/` and `doc/adr/` for the full architecture.
