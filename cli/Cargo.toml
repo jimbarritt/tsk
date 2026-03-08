@@ -1,6 +1,6 @@
 [package]
 name = "tsk-bin"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "tsk — work with a clear context"
 homepage = "https://github.com/jimbarritt/tsk"
