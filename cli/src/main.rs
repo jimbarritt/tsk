@@ -251,13 +251,14 @@ mod tui {
     // Rendering
     // -----------------------------------------------------------------------
 
-    // Fixed column widths (inner content, excluding borders).
-    // Col 0: thread (short_hash-slug), Col 1: PRIO, Col 2: STATE, Col 3: description (fills)
-    const W_PRIO: u16 = 6;   // "PRIO" + spaces
-    const W_STATE: u16 = 8;  // "active" + spaces
+    // Fixed column widths (inner content, excluding borders and leading spaces).
+    const W_ID: u16 = 6;     // "0001  "
+    const W_PRIO: u16 = 6;   // "PRIO  "
+    const W_STATE: u16 = 8;  // "active  "
 
     struct ColWidths {
-        thread: u16,
+        id: u16,
+        slug: u16,
         prio: u16,
         state: u16,
         desc: u16,
@@ -265,14 +266,13 @@ mod tui {
 
     impl ColWidths {
         fn from_area(area_width: u16) -> Self {
-            // total = outer_borders(2) + col_separators(3) + thread + prio + state + desc
-            let fixed = 2 + 3 + W_PRIO + W_STATE;
+            // total = outer_borders(2) + col_separators(4) + id + slug + prio + state + desc
+            let fixed = 2 + 4 + W_ID + W_PRIO + W_STATE;
             let remaining = area_width.saturating_sub(fixed);
-            let thread = (remaining * 35 / 100).max(10);
-            let desc = remaining.saturating_sub(thread);
-            ColWidths { thread, prio: W_PRIO, state: W_STATE, desc }
+            let slug = (remaining * 35 / 100).max(10);
+            let desc = remaining.saturating_sub(slug);
+            ColWidths { id: W_ID, slug, prio: W_PRIO, state: W_STATE, desc }
         }
-
     }
 
     fn pad(s: &str, width: u16) -> String {
@@ -287,49 +287,45 @@ mod tui {
     }
 
     fn top_border(ws: &ColWidths) -> Line<'static> {
-        let t = ws.thread as usize;
-        let p = ws.prio as usize;
-        let s = ws.state as usize;
-        let d = ws.desc as usize;
         let line = format!(
-            "┌{}┬{}┬{}┬{}┐",
-            "─".repeat(t),
-            "─".repeat(p),
-            "─".repeat(s),
-            "─".repeat(d),
+            "┌{}┬{}┬{}┬{}┬{}┐",
+            "─".repeat(ws.id as usize),
+            "─".repeat(ws.slug as usize),
+            "─".repeat(ws.prio as usize),
+            "─".repeat(ws.state as usize),
+            "─".repeat(ws.desc as usize),
         );
         Line::from(Span::styled(line, Style::default().fg(Color::White)))
     }
 
     fn bottom_border(ws: &ColWidths) -> Line<'static> {
-        let t = ws.thread as usize;
-        let p = ws.prio as usize;
-        let s = ws.state as usize;
-        let d = ws.desc as usize;
         let line = format!(
-            "└{}┴{}┴{}┴{}┘",
-            "─".repeat(t),
-            "─".repeat(p),
-            "─".repeat(s),
-            "─".repeat(d),
+            "└{}┴{}┴{}┴{}┴{}┘",
+            "─".repeat(ws.id as usize),
+            "─".repeat(ws.slug as usize),
+            "─".repeat(ws.prio as usize),
+            "─".repeat(ws.state as usize),
+            "─".repeat(ws.desc as usize),
         );
         Line::from(Span::styled(line, Style::default().fg(Color::White)))
     }
 
     fn data_line<'a>(
-        col0: &str,
-        col1: &str,
-        col2: &str,
-        col3: &str,
+        id: &str,
+        slug: &str,
+        prio: &str,
+        state: &str,
+        desc: &str,
         ws: &ColWidths,
         style: Style,
     ) -> Line<'a> {
         let line = format!(
-            "│ {}│ {}│ {}│ {}│",
-            pad(col0, ws.thread.saturating_sub(1)),
-            pad(col1, ws.prio.saturating_sub(1)),
-            pad(col2, ws.state.saturating_sub(1)),
-            pad(col3, ws.desc.saturating_sub(1)),
+            "│ {}│ {}│ {}│ {}│ {}│",
+            pad(id,   ws.id.saturating_sub(1)),
+            pad(slug, ws.slug.saturating_sub(1)),
+            pad(prio, ws.prio.saturating_sub(1)),
+            pad(state, ws.state.saturating_sub(1)),
+            pad(desc, ws.desc.saturating_sub(1)),
         );
         Line::from(Span::styled(line, style))
     }
@@ -345,9 +341,9 @@ mod tui {
         )));
         lines.push(top_border(ws));
         for t in threads {
-            let id = format!("{} {}", t.id_str(), t.slug);
             lines.push(data_line(
-                &id,
+                &t.id_str(),
+                &t.slug,
                 &t.priority.to_string(),
                 &t.state.to_string(),
                 &t.description,
