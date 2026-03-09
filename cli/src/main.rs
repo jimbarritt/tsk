@@ -252,26 +252,57 @@ mod tui {
     // -----------------------------------------------------------------------
 
     // Fixed column widths (inner content, excluding borders and leading spaces).
-    const W_ID: u16 = 6;     // "0001  "
-    const W_PRIO: u16 = 6;   // "PRIO  "
-    const W_STATE: u16 = 8;  // "active  "
+    // Column order: ID | SLUG | STATE | PRIO | DESC
+    // As the terminal narrows, columns are hidden right-to-left: desc first, then prio, then state.
+    const W_ID: u16 = 6;
+    const W_STATE: u16 = 8;
+    const W_PRIO: u16 = 6;
+    // Slug is always at SLUG_FULL when any optional column is visible.
+    // Optional columns appear in order (state, prio, desc) as space allows.
+    // Below SLUG_FULL, slug expands to fill and all optional columns are hidden.
+    const SLUG_FULL: u16 = 40;
 
     struct ColWidths {
         id: u16,
         slug: u16,
-        prio: u16,
-        state: u16,
-        desc: u16,
+        state: u16,  // 0 = hidden
+        prio: u16,   // 0 = hidden
+        desc: u16,   // 0 = hidden
     }
 
     impl ColWidths {
-        fn from_area(area_width: u16) -> Self {
-            // total = outer_borders(2) + col_separators(4) + id + slug + prio + state + desc
-            let fixed = 2 + 4 + W_ID + W_PRIO + W_STATE;
-            let remaining = area_width.saturating_sub(fixed);
-            let slug = (remaining * 35 / 100).max(10);
-            let desc = remaining.saturating_sub(slug);
-            ColWidths { id: W_ID, slug, prio: W_PRIO, state: W_STATE, desc }
+        fn from_area(w: u16) -> Self {
+            // overhead = 2 outer borders + N-1 inner separators
+            let try5 = 2 + 4 + W_ID + W_STATE + W_PRIO; // all 5 columns
+            let try4 = 2 + 3 + W_ID + W_STATE + W_PRIO; // no desc
+            let try3 = 2 + 2 + W_ID + W_STATE;           // no desc, no prio
+            let try2 = 2 + 1 + W_ID;                     // id + slug only
+
+            // Each optional column only appears once slug is already at SLUG_FULL.
+            // Surplus beyond SLUG_FULL goes to desc.
+            if w > try5 + SLUG_FULL {
+                let desc = w - try5 - SLUG_FULL;
+                return Self { id: W_ID, slug: SLUG_FULL, state: W_STATE, prio: W_PRIO, desc };
+            }
+
+            if w > try4 + SLUG_FULL {
+                return Self { id: W_ID, slug: SLUG_FULL, state: W_STATE, prio: W_PRIO, desc: 0 };
+            }
+
+            if w > try3 + SLUG_FULL {
+                return Self { id: W_ID, slug: SLUG_FULL, state: W_STATE, prio: 0, desc: 0 };
+            }
+
+            let slug = w.saturating_sub(try2).max(1);
+            Self { id: W_ID, slug, state: 0, prio: 0, desc: 0 }
+        }
+
+        fn active_widths(&self) -> Vec<u16> {
+            [self.id, self.slug, self.state, self.prio, self.desc]
+                .iter()
+                .copied()
+                .filter(|&w| w > 0)
+                .collect()
         }
     }
 
@@ -281,52 +312,43 @@ mod tui {
         if char_count >= w {
             s.chars().take(w).collect()
         } else {
-            let padding = w - char_count;
-            format!("{}{}", s, " ".repeat(padding))
+            format!("{}{}", s, " ".repeat(w - char_count))
         }
     }
 
     fn top_border(ws: &ColWidths) -> Line<'static> {
-        let line = format!(
-            "┌{}┬{}┬{}┬{}┬{}┐",
-            "─".repeat(ws.id as usize),
-            "─".repeat(ws.slug as usize),
-            "─".repeat(ws.prio as usize),
-            "─".repeat(ws.state as usize),
-            "─".repeat(ws.desc as usize),
-        );
+        let inner: Vec<String> = ws.active_widths().iter()
+            .map(|&w| "─".repeat(w as usize))
+            .collect();
+        let line = format!("┌{}┐", inner.join("┬"));
         Line::from(Span::styled(line, Style::default().fg(Color::White)))
     }
 
     fn bottom_border(ws: &ColWidths) -> Line<'static> {
-        let line = format!(
-            "└{}┴{}┴{}┴{}┴{}┘",
-            "─".repeat(ws.id as usize),
-            "─".repeat(ws.slug as usize),
-            "─".repeat(ws.prio as usize),
-            "─".repeat(ws.state as usize),
-            "─".repeat(ws.desc as usize),
-        );
+        let inner: Vec<String> = ws.active_widths().iter()
+            .map(|&w| "─".repeat(w as usize))
+            .collect();
+        let line = format!("└{}┘", inner.join("┴"));
         Line::from(Span::styled(line, Style::default().fg(Color::White)))
     }
 
     fn data_line<'a>(
         id: &str,
         slug: &str,
-        prio: &str,
         state: &str,
+        prio: &str,
         desc: &str,
         ws: &ColWidths,
         style: Style,
     ) -> Line<'a> {
-        let line = format!(
-            "│ {}│ {}│ {}│ {}│ {}│",
-            pad(id,   ws.id.saturating_sub(1)),
-            pad(slug, ws.slug.saturating_sub(1)),
-            pad(prio, ws.prio.saturating_sub(1)),
-            pad(state, ws.state.saturating_sub(1)),
-            pad(desc, ws.desc.saturating_sub(1)),
-        );
+        let mut cells: Vec<String> = vec![
+            format!(" {}", pad(id,   ws.id.saturating_sub(1))),
+            format!(" {}", pad(slug, ws.slug.saturating_sub(1))),
+        ];
+        if ws.state > 0 { cells.push(format!(" {}", pad(state, ws.state.saturating_sub(1)))); }
+        if ws.prio  > 0 { cells.push(format!(" {}", pad(prio,  ws.prio.saturating_sub(1)))); }
+        if ws.desc  > 0 { cells.push(format!(" {}", pad(desc,  ws.desc.saturating_sub(1)))); }
+        let line = format!("│{}│", cells.join("│"));
         Line::from(Span::styled(line, style))
     }
 
@@ -344,8 +366,8 @@ mod tui {
             lines.push(data_line(
                 &t.id_str(),
                 &t.slug,
-                &t.priority.to_string(),
                 &t.state.to_string(),
+                &t.priority.to_string(),
                 &t.description,
                 ws,
                 Style::default(),

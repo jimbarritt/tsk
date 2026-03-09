@@ -32,6 +32,36 @@ tsk context                                         print this context
 tsk                                                 launch the live TUI (press q to quit)
 ```
 
+### Response formats
+
+**`tsk thread create`** returns the created thread:
+```json
+{
+  "id": 1,
+  "slug": "fix-login",
+  "priority": "PRIO",
+  "state": "paused",
+  "description": "Fix the login bug",
+  "dir": "/your/project/tsk/threads/0001-fix-login"
+}
+```
+
+The `dir` field is the absolute path to the thread's context directory. This is where you
+should read and write context files. An `index.md` is pre-created in this directory.
+
+**`tsk thread list`** returns all threads:
+```json
+{
+  "threads": [
+    { "id": 1, "slug": "fix-login", "priority": "PRIO", "state": "active", "description": "Fix the login bug" },
+    { "id": 2, "slug": "update-deps", "priority": "BG", "state": "paused", "description": "Update dependencies" }
+  ]
+}
+```
+
+**`tsk thread switch-to`** returns the newly activated thread, same shape as `thread create`
+including the `dir` field.
+
 ---
 
 ## Mode A — Autonomous agent
