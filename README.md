@@ -54,6 +54,14 @@ cargo --version
 cargo install tsk-bin tskd
 ```
 
+## Upgrading
+
+Same command — `cargo install` replaces the existing binaries:
+
+```bash
+cargo install tsk-bin tskd
+```
+
 This installs two binaries: `tsk` (CLI + TUI) and `tskd` (daemon).
 
 ## Getting started
