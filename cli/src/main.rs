@@ -169,11 +169,9 @@ mod tui {
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     };
-    use notify::{recommended_watcher, RecursiveMode, Watcher};
     use ratatui::{prelude::*, widgets::Paragraph};
     use std::io;
-    use std::sync::mpsc;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         let root = project_root();
@@ -185,7 +183,7 @@ mod tui {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        let result = event_loop(&mut terminal, &sock, &root);
+        let result = event_loop(&mut terminal, &sock);
 
         disable_raw_mode()?;
         execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -201,10 +199,11 @@ mod tui {
         Ok(threads)
     }
 
+    const POLL_INTERVAL: Duration = Duration::from_millis(500);
+
     fn event_loop(
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
         sock: &std::path::Path,
-        project_root: &std::path::Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut threads: Vec<Thread> = fetch_threads(sock).unwrap_or_default();
         let mut error_msg: Option<String> = if !sock.exists() {
@@ -212,31 +211,21 @@ mod tui {
         } else {
             None
         };
-
-        // Watch index.json for changes — fires instantly when the daemon writes state.
-        let (tx, rx) = mpsc::channel();
-        let mut watcher = recommended_watcher(move |_| { let _ = tx.send(()); })?;
-        let index = tsk_core::index_path(project_root);
-        // Watch the parent dir: index.json may not exist yet when the TUI starts.
-        let watch_dir = index.parent().unwrap_or(project_root);
-        let _ = watcher.watch(watch_dir, RecursiveMode::NonRecursive);
+        let mut last_poll = Instant::now();
 
         loop {
             terminal.draw(|frame| render(frame, &threads, error_msg.as_deref()))?;
 
-            // Drain any pending file-change notifications (non-blocking).
-            let file_changed = rx.try_recv().is_ok();
-            // Also consume any extra events that arrived in the same burst.
-            while rx.try_recv().is_ok() {}
-
-            if file_changed {
+            // Poll daemon for state changes every 500ms
+            if last_poll.elapsed() >= POLL_INTERVAL {
                 match fetch_threads(sock) {
                     Ok(t) => { threads = t; error_msg = None; }
                     Err(e) => { error_msg = Some(e); }
                 }
+                last_poll = Instant::now();
             }
 
-            // Block briefly for a keypress; short timeout keeps UI responsive.
+            // Block briefly for a keypress
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
