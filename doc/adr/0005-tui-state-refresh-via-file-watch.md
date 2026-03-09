@@ -4,7 +4,7 @@ Date: 2026-03-08
 
 ## Status
 
-Accepted. Superseded by ADR 0006 when daemon push is implemented.
+Superseded by [ADR 0006](0006-tui-state-refresh-via-daemon-polling.md).
 
 ## Context
 
