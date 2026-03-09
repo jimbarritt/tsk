@@ -177,6 +177,14 @@ mod tui {
         let root = project_root();
         let sock = socket_path(&root);
 
+        // Ensure the terminal is restored even if a panic occurs inside the event loop.
+        let original_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = disable_raw_mode();
+            let _ = execute!(io::stdout(), LeaveAlternateScreen);
+            original_hook(info);
+        }));
+
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen)?;
@@ -185,6 +193,7 @@ mod tui {
 
         let result = event_loop(&mut terminal, &sock);
 
+        let _ = std::panic::take_hook(); // restore default hook
         disable_raw_mode()?;
         execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
         terminal.show_cursor()?;
@@ -268,10 +277,12 @@ mod tui {
 
     fn pad(s: &str, width: u16) -> String {
         let w = width as usize;
-        if s.len() >= w {
-            s[..w].to_string()
+        let char_count = s.chars().count();
+        if char_count >= w {
+            s.chars().take(w).collect()
         } else {
-            format!("{:<width$}", s, width = w)
+            let padding = w - char_count;
+            format!("{}{}", s, " ".repeat(padding))
         }
     }
 
