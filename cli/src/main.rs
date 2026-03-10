@@ -172,7 +172,11 @@ mod tui {
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     };
-    use ratatui::{prelude::*, widgets::Paragraph};
+    use ratatui::{
+        layout::{Constraint, Direction, Layout},
+        prelude::*,
+        widgets::{Clear, Paragraph},
+    };
     use std::io;
     use std::time::{Duration, Instant};
 
@@ -226,11 +230,13 @@ mod tui {
         let mut last_poll = Instant::now();
         let mut scroll: usize = 0;
         let mut last_g = false; // for gg detection
+        let mut show_help = false;
 
         loop {
-            let height = terminal.size().map(|r| r.height as usize).unwrap_or(24);
+            // Reserve 1 row for the status bar
+            let height = terminal.size().map(|r| r.height.saturating_sub(1) as usize).unwrap_or(23);
             let row_count = count_rows(&threads);
-            terminal.draw(|frame| render(frame, &threads, error_msg.as_deref(), scroll))?;
+            terminal.draw(|frame| render(frame, &threads, error_msg.as_deref(), scroll, show_help))?;
 
             // Poll daemon for state changes every 500ms
             if last_poll.elapsed() >= POLL_INTERVAL {
@@ -245,11 +251,18 @@ mod tui {
             if event::poll(Duration::from_millis(100))? {
                 match event::read()? {
                     Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        // Any key closes the help popup
+                        if show_help {
+                            show_help = false;
+                            continue;
+                        }
+
                         let g_pressed = last_g;
                         last_g = false;
 
                         match key.code {
-                            KeyCode::Char('q') => break,
+                            KeyCode::Char('q') | KeyCode::Esc => break,
+                            KeyCode::Char('?') => show_help = true,
 
                             KeyCode::Char('j') | KeyCode::Down => {
                                 scroll = scroll_down(scroll, row_count, height, 1);
@@ -466,61 +479,125 @@ mod tui {
         lines
     }
 
-    fn render(frame: &mut Frame, threads: &[Thread], error: Option<&str>, scroll: usize) {
+    fn render(frame: &mut Frame, threads: &[Thread], error: Option<&str>, scroll: usize, show_help: bool) {
         let area = frame.area();
 
+        // Split into main area + 1-row status bar at bottom
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(1)])
+            .split(area);
+        let main_area = chunks[0];
+        let status_area = chunks[1];
+
+        // --- Main area ---
         if let Some(msg) = error {
-            frame.render_widget(Paragraph::new(msg), area);
-            return;
+            frame.render_widget(Paragraph::new(msg), main_area);
+        } else {
+            let ws = ColWidths::from_area(main_area.width);
+
+            let active: Vec<&Thread> = threads
+                .iter()
+                .filter(|t| t.state == ThreadState::Active)
+                .collect();
+
+            let mut focus: Vec<&Thread> = threads
+                .iter()
+                .filter(|t| {
+                    t.state == ThreadState::Paused
+                        && matches!(t.priority, Priority::Incident | Priority::Priority)
+                })
+                .collect();
+            focus.sort_by_key(|t| match t.priority {
+                Priority::Incident => 0u8,
+                _ => 1,
+            });
+
+            let background: Vec<&Thread> = threads
+                .iter()
+                .filter(|t| {
+                    t.state == ThreadState::Paused && matches!(t.priority, Priority::Background)
+                })
+                .collect();
+
+            let mut lines: Vec<Line> = Vec::new();
+            let sections = [
+                ("Active", active.as_slice()),
+                ("Priority & Incidents", focus.as_slice()),
+                ("Background", background.as_slice()),
+            ];
+
+            for (i, (title, section_threads)) in sections.iter().enumerate() {
+                let s = section_lines(title, section_threads, &ws);
+                if s.is_empty() { continue; }
+                if i > 0 && !lines.is_empty() { lines.push(Line::from("")); }
+                lines.extend(s);
+            }
+
+            frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), main_area);
         }
 
-        let ws = ColWidths::from_area(area.width);
+        // --- Status bar ---
+        let active_thread = threads.iter().find(|t| t.state == ThreadState::Active);
+        let status_text = match active_thread {
+            Some(t) => format!("  #{} {}   |   ? help", t.id_str(), t.slug),
+            None    => "  (no active thread)   |   ? help".to_string(),
+        };
+        frame.render_widget(
+            Paragraph::new(status_text).style(Style::default().bg(Color::DarkGray)),
+            status_area,
+        );
 
-        // Partition threads
-        let active: Vec<&Thread> = threads
-            .iter()
-            .filter(|t| t.state == ThreadState::Active)
-            .collect();
+        // --- Help popup overlay ---
+        if show_help {
+            render_help_popup(frame, area);
+        }
+    }
 
-        let mut focus: Vec<&Thread> = threads
-            .iter()
-            .filter(|t| {
-                t.state == ThreadState::Paused
-                    && matches!(t.priority, Priority::Incident | Priority::Priority)
-            })
-            .collect();
-        focus.sort_by_key(|t| match t.priority {
-            Priority::Incident => 0u8,
-            _ => 1,
-        });
+    fn render_help_popup(frame: &mut Frame, area: Rect) {
+        const POPUP_W: u16 = 36;
+        const POPUP_H: u16 = 14;
 
-        let background: Vec<&Thread> = threads
-            .iter()
-            .filter(|t| {
-                t.state == ThreadState::Paused && matches!(t.priority, Priority::Background)
-            })
-            .collect();
+        // Centre the popup
+        let x = area.x + area.width.saturating_sub(POPUP_W) / 2;
+        let y = area.y + area.height.saturating_sub(POPUP_H) / 2;
+        let popup_area = Rect::new(x, y, POPUP_W.min(area.width), POPUP_H.min(area.height));
 
-        let mut lines: Vec<Line> = Vec::new();
+        let popup_style = Style::default();
+        let key_style   = Style::default().bold();
+        let desc_style  = Style::default();
 
-        let sections = [
-            ("Active", active.as_slice()),
-            ("Priority & Incidents", focus.as_slice()),
-            ("Background", background.as_slice()),
+        let bindings: &[(&str, &str)] = &[
+            ("j / ↓",    "scroll down"),
+            ("k / ↑",    "scroll up"),
+            ("ctrl-d",   "page down"),
+            ("ctrl-u",   "page up"),
+            ("gg",       "jump to top"),
+            ("G",        "jump to bottom"),
+            ("?",        "toggle this help"),
+            ("q / esc",  "quit"),
         ];
 
-        for (i, (title, threads)) in sections.iter().enumerate() {
-            let s = section_lines(title, threads, &ws);
-            if s.is_empty() {
-                continue;
-            }
-            if i > 0 && !lines.is_empty() {
-                lines.push(Line::from(""));
-            }
-            lines.extend(s);
-        }
+        let rows: Vec<Line> = bindings
+            .iter()
+            .map(|(key, desc)| {
+                Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(format!("{:<10}", key), key_style),
+                    Span::raw("  "),
+                    Span::styled(*desc, desc_style),
+                ])
+            })
+            .collect();
 
-        frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), area);
+        use ratatui::widgets::{Block, BorderType, Borders};
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default());
+
+        frame.render_widget(Clear, popup_area);
+        frame.render_widget(Paragraph::new(rows).block(block).style(popup_style), popup_area);
     }
 }
 
