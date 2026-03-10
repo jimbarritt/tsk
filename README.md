@@ -178,6 +178,50 @@ just publish
 
 This publishes `tsk-core` first, waits 30 seconds for crates.io to index it, then publishes `tsk-bin` and `tskd`. The published crate name for the CLI is `tsk-bin` (it installs the `tsk` binary).
 
+### Task state model
+
+```
+         create
+           │
+           ▼
+      ┌───────────┐    start    ┌─────────────┐
+      │ not-started│────────────▶│ in-progress │
+      └───────────┘             └─────────────┘
+           │                         │    ▲
+           │ cancel              block│    │ (unblock?)
+           │                         ▼    │
+           ▼                    ┌─────────┐
+      ┌───────────┐             │ blocked │
+      │ cancelled │◀────────────└─────────┘
+      └───────────┘   cancel         │
+           ▲                         │ complete
+           │ cancel                  ▼
+           └─────────────────── ┌──────────┐
+                                │   done   │
+                                └──────────┘
+```
+
+Commands: `task create`, `task start`, `task block`, `task complete`, `task cancel`, `task update`, `task list`.
+
+Tasks live in `tsk/threads/{id}-{slug}/tasks.json` — one file per thread.
+
+Task fields: `id` (`TSK-{thread-id}-{seq}` e.g. `TSK-0001-0001`), `description`, `state`, `due_by` (ISO 8601, optional), `seq` (integer, for manual ordering).
+
+All task commands default to the currently active thread. Use `--thread <id>` to target a different thread explicitly.
+
+#### Diversions
+
+A **diversion** is when something comes up while you are working on one thread that needs recording against a different thread — without switching context. The agent language for this is:
+
+> "Diversion: add a task to thread 0004 — follow up with Alice about the API contract"
+
+The `--thread` flag makes this explicit in the CLI:
+```
+tsk task create "follow up with Alice about the API contract" --thread 0004
+```
+
+The active thread does not change. You record the thought and get back to what you were doing.
+
 ### Thread state model
 
 ```
