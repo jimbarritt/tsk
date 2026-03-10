@@ -165,7 +165,10 @@ fn run_cli(cli: Cli) -> Result<(), String> {
 mod tui {
     use super::*;
     use crossterm::{
-        event::{self, Event, KeyCode, KeyEventKind},
+        event::{
+            self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind,
+            KeyModifiers, MouseEventKind,
+        },
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     };
@@ -181,13 +184,13 @@ mod tui {
         let original_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
             let _ = disable_raw_mode();
-            let _ = execute!(io::stdout(), LeaveAlternateScreen);
+            let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
             original_hook(info);
         }));
 
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen)?;
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -195,7 +198,7 @@ mod tui {
 
         let _ = std::panic::take_hook(); // restore default hook
         disable_raw_mode()?;
-        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
         terminal.show_cursor()?;
 
         result
@@ -221,9 +224,13 @@ mod tui {
             None
         };
         let mut last_poll = Instant::now();
+        let mut scroll: usize = 0;
+        let mut last_g = false; // for gg detection
 
         loop {
-            terminal.draw(|frame| render(frame, &threads, error_msg.as_deref()))?;
+            let height = terminal.size().map(|r| r.height as usize).unwrap_or(24);
+            let row_count = count_rows(&threads);
+            terminal.draw(|frame| render(frame, &threads, error_msg.as_deref(), scroll))?;
 
             // Poll daemon for state changes every 500ms
             if last_poll.elapsed() >= POLL_INTERVAL {
@@ -234,17 +241,99 @@ mod tui {
                 last_poll = Instant::now();
             }
 
-            // Block briefly for a keypress
+            // Block briefly for a keypress or mouse event
             if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                        break;
+                match event::read()? {
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        let g_pressed = last_g;
+                        last_g = false;
+
+                        match key.code {
+                            KeyCode::Char('q') => break,
+
+                            KeyCode::Char('j') | KeyCode::Down => {
+                                scroll = scroll_down(scroll, row_count, height, 1);
+                            }
+                            KeyCode::Char('k') | KeyCode::Up => {
+                                scroll = scroll.saturating_sub(1);
+                            }
+                            KeyCode::Char('d')
+                                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                            {
+                                let page = (height / 2).max(1);
+                                scroll = scroll_down(scroll, row_count, height, page);
+                            }
+                            KeyCode::Char('u')
+                                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                            {
+                                let page = (height / 2).max(1);
+                                scroll = scroll.saturating_sub(page);
+                            }
+                            KeyCode::Char('g') => {
+                                if g_pressed {
+                                    scroll = 0; // gg → top
+                                } else {
+                                    last_g = true;
+                                }
+                            }
+                            KeyCode::Char('G') => {
+                                scroll = scroll_bottom(row_count, height);
+                            }
+                            _ => {}
+                        }
                     }
+                    Event::Mouse(mouse) => {
+                        match mouse.kind {
+                            MouseEventKind::ScrollDown => {
+                                scroll = scroll_down(scroll, row_count, height, 3);
+                            }
+                            MouseEventKind::ScrollUp => {
+                                scroll = scroll.saturating_sub(3);
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
 
         Ok(())
+    }
+
+    /// Total rendered lines for the current thread list, matching what render() produces.
+    /// Each non-empty section: title + top border + N thread rows + bottom border.
+    /// Sections are separated by one blank line.
+    pub fn count_rows(threads: &[Thread]) -> usize {
+        let active = threads.iter().filter(|t| t.state == ThreadState::Active).count();
+        let focus = threads.iter().filter(|t| {
+            t.state == ThreadState::Paused
+                && matches!(t.priority, Priority::Incident | Priority::Priority)
+        }).count();
+        let bg = threads.iter().filter(|t| {
+            t.state == ThreadState::Paused && matches!(t.priority, Priority::Background)
+        }).count();
+
+        let counts = [active, focus, bg];
+        let non_empty = counts.iter().filter(|&&n| n > 0).count();
+        let separators = non_empty.saturating_sub(1); // one blank line between sections
+
+        let mut rows = separators;
+        for n in counts {
+            if n > 0 {
+                rows += 1 + 1 + n + 1; // title + top border + thread rows + bottom border
+            }
+        }
+        rows
+    }
+
+    pub fn scroll_down(scroll: usize, row_count: usize, height: usize, amount: usize) -> usize {
+        let max = row_count.saturating_sub(height);
+        (scroll + amount).min(max)
+    }
+
+    pub fn scroll_bottom(row_count: usize, height: usize) -> usize {
+        row_count.saturating_sub(height)
     }
 
     // -----------------------------------------------------------------------
@@ -377,7 +466,7 @@ mod tui {
         lines
     }
 
-    fn render(frame: &mut Frame, threads: &[Thread], error: Option<&str>) {
+    fn render(frame: &mut Frame, threads: &[Thread], error: Option<&str>, scroll: usize) {
         let area = frame.area();
 
         if let Some(msg) = error {
@@ -431,7 +520,7 @@ mod tui {
             lines.extend(s);
         }
 
-        frame.render_widget(Paragraph::new(lines), area);
+        frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), area);
     }
 }
 
@@ -461,5 +550,60 @@ mod tests {
         assert!("PRIO".parse::<Priority>().is_ok());
         assert!("INC".parse::<Priority>().is_ok());
         assert!("NORMAL".parse::<Priority>().is_err());
+    }
+
+    // --- TUI scroll helpers ---
+
+    #[test]
+    fn scroll_down_clamps_to_max() {
+        // 10 rows, 24 height → can't scroll (all fits)
+        assert_eq!(tui::scroll_down(0, 10, 24, 5), 0);
+        // 30 rows, 24 height → max scroll is 6
+        assert_eq!(tui::scroll_down(0, 30, 24, 10), 6);
+        assert_eq!(tui::scroll_down(4, 30, 24, 10), 6);
+    }
+
+    #[test]
+    fn scroll_down_advances_by_amount() {
+        assert_eq!(tui::scroll_down(0, 30, 24, 3), 3);
+        assert_eq!(tui::scroll_down(2, 30, 24, 3), 5);
+    }
+
+    #[test]
+    fn scroll_bottom_goes_to_last_page() {
+        assert_eq!(tui::scroll_bottom(30, 24), 6);
+        assert_eq!(tui::scroll_bottom(10, 24), 0); // fits entirely
+    }
+
+    #[test]
+    fn count_rows_empty_threads() {
+        assert_eq!(tui::count_rows(&[]), 0);
+    }
+
+    #[test]
+    fn count_rows_one_active() {
+        let t = Thread {
+            id: 1,
+            slug: "foo".to_string(),
+            state: ThreadState::Active,
+            priority: Priority::Priority,
+            description: "".to_string(),
+        };
+        // 1 section: title + top border + 1 row + bottom border = 4
+        assert_eq!(tui::count_rows(&[t]), 4);
+    }
+
+    #[test]
+    fn count_rows_two_sections() {
+        let active = Thread {
+            id: 1, slug: "a".to_string(), state: ThreadState::Active,
+            priority: Priority::Priority, description: "".to_string(),
+        };
+        let paused = Thread {
+            id: 2, slug: "b".to_string(), state: ThreadState::Paused,
+            priority: Priority::Background, description: "".to_string(),
+        };
+        // active section: 4 rows; blank separator: 1; bg section: 4 rows = 9
+        assert_eq!(tui::count_rows(&[active, paused]), 9);
     }
 }
