@@ -25,11 +25,12 @@ Thread ids are stable zero-padded integers (0001, 0002, ...). Reference a thread
 ### Commands
 
 ```
-tsk thread create <slug> <priority> <description>   create a new thread (starts paused)
-tsk thread switch-to <id-or-slug>                   activate a thread (pauses all others)
-tsk thread list                                     list all threads as JSON
-tsk context                                         print this context
-tsk                                                 launch the live TUI (press q to quit)
+tsk thread create <slug> <priority> <description>              create a new thread (starts paused)
+tsk thread switch-to <id-or-slug>                              activate a thread (pauses all others)
+tsk thread update <id-or-slug> [--slug] [--description] [--priority]  update thread metadata
+tsk thread list                                                list all threads as JSON
+tsk context                                                    print this context
+tsk                                                            launch the live TUI (press q to quit)
 ```
 
 ### Response formats
@@ -61,6 +62,9 @@ should read and write context files. An `index.md` is pre-created in this direct
 
 **`tsk thread switch-to`** returns the newly activated thread, same shape as `thread create`
 including the `dir` field.
+
+**`tsk thread update`** returns the updated thread, same shape as `thread create`. All flags
+are optional — only the fields you pass are changed.
 
 ---
 

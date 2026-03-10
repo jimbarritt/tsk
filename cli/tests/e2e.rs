@@ -543,6 +543,156 @@ fn cli_switch_to_outputs_json() {
     cleanup(&project, daemon);
 }
 
+// ---------------------------------------------------------------------------
+// Tests: thread.update
+// ---------------------------------------------------------------------------
+
+#[test]
+fn thread_update_changes_description() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+
+    tsk_core::send_request(&sock, "thread.create",
+        serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Original"}),
+    ).unwrap();
+
+    let result = tsk_core::send_request(&sock, "thread.update",
+        serde_json::json!({"id": "fix-login", "description": "Updated description"}),
+    ).unwrap();
+
+    assert_eq!(result["description"], "Updated description");
+    assert_eq!(result["slug"], "fix-login", "slug unchanged");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn thread_update_changes_priority() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+
+    tsk_core::send_request(&sock, "thread.create",
+        serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
+    ).unwrap();
+
+    let result = tsk_core::send_request(&sock, "thread.update",
+        serde_json::json!({"id": "fix-login", "priority": "BG"}),
+    ).unwrap();
+
+    assert_eq!(result["priority"], "BG");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn thread_update_changes_slug_and_renames_directory() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+
+    let created = tsk_core::send_request(&sock, "thread.create",
+        serde_json::json!({"slug": "old-slug", "priority": "BG", "description": "Test"}),
+    ).unwrap();
+    let id = created["id"].as_u64().unwrap() as u32;
+
+    let result = tsk_core::send_request(&sock, "thread.update",
+        serde_json::json!({"id": "old-slug", "slug": "new-slug"}),
+    ).unwrap();
+
+    assert_eq!(result["slug"], "new-slug");
+    assert!(!tsk_core::thread_dir(&project, id, "old-slug").exists(), "old dir should be gone");
+    assert!(tsk_core::thread_dir(&project, id, "new-slug").exists(), "new dir should exist");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn thread_update_with_no_fields_is_a_noop() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+
+    tsk_core::send_request(&sock, "thread.create",
+        serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
+    ).unwrap();
+
+    let result = tsk_core::send_request(&sock, "thread.update",
+        serde_json::json!({"id": "fix-login"}),
+    ).unwrap();
+
+    assert_eq!(result["slug"], "fix-login");
+    assert_eq!(result["priority"], "PRIO");
+    assert_eq!(result["description"], "Fix it");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn thread_update_errors_on_slug_collision() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+
+    tsk_core::send_request(&sock, "thread.create",
+        serde_json::json!({"slug": "first", "priority": "PRIO", "description": "First"}),
+    ).unwrap();
+    tsk_core::send_request(&sock, "thread.create",
+        serde_json::json!({"slug": "second", "priority": "BG", "description": "Second"}),
+    ).unwrap();
+
+    let result = tsk_core::send_request(&sock, "thread.update",
+        serde_json::json!({"id": "first", "slug": "second"}),
+    );
+    assert!(result.is_err(), "should error on slug collision");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn thread_update_errors_on_unknown_id() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+
+    let result = tsk_core::send_request(&sock, "thread.update",
+        serde_json::json!({"id": "nonexistent", "description": "nope"}),
+    );
+    assert!(result.is_err(), "should error for unknown thread");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn cli_thread_update_changes_description() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+
+    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Original"]);
+
+    let output = run_tsk(&project, &["thread", "update", "fix-login", "--description", "Updated"]);
+    assert!(output.status.success());
+
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["description"], "Updated");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn cli_thread_update_rejects_invalid_priority() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+
+    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix it"]);
+
+    let output = run_tsk(&project, &["thread", "update", "fix-login", "--priority", "INVALID"]);
+    assert!(!output.status.success());
+
+    cleanup(&project, daemon);
+}
+
 #[test]
 fn cli_errors_when_daemon_not_running() {
     let project = temp_project();
