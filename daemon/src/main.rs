@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use tsk_core::{
     event_log_dir, event_log_path, index_path, socket_path, thread_dir, threads_dir,
     tsk_dir, JsonRpcRequest, JsonRpcResponse, Priority, Thread, ThreadCreatedEvent,
-    ThreadSwitchedEvent, ThreadState,
+    ThreadSwitchedEvent, ThreadUpdatedEvent, ThreadState,
 };
 
 fn main() {
@@ -117,10 +117,22 @@ fn handle_request(
     project_root: &Path,
 ) -> JsonRpcResponse {
     match request.method.as_str() {
-        "thread.create" => handle_thread_create(request, state, project_root),
-        "thread.list" => handle_thread_list(request, state),
+        "thread.create"    => handle_thread_create(request, state, project_root),
+        "thread.list"      => handle_thread_list(request, state),
         "thread.switch_to" => handle_thread_switch_to(request, state, project_root),
+        "thread.update"    => handle_thread_update(request, state, project_root),
         _ => JsonRpcResponse::error(request.id, -32601, "Method not found"),
+    }
+}
+
+/// Resolve a thread index by numeric id (e.g. "1", "0001") or slug.
+fn resolve_thread_idx(locked: &[Thread], id_str: &str) -> Option<usize> {
+    if let Ok(n) = id_str.trim_start_matches('0').parse::<u32>()
+        .or_else(|_| id_str.parse::<u32>())
+    {
+        locked.iter().position(|t| t.id == n)
+    } else {
+        locked.iter().position(|t| t.slug == id_str)
     }
 }
 
@@ -279,13 +291,7 @@ fn handle_thread_switch_to(
     };
 
     let mut locked = state.lock().unwrap();
-
-    // Resolve by numeric id (accepts "1" or "0001") or by slug
-    let target_idx = if let Ok(n) = target_id_str.trim_start_matches('0').parse::<u32>().or_else(|_| target_id_str.parse::<u32>()) {
-        locked.iter().position(|t| t.id == n)
-    } else {
-        locked.iter().position(|t| t.slug == target_id_str)
-    };
+    let target_idx = resolve_thread_idx(&locked, &target_id_str);
 
     let target_idx = match target_idx {
         Some(i) => i,
@@ -334,4 +340,119 @@ fn handle_thread_switch_to(
     let mut result = serde_json::to_value(&active_thread).unwrap();
     result["dir"] = serde_json::Value::String(dir.to_string_lossy().into_owned());
     JsonRpcResponse::success(request.id, result)
+}
+
+fn handle_thread_update(
+    request: JsonRpcRequest,
+    state: &Arc<Mutex<Vec<Thread>>>,
+    project_root: &Path,
+) -> JsonRpcResponse {
+    let params = &request.params;
+
+    let id_str = match params["id"].as_str() {
+        Some(s) => s.to_string(),
+        None => return JsonRpcResponse::error(request.id, -32602, "Missing id"),
+    };
+
+    let new_slug        = params["slug"].as_str().map(|s| s.to_string());
+    let new_description = params["description"].as_str().map(|s| s.to_string());
+    let new_priority: Option<Priority> = match params["priority"].as_str() {
+        Some(s) => match s.parse() {
+            Ok(p)  => Some(p),
+            Err(e) => return JsonRpcResponse::error(request.id, -32602, e),
+        },
+        None => None,
+    };
+
+    let mut locked = state.lock().unwrap();
+
+    let idx = match resolve_thread_idx(&locked, &id_str) {
+        Some(i) => i,
+        None => return JsonRpcResponse::error(request.id, -32604, format!("Thread not found: {}", id_str)),
+    };
+
+    // Reject slug collision with a different thread
+    if let Some(ref slug) = new_slug {
+        if locked.iter().enumerate().any(|(i, t)| i != idx && &t.slug == slug) {
+            return JsonRpcResponse::error(request.id, -32600, "slug already exists");
+        }
+    }
+
+    let old_slug = locked[idx].slug.clone();
+    let id       = locked[idx].id;
+
+    // Rename directory if slug is changing
+    if let Some(ref slug) = new_slug {
+        if *slug != old_slug {
+            let old_dir = thread_dir(project_root, id, &old_slug);
+            let new_dir = thread_dir(project_root, id, slug);
+            if let Err(e) = fs::rename(&old_dir, &new_dir) {
+                return JsonRpcResponse::error(request.id, -32603, format!("Failed to rename thread dir: {}", e));
+            }
+        }
+    }
+
+    // Apply updates
+    let thread = &mut locked[idx];
+    if let Some(slug)        = new_slug        { thread.slug        = slug; }
+    if let Some(description) = new_description { thread.description = description; }
+    if let Some(priority)    = new_priority    { thread.priority    = priority; }
+
+    // Update index.md header
+    let dir = thread_dir(project_root, thread.id, &thread.slug);
+    let index_md_path = dir.join("index.md");
+    if index_md_path.exists() {
+        if let Ok(content) = fs::read_to_string(&index_md_path) {
+            let updated = update_index_md(&content, &thread.slug, &thread.priority.to_string(), &thread.description);
+            let _ = fs::write(&index_md_path, updated);
+        }
+    }
+
+    let thread = locked[idx].clone();
+
+    let event = ThreadUpdatedEvent {
+        event: "ThreadUpdated".to_string(),
+        id: thread.id,
+        slug: thread.slug.clone(),
+        priority: thread.priority.clone(),
+        description: thread.description.clone(),
+        timestamp: now_secs(),
+    };
+
+    if let Err(e) = append_event(project_root, &event) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to write event: {}", e));
+    }
+
+    if let Err(e) = write_index(project_root, &locked) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to write index: {}", e));
+    }
+
+    let mut result = serde_json::to_value(&thread).unwrap();
+    result["dir"] = serde_json::Value::String(dir.to_string_lossy().into_owned());
+    JsonRpcResponse::success(request.id, result)
+}
+
+/// Update the frontmatter lines in index.md for slug, priority, and description.
+fn update_index_md(content: &str, slug: &str, priority: &str, description: &str) -> String {
+    content
+        .lines()
+        .map(|line| {
+            if line.starts_with("# ") {
+                // Rewrite header: "# 0001 old-slug" → "# 0001 new-slug"
+                let parts: Vec<&str> = line.splitn(3, ' ').collect();
+                if parts.len() >= 2 {
+                    format!("{} {} {}", parts[0], parts[1], slug)
+                } else {
+                    line.to_string()
+                }
+            } else if line.starts_with("- **Priority**:") {
+                format!("- **Priority**: {}", priority)
+            } else if line.starts_with("- **Description**:") {
+                format!("- **Description**: {}", description)
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

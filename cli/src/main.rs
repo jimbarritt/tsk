@@ -42,6 +42,20 @@ enum ThreadCommands {
         /// Short hash ID or slug of the thread to activate
         id: String,
     },
+    /// Update metadata on an existing thread (all flags optional)
+    Update {
+        /// ID or slug of the thread to update
+        id: String,
+        /// New slug (renames the thread directory)
+        #[arg(long)]
+        slug: Option<String>,
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+        /// New priority: BG, PRIO, or INC
+        #[arg(long)]
+        priority: Option<String>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +134,18 @@ fn run_cli(cli: Cli) -> Result<(), String> {
                     "thread.switch_to",
                     serde_json::json!({ "id": id }),
                 )?;
+                println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                Ok(())
+            }
+            ThreadCommands::Update { id, slug, description, priority } => {
+                if let Some(ref p) = priority {
+                    let _: Priority = p.parse()?;
+                }
+                let mut params = serde_json::json!({ "id": id });
+                if let Some(s) = slug        { params["slug"]        = s.into(); }
+                if let Some(d) = description { params["description"] = d.into(); }
+                if let Some(p) = priority    { params["priority"]    = p.into(); }
+                let result = send_request(&sock, "thread.update", params)?;
                 println!("{}", serde_json::to_string_pretty(&result).unwrap());
                 Ok(())
             }

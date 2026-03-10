@@ -115,6 +115,16 @@ pub struct ThreadSwitchedEvent {
     pub timestamp: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreadUpdatedEvent {
+    pub event: String,
+    pub id: u32,
+    pub slug: String,
+    pub priority: Priority,
+    pub description: String,
+    pub timestamp: u64,
+}
+
 // ---------------------------------------------------------------------------
 // JSON-RPC 2.0 types
 // ---------------------------------------------------------------------------

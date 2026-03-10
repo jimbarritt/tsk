@@ -105,19 +105,29 @@ tsk thread switch-to 1        # by id
 tsk thread switch-to fix-login # by slug
 ```
 
-**4. List threads:**
+**4. Update a thread:**
+
+```bash
+tsk thread update fix-login --description "New description"
+tsk thread update fix-login --slug new-slug
+tsk thread update fix-login --priority BG
+```
+
+All flags are optional — only the fields you pass are changed. If you change the slug, the thread directory is renamed automatically.
+
+**5. List threads:**
 
 ```bash
 tsk thread list
 ```
 
-**5. Launch the TUI** (no arguments):
+**6. Launch the TUI** (no arguments):
 
 ```bash
 tsk
 ```
 
-Displays threads grouped by section (Active / Priority & Incidents / Background). Updates instantly when the CLI makes changes. Press `q` to quit.
+Displays threads grouped by section (Active / Priority & Incidents / Background). Updates live when the CLI makes changes. Use `j`/`k` to scroll, `ctrl-d`/`ctrl-u` to page, `gg`/`G` to jump to top/bottom, `?` for keybindings, `q` to quit.
 
 ### Project storage
 
