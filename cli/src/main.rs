@@ -7,7 +7,7 @@ use tsk_core::{send_request, socket_path, Priority, Thread, ThreadState};
 // ---------------------------------------------------------------------------
 
 #[derive(Parser)]
-#[command(name = "tsk", about = "tsk — work with a clear context")]
+#[command(name = "tsk", about = "tsk — work with a clear context", version = env!("CARGO_PKG_VERSION"))]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -51,7 +51,7 @@ enum ThreadCommands {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    // No subcommand → TUI mode
+    // No args → TUI mode
     if args.len() == 1 {
         if let Err(e) = tui::run() {
             eprintln!("TUI error: {}", e);
@@ -60,7 +60,7 @@ fn main() {
         return;
     }
 
-    // Subcommand → CLI mode
+    // All other args (subcommands, --version, --help) → clap
     let cli = Cli::parse();
     if let Err(e) = run_cli(cli) {
         eprintln!("{}", e);
