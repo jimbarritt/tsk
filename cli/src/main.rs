@@ -42,6 +42,20 @@ enum ThreadCommands {
         /// Short hash ID or slug of the thread to activate
         id: String,
     },
+    /// Mark a thread as waiting on an external dependency
+    Wait {
+        /// ID or slug of the thread
+        id: String,
+        /// Optional reason (what are you waiting for?)
+        reason: Option<String>,
+    },
+    /// Resume a waiting thread, restoring its previous state
+    Resume {
+        /// ID or slug of the thread
+        id: String,
+        /// Optional note (e.g. what unblocked it)
+        note: Option<String>,
+    },
     /// Update metadata on an existing thread (all flags optional)
     Update {
         /// ID or slug of the thread to update
@@ -134,6 +148,20 @@ fn run_cli(cli: Cli) -> Result<(), String> {
                     "thread.switch_to",
                     serde_json::json!({ "id": id }),
                 )?;
+                println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                Ok(())
+            }
+            ThreadCommands::Wait { id, reason } => {
+                let mut params = serde_json::json!({ "id": id });
+                if let Some(r) = reason { params["reason"] = r.into(); }
+                let result = send_request(&sock, "thread.wait", params)?;
+                println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                Ok(())
+            }
+            ThreadCommands::Resume { id, note } => {
+                let mut params = serde_json::json!({ "id": id });
+                if let Some(n) = note { params["note"] = n.into(); }
+                let result = send_request(&sock, "thread.resume", params)?;
                 println!("{}", serde_json::to_string_pretty(&result).unwrap());
                 Ok(())
             }
@@ -344,13 +372,13 @@ mod tui {
     /// Each non-empty section: title + top border + N thread rows + bottom border.
     /// Sections are separated by one blank line.
     pub fn count_rows(threads: &[Thread]) -> usize {
+        let is_inactive = |t: &&Thread| matches!(t.state, ThreadState::Paused | ThreadState::Waiting { .. });
         let active = threads.iter().filter(|t| t.state == ThreadState::Active).count();
         let focus = threads.iter().filter(|t| {
-            t.state == ThreadState::Paused
-                && matches!(t.priority, Priority::Incident | Priority::Priority)
+            is_inactive(t) && matches!(t.priority, Priority::Incident | Priority::Priority)
         }).count();
         let bg = threads.iter().filter(|t| {
-            t.state == ThreadState::Paused && matches!(t.priority, Priority::Background)
+            is_inactive(t) && matches!(t.priority, Priority::Background)
         }).count();
 
         let counts = [active, focus, bg];
@@ -383,7 +411,7 @@ mod tui {
     // Column order: ID | SLUG | STATE | PRIO | DESC
     // As the terminal narrows, columns are hidden right-to-left: desc first, then prio, then state.
     const W_ID: u16 = 6;
-    const W_STATE: u16 = 8;
+    const W_STATE: u16 = 9;
     const W_PRIO: u16 = 6;
     // Slug is always at SLUG_FULL when any optional column is visible.
     // Optional columns appear in order (state, prio, desc) as space allows.
@@ -527,11 +555,12 @@ mod tui {
                 .filter(|t| t.state == ThreadState::Active)
                 .collect();
 
+            let is_inactive = |t: &&Thread| matches!(t.state, ThreadState::Paused | ThreadState::Waiting { .. });
+
             let mut focus: Vec<&Thread> = threads
                 .iter()
                 .filter(|t| {
-                    t.state == ThreadState::Paused
-                        && matches!(t.priority, Priority::Incident | Priority::Priority)
+                    is_inactive(t) && matches!(t.priority, Priority::Incident | Priority::Priority)
                 })
                 .collect();
             focus.sort_by_key(|t| match t.priority {
@@ -542,7 +571,7 @@ mod tui {
             let background: Vec<&Thread> = threads
                 .iter()
                 .filter(|t| {
-                    t.state == ThreadState::Paused && matches!(t.priority, Priority::Background)
+                    is_inactive(t) && matches!(t.priority, Priority::Background)
                 })
                 .collect();
 

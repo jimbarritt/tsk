@@ -693,6 +693,171 @@ fn cli_thread_update_rejects_invalid_priority() {
     cleanup(&project, daemon);
 }
 
+// ---------------------------------------------------------------------------
+// Tests: thread.wait / thread.resume
+// ---------------------------------------------------------------------------
+
+#[test]
+fn thread_wait_sets_state_to_waiting() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+
+    tsk_core::send_request(&sock, "thread.create",
+        serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
+    ).unwrap();
+
+    let result = tsk_core::send_request(&sock, "thread.wait",
+        serde_json::json!({"id": "fix-login", "reason": "waiting for PR review"}),
+    ).unwrap();
+
+    assert_eq!(result["state"]["waiting"]["reason"], "waiting for PR review");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn thread_wait_without_reason_is_valid() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+
+    tsk_core::send_request(&sock, "thread.create",
+        serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
+    ).unwrap();
+
+    let result = tsk_core::send_request(&sock, "thread.wait",
+        serde_json::json!({"id": "fix-login"}),
+    ).unwrap();
+
+    assert!(result["state"]["waiting"].is_object());
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn thread_wait_errors_if_already_waiting() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+
+    tsk_core::send_request(&sock, "thread.create",
+        serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
+    ).unwrap();
+    tsk_core::send_request(&sock, "thread.wait",
+        serde_json::json!({"id": "fix-login"}),
+    ).unwrap();
+
+    let result = tsk_core::send_request(&sock, "thread.wait",
+        serde_json::json!({"id": "fix-login"}),
+    );
+    assert!(result.is_err(), "should error if already waiting");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn thread_resume_restores_previous_state() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+
+    tsk_core::send_request(&sock, "thread.create",
+        serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
+    ).unwrap();
+    // Activate it so previous_state will be Active
+    tsk_core::send_request(&sock, "thread.switch_to",
+        serde_json::json!({"id": "fix-login"}),
+    ).unwrap();
+    tsk_core::send_request(&sock, "thread.wait",
+        serde_json::json!({"id": "fix-login"}),
+    ).unwrap();
+
+    let result = tsk_core::send_request(&sock, "thread.resume",
+        serde_json::json!({"id": "fix-login", "note": "PR was approved"}),
+    ).unwrap();
+
+    assert_eq!(result["state"], "active", "should restore to active");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn thread_resume_errors_if_not_waiting() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+
+    tsk_core::send_request(&sock, "thread.create",
+        serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
+    ).unwrap();
+
+    let result = tsk_core::send_request(&sock, "thread.resume",
+        serde_json::json!({"id": "fix-login"}),
+    );
+    assert!(result.is_err(), "should error if not waiting");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn thread_wait_persists_across_daemon_restart() {
+    let project = temp_project();
+
+    {
+        let daemon = start_daemon(&project);
+        let sock = tsk_core::socket_path(&project);
+        tsk_core::send_request(&sock, "thread.create",
+            serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
+        ).unwrap();
+        tsk_core::send_request(&sock, "thread.wait",
+            serde_json::json!({"id": "fix-login", "reason": "waiting for review"}),
+        ).unwrap();
+        kill_daemon(&project, daemon);
+    }
+
+    let daemon = start_daemon(&project);
+    let sock = tsk_core::socket_path(&project);
+    let result = tsk_core::send_request(&sock, "thread.list", serde_json::json!({})).unwrap();
+    let threads = result["threads"].as_array().unwrap();
+    assert_eq!(threads[0]["state"]["waiting"]["reason"], "waiting for review");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn cli_thread_wait_sets_state_to_waiting() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+
+    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix it"]);
+
+    let output = run_tsk(&project, &["thread", "wait", "fix-login", "waiting for deploy"]);
+    assert!(output.status.success());
+
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["state"]["waiting"]["reason"], "waiting for deploy");
+
+    cleanup(&project, daemon);
+}
+
+#[test]
+fn cli_thread_resume_restores_state() {
+    let project = temp_project();
+    let daemon = start_daemon(&project);
+
+    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix it"]);
+    run_tsk(&project, &["thread", "wait", "fix-login"]);
+
+    let output = run_tsk(&project, &["thread", "resume", "fix-login", "unblocked"]);
+    assert!(output.status.success());
+
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["state"], "paused");
+
+    cleanup(&project, daemon);
+}
+
 #[test]
 fn cli_errors_when_daemon_not_running() {
     let project = temp_project();

@@ -178,6 +178,35 @@ just publish
 
 This publishes `tsk-core` first, waits 30 seconds for crates.io to index it, then publishes `tsk-bin` and `tskd`. The published crate name for the CLI is `tsk-bin` (it installs the `tsk` binary).
 
+### Thread state model
+
+```
+                create
+                  │
+                  ▼
+              ┌────────┐
+       ┌─────▶│ PAUSED │◀──────────────────────────┐
+       │      └────────┘                            │
+       │        │    ▲                              │
+       │       wait  resume                         │ switch-to
+       │        │    │                              │ (another)
+       │        ▼    │                              │
+       │      ┌─────────┐                      ┌────────┐
+       │      │ WAITING │◀────── wait ──────────│ ACTIVE │
+       │      └─────────┘                      └────────┘
+       │                                            ▲
+       └──────────────── switch-to ─────────────────┘
+```
+
+- `create` → always starts **paused**
+- `switch-to` → target becomes **active**; previously active thread becomes **paused**
+- `wait` → marks a thread **waiting** (blocked on external dependency); works from active or paused
+- `resume` → returns a waiting thread to **paused**; use `switch-to` to make it active again
+
 ### How it works
 
 `tskd` is a headless daemon that owns all state. `tsk` is a thin client — in CLI mode it sends a JSON-RPC request over a Unix socket and exits; in TUI mode it watches `tsk/threads/index.json` for changes and re-renders instantly. Multiple clients (CLI, TUI, agents) can talk to the daemon concurrently. See `doc/arch/` and `doc/adr/` for the full architecture.
+
+## Future / planned
+
+- **Configuration file** (`tsk.toml` or `.tskrc`) — per-project and per-user settings. First planned setting: `show_status_bar = true/false` to toggle the TUI status bar.

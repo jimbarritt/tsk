@@ -62,6 +62,7 @@ impl std::str::FromStr for Priority {
 pub enum ThreadState {
     Active,
     Paused,
+    Waiting { reason: Option<String> },
 }
 
 impl std::fmt::Display for ThreadState {
@@ -69,6 +70,7 @@ impl std::fmt::Display for ThreadState {
         match self {
             ThreadState::Active => write!(f, "active"),
             ThreadState::Paused => write!(f, "paused"),
+            ThreadState::Waiting { .. } => write!(f, "waiting"),
         }
     }
 }
@@ -112,6 +114,22 @@ pub struct ThreadSwitchedEvent {
     pub event: String,
     pub active_id: u32,
     pub paused_ids: Vec<u32>,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreadWaitedEvent {
+    pub event: String,
+    pub id: u32,
+    pub reason: Option<String>,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreadResumedEvent {
+    pub event: String,
+    pub id: u32,
+    pub note: Option<String>,
     pub timestamp: u64,
 }
 
@@ -436,6 +454,51 @@ mod tests {
         assert_eq!(v["slug"], "fix-login");
         assert_eq!(v["state"], "active");
         assert_eq!(v["priority"], "PRIO");
+    }
+
+    // --- ThreadState::Waiting ---
+
+    #[test]
+    fn waiting_state_serialises_as_nested_object() {
+        let state = ThreadState::Waiting { reason: Some("waiting for PR review".to_string()) };
+        let v: serde_json::Value = serde_json::to_value(&state).unwrap();
+        assert_eq!(v["waiting"]["reason"], "waiting for PR review");
+    }
+
+    #[test]
+    fn waiting_state_with_no_reason_serialises_correctly() {
+        let state = ThreadState::Waiting { reason: None };
+        let v: serde_json::Value = serde_json::to_value(&state).unwrap();
+        assert!(v["waiting"].is_object());
+        assert!(v["waiting"]["reason"].is_null());
+    }
+
+    #[test]
+    fn waiting_state_roundtrips_via_json() {
+        let state = ThreadState::Waiting { reason: Some("blocked on deploy".to_string()) };
+        let s = serde_json::to_string(&state).unwrap();
+        let back: ThreadState = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, state);
+    }
+
+    #[test]
+    fn waiting_state_display_shows_waiting() {
+        let state = ThreadState::Waiting { reason: Some("blocked".to_string()) };
+        assert_eq!(format!("{}", state), "waiting");
+    }
+
+    #[test]
+    fn thread_with_waiting_state_roundtrips_via_json() {
+        let thread = Thread {
+            id: 1,
+            slug: "fix-login".to_string(),
+            state: ThreadState::Waiting { reason: Some("waiting for review".to_string()) },
+            priority: Priority::Priority,
+            description: "Fix it".to_string(),
+        };
+        let s = serde_json::to_string(&thread).unwrap();
+        let back: Thread = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, thread);
     }
 
     // --- socket_path ---

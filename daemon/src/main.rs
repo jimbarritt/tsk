@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use tsk_core::{
     event_log_dir, event_log_path, index_path, socket_path, thread_dir, threads_dir,
     tsk_dir, JsonRpcRequest, JsonRpcResponse, Priority, Thread, ThreadCreatedEvent,
-    ThreadSwitchedEvent, ThreadUpdatedEvent, ThreadState,
+    ThreadResumedEvent, ThreadSwitchedEvent, ThreadUpdatedEvent, ThreadWaitedEvent, ThreadState,
 };
 
 fn main() {
@@ -121,6 +121,8 @@ fn handle_request(
         "thread.list"      => handle_thread_list(request, state),
         "thread.switch_to" => handle_thread_switch_to(request, state, project_root),
         "thread.update"    => handle_thread_update(request, state, project_root),
+        "thread.wait"      => handle_thread_wait(request, state, project_root),
+        "thread.resume"    => handle_thread_resume(request, state, project_root),
         _ => JsonRpcResponse::error(request.id, -32601, "Method not found"),
     }
 }
@@ -312,11 +314,14 @@ fn handle_thread_switch_to(
         .collect();
 
     for (i, t) in locked.iter_mut().enumerate() {
-        t.state = if i == target_idx {
-            ThreadState::Active
+        if i == target_idx {
+            t.state = ThreadState::Active;
         } else {
-            ThreadState::Paused
-        };
+            // Waiting threads keep their waiting state; others go to Paused
+            if !matches!(t.state, ThreadState::Waiting { .. }) {
+                t.state = ThreadState::Paused;
+            }
+        }
     }
 
     let active_thread = locked[target_idx].clone();
@@ -455,4 +460,94 @@ fn update_index_md(content: &str, slug: &str, priority: &str, description: &str)
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn handle_thread_wait(
+    request: JsonRpcRequest,
+    state: &Arc<Mutex<Vec<Thread>>>,
+    project_root: &Path,
+) -> JsonRpcResponse {
+    let params = &request.params;
+
+    let id_str = match params["id"].as_str() {
+        Some(s) => s.to_string(),
+        None => return JsonRpcResponse::error(request.id, -32602, "Missing id"),
+    };
+    let reason = params["reason"].as_str().map(|s| s.to_string());
+
+    let mut locked = state.lock().unwrap();
+
+    let idx = match resolve_thread_idx(&locked, &id_str) {
+        Some(i) => i,
+        None => return JsonRpcResponse::error(request.id, -32604, format!("Thread not found: {}", id_str)),
+    };
+
+    if matches!(locked[idx].state, ThreadState::Waiting { .. }) {
+        return JsonRpcResponse::error(request.id, -32600, "Thread is already waiting");
+    }
+
+    locked[idx].state = ThreadState::Waiting { reason: reason.clone() };
+
+    let event = ThreadWaitedEvent {
+        event: "ThreadWaited".to_string(),
+        id: locked[idx].id,
+        reason,
+        timestamp: now_secs(),
+    };
+
+    if let Err(e) = append_event(project_root, &event) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to write event: {}", e));
+    }
+
+    if let Err(e) = write_index(project_root, &locked) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to write index: {}", e));
+    }
+
+    let thread = locked[idx].clone();
+    JsonRpcResponse::success(request.id, serde_json::to_value(&thread).unwrap())
+}
+
+fn handle_thread_resume(
+    request: JsonRpcRequest,
+    state: &Arc<Mutex<Vec<Thread>>>,
+    project_root: &Path,
+) -> JsonRpcResponse {
+    let params = &request.params;
+
+    let id_str = match params["id"].as_str() {
+        Some(s) => s.to_string(),
+        None => return JsonRpcResponse::error(request.id, -32602, "Missing id"),
+    };
+    let note = params["note"].as_str().map(|s| s.to_string());
+
+    let mut locked = state.lock().unwrap();
+
+    let idx = match resolve_thread_idx(&locked, &id_str) {
+        Some(i) => i,
+        None => return JsonRpcResponse::error(request.id, -32604, format!("Thread not found: {}", id_str)),
+    };
+
+    if !matches!(locked[idx].state, ThreadState::Waiting { .. }) {
+        return JsonRpcResponse::error(request.id, -32600, "Thread is not waiting");
+    }
+
+    locked[idx].state = ThreadState::Paused;
+
+    let event = ThreadResumedEvent {
+        event: "ThreadResumed".to_string(),
+        id: locked[idx].id,
+        note,
+        timestamp: now_secs(),
+    };
+
+    if let Err(e) = append_event(project_root, &event) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to write event: {}", e));
+    }
+
+    if let Err(e) = write_index(project_root, &locked) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to write index: {}", e));
+    }
+
+    let thread = locked[idx].clone();
+    JsonRpcResponse::success(request.id, serde_json::to_value(&thread).unwrap())
 }
