@@ -23,6 +23,11 @@ fn main() {
         return;
     }
 
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("tskd {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     let project_root = std::env::var("TSK_PROJECT_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::current_dir().expect("Cannot determine current directory"));
