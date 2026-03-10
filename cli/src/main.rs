@@ -423,7 +423,7 @@ mod tui {
             .map(|&w| "─".repeat(w as usize))
             .collect();
         let line = format!("┌{}┐", inner.join("┬"));
-        Line::from(Span::styled(line, Style::default().fg(Color::White)))
+        Line::from(Span::raw(line))
     }
 
     fn bottom_border(ws: &ColWidths) -> Line<'static> {
@@ -431,7 +431,7 @@ mod tui {
             .map(|&w| "─".repeat(w as usize))
             .collect();
         let line = format!("└{}┘", inner.join("┴"));
-        Line::from(Span::styled(line, Style::default().fg(Color::White)))
+        Line::from(Span::raw(line))
     }
 
     fn data_line<'a>(
