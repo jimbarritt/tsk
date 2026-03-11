@@ -4,8 +4,8 @@ use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tsk_core::{
-    event_log_dir, event_log_path, index_path, socket_path, thread_dir, threads_dir,
-    tsk_dir, JsonRpcRequest, JsonRpcResponse, Priority, Thread, ThreadCreatedEvent,
+    event_log_dir, event_log_path, index_path, socket_path, tasks_path, thread_dir, threads_dir,
+    tsk_dir, JsonRpcRequest, JsonRpcResponse, Priority, Task, TaskState, Thread, ThreadCreatedEvent,
     ThreadResumedEvent, ThreadSwitchedEvent, ThreadUpdatedEvent, ThreadWaitedEvent, ThreadState,
 };
 
@@ -123,6 +123,13 @@ fn handle_request(
         "thread.update"    => handle_thread_update(request, state, project_root),
         "thread.wait"      => handle_thread_wait(request, state, project_root),
         "thread.resume"    => handle_thread_resume(request, state, project_root),
+        "task.create"      => handle_task_create(request, state, project_root),
+        "task.list"        => handle_task_list(request, state, project_root),
+        "task.start"       => handle_task_start(request, state, project_root),
+        "task.block"       => handle_task_block(request, state, project_root),
+        "task.complete"    => handle_task_complete(request, state, project_root),
+        "task.cancel"      => handle_task_cancel(request, state, project_root),
+        "task.update"      => handle_task_update(request, state, project_root),
         _ => JsonRpcResponse::error(request.id, -32601, "Method not found"),
     }
 }
@@ -550,4 +557,385 @@ fn handle_thread_resume(
 
     let thread = locked[idx].clone();
     JsonRpcResponse::success(request.id, serde_json::to_value(&thread).unwrap())
+}
+
+// ---------------------------------------------------------------------------
+// Task helpers
+// ---------------------------------------------------------------------------
+
+/// Load tasks from the thread's tasks.json, returning an empty vec if missing.
+fn load_tasks(project_root: &Path, thread_id: u32, slug: &str) -> Result<Vec<Task>, String> {
+    let path = tasks_path(project_root, thread_id, slug);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+/// Persist tasks to the thread's tasks.json, sorted by seq.
+fn save_tasks(project_root: &Path, thread_id: u32, slug: &str, tasks: &mut Vec<Task>) -> Result<(), String> {
+    tasks.sort_by_key(|t| t.seq);
+    let path = tasks_path(project_root, thread_id, slug);
+    let content = serde_json::to_string_pretty(tasks).map_err(|e| e.to_string())?;
+    fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+/// Resolve the active thread from state; returns (thread_id, slug) or an error response.
+fn resolve_active_thread(
+    request_id: u64,
+    locked: &[Thread],
+) -> Result<(u32, String), JsonRpcResponse> {
+    locked
+        .iter()
+        .find(|t| t.state == ThreadState::Active)
+        .map(|t| (t.id, t.slug.clone()))
+        .ok_or_else(|| JsonRpcResponse::error(request_id, -32600, "No active thread"))
+}
+
+/// Resolve the target thread: use params["thread"] if provided, else the active thread.
+fn resolve_target_thread(
+    request_id: u64,
+    locked: &[Thread],
+    params: &serde_json::Value,
+) -> Result<(u32, String), JsonRpcResponse> {
+    if let Some(id_str) = params["thread"].as_str() {
+        match resolve_thread_idx(locked, id_str) {
+            Some(i) => Ok((locked[i].id, locked[i].slug.clone())),
+            None => Err(JsonRpcResponse::error(
+                request_id,
+                -32604,
+                format!("Thread not found: {}", id_str),
+            )),
+        }
+    } else {
+        resolve_active_thread(request_id, locked)
+    }
+}
+
+/// Find a task by its full id string (e.g. "TSK-0001-0001") within a task list.
+fn find_task_idx(tasks: &[Task], task_id: &str) -> Option<usize> {
+    tasks.iter().position(|t| t.id == task_id)
+}
+
+// ---------------------------------------------------------------------------
+// task.create
+// ---------------------------------------------------------------------------
+
+fn handle_task_create(
+    request: JsonRpcRequest,
+    state: &Arc<Mutex<Vec<Thread>>>,
+    project_root: &Path,
+) -> JsonRpcResponse {
+    let params = &request.params;
+
+    let description = match params["description"].as_str() {
+        Some(s) => s.to_string(),
+        None => return JsonRpcResponse::error(request.id, -32602, "Missing description"),
+    };
+    let due_by = params["due_by"].as_str().map(|s| s.to_string());
+
+    let locked = state.lock().unwrap();
+    let (thread_id, slug) = match resolve_target_thread(request.id, &locked, params) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+    drop(locked);
+
+    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+        Ok(t) => t,
+        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+    };
+
+    let seq = tasks.iter().map(|t| t.seq).max().unwrap_or(0) + 1;
+    let task = Task {
+        id: Task::make_id(thread_id, seq),
+        description,
+        state: TaskState::NotStarted,
+        due_by,
+        seq,
+        blocked_reason: None,
+    };
+
+    tasks.push(task.clone());
+
+    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
+    }
+
+    JsonRpcResponse::success(request.id, serde_json::to_value(&task).unwrap())
+}
+
+// ---------------------------------------------------------------------------
+// task.list
+// ---------------------------------------------------------------------------
+
+fn handle_task_list(
+    request: JsonRpcRequest,
+    state: &Arc<Mutex<Vec<Thread>>>,
+    project_root: &Path,
+) -> JsonRpcResponse {
+    let params = &request.params;
+
+    let locked = state.lock().unwrap();
+    let (thread_id, slug) = match resolve_target_thread(request.id, &locked, params) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+    drop(locked);
+
+    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+        Ok(t) => t,
+        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+    };
+    tasks.sort_by_key(|t| t.seq);
+
+    JsonRpcResponse::success(request.id, serde_json::json!({ "tasks": tasks }))
+}
+
+// ---------------------------------------------------------------------------
+// task.start
+// ---------------------------------------------------------------------------
+
+fn handle_task_start(
+    request: JsonRpcRequest,
+    state: &Arc<Mutex<Vec<Thread>>>,
+    project_root: &Path,
+) -> JsonRpcResponse {
+    let params = &request.params;
+
+    let task_id = match params["id"].as_str() {
+        Some(s) => s.to_string(),
+        None => return JsonRpcResponse::error(request.id, -32602, "Missing id"),
+    };
+
+    let locked = state.lock().unwrap();
+    let (thread_id, slug) = match resolve_target_thread(request.id, &locked, params) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+    drop(locked);
+
+    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+        Ok(t) => t,
+        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+    };
+
+    let idx = match find_task_idx(&tasks, &task_id) {
+        Some(i) => i,
+        None => return JsonRpcResponse::error(request.id, -32604, format!("Task not found: {}", task_id)),
+    };
+
+    match tasks[idx].state {
+        TaskState::NotStarted | TaskState::Blocked => {}
+        _ => return JsonRpcResponse::error(request.id, -32600, format!(
+            "Cannot start task in state '{}'", tasks[idx].state
+        )),
+    }
+
+    tasks[idx].state = TaskState::InProgress;
+    tasks[idx].blocked_reason = None;
+
+    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
+    }
+
+    let task = tasks[idx].clone();
+    JsonRpcResponse::success(request.id, serde_json::to_value(&task).unwrap())
+}
+
+// ---------------------------------------------------------------------------
+// task.block
+// ---------------------------------------------------------------------------
+
+fn handle_task_block(
+    request: JsonRpcRequest,
+    state: &Arc<Mutex<Vec<Thread>>>,
+    project_root: &Path,
+) -> JsonRpcResponse {
+    let params = &request.params;
+
+    let task_id = match params["id"].as_str() {
+        Some(s) => s.to_string(),
+        None => return JsonRpcResponse::error(request.id, -32602, "Missing id"),
+    };
+    let reason = match params["reason"].as_str() {
+        Some(s) => s.to_string(),
+        None => return JsonRpcResponse::error(request.id, -32602, "Missing reason"),
+    };
+
+    let locked = state.lock().unwrap();
+    let (thread_id, slug) = match resolve_target_thread(request.id, &locked, params) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+    drop(locked);
+
+    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+        Ok(t) => t,
+        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+    };
+
+    let idx = match find_task_idx(&tasks, &task_id) {
+        Some(i) => i,
+        None => return JsonRpcResponse::error(request.id, -32604, format!("Task not found: {}", task_id)),
+    };
+
+    if tasks[idx].state != TaskState::InProgress {
+        return JsonRpcResponse::error(request.id, -32600, format!(
+            "Cannot block task in state '{}'", tasks[idx].state
+        ));
+    }
+
+    tasks[idx].state = TaskState::Blocked;
+    tasks[idx].blocked_reason = Some(reason);
+
+    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
+    }
+
+    let task = tasks[idx].clone();
+    JsonRpcResponse::success(request.id, serde_json::to_value(&task).unwrap())
+}
+
+// ---------------------------------------------------------------------------
+// task.complete
+// ---------------------------------------------------------------------------
+
+fn handle_task_complete(
+    request: JsonRpcRequest,
+    state: &Arc<Mutex<Vec<Thread>>>,
+    project_root: &Path,
+) -> JsonRpcResponse {
+    let params = &request.params;
+
+    let task_id = match params["id"].as_str() {
+        Some(s) => s.to_string(),
+        None => return JsonRpcResponse::error(request.id, -32602, "Missing id"),
+    };
+
+    let locked = state.lock().unwrap();
+    let (thread_id, slug) = match resolve_target_thread(request.id, &locked, params) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+    drop(locked);
+
+    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+        Ok(t) => t,
+        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+    };
+
+    let idx = match find_task_idx(&tasks, &task_id) {
+        Some(i) => i,
+        None => return JsonRpcResponse::error(request.id, -32604, format!("Task not found: {}", task_id)),
+    };
+
+    if tasks[idx].state == TaskState::Cancelled {
+        return JsonRpcResponse::error(request.id, -32600, "Cannot complete a cancelled task");
+    }
+
+    tasks[idx].state = TaskState::Done;
+    tasks[idx].blocked_reason = None;
+
+    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
+    }
+
+    let task = tasks[idx].clone();
+    JsonRpcResponse::success(request.id, serde_json::to_value(&task).unwrap())
+}
+
+// ---------------------------------------------------------------------------
+// task.cancel
+// ---------------------------------------------------------------------------
+
+fn handle_task_cancel(
+    request: JsonRpcRequest,
+    state: &Arc<Mutex<Vec<Thread>>>,
+    project_root: &Path,
+) -> JsonRpcResponse {
+    let params = &request.params;
+
+    let task_id = match params["id"].as_str() {
+        Some(s) => s.to_string(),
+        None => return JsonRpcResponse::error(request.id, -32602, "Missing id"),
+    };
+
+    let locked = state.lock().unwrap();
+    let (thread_id, slug) = match resolve_target_thread(request.id, &locked, params) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+    drop(locked);
+
+    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+        Ok(t) => t,
+        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+    };
+
+    let idx = match find_task_idx(&tasks, &task_id) {
+        Some(i) => i,
+        None => return JsonRpcResponse::error(request.id, -32604, format!("Task not found: {}", task_id)),
+    };
+
+    tasks[idx].state = TaskState::Cancelled;
+    tasks[idx].blocked_reason = None;
+
+    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
+    }
+
+    let task = tasks[idx].clone();
+    JsonRpcResponse::success(request.id, serde_json::to_value(&task).unwrap())
+}
+
+// ---------------------------------------------------------------------------
+// task.update
+// ---------------------------------------------------------------------------
+
+fn handle_task_update(
+    request: JsonRpcRequest,
+    state: &Arc<Mutex<Vec<Thread>>>,
+    project_root: &Path,
+) -> JsonRpcResponse {
+    let params = &request.params;
+
+    let task_id = match params["id"].as_str() {
+        Some(s) => s.to_string(),
+        None => return JsonRpcResponse::error(request.id, -32602, "Missing id"),
+    };
+
+    let new_description = params["description"].as_str().map(|s| s.to_string());
+    let new_due_by      = params["due_by"].as_str().map(|s| s.to_string());
+    let new_seq         = params["seq"].as_u64().map(|n| n as u32);
+
+    let locked = state.lock().unwrap();
+    let (thread_id, slug) = match resolve_target_thread(request.id, &locked, params) {
+        Ok(t) => t,
+        Err(e) => return e,
+    };
+    drop(locked);
+
+    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+        Ok(t) => t,
+        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+    };
+
+    let idx = match find_task_idx(&tasks, &task_id) {
+        Some(i) => i,
+        None => return JsonRpcResponse::error(request.id, -32604, format!("Task not found: {}", task_id)),
+    };
+
+    if let Some(desc) = new_description { tasks[idx].description = desc; }
+    if let Some(due)  = new_due_by      { tasks[idx].due_by = Some(due); }
+    if let Some(seq)  = new_seq         { tasks[idx].seq = seq; }
+
+    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+        return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
+    }
+
+    // Re-find after sort (save_tasks sorts in place)
+    let task = tasks.iter().find(|t| t.id == task_id).cloned().unwrap();
+    JsonRpcResponse::success(request.id, serde_json::to_value(&task).unwrap())
 }

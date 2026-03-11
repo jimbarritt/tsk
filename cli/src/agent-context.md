@@ -31,7 +31,19 @@ tsk thread update <id-or-slug> [--slug] [--description] [--priority]  update thr
 tsk thread list                                                list all threads as JSON
 tsk context                                                    print this context
 tsk                                                            launch the live TUI (press q to quit)
+
+tsk task create <description> [--due-by <date>] [--thread <id>]  create a task (not-started)
+tsk task list [--thread <id>]                                  list tasks for a thread as JSON
+tsk task start <task-id> [--thread <id>]                       start a task (→ in-progress)
+tsk task block <task-id> <reason> [--thread <id>]              block a task (→ blocked)
+tsk task complete <task-id> [--thread <id>]                    complete a task (→ done)
+tsk task cancel <task-id> [--thread <id>]                      cancel a task (→ cancelled)
+tsk task update <task-id> [--description] [--due-by] [--seq] [--thread <id>]  update task fields
 ```
+
+Task commands default to the active thread. Use `--thread <id-or-slug>` to target a different
+thread without switching to it (the **Diversion** pattern — record a thought against another
+thread and get straight back to what you were doing).
 
 ### Response formats
 
@@ -65,6 +77,37 @@ including the `dir` field.
 
 **`tsk thread update`** returns the updated thread, same shape as `thread create`. All flags
 are optional — only the fields you pass are changed.
+
+**`tsk task create`** returns the created task:
+```json
+{
+  "id": "TSK-0001-0001",
+  "description": "Write unit tests",
+  "state": "not-started",
+  "seq": 1
+}
+```
+
+Task ids: `TSK-{thread-id-padded}-{seq-padded}` e.g. `TSK-0001-0001`. Use the full id string
+when targeting a task with start/block/complete/cancel/update.
+
+**`tsk task list`** returns all tasks for the thread sorted by `seq`:
+```json
+{
+  "tasks": [
+    { "id": "TSK-0001-0001", "description": "Write unit tests", "state": "not-started", "seq": 1 },
+    { "id": "TSK-0001-0002", "description": "Ship feature", "state": "in-progress", "seq": 2, "due_by": "2026-03-31" }
+  ]
+}
+```
+
+Task state transitions:
+```
+not-started → in-progress → done
+                   ↓
+                blocked → in-progress
+any state → cancelled
+```
 
 ---
 
