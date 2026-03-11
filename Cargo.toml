@@ -3,7 +3,7 @@ members = ["core", "cli", "daemon"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 homepage = "https://github.com/jimbarritt/tsk"
 repository = "https://github.com/jimbarritt/tsk"
 license = "MIT"
@@ -12,4 +12,4 @@ categories = ["command-line-utilities", "development-tools"]
 edition = "2021"
 
 [workspace.dependencies]
-tsk-core = { path = "core", version = "0.1.4" }
+tsk-core = { path = "core", version = "0.1.5" }
