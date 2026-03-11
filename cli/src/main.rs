@@ -20,6 +20,11 @@ enum Commands {
         #[command(subcommand)]
         action: ThreadCommands,
     },
+    /// Manage tasks within a thread
+    Task {
+        #[command(subcommand)]
+        action: TaskCommands,
+    },
     /// Print agent context: conceptual overview, commands, and current thread state
     Context,
 }
@@ -69,6 +74,78 @@ enum ThreadCommands {
         /// New priority: BG, PRIO, or INC
         #[arg(long)]
         priority: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum TaskCommands {
+    /// Create a new task on the active thread (or a named thread with --thread)
+    Create {
+        /// Task description
+        description: String,
+        /// Optional due date (ISO 8601, e.g. 2026-03-15)
+        #[arg(long)]
+        due_by: Option<String>,
+        /// Target thread id or slug (defaults to active thread)
+        #[arg(long)]
+        thread: Option<String>,
+    },
+    /// List tasks on the active thread (or a named thread with --thread)
+    List {
+        /// Target thread id or slug (defaults to active thread)
+        #[arg(long)]
+        thread: Option<String>,
+    },
+    /// Start a task (not-started or blocked → in-progress)
+    Start {
+        /// Task id (e.g. TSK-0001-0001)
+        id: String,
+        /// Target thread id or slug (defaults to active thread)
+        #[arg(long)]
+        thread: Option<String>,
+    },
+    /// Block a task (in-progress → blocked); requires a reason
+    Block {
+        /// Task id (e.g. TSK-0001-0001)
+        id: String,
+        /// Reason the task is blocked
+        reason: String,
+        /// Target thread id or slug (defaults to active thread)
+        #[arg(long)]
+        thread: Option<String>,
+    },
+    /// Mark a task as done
+    Complete {
+        /// Task id (e.g. TSK-0001-0001)
+        id: String,
+        /// Target thread id or slug (defaults to active thread)
+        #[arg(long)]
+        thread: Option<String>,
+    },
+    /// Cancel a task (any state → cancelled)
+    Cancel {
+        /// Task id (e.g. TSK-0001-0001)
+        id: String,
+        /// Target thread id or slug (defaults to active thread)
+        #[arg(long)]
+        thread: Option<String>,
+    },
+    /// Update task fields (all flags optional)
+    Update {
+        /// Task id (e.g. TSK-0001-0001)
+        id: String,
+        /// New description
+        #[arg(long)]
+        description: Option<String>,
+        /// New due date (ISO 8601)
+        #[arg(long)]
+        due_by: Option<String>,
+        /// New sequence number (for manual ordering)
+        #[arg(long)]
+        seq: Option<u32>,
+        /// Target thread id or slug (defaults to active thread)
+        #[arg(long)]
+        thread: Option<String>,
     },
 }
 
@@ -174,6 +251,61 @@ fn run_cli(cli: Cli) -> Result<(), String> {
                 if let Some(d) = description { params["description"] = d.into(); }
                 if let Some(p) = priority    { params["priority"]    = p.into(); }
                 let result = send_request(&sock, "thread.update", params)?;
+                println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                Ok(())
+            }
+        },
+        Some(Commands::Task { action }) => match action {
+            TaskCommands::Create { description, due_by, thread } => {
+                let mut params = serde_json::json!({ "description": description });
+                if let Some(d) = due_by   { params["due_by"] = d.into(); }
+                if let Some(t) = thread   { params["thread"] = t.into(); }
+                let result = send_request(&sock, "task.create", params)?;
+                println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                Ok(())
+            }
+            TaskCommands::List { thread } => {
+                let mut params = serde_json::json!({});
+                if let Some(t) = thread { params["thread"] = t.into(); }
+                let result = send_request(&sock, "task.list", params)?;
+                println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                Ok(())
+            }
+            TaskCommands::Start { id, thread } => {
+                let mut params = serde_json::json!({ "id": id });
+                if let Some(t) = thread { params["thread"] = t.into(); }
+                let result = send_request(&sock, "task.start", params)?;
+                println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                Ok(())
+            }
+            TaskCommands::Block { id, reason, thread } => {
+                let mut params = serde_json::json!({ "id": id, "reason": reason });
+                if let Some(t) = thread { params["thread"] = t.into(); }
+                let result = send_request(&sock, "task.block", params)?;
+                println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                Ok(())
+            }
+            TaskCommands::Complete { id, thread } => {
+                let mut params = serde_json::json!({ "id": id });
+                if let Some(t) = thread { params["thread"] = t.into(); }
+                let result = send_request(&sock, "task.complete", params)?;
+                println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                Ok(())
+            }
+            TaskCommands::Cancel { id, thread } => {
+                let mut params = serde_json::json!({ "id": id });
+                if let Some(t) = thread { params["thread"] = t.into(); }
+                let result = send_request(&sock, "task.cancel", params)?;
+                println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                Ok(())
+            }
+            TaskCommands::Update { id, description, due_by, seq, thread } => {
+                let mut params = serde_json::json!({ "id": id });
+                if let Some(d) = description { params["description"] = d.into(); }
+                if let Some(d) = due_by      { params["due_by"]      = d.into(); }
+                if let Some(s) = seq         { params["seq"]         = s.into(); }
+                if let Some(t) = thread      { params["thread"]      = t.into(); }
+                let result = send_request(&sock, "task.update", params)?;
                 println!("{}", serde_json::to_string_pretty(&result).unwrap());
                 Ok(())
             }

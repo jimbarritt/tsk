@@ -96,6 +96,67 @@ impl Thread {
 }
 
 // ---------------------------------------------------------------------------
+// Task state
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TaskState {
+    NotStarted,
+    InProgress,
+    Blocked,
+    Done,
+    Cancelled,
+}
+
+impl std::fmt::Display for TaskState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaskState::NotStarted => write!(f, "not-started"),
+            TaskState::InProgress => write!(f, "in-progress"),
+            TaskState::Blocked    => write!(f, "blocked"),
+            TaskState::Done       => write!(f, "done"),
+            TaskState::Cancelled  => write!(f, "cancelled"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Task model
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Task {
+    /// Human-readable id: `TSK-{thread_id:04}-{seq:04}` e.g. `TSK-0001-0001`
+    pub id: String,
+    pub description: String,
+    pub state: TaskState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due_by: Option<String>,
+    /// Sequence number for manual ordering (1-based, not displayed)
+    pub seq: u32,
+    /// Only meaningful when state is Blocked
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
+}
+
+impl Task {
+    /// Format a task id from thread id and sequence number.
+    pub fn make_id(thread_id: u32, seq: u32) -> String {
+        format!("TSK-{:04}-{:04}", thread_id, seq)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Storage paths (tasks)
+// ---------------------------------------------------------------------------
+
+/// Path to the tasks file for a thread: `tsk/threads/{id}-{slug}/tasks.json`
+pub fn tasks_path(project_root: &Path, thread_id: u32, slug: &str) -> PathBuf {
+    thread_dir(project_root, thread_id, slug).join("tasks.json")
+}
+
+// ---------------------------------------------------------------------------
 // Event types
 // ---------------------------------------------------------------------------
 
@@ -532,5 +593,90 @@ mod tests {
     fn thread_dir_uses_zero_padded_id() {
         let dir = thread_dir(std::path::Path::new("/proj"), 1, "fix-login");
         assert!(dir.to_str().unwrap().contains("0001-fix-login"));
+    }
+
+    // --- Task ---
+
+    #[test]
+    fn task_make_id_formats_correctly() {
+        assert_eq!(Task::make_id(1, 1), "TSK-0001-0001");
+        assert_eq!(Task::make_id(42, 100), "TSK-0042-0100");
+    }
+
+    #[test]
+    fn task_state_serialises_with_kebab_case() {
+        assert_eq!(serde_json::to_string(&TaskState::NotStarted).unwrap(), "\"not-started\"");
+        assert_eq!(serde_json::to_string(&TaskState::InProgress).unwrap(), "\"in-progress\"");
+        assert_eq!(serde_json::to_string(&TaskState::Blocked).unwrap(), "\"blocked\"");
+        assert_eq!(serde_json::to_string(&TaskState::Done).unwrap(), "\"done\"");
+        assert_eq!(serde_json::to_string(&TaskState::Cancelled).unwrap(), "\"cancelled\"");
+    }
+
+    #[test]
+    fn task_state_deserialises_from_kebab_case() {
+        assert_eq!(serde_json::from_str::<TaskState>("\"not-started\"").unwrap(), TaskState::NotStarted);
+        assert_eq!(serde_json::from_str::<TaskState>("\"in-progress\"").unwrap(), TaskState::InProgress);
+        assert_eq!(serde_json::from_str::<TaskState>("\"blocked\"").unwrap(), TaskState::Blocked);
+        assert_eq!(serde_json::from_str::<TaskState>("\"done\"").unwrap(), TaskState::Done);
+        assert_eq!(serde_json::from_str::<TaskState>("\"cancelled\"").unwrap(), TaskState::Cancelled);
+    }
+
+    #[test]
+    fn task_state_display() {
+        assert_eq!(format!("{}", TaskState::NotStarted), "not-started");
+        assert_eq!(format!("{}", TaskState::InProgress), "in-progress");
+        assert_eq!(format!("{}", TaskState::Blocked),    "blocked");
+        assert_eq!(format!("{}", TaskState::Done),       "done");
+        assert_eq!(format!("{}", TaskState::Cancelled),  "cancelled");
+    }
+
+    #[test]
+    fn task_roundtrips_via_json() {
+        let task = Task {
+            id: Task::make_id(1, 1),
+            description: "Write unit tests".to_string(),
+            state: TaskState::InProgress,
+            due_by: Some("2026-03-31".to_string()),
+            seq: 1,
+            blocked_reason: None,
+        };
+        let s = serde_json::to_string(&task).unwrap();
+        let back: Task = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, task);
+    }
+
+    #[test]
+    fn task_due_by_is_omitted_when_none() {
+        let task = Task {
+            id: Task::make_id(1, 1),
+            description: "Test".to_string(),
+            state: TaskState::NotStarted,
+            due_by: None,
+            seq: 1,
+            blocked_reason: None,
+        };
+        let v: serde_json::Value = serde_json::to_value(&task).unwrap();
+        assert!(v.get("due_by").is_none(), "due_by should be omitted when None");
+    }
+
+    #[test]
+    fn task_blocked_reason_is_omitted_when_none() {
+        let task = Task {
+            id: Task::make_id(1, 1),
+            description: "Test".to_string(),
+            state: TaskState::NotStarted,
+            due_by: None,
+            seq: 1,
+            blocked_reason: None,
+        };
+        let v: serde_json::Value = serde_json::to_value(&task).unwrap();
+        assert!(v.get("blocked_reason").is_none(), "blocked_reason should be omitted when None");
+    }
+
+    #[test]
+    fn tasks_path_is_inside_thread_dir() {
+        let path = tasks_path(std::path::Path::new("/proj"), 1, "fix-login");
+        assert!(path.to_str().unwrap().contains("0001-fix-login"));
+        assert!(path.to_str().unwrap().ends_with("tasks.json"));
     }
 }
