@@ -251,6 +251,10 @@ The active thread does not change. You record the thought and get back to what y
 
 `tskd` is a headless daemon that owns all state. `tsk` is a thin client — in CLI mode it sends a JSON-RPC request over a Unix socket and exits; in TUI mode it watches `tsk/threads/index.json` for changes and re-renders instantly. Multiple clients (CLI, TUI, agents) can talk to the daemon concurrently. See `doc/arch/` and `doc/adr/` for the full architecture.
 
+## CI
+
+CodeQL static analysis runs on every push to `main` and weekly. Rust requires an advanced setup (`.github/workflows/codeql.yml`) because CodeQL must compile the code to analyse it — the default GitHub setup does not support Rust.
+
 ## Future / planned
 
 - **Configuration file** (`tsk.toml` or `.tskrc`) — per-project and per-user settings. First planned setting: `show_status_bar = true/false` to toggle the TUI status bar.
