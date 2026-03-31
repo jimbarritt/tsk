@@ -777,7 +777,7 @@ fn thread_resume_restores_previous_state() {
         serde_json::json!({"id": "fix-login", "note": "PR was approved"}),
     ).unwrap();
 
-    assert_eq!(result["state"], "active", "should restore to active");
+    assert_eq!(result["state"], "paused", "resume always returns to paused (active is a deliberate act via switch-to)");
 
     cleanup(&project, daemon);
 }
