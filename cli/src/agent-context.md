@@ -30,7 +30,7 @@ tsk thread switch-to <id-or-slug>                              activate a thread
 tsk thread update <id-or-slug> [--slug] [--description] [--priority]  update thread metadata
 tsk thread list                                                list all threads as JSON
 tsk context                                                    print this context
-tsk                                                            launch the live TUI (press q to quit)
+tsk                                                            launch the live TUI
 
 tsk task create <description> [--due-by <date>] [--thread <id>]  create a task (not-started)
 tsk task list [--thread <id>]                                  list tasks for a thread as JSON
@@ -108,6 +108,27 @@ not-started → in-progress → done
                 blocked → in-progress
 any state → cancelled
 ```
+
+### TUI
+
+The TUI has two panes:
+
+**Threads pane** (default) — shows all threads grouped by state/priority. Navigate with
+`j`/`k` to move a selection cursor. Press `Enter` to view tasks for the selected thread.
+Type `gt` (two-key sequence) to view tasks for the active thread.
+
+**Tasks pane** — shows tasks for a specific thread. At the top is a thread summary box
+(id, slug, priority). Below is the task list sorted by state priority:
+1. `▶` in-progress
+2. `⏳` blocked
+3. `○` not-started
+4. `✓` done (greyed out)
+5. `✗` cancelled (greyed out)
+
+Each task shows a dynamic index (1-based), status symbol, and description. The index
+updates when sort order changes, so you can reference tasks by their visible position.
+
+Press `Esc` or `Ctrl-O` to return to the threads pane. Press `q` to quit.
 
 ---
 
