@@ -170,9 +170,11 @@ just publish         # publish all crates to crates.io
 
 ### Publishing to crates.io
 
-Bump the `version` field in the **root `Cargo.toml`** (`[workspace.package]`) and the `tsk-core` entry under `[workspace.dependencies]` — this single change propagates to all crates. Commit the change, then:
+Bump the version with `just bump`, commit, then publish:
 
 ```bash
+just bump 0.1.7   # requires cargo-edit: cargo install cargo-edit
+git add -p && git commit -m "Bumping version to 0.1.7"
 just publish
 ```
 
