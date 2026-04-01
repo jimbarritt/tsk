@@ -1444,7 +1444,7 @@ checksum = "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca"
 
 [[package]]
 name = "tsk-bin"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "clap",
  "crossterm",
@@ -1455,7 +1455,7 @@ dependencies = [
 
 [[package]]
 name = "tsk-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -1464,7 +1464,7 @@ dependencies = [
 
 [[package]]
 name = "tskd"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde",
  "serde_json",
