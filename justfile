@@ -19,6 +19,10 @@ uninstall:
     cargo uninstall tsk-bin
     cargo uninstall tskd
 
+# Bump the workspace version (requires cargo-edit: cargo install cargo-edit)
+bump VERSION:
+    cargo set-version --workspace {{VERSION}}
+
 # Publish all crates to crates.io
 # core must be published first; sleep gives crates.io time to index it
 # before tsk-bin and tskd resolve the version dependency
