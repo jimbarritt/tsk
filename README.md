@@ -165,12 +165,12 @@ Or install locally with `just`:
 ```bash
 just build-install   # builds and installs to ~/.cargo/bin
 just test            # run all tests
-just publish         # publish all crates to crates.io (bump versions first)
+just publish         # publish all crates to crates.io
 ```
 
 ### Publishing to crates.io
 
-Bump the `version` field in each `Cargo.toml` that changed, then:
+Bump the `version` field in the **root `Cargo.toml`** (`[workspace.package]`) and the `tsk-core` entry under `[workspace.dependencies]` — this single change propagates to all crates. Commit the change, then:
 
 ```bash
 just publish
