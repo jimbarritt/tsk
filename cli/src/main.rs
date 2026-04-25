@@ -1,6 +1,31 @@
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
-use tsk_core::{send_request, socket_path, Priority};
+use tsk_core::{send_request, Priority};
+
+// ---------------------------------------------------------------------------
+// Zoom / auto-context
+// ---------------------------------------------------------------------------
+
+pub fn resolve_zoom_thread(sock: &std::path::Path) -> Option<tsk_core::Thread> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        if dir.join("doc/tsk").is_dir() {
+            let path_str = dir.to_string_lossy().into_owned();
+            let result = tsk_core::send_request(
+                sock,
+                "thread.resolve_path",
+                serde_json::json!({"path": path_str}),
+            )
+            .ok()?;
+            if result.is_null() {
+                return None;
+            }
+            return serde_json::from_value(result).ok();
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // CLI argument schema
@@ -27,6 +52,8 @@ enum Commands {
     },
     /// Print agent context: conceptual overview, commands, and current thread state
     Context,
+    /// Show which thread is bound to the current directory
+    Where,
 }
 
 #[derive(Subcommand)]
@@ -39,6 +66,9 @@ enum ThreadCommands {
         priority: String,
         /// Short description
         description: String,
+        /// Associated filesystem path (e.g. /path/to/project)
+        #[arg(long)]
+        path: Option<String>,
     },
     /// List all threads
     List,
@@ -74,6 +104,9 @@ enum ThreadCommands {
         /// New priority: BG, PRIO, or INC
         #[arg(long)]
         priority: Option<String>,
+        /// Associated filesystem path (use empty string to clear)
+        #[arg(long)]
+        path: Option<String>,
     },
 }
 
@@ -158,7 +191,9 @@ fn main() {
 
     // No args → TUI mode
     if args.len() == 1 {
-        if let Err(e) = tui::run() {
+        let sock = tsk_core::socket_path();
+        let zoom = resolve_zoom_thread(&sock);
+        if let Err(e) = tui::run(zoom) {
             eprintln!("TUI error: {}", e);
             std::process::exit(1);
         }
@@ -174,25 +209,11 @@ fn main() {
 }
 
 // ---------------------------------------------------------------------------
-// Project root resolution
-//
-// Uses TSK_PROJECT_ROOT env var if set (useful for tests and scripting),
-// otherwise falls back to the current directory.
-// ---------------------------------------------------------------------------
-
-fn project_root() -> PathBuf {
-    std::env::var("TSK_PROJECT_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::current_dir().expect("Cannot determine current directory"))
-}
-
-// ---------------------------------------------------------------------------
 // CLI mode
 // ---------------------------------------------------------------------------
 
 fn run_cli(cli: Cli) -> Result<(), String> {
-    let root = project_root();
-    let sock = socket_path(&root);
+    let sock = tsk_core::socket_path();
 
     match cli.command {
         Some(Commands::Thread { action }) => match action {
@@ -200,17 +221,16 @@ fn run_cli(cli: Cli) -> Result<(), String> {
                 slug,
                 priority,
                 description,
+                path,
             } => {
                 let _: Priority = priority.parse()?;
-                let result = send_request(
-                    &sock,
-                    "thread.create",
-                    serde_json::json!({
-                        "slug": slug,
-                        "priority": priority,
-                        "description": description,
-                    }),
-                )?;
+                let mut params = serde_json::json!({
+                    "slug": slug,
+                    "priority": priority,
+                    "description": description,
+                });
+                if let Some(p) = path { params["path"] = p.into(); }
+                let result = send_request(&sock, "thread.create", params)?;
                 println!("{}", serde_json::to_string_pretty(&result).unwrap());
                 Ok(())
             }
@@ -242,7 +262,7 @@ fn run_cli(cli: Cli) -> Result<(), String> {
                 println!("{}", serde_json::to_string_pretty(&result).unwrap());
                 Ok(())
             }
-            ThreadCommands::Update { id, slug, description, priority } => {
+            ThreadCommands::Update { id, slug, description, priority, path } => {
                 if let Some(ref p) = priority {
                     let _: Priority = p.parse()?;
                 }
@@ -250,6 +270,11 @@ fn run_cli(cli: Cli) -> Result<(), String> {
                 if let Some(s) = slug        { params["slug"]        = s.into(); }
                 if let Some(d) = description { params["description"] = d.into(); }
                 if let Some(p) = priority    { params["priority"]    = p.into(); }
+                match path {
+                    Some(p) if p.is_empty() => { params["path"] = serde_json::Value::Null; }
+                    Some(p)                 => { params["path"] = p.into(); }
+                    None                    => {}
+                }
                 let result = send_request(&sock, "thread.update", params)?;
                 println!("{}", serde_json::to_string_pretty(&result).unwrap());
                 Ok(())
@@ -340,6 +365,20 @@ fn run_cli(cli: Cli) -> Result<(), String> {
             }
             Ok(())
         }
+        Some(Commands::Where) => {
+            match resolve_zoom_thread(&sock) {
+                Some(thread) => println!("{}", serde_json::to_string_pretty(&thread).unwrap()),
+                None => println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "zoom": null,
+                        "message": "No thread bound to current directory"
+                    }))
+                    .unwrap()
+                ),
+            }
+            Ok(())
+        }
         None => Ok(()),
     }
 }
@@ -415,6 +454,7 @@ mod tests {
             state: ThreadState::Active,
             priority: Priority::Priority,
             description: "".to_string(),
+            path: None,
         };
         // 1 section: title + top border + 1 row + bottom border = 4
         assert_eq!(tui::count_rows(&[t]), 4);
@@ -424,11 +464,11 @@ mod tests {
     fn count_rows_two_sections() {
         let active = Thread {
             id: 1, slug: "a".to_string(), state: ThreadState::Active,
-            priority: Priority::Priority, description: "".to_string(),
+            priority: Priority::Priority, description: "".to_string(), path: None,
         };
         let paused = Thread {
             id: 2, slug: "b".to_string(), state: ThreadState::Paused,
-            priority: Priority::Background, description: "".to_string(),
+            priority: Priority::Background, description: "".to_string(), path: None,
         };
         // active section: 4 rows; blank separator: 1; bg section: 4 rows = 9
         assert_eq!(tui::count_rows(&[active, paused]), 9);

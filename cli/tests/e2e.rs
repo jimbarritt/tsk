@@ -28,8 +28,8 @@ fn tsk_binary() -> PathBuf {
     workspace_root().join("target").join("debug").join("tsk")
 }
 
-/// Create a unique temporary project directory for a test.
-fn temp_project() -> PathBuf {
+/// Create a unique temporary directory to use as TSK_HOME for a test.
+fn temp_home() -> PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -40,11 +40,12 @@ fn temp_project() -> PathBuf {
     path
 }
 
-fn kill_daemon(project_root: &Path, mut daemon: Child) {
+fn kill_daemon(tsk_home: &Path, mut daemon: Child) {
     let _ = daemon.kill();
     let _ = daemon.wait();
-    // Wait for socket to disappear before returning so the caller can safely rebind
-    let sock = tsk_core::socket_path(project_root);
+    // Wait for socket to disappear before returning so the caller can safely rebind.
+    // Compute the socket path directly from tsk_home (mirrors tsk_core::socket_path logic).
+    let sock = tsk_home.join("tskd.sock");
     let deadline = Instant::now() + Duration::from_secs(2);
     while Instant::now() < deadline && sock.exists() {
         std::thread::sleep(Duration::from_millis(50));
@@ -53,13 +54,13 @@ fn kill_daemon(project_root: &Path, mut daemon: Child) {
     let _ = std::fs::remove_file(&sock);
 }
 
-fn cleanup(project_root: &Path, daemon: Child) {
-    kill_daemon(project_root, daemon);
-    let _ = std::fs::remove_dir_all(project_root);
+fn cleanup(tsk_home: &Path, daemon: Child) {
+    kill_daemon(tsk_home, daemon);
+    let _ = std::fs::remove_dir_all(tsk_home);
 }
 
-/// Start tskd pointing at the given project root and wait for its socket to appear.
-fn start_daemon(project_root: &Path) -> Child {
+/// Start tskd with TSK_HOME set to the given directory and wait for its socket to appear.
+fn start_daemon(tsk_home: &Path) -> Child {
     let binary = tskd_binary();
     assert!(
         binary.exists(),
@@ -68,12 +69,12 @@ fn start_daemon(project_root: &Path) -> Child {
     );
 
     let child = Command::new(&binary)
-        .env("TSK_PROJECT_ROOT", project_root)
+        .env("TSK_HOME", tsk_home)
         .spawn()
         .expect("Failed to spawn tskd");
 
     // Wait up to 5 seconds for the socket to appear
-    let sock = tsk_core::socket_path(project_root);
+    let sock = tsk_home.join("tskd.sock");
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         if sock.exists() {
@@ -90,26 +91,26 @@ fn start_daemon(project_root: &Path) -> Child {
 
 #[test]
 fn daemon_creates_tsk_directories_on_startup() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
     assert!(
-        project.join("tsk").join("event-log").exists(),
-        "tsk/event-log should exist"
+        home.join("event-log").exists(),
+        "event-log should exist in TSK_HOME"
     );
     assert!(
-        project.join("tsk").join("threads").exists(),
-        "tsk/threads should exist"
+        home.join("threads").exists(),
+        "threads should exist in TSK_HOME"
     );
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_create_returns_thread_with_correct_slug_and_short_hash() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     let result = tsk_core::send_request(
         &sock,
@@ -127,14 +128,14 @@ fn thread_create_returns_thread_with_correct_slug_and_short_hash() {
     assert_eq!(result["state"], "paused", "newly created thread should be paused");
     assert_eq!(result["id"], 1, "first thread should have id 1");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_create_creates_index_json_with_thread() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(
         &sock,
@@ -147,7 +148,7 @@ fn thread_create_creates_index_json_with_thread() {
     )
     .unwrap();
 
-    let index_path = tsk_core::index_path(&project);
+    let index_path = home.join("threads").join("index.json");
     assert!(index_path.exists(), "index.json should exist");
 
     let content = std::fs::read_to_string(&index_path).unwrap();
@@ -155,14 +156,14 @@ fn thread_create_creates_index_json_with_thread() {
     assert_eq!(threads.len(), 1);
     assert_eq!(threads[0]["slug"], "fix-login");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_create_creates_thread_directory() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     let result = tsk_core::send_request(
         &sock,
@@ -176,21 +177,21 @@ fn thread_create_creates_thread_directory() {
     .unwrap();
 
     let id = result["id"].as_u64().unwrap() as u32;
-    let thread_dir = tsk_core::thread_dir(&project, id, "fix-login");
+    let thread_dir = home.join("threads").join(format!("{:04}-fix-login", id));
     assert!(
         thread_dir.exists(),
         "thread directory {:?} should exist",
         thread_dir
     );
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_create_appends_event_to_ndjson_log() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(
         &sock,
@@ -203,7 +204,7 @@ fn thread_create_appends_event_to_ndjson_log() {
     )
     .unwrap();
 
-    let log_path = tsk_core::event_log_path(&project);
+    let log_path = home.join("event-log").join("events.ndjson");
     assert!(log_path.exists(), "events.ndjson should exist");
 
     let content = std::fs::read_to_string(&log_path).unwrap();
@@ -213,14 +214,14 @@ fn thread_create_appends_event_to_ndjson_log() {
     assert_eq!(event["event"], "ThreadCreated");
     assert_eq!(event["slug"], "fix-login");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_list_returns_all_threads() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(
         &sock,
@@ -247,14 +248,14 @@ fn thread_list_returns_all_threads() {
     assert!(slugs.contains(&"fix-login"));
     assert!(slugs.contains(&"update-deps"));
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_create_rejects_duplicate_slug() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(
         &sock,
@@ -270,43 +271,43 @@ fn thread_create_rejects_duplicate_slug() {
     );
     assert!(result.is_err(), "duplicate slug should be an error");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn daemon_loads_state_from_index_json_on_restart() {
-    let project = temp_project();
+    let home = temp_home();
 
     // Start daemon, create a thread, stop daemon (keep project dir)
     {
-        let daemon = start_daemon(&project);
-        let sock = tsk_core::socket_path(&project);
+        let daemon = start_daemon(&home);
+        let sock = home.join("tskd.sock");
         tsk_core::send_request(
             &sock,
             "thread.create",
             serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
         )
         .unwrap();
-        kill_daemon(&project, daemon);
+        kill_daemon(&home, daemon);
     }
 
     // Restart daemon, list threads — should still have the thread
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     let result = tsk_core::send_request(&sock, "thread.list", serde_json::json!({})).unwrap();
     let threads = result["threads"].as_array().unwrap();
     assert_eq!(threads.len(), 1, "thread should persist across restarts");
     assert_eq!(threads[0]["slug"], "fix-login");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 // ---------------------------------------------------------------------------
 // Tests: CLI binary (tsk thread create / tsk thread list)
 // ---------------------------------------------------------------------------
 
-fn run_tsk(project_root: &Path, args: &[&str]) -> std::process::Output {
+fn run_tsk(tsk_home: &Path, args: &[&str]) -> std::process::Output {
     let binary = tsk_binary();
     assert!(
         binary.exists(),
@@ -315,17 +316,17 @@ fn run_tsk(project_root: &Path, args: &[&str]) -> std::process::Output {
     );
     Command::new(&binary)
         .args(args)
-        .env("TSK_PROJECT_ROOT", project_root)
+        .env("TSK_HOME", tsk_home)
         .output()
         .expect("Failed to run tsk")
 }
 
 #[test]
 fn cli_thread_create_outputs_json_with_thread() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    let output = run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix the login bug"]);
+    let output = run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix the login bug"]);
     assert!(output.status.success(), "tsk should exit 0");
 
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -334,18 +335,18 @@ fn cli_thread_create_outputs_json_with_thread() {
     assert_eq!(v["priority"], "PRIO");
     assert_eq!(v["state"], "paused");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_thread_list_outputs_json_with_threads() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
-    run_tsk(&project, &["thread", "create", "update-deps", "BG", "Update deps"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
+    run_tsk(&home, &["thread", "create", "update-deps", "BG", "Update deps"]);
 
-    let output = run_tsk(&project, &["thread", "list"]);
+    let output = run_tsk(&home, &["thread", "list"]);
     assert!(output.status.success(), "tsk thread list should exit 0");
 
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -360,7 +361,7 @@ fn cli_thread_list_outputs_json_with_threads() {
     assert!(slugs.contains(&"fix-login"));
     assert!(slugs.contains(&"update-deps"));
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 // ---------------------------------------------------------------------------
@@ -369,9 +370,9 @@ fn cli_thread_list_outputs_json_with_threads() {
 
 #[test]
 fn thread_create_includes_dir_in_response() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     let result = tsk_core::send_request(
         &sock,
@@ -392,14 +393,14 @@ fn thread_create_includes_dir_in_response() {
         "dir should actually exist on disk"
     );
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_create_does_not_change_active_thread() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     // Create first thread and activate it
     tsk_core::send_request(
@@ -432,14 +433,14 @@ fn thread_create_does_not_change_active_thread() {
     assert_eq!(first["state"], "active", "first thread should remain active");
     assert_eq!(second["state"], "paused", "newly created thread should be paused");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_switch_to_activates_target_and_pauses_others() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(
         &sock,
@@ -474,14 +475,14 @@ fn thread_switch_to_activates_target_and_pauses_others() {
     assert_eq!(first["state"], "active");
     assert_eq!(second["state"], "paused");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_switch_to_returns_dir() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(
         &sock,
@@ -504,14 +505,14 @@ fn thread_switch_to_returns_dir() {
     assert!(std::path::Path::new(dir).is_absolute());
     assert!(dir.contains("first"));
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_switch_to_errors_for_unknown_id() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     let result = tsk_core::send_request(
         &sock,
@@ -520,18 +521,18 @@ fn thread_switch_to_errors_for_unknown_id() {
     );
     assert!(result.is_err(), "should error for unknown thread id");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_switch_to_outputs_json() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "first", "PRIO", "First"]);
-    run_tsk(&project, &["thread", "create", "second", "BG", "Second"]);
+    run_tsk(&home, &["thread", "create", "first", "PRIO", "First"]);
+    run_tsk(&home, &["thread", "create", "second", "BG", "Second"]);
 
-    let output = run_tsk(&project, &["thread", "switch-to", "first"]);
+    let output = run_tsk(&home, &["thread", "switch-to", "first"]);
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -540,7 +541,7 @@ fn cli_switch_to_outputs_json() {
     assert_eq!(v["state"], "active");
     assert!(v["dir"].as_str().is_some(), "should include dir");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 // ---------------------------------------------------------------------------
@@ -549,9 +550,9 @@ fn cli_switch_to_outputs_json() {
 
 #[test]
 fn thread_update_changes_description() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Original"}),
@@ -564,14 +565,14 @@ fn thread_update_changes_description() {
     assert_eq!(result["description"], "Updated description");
     assert_eq!(result["slug"], "fix-login", "slug unchanged");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_update_changes_priority() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -583,14 +584,14 @@ fn thread_update_changes_priority() {
 
     assert_eq!(result["priority"], "BG");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_update_changes_slug_and_renames_directory() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     let created = tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "old-slug", "priority": "BG", "description": "Test"}),
@@ -602,17 +603,17 @@ fn thread_update_changes_slug_and_renames_directory() {
     ).unwrap();
 
     assert_eq!(result["slug"], "new-slug");
-    assert!(!tsk_core::thread_dir(&project, id, "old-slug").exists(), "old dir should be gone");
-    assert!(tsk_core::thread_dir(&project, id, "new-slug").exists(), "new dir should exist");
+    assert!(!home.join("threads").join(format!("{:04}-old-slug", id)).exists(), "old dir should be gone");
+    assert!(home.join("threads").join(format!("{:04}-new-slug", id)).exists(), "new dir should exist");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_update_with_no_fields_is_a_noop() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -626,14 +627,14 @@ fn thread_update_with_no_fields_is_a_noop() {
     assert_eq!(result["priority"], "PRIO");
     assert_eq!(result["description"], "Fix it");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_update_errors_on_slug_collision() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "first", "priority": "PRIO", "description": "First"}),
@@ -647,50 +648,50 @@ fn thread_update_errors_on_slug_collision() {
     );
     assert!(result.is_err(), "should error on slug collision");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_update_errors_on_unknown_id() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     let result = tsk_core::send_request(&sock, "thread.update",
         serde_json::json!({"id": "nonexistent", "description": "nope"}),
     );
     assert!(result.is_err(), "should error for unknown thread");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_thread_update_changes_description() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Original"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Original"]);
 
-    let output = run_tsk(&project, &["thread", "update", "fix-login", "--description", "Updated"]);
+    let output = run_tsk(&home, &["thread", "update", "fix-login", "--description", "Updated"]);
     assert!(output.status.success());
 
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["description"], "Updated");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_thread_update_rejects_invalid_priority() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix it"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix it"]);
 
-    let output = run_tsk(&project, &["thread", "update", "fix-login", "--priority", "INVALID"]);
+    let output = run_tsk(&home, &["thread", "update", "fix-login", "--priority", "INVALID"]);
     assert!(!output.status.success());
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 // ---------------------------------------------------------------------------
@@ -699,9 +700,9 @@ fn cli_thread_update_rejects_invalid_priority() {
 
 #[test]
 fn thread_wait_sets_state_to_waiting() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -713,14 +714,14 @@ fn thread_wait_sets_state_to_waiting() {
 
     assert_eq!(result["state"]["waiting"]["reason"], "waiting for PR review");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_wait_without_reason_is_valid() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -732,14 +733,14 @@ fn thread_wait_without_reason_is_valid() {
 
     assert!(result["state"]["waiting"].is_object());
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_wait_errors_if_already_waiting() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -753,14 +754,14 @@ fn thread_wait_errors_if_already_waiting() {
     );
     assert!(result.is_err(), "should error if already waiting");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_resume_restores_previous_state() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -779,14 +780,14 @@ fn thread_resume_restores_previous_state() {
 
     assert_eq!(result["state"], "paused", "resume always returns to paused (active is a deliberate act via switch-to)");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_resume_errors_if_not_waiting() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -797,73 +798,73 @@ fn thread_resume_errors_if_not_waiting() {
     );
     assert!(result.is_err(), "should error if not waiting");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn thread_wait_persists_across_daemon_restart() {
-    let project = temp_project();
+    let home = temp_home();
 
     {
-        let daemon = start_daemon(&project);
-        let sock = tsk_core::socket_path(&project);
+        let daemon = start_daemon(&home);
+        let sock = home.join("tskd.sock");
         tsk_core::send_request(&sock, "thread.create",
             serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
         ).unwrap();
         tsk_core::send_request(&sock, "thread.wait",
             serde_json::json!({"id": "fix-login", "reason": "waiting for review"}),
         ).unwrap();
-        kill_daemon(&project, daemon);
+        kill_daemon(&home, daemon);
     }
 
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
     let result = tsk_core::send_request(&sock, "thread.list", serde_json::json!({})).unwrap();
     let threads = result["threads"].as_array().unwrap();
     assert_eq!(threads[0]["state"]["waiting"]["reason"], "waiting for review");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_thread_wait_sets_state_to_waiting() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix it"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix it"]);
 
-    let output = run_tsk(&project, &["thread", "wait", "fix-login", "waiting for deploy"]);
+    let output = run_tsk(&home, &["thread", "wait", "fix-login", "waiting for deploy"]);
     assert!(output.status.success());
 
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["state"]["waiting"]["reason"], "waiting for deploy");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_thread_resume_restores_state() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix it"]);
-    run_tsk(&project, &["thread", "wait", "fix-login"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix it"]);
+    run_tsk(&home, &["thread", "wait", "fix-login"]);
 
-    let output = run_tsk(&project, &["thread", "resume", "fix-login", "unblocked"]);
+    let output = run_tsk(&home, &["thread", "resume", "fix-login", "unblocked"]);
     assert!(output.status.success());
 
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["state"], "paused");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_errors_when_daemon_not_running() {
-    let project = temp_project();
+    let home = temp_home();
     // Don't start the daemon
 
-    let output = run_tsk(&project, &["thread", "list"]);
+    let output = run_tsk(&home, &["thread", "list"]);
     assert!(!output.status.success(), "should fail when daemon not running");
 
     let stderr = String::from_utf8(output.stderr).unwrap();
@@ -873,7 +874,7 @@ fn cli_errors_when_daemon_not_running() {
         stderr
     );
 
-    let _ = std::fs::remove_dir_all(&project);
+    let _ = std::fs::remove_dir_all(&home);
 }
 
 // ---------------------------------------------------------------------------
@@ -882,9 +883,9 @@ fn cli_errors_when_daemon_not_running() {
 
 #[test]
 fn task_create_on_active_thread() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     // Create and activate a thread
     tsk_core::send_request(&sock, "thread.create",
@@ -903,14 +904,14 @@ fn task_create_on_active_thread() {
     assert_eq!(result["id"], "TSK-0001-0001");
     assert_eq!(result["seq"], 1);
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_create_assigns_sequential_ids() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "my-thread", "priority": "PRIO", "description": "Thread"}),
@@ -929,14 +930,14 @@ fn task_create_assigns_sequential_ids() {
     assert_eq!(result["id"], "TSK-0001-0002");
     assert_eq!(result["seq"], 2);
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_create_with_due_by() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -951,14 +952,14 @@ fn task_create_with_due_by() {
 
     assert_eq!(result["due_by"], "2026-03-31");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_list_returns_tasks_for_active_thread() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -982,14 +983,14 @@ fn task_list_returns_tasks_for_active_thread() {
     assert!(descs.contains(&"First"));
     assert!(descs.contains(&"Second"));
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_list_is_sorted_by_seq() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "work", "priority": "PRIO", "description": "Work"}),
@@ -1012,7 +1013,7 @@ fn task_list_is_sorted_by_seq() {
     let tasks = result["tasks"].as_array().unwrap();
     assert_eq!(tasks[0]["description"], "B", "B should come first after seq update");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 // ---------------------------------------------------------------------------
@@ -1021,9 +1022,9 @@ fn task_list_is_sorted_by_seq() {
 
 #[test]
 fn task_start_transitions_to_in_progress() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -1042,14 +1043,14 @@ fn task_start_transitions_to_in_progress() {
 
     assert_eq!(result["state"], "in-progress");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_block_transitions_to_blocked() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -1072,14 +1073,14 @@ fn task_block_transitions_to_blocked() {
     assert_eq!(result["state"], "blocked");
     assert_eq!(result["blocked_reason"], "waiting for API spec");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_start_unblocks_a_blocked_task() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -1104,14 +1105,14 @@ fn task_start_unblocks_a_blocked_task() {
     assert!(result.get("blocked_reason").map_or(true, |v| v.is_null()),
         "blocked_reason should be cleared");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_complete_marks_as_done() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -1131,14 +1132,14 @@ fn task_complete_marks_as_done() {
 
     assert_eq!(result["state"], "done");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_cancel_from_any_state() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -1167,14 +1168,14 @@ fn task_cancel_from_any_state() {
     ).unwrap();
     assert_eq!(result2["state"], "cancelled");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_block_errors_if_not_in_progress() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -1191,14 +1192,14 @@ fn task_block_errors_if_not_in_progress() {
     );
     assert!(result.is_err(), "should error when blocking a not-started task");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_complete_errors_if_cancelled() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -1217,7 +1218,7 @@ fn task_complete_errors_if_cancelled() {
     );
     assert!(result.is_err(), "should error when completing a cancelled task");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 // ---------------------------------------------------------------------------
@@ -1226,9 +1227,9 @@ fn task_complete_errors_if_cancelled() {
 
 #[test]
 fn task_create_on_non_active_thread_via_thread_flag() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     // Create two threads; activate thread-a
     tsk_core::send_request(&sock, "thread.create",
@@ -1255,14 +1256,14 @@ fn task_create_on_non_active_thread_via_thread_flag() {
     let active = threads.iter().find(|t| t["slug"] == "thread-a").unwrap();
     assert_eq!(active["state"], "active", "thread-a should still be active");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_list_on_non_active_thread_via_thread_flag() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "thread-a", "priority": "PRIO", "description": "Thread A"}),
@@ -1291,7 +1292,7 @@ fn task_list_on_non_active_thread_via_thread_flag() {
     let result_a = tsk_core::send_request(&sock, "task.list", serde_json::json!({})).unwrap();
     assert_eq!(result_a["tasks"].as_array().unwrap().len(), 0);
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 // ---------------------------------------------------------------------------
@@ -1300,9 +1301,9 @@ fn task_list_on_non_active_thread_via_thread_flag() {
 
 #[test]
 fn task_update_changes_description() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -1321,14 +1322,14 @@ fn task_update_changes_description() {
 
     assert_eq!(result["description"], "Updated description");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_update_changes_due_by() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -1347,14 +1348,14 @@ fn task_update_changes_due_by() {
 
     assert_eq!(result["due_by"], "2026-04-01");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn task_update_errors_on_unknown_task_id() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -1368,14 +1369,14 @@ fn task_update_errors_on_unknown_task_id() {
     );
     assert!(result.is_err(), "should error for unknown task id");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn tasks_persist_in_tasks_json_file() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
-    let sock = tsk_core::socket_path(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
+    let sock = home.join("tskd.sock");
 
     let thread = tsk_core::send_request(&sock, "thread.create",
         serde_json::json!({"slug": "fix-login", "priority": "PRIO", "description": "Fix it"}),
@@ -1388,7 +1389,7 @@ fn tasks_persist_in_tasks_json_file() {
         serde_json::json!({"description": "Persisted task"}),
     ).unwrap();
 
-    let tasks_path = tsk_core::tasks_path(&project, thread_id, "fix-login");
+    let tasks_path = home.join("threads").join(format!("{:04}-fix-login", thread_id)).join("tasks.json");
     assert!(tasks_path.exists(), "tasks.json should exist at {:?}", tasks_path);
 
     let content = std::fs::read_to_string(&tasks_path).unwrap();
@@ -1396,7 +1397,7 @@ fn tasks_persist_in_tasks_json_file() {
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["description"], "Persisted task");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 // ---------------------------------------------------------------------------
@@ -1405,13 +1406,13 @@ fn tasks_persist_in_tasks_json_file() {
 
 #[test]
 fn cli_task_create_outputs_json() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
-    run_tsk(&project, &["thread", "switch-to", "fix-login"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
+    run_tsk(&home, &["thread", "switch-to", "fix-login"]);
 
-    let output = run_tsk(&project, &["task", "create", "Write unit tests"]);
+    let output = run_tsk(&home, &["task", "create", "Write unit tests"]);
     assert!(output.status.success(), "tsk task create should exit 0");
 
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).expect("should be valid JSON");
@@ -1419,113 +1420,113 @@ fn cli_task_create_outputs_json() {
     assert_eq!(v["state"], "not-started");
     assert_eq!(v["id"], "TSK-0001-0001");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_task_list_outputs_json() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
-    run_tsk(&project, &["thread", "switch-to", "fix-login"]);
-    run_tsk(&project, &["task", "create", "First task"]);
-    run_tsk(&project, &["task", "create", "Second task"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
+    run_tsk(&home, &["thread", "switch-to", "fix-login"]);
+    run_tsk(&home, &["task", "create", "First task"]);
+    run_tsk(&home, &["task", "create", "Second task"]);
 
-    let output = run_tsk(&project, &["task", "list"]);
+    let output = run_tsk(&home, &["task", "list"]);
     assert!(output.status.success());
 
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).expect("should be valid JSON");
     assert_eq!(v["tasks"].as_array().unwrap().len(), 2);
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_task_start_transitions_state() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
-    run_tsk(&project, &["thread", "switch-to", "fix-login"]);
-    run_tsk(&project, &["task", "create", "Implement feature"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
+    run_tsk(&home, &["thread", "switch-to", "fix-login"]);
+    run_tsk(&home, &["task", "create", "Implement feature"]);
 
-    let output = run_tsk(&project, &["task", "start", "TSK-0001-0001"]);
+    let output = run_tsk(&home, &["task", "start", "TSK-0001-0001"]);
     assert!(output.status.success());
 
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["state"], "in-progress");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_task_block_transitions_state() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
-    run_tsk(&project, &["thread", "switch-to", "fix-login"]);
-    run_tsk(&project, &["task", "create", "Implement feature"]);
-    run_tsk(&project, &["task", "start", "TSK-0001-0001"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
+    run_tsk(&home, &["thread", "switch-to", "fix-login"]);
+    run_tsk(&home, &["task", "create", "Implement feature"]);
+    run_tsk(&home, &["task", "start", "TSK-0001-0001"]);
 
-    let output = run_tsk(&project, &["task", "block", "TSK-0001-0001", "Waiting for API"]);
+    let output = run_tsk(&home, &["task", "block", "TSK-0001-0001", "Waiting for API"]);
     assert!(output.status.success());
 
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["state"], "blocked");
     assert_eq!(v["blocked_reason"], "Waiting for API");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_task_complete_transitions_state() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
-    run_tsk(&project, &["thread", "switch-to", "fix-login"]);
-    run_tsk(&project, &["task", "create", "Implement feature"]);
-    run_tsk(&project, &["task", "start", "TSK-0001-0001"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
+    run_tsk(&home, &["thread", "switch-to", "fix-login"]);
+    run_tsk(&home, &["task", "create", "Implement feature"]);
+    run_tsk(&home, &["task", "start", "TSK-0001-0001"]);
 
-    let output = run_tsk(&project, &["task", "complete", "TSK-0001-0001"]);
+    let output = run_tsk(&home, &["task", "complete", "TSK-0001-0001"]);
     assert!(output.status.success());
 
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["state"], "done");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_task_cancel_transitions_state() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
-    run_tsk(&project, &["thread", "switch-to", "fix-login"]);
-    run_tsk(&project, &["task", "create", "Not needed"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
+    run_tsk(&home, &["thread", "switch-to", "fix-login"]);
+    run_tsk(&home, &["task", "create", "Not needed"]);
 
-    let output = run_tsk(&project, &["task", "cancel", "TSK-0001-0001"]);
+    let output = run_tsk(&home, &["task", "cancel", "TSK-0001-0001"]);
     assert!(output.status.success());
 
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["state"], "cancelled");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_task_update_changes_description() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
-    run_tsk(&project, &["thread", "switch-to", "fix-login"]);
-    run_tsk(&project, &["task", "create", "Original"]);
+    run_tsk(&home, &["thread", "create", "fix-login", "PRIO", "Fix login"]);
+    run_tsk(&home, &["thread", "switch-to", "fix-login"]);
+    run_tsk(&home, &["task", "create", "Original"]);
 
-    let output = run_tsk(&project, &[
+    let output = run_tsk(&home, &[
         "task", "update", "TSK-0001-0001", "--description", "Updated",
     ]);
     assert!(output.status.success());
@@ -1533,20 +1534,20 @@ fn cli_task_update_changes_description() {
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["description"], "Updated");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }
 
 #[test]
 fn cli_task_create_with_thread_flag_is_a_diversion() {
-    let project = temp_project();
-    let daemon = start_daemon(&project);
+    let home = temp_home();
+    let daemon = start_daemon(&home);
 
-    run_tsk(&project, &["thread", "create", "thread-a", "PRIO", "Thread A"]);
-    run_tsk(&project, &["thread", "create", "thread-b", "BG", "Thread B"]);
-    run_tsk(&project, &["thread", "switch-to", "thread-a"]);
+    run_tsk(&home, &["thread", "create", "thread-a", "PRIO", "Thread A"]);
+    run_tsk(&home, &["thread", "create", "thread-b", "BG", "Thread B"]);
+    run_tsk(&home, &["thread", "switch-to", "thread-a"]);
 
     // Add a task to thread-b while thread-a is active
-    let output = run_tsk(&project, &[
+    let output = run_tsk(&home, &[
         "task", "create", "Diversion task", "--thread", "thread-b",
     ]);
     assert!(output.status.success());
@@ -1555,11 +1556,11 @@ fn cli_task_create_with_thread_flag_is_a_diversion() {
     assert_eq!(v["id"], "TSK-0002-0001", "task should belong to thread-b (id=2)");
 
     // Verify active thread unchanged
-    let list_out = run_tsk(&project, &["thread", "list"]);
+    let list_out = run_tsk(&home, &["thread", "list"]);
     let list: serde_json::Value = serde_json::from_slice(&list_out.stdout).unwrap();
     let active = list["threads"].as_array().unwrap()
         .iter().find(|t| t["slug"] == "thread-a").unwrap();
     assert_eq!(active["state"], "active");
 
-    cleanup(&project, daemon);
+    cleanup(&home, daemon);
 }

@@ -1,12 +1,12 @@
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tsk_core::{
     event_log_dir, event_log_path, index_path, socket_path, tasks_path, thread_dir, threads_dir,
-    tsk_dir, JsonRpcRequest, JsonRpcResponse, Priority, Task, TaskState, Thread, ThreadCreatedEvent,
-    ThreadResumedEvent, ThreadSwitchedEvent, ThreadUpdatedEvent, ThreadWaitedEvent, ThreadState,
+    tsk_home, JsonRpcRequest, JsonRpcResponse, Priority, Task, TaskState, Thread,
+    ThreadCreatedEvent, ThreadResumedEvent, ThreadSwitchedEvent, ThreadUpdatedEvent,
+    ThreadWaitedEvent, ThreadState,
 };
 
 fn main() {
@@ -18,8 +18,8 @@ fn main() {
         println!("USAGE:");
         println!("    tskd");
         println!();
-        println!("Starts the tsk daemon in the current directory.");
-        println!("Creates tsk/ directory structure if it does not exist.");
+        println!("Starts the global tsk daemon. State is stored in ~/.tsk/");
+        println!("Override with TSK_HOME environment variable.");
         return;
     }
 
@@ -28,23 +28,19 @@ fn main() {
         return;
     }
 
-    let project_root = std::env::var("TSK_PROJECT_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::current_dir().expect("Cannot determine current directory"));
-
-    eprintln!("tskd starting. project root: {:?}", project_root);
-    run_daemon(&project_root);
+    eprintln!("tskd starting. state root: {:?}", tsk_home());
+    run_daemon();
 }
 
-fn run_daemon(project_root: &Path) {
+fn run_daemon() {
     // Create storage directories
-    fs::create_dir_all(tsk_dir(project_root)).expect("Failed to create tsk dir");
-    fs::create_dir_all(event_log_dir(project_root)).expect("Failed to create event-log dir");
-    fs::create_dir_all(threads_dir(project_root)).expect("Failed to create threads dir");
+    fs::create_dir_all(tsk_home()).expect("Failed to create tsk home dir");
+    fs::create_dir_all(event_log_dir()).expect("Failed to create event-log dir");
+    fs::create_dir_all(threads_dir()).expect("Failed to create threads dir");
 
     // Load state from index.json if it exists
     let initial_state: Vec<Thread> = {
-        let index = index_path(project_root);
+        let index = index_path();
         if index.exists() {
             let content = fs::read_to_string(&index).unwrap_or_default();
             serde_json::from_str(&content).unwrap_or_default()
@@ -56,21 +52,18 @@ fn run_daemon(project_root: &Path) {
     let state = Arc::new(Mutex::new(initial_state));
 
     // Bind socket — always remove stale socket first, then bind
-    let sock = socket_path(project_root);
+    let sock = socket_path();
     let _ = fs::remove_file(&sock);
 
     let listener = UnixListener::bind(&sock).expect("Failed to bind socket");
     eprintln!("tskd listening on {:?}", sock);
 
-    let project_root = project_root.to_path_buf();
-
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 let state = Arc::clone(&state);
-                let root = project_root.clone();
                 std::thread::spawn(move || {
-                    handle_connection(stream, state, &root);
+                    handle_connection(stream, state);
                 });
             }
             Err(e) => eprintln!("Accept error: {}", e),
@@ -81,7 +74,6 @@ fn run_daemon(project_root: &Path) {
 fn handle_connection(
     stream: std::os::unix::net::UnixStream,
     state: Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) {
     let read_stream = match stream.try_clone() {
         Ok(s) => s,
@@ -107,29 +99,29 @@ fn handle_connection(
         }
     };
 
-    let response = handle_request(request, &state, project_root);
+    let response = handle_request(request, &state);
     let _ = writeln!(&stream, "{}", serde_json::to_string(&response).unwrap());
 }
 
 fn handle_request(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     match request.method.as_str() {
-        "thread.create"    => handle_thread_create(request, state, project_root),
-        "thread.list"      => handle_thread_list(request, state),
-        "thread.switch_to" => handle_thread_switch_to(request, state, project_root),
-        "thread.update"    => handle_thread_update(request, state, project_root),
-        "thread.wait"      => handle_thread_wait(request, state, project_root),
-        "thread.resume"    => handle_thread_resume(request, state, project_root),
-        "task.create"      => handle_task_create(request, state, project_root),
-        "task.list"        => handle_task_list(request, state, project_root),
-        "task.start"       => handle_task_start(request, state, project_root),
-        "task.block"       => handle_task_block(request, state, project_root),
-        "task.complete"    => handle_task_complete(request, state, project_root),
-        "task.cancel"      => handle_task_cancel(request, state, project_root),
-        "task.update"      => handle_task_update(request, state, project_root),
+        "thread.create"       => handle_thread_create(request, state),
+        "thread.list"         => handle_thread_list(request, state),
+        "thread.switch_to"    => handle_thread_switch_to(request, state),
+        "thread.update"       => handle_thread_update(request, state),
+        "thread.wait"         => handle_thread_wait(request, state),
+        "thread.resume"       => handle_thread_resume(request, state),
+        "thread.resolve_path" => handle_thread_resolve_path(request, state),
+        "task.create"         => handle_task_create(request, state),
+        "task.list"           => handle_task_list(request, state),
+        "task.start"          => handle_task_start(request, state),
+        "task.block"          => handle_task_block(request, state),
+        "task.complete"       => handle_task_complete(request, state),
+        "task.cancel"         => handle_task_cancel(request, state),
+        "task.update"         => handle_task_update(request, state),
         _ => JsonRpcResponse::error(request.id, -32601, "Method not found"),
     }
 }
@@ -152,19 +144,19 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-fn append_event(project_root: &Path, event: &impl serde::Serialize) -> Result<(), String> {
+fn append_event(event: &impl serde::Serialize) -> Result<(), String> {
     let line = serde_json::to_string(event).map_err(|e| e.to_string())? + "\n";
     fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(event_log_path(project_root))
+        .open(event_log_path())
         .and_then(|mut f| f.write_all(line.as_bytes()))
         .map_err(|e| e.to_string())
 }
 
-fn write_index(project_root: &Path, threads: &[Thread]) -> Result<(), String> {
+fn write_index(threads: &[Thread]) -> Result<(), String> {
     let content = serde_json::to_string_pretty(threads).map_err(|e| e.to_string())?;
-    fs::write(index_path(project_root), content).map_err(|e| e.to_string())
+    fs::write(index_path(), content).map_err(|e| e.to_string())
 }
 
 /// Format a Unix timestamp as a UTC date string (YYYY-MM-DD).
@@ -190,7 +182,6 @@ fn next_id(threads: &[Thread]) -> u32 {
 fn handle_thread_create(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -210,6 +201,7 @@ fn handle_thread_create(
     };
 
     let description = params["description"].as_str().unwrap_or("").to_string();
+    let path = params["path"].as_str().map(|s| s.to_string());
 
     let mut locked = state.lock().unwrap();
 
@@ -218,7 +210,7 @@ fn handle_thread_create(
     }
 
     let id = next_id(&locked);
-    let dir = thread_dir(project_root, id, &slug);
+    let dir = thread_dir(id, &slug);
 
     // Create per-thread context directory
     if let Err(e) = fs::create_dir_all(&dir) {
@@ -231,12 +223,17 @@ fn handle_thread_create(
 
     // Scaffold index.md with thread metadata
     let date = utc_date(now_secs());
+    let project_line = match &path {
+        Some(p) => format!("- **Project**: {}\n", p),
+        None => String::new(),
+    };
     let index_md = format!(
-        "# {id:04} {slug}\n\n- **Priority**: {priority}\n- **Created**: {date}\n- **Description**: {description}\n\n## Notes\n\n",
+        "# {id:04} {slug}\n\n- **Priority**: {priority}\n- **Created**: {date}\n{project_line}- **Description**: {description}\n\n## Notes\n\n",
         id = id,
         slug = slug,
         priority = priority_str,
         date = date,
+        project_line = project_line,
         description = params["description"].as_str().unwrap_or(""),
     );
     if let Err(e) = fs::write(dir.join("index.md"), index_md) {
@@ -253,6 +250,7 @@ fn handle_thread_create(
         state: ThreadState::Paused,
         priority,
         description,
+        path: path.clone(),
     };
 
     let event = ThreadCreatedEvent {
@@ -261,16 +259,17 @@ fn handle_thread_create(
         slug: slug.clone(),
         priority: thread.priority.clone(),
         description: thread.description.clone(),
+        path: path.clone(),
         timestamp: now_secs(),
     };
 
-    if let Err(e) = append_event(project_root, &event) {
+    if let Err(e) = append_event(&event) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to write event: {}", e));
     }
 
     locked.push(thread.clone());
 
-    if let Err(e) = write_index(project_root, &locked) {
+    if let Err(e) = write_index(&locked) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to write index: {}", e));
     }
 
@@ -290,7 +289,6 @@ fn handle_thread_list(
 fn handle_thread_switch_to(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -340,15 +338,15 @@ fn handle_thread_switch_to(
         timestamp: now_secs(),
     };
 
-    if let Err(e) = append_event(project_root, &event) {
+    if let Err(e) = append_event(&event) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to write event: {}", e));
     }
 
-    if let Err(e) = write_index(project_root, &locked) {
+    if let Err(e) = write_index(&locked) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to write index: {}", e));
     }
 
-    let dir = thread_dir(project_root, active_thread.id, &active_thread.slug);
+    let dir = thread_dir(active_thread.id, &active_thread.slug);
     let mut result = serde_json::to_value(&active_thread).unwrap();
     result["dir"] = serde_json::Value::String(dir.to_string_lossy().into_owned());
     JsonRpcResponse::success(request.id, result)
@@ -357,7 +355,6 @@ fn handle_thread_switch_to(
 fn handle_thread_update(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -368,6 +365,15 @@ fn handle_thread_update(
 
     let new_slug        = params["slug"].as_str().map(|s| s.to_string());
     let new_description = params["description"].as_str().map(|s| s.to_string());
+    let new_path = if params.get("path").is_some() {
+        if params["path"].is_null() {
+            Some(None) // explicitly clear
+        } else {
+            params["path"].as_str().map(|s| Some(s.to_string()))
+        }
+    } else {
+        None // not provided, don't change
+    };
     let new_priority: Option<Priority> = match params["priority"].as_str() {
         Some(s) => match s.parse() {
             Ok(p)  => Some(p),
@@ -396,8 +402,8 @@ fn handle_thread_update(
     // Rename directory if slug is changing
     if let Some(ref slug) = new_slug {
         if *slug != old_slug {
-            let old_dir = thread_dir(project_root, id, &old_slug);
-            let new_dir = thread_dir(project_root, id, slug);
+            let old_dir = thread_dir(id, &old_slug);
+            let new_dir = thread_dir(id, slug);
             if let Err(e) = fs::rename(&old_dir, &new_dir) {
                 return JsonRpcResponse::error(request.id, -32603, format!("Failed to rename thread dir: {}", e));
             }
@@ -409,9 +415,10 @@ fn handle_thread_update(
     if let Some(slug)        = new_slug        { thread.slug        = slug; }
     if let Some(description) = new_description { thread.description = description; }
     if let Some(priority)    = new_priority    { thread.priority    = priority; }
+    if let Some(path)        = new_path        { thread.path        = path; }
 
     // Update index.md header
-    let dir = thread_dir(project_root, thread.id, &thread.slug);
+    let dir = thread_dir(thread.id, &thread.slug);
     let index_md_path = dir.join("index.md");
     if index_md_path.exists() {
         if let Ok(content) = fs::read_to_string(&index_md_path) {
@@ -428,14 +435,15 @@ fn handle_thread_update(
         slug: thread.slug.clone(),
         priority: thread.priority.clone(),
         description: thread.description.clone(),
+        path: thread.path.clone(),
         timestamp: now_secs(),
     };
 
-    if let Err(e) = append_event(project_root, &event) {
+    if let Err(e) = append_event(&event) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to write event: {}", e));
     }
 
-    if let Err(e) = write_index(project_root, &locked) {
+    if let Err(e) = write_index(&locked) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to write index: {}", e));
     }
 
@@ -472,7 +480,6 @@ fn update_index_md(content: &str, slug: &str, priority: &str, description: &str)
 fn handle_thread_wait(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -502,11 +509,11 @@ fn handle_thread_wait(
         timestamp: now_secs(),
     };
 
-    if let Err(e) = append_event(project_root, &event) {
+    if let Err(e) = append_event(&event) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to write event: {}", e));
     }
 
-    if let Err(e) = write_index(project_root, &locked) {
+    if let Err(e) = write_index(&locked) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to write index: {}", e));
     }
 
@@ -517,7 +524,6 @@ fn handle_thread_wait(
 fn handle_thread_resume(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -547,11 +553,11 @@ fn handle_thread_resume(
         timestamp: now_secs(),
     };
 
-    if let Err(e) = append_event(project_root, &event) {
+    if let Err(e) = append_event(&event) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to write event: {}", e));
     }
 
-    if let Err(e) = write_index(project_root, &locked) {
+    if let Err(e) = write_index(&locked) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to write index: {}", e));
     }
 
@@ -559,13 +565,33 @@ fn handle_thread_resume(
     JsonRpcResponse::success(request.id, serde_json::to_value(&thread).unwrap())
 }
 
+fn handle_thread_resolve_path(
+    request: JsonRpcRequest,
+    state: &Arc<Mutex<Vec<Thread>>>,
+) -> JsonRpcResponse {
+    let path = match request.params["path"].as_str() {
+        Some(s) => s.to_string(),
+        None => return JsonRpcResponse::error(request.id, -32602, "Missing path"),
+    };
+
+    let locked = state.lock().unwrap();
+    let thread = locked.iter().find(|t| {
+        t.path.as_deref() == Some(path.as_str())
+    });
+
+    match thread {
+        Some(t) => JsonRpcResponse::success(request.id, serde_json::to_value(t).unwrap()),
+        None => JsonRpcResponse::success(request.id, serde_json::Value::Null),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Task helpers
 // ---------------------------------------------------------------------------
 
 /// Load tasks from the thread's tasks.json, returning an empty vec if missing.
-fn load_tasks(project_root: &Path, thread_id: u32, slug: &str) -> Result<Vec<Task>, String> {
-    let path = tasks_path(project_root, thread_id, slug);
+fn load_tasks(thread_id: u32, slug: &str) -> Result<Vec<Task>, String> {
+    let path = tasks_path(thread_id, slug);
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -574,9 +600,9 @@ fn load_tasks(project_root: &Path, thread_id: u32, slug: &str) -> Result<Vec<Tas
 }
 
 /// Persist tasks to the thread's tasks.json, sorted by seq.
-fn save_tasks(project_root: &Path, thread_id: u32, slug: &str, tasks: &mut Vec<Task>) -> Result<(), String> {
+fn save_tasks(thread_id: u32, slug: &str, tasks: &mut Vec<Task>) -> Result<(), String> {
     tasks.sort_by_key(|t| t.seq);
-    let path = tasks_path(project_root, thread_id, slug);
+    let path = tasks_path(thread_id, slug);
     let content = serde_json::to_string_pretty(tasks).map_err(|e| e.to_string())?;
     fs::write(&path, content).map_err(|e| e.to_string())
 }
@@ -625,7 +651,6 @@ fn find_task_idx(tasks: &[Task], task_id: &str) -> Option<usize> {
 fn handle_task_create(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -642,7 +667,7 @@ fn handle_task_create(
     };
     drop(locked);
 
-    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+    let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
         Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
     };
@@ -659,7 +684,7 @@ fn handle_task_create(
 
     tasks.push(task.clone());
 
-    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+    if let Err(e) = save_tasks(thread_id, &slug, &mut tasks) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
     }
 
@@ -673,7 +698,6 @@ fn handle_task_create(
 fn handle_task_list(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -684,7 +708,7 @@ fn handle_task_list(
     };
     drop(locked);
 
-    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+    let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
         Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
     };
@@ -700,7 +724,6 @@ fn handle_task_list(
 fn handle_task_start(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -716,7 +739,7 @@ fn handle_task_start(
     };
     drop(locked);
 
-    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+    let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
         Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
     };
@@ -736,7 +759,7 @@ fn handle_task_start(
     tasks[idx].state = TaskState::InProgress;
     tasks[idx].blocked_reason = None;
 
-    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+    if let Err(e) = save_tasks(thread_id, &slug, &mut tasks) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
     }
 
@@ -751,7 +774,6 @@ fn handle_task_start(
 fn handle_task_block(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -771,7 +793,7 @@ fn handle_task_block(
     };
     drop(locked);
 
-    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+    let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
         Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
     };
@@ -790,7 +812,7 @@ fn handle_task_block(
     tasks[idx].state = TaskState::Blocked;
     tasks[idx].blocked_reason = Some(reason);
 
-    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+    if let Err(e) = save_tasks(thread_id, &slug, &mut tasks) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
     }
 
@@ -805,7 +827,6 @@ fn handle_task_block(
 fn handle_task_complete(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -821,7 +842,7 @@ fn handle_task_complete(
     };
     drop(locked);
 
-    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+    let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
         Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
     };
@@ -838,7 +859,7 @@ fn handle_task_complete(
     tasks[idx].state = TaskState::Done;
     tasks[idx].blocked_reason = None;
 
-    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+    if let Err(e) = save_tasks(thread_id, &slug, &mut tasks) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
     }
 
@@ -853,7 +874,6 @@ fn handle_task_complete(
 fn handle_task_cancel(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -869,7 +889,7 @@ fn handle_task_cancel(
     };
     drop(locked);
 
-    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+    let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
         Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
     };
@@ -882,7 +902,7 @@ fn handle_task_cancel(
     tasks[idx].state = TaskState::Cancelled;
     tasks[idx].blocked_reason = None;
 
-    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+    if let Err(e) = save_tasks(thread_id, &slug, &mut tasks) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
     }
 
@@ -897,7 +917,6 @@ fn handle_task_cancel(
 fn handle_task_update(
     request: JsonRpcRequest,
     state: &Arc<Mutex<Vec<Thread>>>,
-    project_root: &Path,
 ) -> JsonRpcResponse {
     let params = &request.params;
 
@@ -917,7 +936,7 @@ fn handle_task_update(
     };
     drop(locked);
 
-    let mut tasks = match load_tasks(project_root, thread_id, &slug) {
+    let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
         Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
     };
@@ -931,7 +950,7 @@ fn handle_task_update(
     if let Some(due)  = new_due_by      { tasks[idx].due_by = Some(due); }
     if let Some(seq)  = new_seq         { tasks[idx].seq = seq; }
 
-    if let Err(e) = save_tasks(project_root, thread_id, &slug, &mut tasks) {
+    if let Err(e) = save_tasks(thread_id, &slug, &mut tasks) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));
     }
 
