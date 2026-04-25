@@ -117,6 +117,7 @@ pub fn render(
     thread_slug: &str,
     scroll: usize,
     show_help: bool,
+    zoom_slug: Option<&str>,
 ) {
     let area = frame.area();
 
@@ -197,9 +198,13 @@ pub fn render(
     );
 
     // --- Status bar ---
+    let zoom_indicator = match zoom_slug {
+        Some(slug) => format!("   [zoom: {}]", slug),
+        None => String::new(),
+    };
     let status_text = format!(
-        "  #{:04} {} > tasks   |   esc back   |   ? help",
-        thread_id, thread_slug,
+        "  #{:04} {} > tasks   |   esc back   |   ? help{}",
+        thread_id, thread_slug, zoom_indicator,
     );
     frame.render_widget(
         Paragraph::new(status_text).style(Style::default().bg(Color::DarkGray)),

@@ -68,13 +68,14 @@ This installs two binaries: `tsk` (CLI + TUI) and `tskd` (daemon).
 
 ### Usage
 
-**1. Start the daemon** in your project root:
+**1. Start the daemon** once per user session:
 
 ```bash
 tskd &
 ```
 
-The daemon creates a `tsk/` directory in the current folder (committed to source control) and a socket at `/tmp/tsk-{project-hash}.sock`.
+The daemon stores all state in `~/.tsk/` and listens on `~/.tsk/tskd.sock`. You only need
+one daemon running — it serves all your projects.
 
 **2. Create a thread:**
 
@@ -92,7 +93,7 @@ Output is JSON — useful for agents and scripting:
   "state": "paused",
   "priority": "PRIO",
   "description": "Fix the login bug",
-  "dir": "/your/project/tsk/threads/0001-fix-login"
+  "dir": "/home/user/.tsk/threads/0001-fix-login"
 }
 ```
 
@@ -101,8 +102,8 @@ New threads start paused. Use `switch-to` to activate one.
 **3. Switch to a thread:**
 
 ```bash
-tsk thread switch-to 1        # by id
-tsk thread switch-to fix-login # by slug
+tsk thread switch-to 1         # by id
+tsk thread switch-to fix-login  # by slug
 ```
 
 **4. Update a thread:**
@@ -111,6 +112,8 @@ tsk thread switch-to fix-login # by slug
 tsk thread update fix-login --description "New description"
 tsk thread update fix-login --slug new-slug
 tsk thread update fix-login --priority BG
+tsk thread update fix-login --path /abs/path/to/project   # bind to a project directory
+tsk thread update fix-login --path ""                      # clear the binding
 ```
 
 All flags are optional — only the fields you pass are changed. If you change the slug, the thread directory is renamed automatically.
@@ -121,7 +124,13 @@ All flags are optional — only the fields you pass are changed. If you change t
 tsk thread list
 ```
 
-**6. Launch the TUI** (no arguments):
+**6. Find the thread bound to the current directory:**
+
+```bash
+tsk where
+```
+
+**7. Launch the TUI** (no arguments):
 
 ```bash
 tsk
@@ -129,18 +138,32 @@ tsk
 
 Displays threads grouped by section (Active / Priority & Incidents / Background). Updates live when the CLI makes changes. Use `j`/`k` to scroll, `ctrl-d`/`ctrl-u` to page, `gg`/`G` to jump to top/bottom, `?` for keybindings, `q` to quit.
 
-### Project storage
+### Global storage
 
-Everything under `tsk/` is committed to source control:
+All tsk state lives in `~/.tsk/` — not inside your projects:
 
 ```
-tsk/
+~/.tsk/
+  tskd.sock              # Unix socket (present while daemon is running)
   event-log/
     events.ndjson        # append-only audit trail of all events
   threads/
     index.json           # authoritative thread state
     0001-fix-login/      # per-thread context directory
 ```
+
+### Binding threads to projects
+
+A thread can be bound to a project directory with `--path`:
+
+```bash
+tsk thread create fix-login PRIO "Fix the login bug" --path /abs/path/to/project
+```
+
+From inside that directory, `tsk where` shows the bound thread. If the project has a
+`doc/tsk/` directory, `tsk` auto-zooms to the bound thread when run from that project.
+You can commit project-local context files in `doc/tsk/` alongside the global thread
+context in `~/.tsk/threads/{id}-{slug}/`.
 
 ### Running tests
 
@@ -205,7 +228,7 @@ This publishes `tsk-core` first, waits 30 seconds for crates.io to index it, the
 
 Commands: `task create`, `task start`, `task block`, `task complete`, `task cancel`, `task update`, `task list`.
 
-Tasks live in `tsk/threads/{id}-{slug}/tasks.json` — one file per thread.
+Tasks live in `~/.tsk/threads/{id}-{slug}/tasks.json` — one file per thread.
 
 Task fields: `id` (`TSK-{thread-id}-{seq}` e.g. `TSK-0001-0001`), `description`, `state`, `due_by` (ISO 8601, optional), `seq` (integer, for manual ordering).
 
@@ -251,7 +274,7 @@ The active thread does not change. You record the thought and get back to what y
 
 ### How it works
 
-`tskd` is a headless daemon that owns all state. `tsk` is a thin client — in CLI mode it sends a JSON-RPC request over a Unix socket and exits; in TUI mode it watches `tsk/threads/index.json` for changes and re-renders instantly. Multiple clients (CLI, TUI, agents) can talk to the daemon concurrently. See `doc/arch/` and `doc/adr/` for the full architecture.
+`tskd` is a headless daemon that owns all state. One `tskd` instance runs per user — it is not per-project. `tsk` is a thin client — in CLI mode it sends a JSON-RPC request over the Unix socket at `~/.tsk/tskd.sock` and exits; in TUI mode it watches `~/.tsk/threads/index.json` for changes and re-renders instantly. Multiple clients (CLI, TUI, agents) can talk to the daemon concurrently. See `doc/arch/` and `doc/adr/` for the full architecture.
 
 ## CI
 

@@ -9,9 +9,12 @@ A **thread** is a stream of work — a feature, bug fix, investigation, or task.
 many threads but only one is **active** at a time. When you switch to a thread, all others
 are paused.
 
-Each thread has a **directory** (`tsk/threads/{id}-{slug}/`) for storing context: notes,
+Each thread has a **directory** (`~/.tsk/threads/{id}-{slug}/`) for storing context: notes,
 plans, decisions, links — anything needed to resume this thread quickly without losing
 cognitive continuity. This directory is the thread's working memory.
+
+Threads can optionally be **bound to a project directory** via a `path` field. When a thread
+is bound, `tsk where` (run from inside that directory) shows it as the relevant thread.
 
 Thread ids are stable zero-padded integers (0001, 0002, ...). Reference a thread by id
 (`1` or `0001`) or slug (`fix-login`).
@@ -25,12 +28,13 @@ Thread ids are stable zero-padded integers (0001, 0002, ...). Reference a thread
 ### Commands
 
 ```
-tsk thread create <slug> <priority> <description>              create a new thread (starts paused)
-tsk thread switch-to <id-or-slug>                              activate a thread (pauses all others)
-tsk thread update <id-or-slug> [--slug] [--description] [--priority]  update thread metadata
-tsk thread list                                                list all threads as JSON
-tsk context                                                    print this context
-tsk                                                            launch the live TUI
+tsk thread create <slug> <priority> <description> [--path <dir>]       create a new thread (starts paused)
+tsk thread switch-to <id-or-slug>                                       activate a thread (pauses all others)
+tsk thread update <id-or-slug> [--slug] [--description] [--priority] [--path <dir>]  update thread metadata
+tsk thread list                                                         list all threads as JSON
+tsk where                                                               show which thread is bound to the current directory
+tsk context                                                             print this context
+tsk                                                                     launch the live TUI
 
 tsk task create <description> [--due-by <date>] [--thread <id>]  create a task (not-started)
 tsk task list [--thread <id>]                                  list tasks for a thread as JSON
@@ -55,12 +59,15 @@ thread and get straight back to what you were doing).
   "priority": "PRIO",
   "state": "paused",
   "description": "Fix the login bug",
-  "dir": "/your/project/tsk/threads/0001-fix-login"
+  "dir": "/home/user/.tsk/threads/0001-fix-login",
+  "path": "/home/user/projects/my-project"
 }
 ```
 
-The `dir` field is the absolute path to the thread's context directory. This is where you
-should read and write context files. An `index.md` is pre-created in this directory.
+The `dir` field is the absolute path to the thread's context directory inside `~/.tsk/`.
+This is where you should read and write context files. An `index.md` is pre-created in
+this directory. The optional `path` field is the project directory this thread is bound to
+(omitted if not set).
 
 **`tsk thread list`** returns all threads:
 ```json
@@ -151,7 +158,7 @@ to store. tsk is your working memory across tasks.
 
 1. `tsk thread list` — check current state before starting
 2. `tsk thread switch-to <id>` — activate the thread you are working on
-3. Read `tsk/threads/{id}-{slug}/` to restore context
+3. Read the thread's `dir` (from the response) to restore context — files live under `~/.tsk/threads/{id}-{slug}/`
 4. Do the work; write context files as you go
 5. When done or interrupted, update your context files before switching away
 
@@ -176,11 +183,49 @@ useful. You are a co-pilot, not the pilot.
 
 ### Suggested workflow
 
-1. At session start: `tsk context` to understand the current state
+1. At session start: `tsk context` to understand the current state; if in a project directory, run `tsk where` to find the bound thread
 2. Ask the human which thread they are working on, or suggest based on current state
 3. As the human works, help them document decisions and progress in the thread directory
 4. When the human is interrupted: help them capture context before switching away
 5. When resuming: read the thread directory together and summarise where they left off
+
+---
+
+## Daemon and storage
+
+tsk uses a **single global daemon** (`tskd`) per user. All thread state lives in `~/.tsk/`:
+
+```
+~/.tsk/
+  tskd.sock              # Unix socket (daemon must be running)
+  event-log/
+    events.ndjson        # append-only audit trail
+  threads/
+    index.json           # authoritative thread state
+    0001-fix-login/      # per-thread context directory
+```
+
+The daemon is started once and serves all projects. You do not need to start it per project.
+
+### Project binding
+
+Threads can be bound to a project directory with `--path`:
+
+```
+tsk thread create my-feature PRIO "Implement X" --path /abs/path/to/project
+tsk thread update my-feature --path /abs/path/to/project   # add or change binding
+tsk thread update my-feature --path ""                      # clear binding
+```
+
+From inside a project directory, `tsk where` shows which thread is bound to it:
+
+```
+tsk where
+```
+
+If a project has a `doc/tsk/` directory, `tsk` auto-zooms to the bound thread when run
+from that project. You can place project-local context files (notes, plans, ADRs) in
+`doc/tsk/` alongside the thread's global context in `~/.tsk/threads/{id}-{slug}/`.
 
 ---
 

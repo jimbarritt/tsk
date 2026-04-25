@@ -12,9 +12,7 @@ use crossterm::{
 use ratatui::prelude::*;
 use std::io;
 use std::time::{Duration, Instant};
-use tsk_core::{send_request, socket_path, Task, Thread, ThreadState};
-
-use crate::project_root;
+use tsk_core::{send_request, Task, Thread, ThreadState};
 
 // -----------------------------------------------------------------------
 // Pane state
@@ -69,9 +67,8 @@ pub use threads_pane::count_rows;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let root = project_root();
-    let sock = socket_path(&root);
+pub fn run(zoom_thread: Option<tsk_core::Thread>) -> Result<(), Box<dyn std::error::Error>> {
+    let sock = tsk_core::socket_path();
 
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -86,7 +83,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = event_loop(&mut terminal, &sock);
+    let result = event_loop(&mut terminal, &sock, zoom_thread);
 
     let _ = std::panic::take_hook();
     disable_raw_mode()?;
@@ -107,10 +104,21 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     sock: &std::path::Path,
+    zoom_thread: Option<tsk_core::Thread>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut pane = Pane::Threads;
+    let zoom_slug: Option<String> = zoom_thread.as_ref().map(|t| t.slug.clone());
+    let mut pane = match zoom_thread {
+        Some(ref z) => {
+            Pane::Tasks { thread_id: z.id, slug: z.slug.clone() }
+        }
+        None => Pane::Threads,
+    };
     let mut threads: Vec<Thread> = fetch_threads(sock).unwrap_or_default();
-    let mut tasks: Vec<Task> = Vec::new();
+    let mut tasks: Vec<Task> = if let Pane::Tasks { thread_id, .. } = &pane {
+        fetch_tasks(sock, &thread_id.to_string()).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let mut error_msg: Option<String> = if !sock.exists() {
         Some("tskd is not running. Start it with: tskd".to_string())
     } else {
@@ -153,6 +161,7 @@ fn event_loop(
                     slug,
                     task_scroll,
                     show_help,
+                    zoom_slug.as_deref(),
                 );
             }
         })?;

@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
@@ -86,6 +85,8 @@ pub struct Thread {
     pub state: ThreadState,
     pub priority: Priority,
     pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 impl Thread {
@@ -151,9 +152,9 @@ impl Task {
 // Storage paths (tasks)
 // ---------------------------------------------------------------------------
 
-/// Path to the tasks file for a thread: `tsk/threads/{id}-{slug}/tasks.json`
-pub fn tasks_path(project_root: &Path, thread_id: u32, slug: &str) -> PathBuf {
-    thread_dir(project_root, thread_id, slug).join("tasks.json")
+/// Path to the tasks file for a thread: `~/.tsk/threads/{id}-{slug}/tasks.json`
+pub fn tasks_path(thread_id: u32, slug: &str) -> PathBuf {
+    thread_dir(thread_id, slug).join("tasks.json")
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +168,8 @@ pub struct ThreadCreatedEvent {
     pub slug: String,
     pub priority: Priority,
     pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     pub timestamp: u64,
 }
 
@@ -201,6 +204,8 @@ pub struct ThreadUpdatedEvent {
     pub slug: String,
     pub priority: Priority,
     pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     pub timestamp: u64,
 }
 
@@ -256,47 +261,50 @@ impl JsonRpcResponse {
 }
 
 // ---------------------------------------------------------------------------
+// State root
+// ---------------------------------------------------------------------------
+
+/// Returns the tsk home directory: `$TSK_HOME` if set, otherwise `$HOME/.tsk`.
+pub fn tsk_home() -> PathBuf {
+    if let Ok(v) = std::env::var("TSK_HOME") {
+        return PathBuf::from(v);
+    }
+    let home = std::env::var("HOME").expect("HOME environment variable not set");
+    PathBuf::from(home).join(".tsk")
+}
+
+// ---------------------------------------------------------------------------
 // Storage paths
 // ---------------------------------------------------------------------------
 
-pub fn tsk_dir(project_root: &Path) -> PathBuf {
-    project_root.join("tsk")
+pub fn event_log_dir() -> PathBuf {
+    tsk_home().join("event-log")
 }
 
-pub fn event_log_dir(project_root: &Path) -> PathBuf {
-    tsk_dir(project_root).join("event-log")
+pub fn event_log_path() -> PathBuf {
+    event_log_dir().join("events.ndjson")
 }
 
-pub fn event_log_path(project_root: &Path) -> PathBuf {
-    event_log_dir(project_root).join("events.ndjson")
+pub fn threads_dir() -> PathBuf {
+    tsk_home().join("threads")
 }
 
-pub fn threads_dir(project_root: &Path) -> PathBuf {
-    tsk_dir(project_root).join("threads")
+pub fn index_path() -> PathBuf {
+    threads_dir().join("index.json")
 }
 
-pub fn index_path(project_root: &Path) -> PathBuf {
-    threads_dir(project_root).join("index.json")
-}
-
-/// Thread working directory: `tsk/threads/{id:04}-{slug}/`
-pub fn thread_dir(project_root: &Path, id: u32, slug: &str) -> PathBuf {
-    threads_dir(project_root).join(format!("{:04}-{}", id, slug))
+/// Thread working directory: `~/.tsk/threads/{id:04}-{slug}/`
+pub fn thread_dir(id: u32, slug: &str) -> PathBuf {
+    threads_dir().join(format!("{:04}-{}", id, slug))
 }
 
 // ---------------------------------------------------------------------------
 // Socket path
 // ---------------------------------------------------------------------------
 
-/// Derives a stable socket path from the project root directory.
-/// Uses first 8 chars of SHA-256 of the path string, so multiple projects
-/// can have daemons running simultaneously.
-pub fn socket_path(project_root: &Path) -> PathBuf {
-    let mut hasher = Sha256::new();
-    hasher.update(project_root.to_string_lossy().as_bytes());
-    let result = hasher.finalize();
-    let hash: String = result.iter().map(|b| format!("{:02x}", b)).collect();
-    PathBuf::from(format!("/tmp/tsk-{}.sock", &hash[..8]))
+/// Returns the daemon socket path: `~/.tsk/tskd.sock`.
+pub fn socket_path() -> PathBuf {
+    tsk_home().join("tskd.sock")
 }
 
 // ---------------------------------------------------------------------------
@@ -370,6 +378,7 @@ mod tests {
             state: ThreadState::Active,
             priority: Priority::Priority,
             description: "Fix it".to_string(),
+            path: None,
         };
         assert_eq!(t.id_str(), "0001");
     }
@@ -382,6 +391,7 @@ mod tests {
             state: ThreadState::Paused,
             priority: Priority::Background,
             description: "".to_string(),
+            path: None,
         };
         assert_eq!(t.id_str(), "0042");
     }
@@ -489,6 +499,7 @@ mod tests {
             slug: "fix-login".to_string(),
             priority: Priority::Priority,
             description: "Fix the login bug".to_string(),
+            path: None,
             timestamp: 1234567890,
         };
         let s = serde_json::to_string(&event).unwrap();
@@ -508,6 +519,7 @@ mod tests {
             state: ThreadState::Active,
             priority: Priority::Priority,
             description: "Fix it".to_string(),
+            path: None,
         };
         let s = serde_json::to_string(&thread).unwrap();
         let v: serde_json::Value = serde_json::from_str(&s).unwrap();
@@ -556,43 +568,39 @@ mod tests {
             state: ThreadState::Waiting { reason: Some("waiting for review".to_string()) },
             priority: Priority::Priority,
             description: "Fix it".to_string(),
+            path: None,
         };
         let s = serde_json::to_string(&thread).unwrap();
         let back: Thread = serde_json::from_str(&s).unwrap();
         assert_eq!(back, thread);
     }
 
-    // --- socket_path ---
+    // --- tsk_home / socket_path ---
 
     #[test]
-    fn socket_path_is_under_tmp() {
-        let path = socket_path(std::path::Path::new("/some/project"));
-        assert!(path.starts_with("/tmp/"));
-        let name = path.file_name().unwrap().to_str().unwrap();
-        assert!(name.starts_with("tsk-"));
-        assert!(name.ends_with(".sock"));
+    fn tsk_home_respects_env_var() {
+        std::env::set_var("TSK_HOME", "/tmp/test-tsk-home");
+        let home = tsk_home();
+        assert_eq!(home, PathBuf::from("/tmp/test-tsk-home"));
+        std::env::remove_var("TSK_HOME");
     }
 
     #[test]
-    fn socket_path_is_deterministic_for_same_root() {
-        let p1 = socket_path(std::path::Path::new("/some/project"));
-        let p2 = socket_path(std::path::Path::new("/some/project"));
-        assert_eq!(p1, p2);
-    }
-
-    #[test]
-    fn socket_path_differs_for_different_roots() {
-        let p1 = socket_path(std::path::Path::new("/project/a"));
-        let p2 = socket_path(std::path::Path::new("/project/b"));
-        assert_ne!(p1, p2);
+    fn socket_path_is_inside_tsk_home() {
+        std::env::set_var("TSK_HOME", "/tmp/test-tsk-sock");
+        let path = socket_path();
+        assert_eq!(path, PathBuf::from("/tmp/test-tsk-sock/tskd.sock"));
+        std::env::remove_var("TSK_HOME");
     }
 
     // --- thread_dir ---
 
     #[test]
     fn thread_dir_uses_zero_padded_id() {
-        let dir = thread_dir(std::path::Path::new("/proj"), 1, "fix-login");
+        std::env::set_var("TSK_HOME", "/tmp/test-tsk-dir");
+        let dir = thread_dir(1, "fix-login");
         assert!(dir.to_str().unwrap().contains("0001-fix-login"));
+        std::env::remove_var("TSK_HOME");
     }
 
     // --- Task ---
@@ -675,8 +683,47 @@ mod tests {
 
     #[test]
     fn tasks_path_is_inside_thread_dir() {
-        let path = tasks_path(std::path::Path::new("/proj"), 1, "fix-login");
+        std::env::set_var("TSK_HOME", "/tmp/test-tsk-tasks");
+        let path = tasks_path(1, "fix-login");
         assert!(path.to_str().unwrap().contains("0001-fix-login"));
         assert!(path.to_str().unwrap().ends_with("tasks.json"));
+        std::env::remove_var("TSK_HOME");
+    }
+
+    // --- Thread path field ---
+
+    #[test]
+    fn thread_path_omitted_when_none() {
+        let thread = Thread {
+            id: 1,
+            slug: "test".to_string(),
+            state: ThreadState::Paused,
+            priority: Priority::Background,
+            description: "Test".to_string(),
+            path: None,
+        };
+        let v: serde_json::Value = serde_json::to_value(&thread).unwrap();
+        assert!(v.get("path").is_none(), "path should be omitted when None");
+    }
+
+    #[test]
+    fn thread_path_included_when_set() {
+        let thread = Thread {
+            id: 1,
+            slug: "test".to_string(),
+            state: ThreadState::Paused,
+            priority: Priority::Background,
+            description: "Test".to_string(),
+            path: Some("/home/user/project".to_string()),
+        };
+        let v: serde_json::Value = serde_json::to_value(&thread).unwrap();
+        assert_eq!(v["path"], "/home/user/project");
+    }
+
+    #[test]
+    fn thread_without_path_field_deserialises_as_none() {
+        let json = r#"{"id":1,"slug":"test","state":"paused","priority":"BG","description":"Test"}"#;
+        let thread: Thread = serde_json::from_str(json).unwrap();
+        assert_eq!(thread.path, None);
     }
 }
