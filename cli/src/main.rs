@@ -6,7 +6,11 @@ use tsk_core::{send_request, Priority};
 // ---------------------------------------------------------------------------
 
 pub fn resolve_zoom_thread(sock: &std::path::Path) -> Option<tsk_core::Thread> {
-    let mut dir = std::env::current_dir().ok()?;
+    // Use PWD env var if available (respects shell cwd), fallback to current_dir()
+    let mut dir = std::env::var("PWD")
+        .map(std::path::PathBuf::from)
+        .or_else(|_| std::env::current_dir())
+        .ok()?;
     loop {
         if dir.join("doc/tsk").is_dir() {
             let path_str = dir.to_string_lossy().into_owned();
