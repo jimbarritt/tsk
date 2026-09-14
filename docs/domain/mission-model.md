@@ -45,6 +45,9 @@ Supporting points that carried into tsk's model:
   tsk's task model relies on.
 - Mission analysis separates specified tasks, implied tasks, and the essential task.
   tsk keeps these as flags on entries in one task list, not as separate sections.
+- Objectives relate horizontally as well as vertically, through lines of operation
+  and lines of effort. Not yet used in tsk's model; recorded for when a horizontal
+  relationship between objectives is needed.
 - **Mission command** (from the German *Auftragstaktik*) issues a commander's
   intent, the purpose and desired end state, rather than a detailed sequence,
   because detailed plans do not survive contact with reality. This underlies why a
@@ -70,29 +73,6 @@ standing operating procedures, referenced rather than restated. See
 [docs/domain/ubiquitous-language.md](ubiquitous-language.md#ksobr) for the current
 table, and note ksobr's own domain modelling is not yet settled, tracked as a task
 under the nexus and territory mission, not as tsk's own ubiquitous language.
-
-## What confirmed the model in use
-
-Writing the 2026-09-14 bootstrap mission in tsk's own terms tested it. Three parts
-held without change:
-
-- **The intelligence-gathering mission works.** Some missions produce no product
-  change: one outputs documents, another outputs a consumption figure. The concept
-  needed no adjustment.
-- **Assignment to a human works.** Several bootstrap missions are assigned to a
-  person, not an agent. Nothing in the model needed changing, supporting mission
-  being relational rather than tied to a particular kind of actor.
-- **A mission can defer a decision to a later mission.** M-BOOT-01 explicitly does
-  not decide the official data ref layout; M-BOOT-04 does. Decision authority is
-  therefore a field whose value is sometimes "not yours, see mission {id}".
-
-Two observations concerned the bootstrap specifically, not the model:
-
-- Mission order in the bootstrap sequence is a total order: several early missions
-  must run in sequence. This matches the axes idea above.
-- The missions that build tsk's storage cannot themselves be stored in tsk's
-  storage yet. The bootstrap's own missions live in a plain directory until the
-  harness and the data ref exist to hold them properly.
 
 ## Open
 

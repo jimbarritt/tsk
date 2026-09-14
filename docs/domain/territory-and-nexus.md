@@ -36,6 +36,8 @@ where to find it.
   coordination, and rig-level for project work.
 - The town holds a `routes.jsonl` routing table from ID prefix to rig. That file is
   the cross-repo index, the nearest existing equivalent to a nexus.
+- Wyvern, cited as a Gastown example, is Steve Yegge's game project: one of the
+  rigs, not a repo structure in its own right.
 
 ## Open
 
