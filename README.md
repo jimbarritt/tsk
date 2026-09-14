@@ -23,6 +23,8 @@ The four dimensions are:
 - Product
 - Scale
 
+For a full index of documentation, see [docs/index.md](docs/index.md).
+
 Term definitions, rejected alternatives, and the reasons behind them are in
 [docs/domain/ubiquitous-language.md](docs/domain/ubiquitous-language.md).
 
