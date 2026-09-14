@@ -23,6 +23,9 @@ The four dimensions are:
 - Product
 - Scale
 
+Term definitions, rejected alternatives, and the reasons behind them are in
+[docs/domain/ubiquitous-language.md](docs/domain/ubiquitous-language.md).
+
 ## Prerequisites
 
 tsk is written in Rust. You need the Rust toolchain installed before building or installing.

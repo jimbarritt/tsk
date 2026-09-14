@@ -136,3 +136,58 @@ A point at which the system is fully functional and could be stopped at. Not jus
 "code compiles" or "tests pass," but a shippable, working system, even one doing less
 than eventually intended.
 
+## Product
+
+One of tsk's four core dimensions (Navigation, Delta, Product, Scale), per the README.
+Describes the thing being built: not a plan of work, but what the product does or
+should do for its users, and the state it is in.
+
+## Story card
+
+An ephemeral planning token, in the Navigation dimension. A placeholder for a
+conversation, not a specification. Its job is to name and scope a piece of work small
+enough to deliver in a short cycle, and to trigger the right conversations. Once those
+conversation happens, the card has done its job. It belongs to the path, not to the
+product model, and its being closed is an opinion, not a fact about the product.
+
+## Product capability (or feature)
+
+A persistent description of what the product does, in the Product dimension. It either
+exists in the product or it doesn't, though it may evolve. It has acceptance criteria
+that define what "healthy" means for it, and a health state. It persists in the
+product model for as long as it is relevant, and its history is never deleted, only
+superseded.
+
+A story card and a product capability overlap in content, they describe the same
+thing, but are not the same kind of thing: one is a planning instrument with a
+lifecycle measured in days, the other a product record with a lifecycle measured in
+the life of the product. Do not complect the two, nor either with a delta; each lives
+in a different dimension.
+
+## `Delta Gate`
+
+The rule that a product capability transitions state only via a delta; no other
+mechanism does it. A capability moves from not delivered to delivered when, and only
+when, its delta deploys to production and the system is healthy against its
+acceptance criteria. A card closing is downstream of that fact, not the cause of it:
+"done" is not a status set by hand, it is a consequence of a verified production
+state.
+
+## System health
+
+Every capability, subsystem, and the system overall is, at any moment, in one of two
+states: **healthy** (functioning as intended, acceptance criteria met in production)
+or **unhealthy** (degraded, broken, or not yet delivered). The state is fractal:
+overall system health is a composite of component health states, at any zoom level.
+Health can regress, healthy back to unhealthy, via a subsequent delta, without any
+card being reopened; it is a current, queryable fact, not a historical record of card
+closures.
+
+## Scale
+
+One of tsk's four core dimensions (Navigation, Delta, Product, Scale), per the README.
+Continuous, not tiered: there are no artificial boundaries such as epic, story, or
+sub-task. One entity type nests at whatever level is meaningful, and the zoom level
+determines the view rather than the type. A roadmap and a backlog are both views over
+the same underlying entities, not separate artefacts.
+
