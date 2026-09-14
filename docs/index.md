@@ -13,10 +13,17 @@ Start here to navigate the documentation. An agent with only the repo clone shou
 Core concepts and models that shape tsk's design. Start with ubiquitous language to understand the terminology.
 
 - [ubiquitous-language.md](domain/ubiquitous-language.md): every term tsk uses, with definitions and rejected alternatives.
+- [domain-model-overview.md](domain/domain-model-overview.md): the mission and task model's decided rules, the tsk/ksobr split table, and open questions.
 - [mission-model.md](domain/mission-model.md): why the mission model is structured this way, grounded in military doctrine.
+- [bootstrap-rationale.md](domain/bootstrap-rationale.md): the stage-zero self-hosting problem, and the plan format gaps behind tsk's task fields.
 - [territory-and-nexus.md](domain/territory-and-nexus.md): why territory and nexus are separate concepts rather than fused.
 - [persistence-and-sync.md](domain/persistence-and-sync.md): state persistence strategy and event log design using custom Rust sync.
 - [mission-briefing-template.md](domain/mission-briefing-template.md): rendering format for missions as briefings for humans and agents.
+
+## User guide
+
+- [getting-started.md](user-guide/getting-started.md): running the daemon, threads, global storage, project binding, tests, building, publishing.
+- [state-models.md](user-guide/state-models.md): task and thread state models, diversions, and how the daemon and client fit together.
 
 ## Architecture
 

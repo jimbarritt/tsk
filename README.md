@@ -1,18 +1,16 @@
 # tsk - work with a clear context
-tsk is about tasks. Big and small. From working out your next sequence of moves in the codebase to planning 
-large scale cross team initiatives.
+tsk is about navigating software delivery, for humans and agents.
 
-It is also designed from the ground up to work in the world of agentic engineering. With a native MCP you can have tsk 
-running alongside your agent and keep track of where you both are, or where youre *teams* of agents are for that matter. Or even where you, your human colleagues and their agents are!
+It keeps track of where you and your agents are, individually or as *teams*, alongside your human colleagues and theirs.
 
 It's your "sat nav" for work. Keep your human cognitive context and that of your agents clear and keep track of all the work threads you are context switching to.
 
 ## The foundations
 
 At the core of the domain of tsk are four dimensions which are facets of any software engineering delivery. Where tsk 
-is different is that it models all four of these dimensions explicitly. Other tools you might be used to like linear or jira 
-only model some parts of these dimensions, and end up being a little too abstract (in the wrong direction) to really give
- a holistic abstraction.
+is different is that it models all four of these dimensions explicitly. Other tools such as Linear or Jira 
+only model some parts of these dimensions, and end up too abstract, in the wrong direction, to give
+ a coherent abstraction.
 
 tsk is very opinionated but within a very specific abstraction. It has a lot of flexibility but in the right dimensions.
 
@@ -32,7 +30,7 @@ Term definitions, rejected alternatives, and the reasons behind them are in
 
 tsk is written in Rust. You need the Rust toolchain installed before building or installing.
 
-**rustup** (recommended — official installer, works everywhere):
+**rustup** (recommended: official installer, works everywhere):
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
@@ -61,7 +59,7 @@ cargo install tsk-bin tskd
 
 ## Upgrading
 
-Same command — `cargo install` replaces the existing binaries:
+Same command: `cargo install` replaces the existing binaries.
 
 ```bash
 cargo install tsk-bin tskd
@@ -71,220 +69,15 @@ This installs two binaries: `tsk` (CLI + TUI) and `tskd` (daemon).
 
 ## Getting started
 
-### Usage
+See [docs/user-guide/getting-started.md](docs/user-guide/getting-started.md) for
+running the daemon, creating and managing threads, global storage layout, binding
+threads to projects, running tests, building from source, and publishing.
 
-**1. Start the daemon** once per user session:
-
-```bash
-tskd &
-```
-
-The daemon stores all state in `~/.tsk/` and listens on `~/.tsk/tskd.sock`. You only need
-one daemon running — it serves all your projects.
-
-**2. Create a thread:**
-
-```bash
-tsk thread create fix-login PRIO "Fix the login bug"
-```
-
-Priorities: `BG` (background), `PRIO` (priority), `INC` (incident).
-
-Output is JSON — useful for agents and scripting:
-```json
-{
-  "id": 1,
-  "slug": "fix-login",
-  "state": "paused",
-  "priority": "PRIO",
-  "description": "Fix the login bug",
-  "dir": "/home/user/.tsk/threads/0001-fix-login"
-}
-```
-
-New threads start paused. Use `switch-to` to activate one.
-
-**3. Switch to a thread:**
-
-```bash
-tsk thread switch-to 1         # by id
-tsk thread switch-to fix-login  # by slug
-```
-
-**4. Update a thread:**
-
-```bash
-tsk thread update fix-login --description "New description"
-tsk thread update fix-login --slug new-slug
-tsk thread update fix-login --priority BG
-tsk thread update fix-login --path /abs/path/to/project   # bind to a project directory
-tsk thread update fix-login --path ""                      # clear the binding
-```
-
-All flags are optional — only the fields you pass are changed. If you change the slug, the thread directory is renamed automatically.
-
-**5. List threads:**
-
-```bash
-tsk thread list
-```
-
-**6. Find the thread bound to the current directory:**
-
-```bash
-tsk where
-```
-
-**7. Launch the TUI** (no arguments):
-
-```bash
-tsk
-```
-
-Displays threads grouped by section (Active / Priority & Incidents / Background). Updates live when the CLI makes changes. Use `j`/`k` to scroll, `ctrl-d`/`ctrl-u` to page, `gg`/`G` to jump to top/bottom, `?` for keybindings, `q` to quit.
-
-### Global storage
-
-All tsk state lives in `~/.tsk/` — not inside your projects:
-
-```
-~/.tsk/
-  tskd.sock              # Unix socket (present while daemon is running)
-  event-log/
-    events.ndjson        # append-only audit trail of all events
-  threads/
-    index.json           # authoritative thread state
-    0001-fix-login/      # per-thread context directory
-```
-
-### Binding threads to projects
-
-A thread can be bound to a project directory with `--path`:
-
-```bash
-tsk thread create fix-login PRIO "Fix the login bug" --path /abs/path/to/project
-```
-
-From inside that directory, `tsk where` shows the bound thread. If the project has a
-`doc/tsk/` directory, `tsk` auto-zooms to the bound thread when run from that project.
-You can commit project-local context files in `doc/tsk/` alongside the global thread
-context in `~/.tsk/threads/{id}-{slug}/`.
-
-### Running tests
-
-```bash
-# Unit tests only
-cargo test -p tsk-core
-
-# All tests including e2e (requires cargo build --workspace first)
-cargo test --workspace
-```
-
-### Building from source
-
-```bash
-cargo build --workspace --release
-```
-
-Binaries land in `target/release/`: `tsk` and `tskd`.
-
-Or install locally with `just`:
-
-```bash
-just build-install   # builds and installs to ~/.cargo/bin
-just test            # run all tests
-just publish         # publish all crates to crates.io
-```
-
-### Publishing to crates.io
-
-Bump the version with `just bump`, commit, then publish:
-
-```bash
-just bump 0.1.7   # requires cargo-edit: cargo install cargo-edit
-git add -p && git commit -m "Bumping version to 0.1.7"
-just publish
-```
-
-This publishes `tsk-core` first, waits 30 seconds for crates.io to index it, then publishes `tsk-bin` and `tskd`. The published crate name for the CLI is `tsk-bin` (it installs the `tsk` binary).
-
-### Task state model
-
-```
-         create
-           │
-           ▼
-      ┌───────────┐    start    ┌─────────────┐
-      │ not-started│────────────▶│ in-progress │
-      └───────────┘             └─────────────┘
-           │                         │    ▲
-           │ cancel              block│    │ (unblock?)
-           │                         ▼    │
-           ▼                    ┌─────────┐
-      ┌───────────┐             │ blocked │
-      │ cancelled │◀────────────└─────────┘
-      └───────────┘   cancel         │
-           ▲                         │ complete
-           │ cancel                  ▼
-           └─────────────────── ┌──────────┐
-                                │   done   │
-                                └──────────┘
-```
-
-Commands: `task create`, `task start`, `task block`, `task complete`, `task cancel`, `task update`, `task list`.
-
-Tasks live in `~/.tsk/threads/{id}-{slug}/tasks.json` — one file per thread.
-
-Task fields: `id` (`TSK-{thread-id}-{seq}` e.g. `TSK-0001-0001`), `description`, `state`, `due_by` (ISO 8601, optional), `seq` (integer, for manual ordering).
-
-All task commands default to the currently active thread. Use `--thread <id>` to target a different thread explicitly.
-
-#### Diversions
-
-A **diversion** is when something comes up while you are working on one thread that needs recording against a different thread — without switching context. The agent language for this is:
-
-> "Diversion: add a task to thread 0004 — follow up with Alice about the API contract"
-
-The `--thread` flag makes this explicit in the CLI:
-```
-tsk task create "follow up with Alice about the API contract" --thread 0004
-```
-
-The active thread does not change. You record the thought and get back to what you were doing.
-
-### Thread state model
-
-```
-                create
-                  │
-                  ▼
-              ┌────────┐
-       ┌─────▶│ PAUSED │◀──────────────────────────┐
-       │      └────────┘                            │
-       │        │    ▲                              │
-       │       wait  resume                         │ switch-to
-       │        │    │                              │ (another)
-       │        ▼    │                              │
-       │      ┌─────────┐                      ┌────────┐
-       │      │ WAITING │◀────── wait ──────────│ ACTIVE │
-       │      └─────────┘                      └────────┘
-       │                                            ▲
-       └──────────────── switch-to ─────────────────┘
-```
-
-- `create` → always starts **paused**
-- `switch-to` → target becomes **active**; previously active thread becomes **paused**
-- `wait` → marks a thread **waiting** (blocked on external dependency); works from active or paused
-- `resume` → returns a waiting thread to **paused**; use `switch-to` to make it active again
-
-### How it works
-
-`tskd` is a headless daemon that owns all state. One `tskd` instance runs per user — it is not per-project. `tsk` is a thin client — in CLI mode it sends a JSON-RPC request over the Unix socket at `~/.tsk/tskd.sock` and exits; in TUI mode it watches `~/.tsk/threads/index.json` for changes and re-renders instantly. Multiple clients (CLI, TUI, agents) can talk to the daemon concurrently. See `doc/arch/` and `doc/adr/` for the full architecture.
+See [docs/user-guide/state-models.md](docs/user-guide/state-models.md) for the
+task and thread state models, diversions, and how the daemon and client fit
+together.
 
 ## CI
 
-CodeQL static analysis runs on every push to `main` and weekly. Rust requires an advanced setup (`.github/workflows/codeql.yml`) because CodeQL must compile the code to analyse it — the default GitHub setup does not support Rust.
+CodeQL static analysis runs on every push to `main` and weekly. Rust requires an advanced setup (`.github/workflows/codeql.yml`) because CodeQL must compile the code to analyse it: the default GitHub setup does not support Rust.
 
-## Future / planned
-
-- **Configuration file** (`tsk.toml` or `.tskrc`) — per-project and per-user settings. First planned setting: `show_status_bar = true/false` to toggle the TUI status bar.
