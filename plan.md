@@ -4,8 +4,9 @@
 
 M-BOOT-01 (substrate) is complete: all eight tasks are done, including the nexus repo
 (`jimbarritt/tsk-nexus`), which now holds `nexus.json` indexing the `agentic-engineering`
-territory (`tsk` and `ksobr`). M-BOOT-02 (harness) starts next, with T-01 (move the
-missions into the repository) as the first unblocked task. See
+territory (`tsk` and `ksobr`). M-BOOT-02 (harness) is in progress: T-01 (move the
+missions into the repository) is done, and T-02 (mission briefing template into the
+harness) is next unblocked. See
 [missions/M-BOOT-02-harness.md](missions/M-BOOT-02-harness.md).
 
 ## Current mission
@@ -54,17 +55,13 @@ for the design decisions behind this structure.
 - M-BOOT-01 (substrate) marked complete: all eight tasks done, T-02 closed out
 
 **State of the project:**
-M-BOOT-01 is fully done. M-BOOT-02 (harness) is next, blocked on nothing. Its purpose
-is the envelope an agent executes inside; the mission briefings currently live in
-Jim's home directory (`~/.planning/tsk/`), which a cloud session cannot read since it
-clones only the repository.
+M-BOOT-01 is fully done. M-BOOT-02 (harness) is in progress: T-01 is done, and the
+mission briefings now live in the repository's `refs/tsk/bootstrap` ref rather than a
+home directory a cloud session cannot read.
 
 **Immediate next priorities:**
-1. Move the missions into the tsk repository (M-BOOT-02 / T-01)
-2. Add a repo-local `CLAUDE.md` pointing a fresh session at the migrated plan/missions
-   location, so it ignores home-directory instructions
-3. Incorporate the mission briefing template into the harness (T-02)
-4. Define the run record and thread state formats (T-03, T-04)
+1. Incorporate the mission briefing template into the harness (T-02)
+2. Define the run record and thread state formats (T-03, T-04)
 
 ## Legacy backlog (pre-bootstrap)
 
