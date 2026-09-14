@@ -1,0 +1,10 @@
+{
+  "skillOverrides": {
+    "load-plan": "off",
+    "update-plan": "off",
+    "pause-plan": "off",
+    "prune-plan": "off",
+    "resume-plan": "off",
+    "init-plan": "off"
+  }
+}
