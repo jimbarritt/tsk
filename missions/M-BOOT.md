@@ -16,7 +16,7 @@ Kind: attainable
 - No bootstrap scaffolding remains.
 - The harness does little more than ensure tsk is installed. It delegates the rest of
   the work to the tsk binary.
-- An agent never interacts with the `tsk/bootstrap` branch directly.
+- An agent never interacts with the data ref directly. It goes through tsk.
 - The mission briefing and its format are encoded in the tsk binary rather than held as
   documents an agent reads.
 
@@ -24,9 +24,16 @@ This is a bootstrap in the compiler sense. The objective is reached when tsk has
 capability to host its own development. It is not reached when tsk is feature complete.
 Everything after this point is tracked by tsk.
 
-The `tsk/bootstrap` branch, the markdown briefings on it, and the harness reading them
-by hand are temporary scaffolding and an exploration of the design space. They exist to
-find the shape of the model, and they are removed once tsk holds it.
+What is temporary is `tsk/bootstrap` itself, the markdown briefings on it, and the
+harness reading them by hand. That arrangement is scaffolding and an exploration of the
+design space, removed at M-BOOT-05.
+
+What persists is the official data ref under its own name, which M-BOOT-04 decides.
+`docs/domain/persistence-and-sync.md` records `refs/tsk/data` as the name from the
+original design. Whether it can stay a custom ref is open: per
+`docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md` the cloud
+sandbox proxy refuses to write anything outside `refs/heads/*`, which is what forced
+the bootstrap onto a branch, and the same constraint applies to the real ref.
 
 ## Purpose
 
