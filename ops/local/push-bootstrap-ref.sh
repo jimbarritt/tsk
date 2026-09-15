@@ -17,5 +17,5 @@ fi
 cd "$WT"
 git add -A
 git commit -m "$MESSAGE"
-git fetch origin refs/tsk/bootstrap
-git push origin HEAD:refs/tsk/bootstrap
+git fetch origin refs/heads/tsk/bootstrap
+git push origin HEAD:refs/heads/tsk/bootstrap

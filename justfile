@@ -32,10 +32,10 @@ publish:
     cargo publish --package tsk-bin
     cargo publish --package tskd
 
-# Fetch the bootstrap ref and print the worktree path it materialises at
+# Fetch the tsk/bootstrap branch and print the worktree path it materialises at
 fetch-refs:
     @ops/local/fetch-bootstrap-ref.sh
 
-# Commit and push staged/unstaged changes in the bootstrap ref worktree
+# Commit and push staged/unstaged changes in the tsk/bootstrap worktree
 push-refs MESSAGE:
     ops/local/push-bootstrap-ref.sh "{{MESSAGE}}"

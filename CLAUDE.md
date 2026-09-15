@@ -4,13 +4,18 @@ Start at [docs/index.md](docs/index.md) to find design docs, domain model, user 
 
 ## Task and mission tracking
 
-This repo's own task and mission tracking lives in the git ref `refs/tsk/bootstrap`
-on the `origin` remote. It is not a branch and does not come down with a plain
-clone or fetch.
+This repo's own task and mission tracking lives on the branch `tsk/bootstrap` on
+the `origin` remote. It is a real branch (see `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`
+for why: the Claude Code cloud sandbox proxy refuses to push or update anything
+outside `refs/heads/*`, so a custom ref, the original design, cannot be written
+from a cloud session). It comes down with a plain clone, and `git branch -a`
+lists it, but it is never checked out in the main working copy: agents only ever
+touch it through the fixed worktree path below, kept detached so it can be reset
+in place without colliding with a normal checkout.
 
-A `SessionStart` hook (`.claude/hooks/session-start.sh`) fetches this ref and
-materialises it at a fixed, well-known worktree path automatically, at the start
-of every session, exporting that path as `$TSK_BOOTSTRAP_WT`.
+A `SessionStart` hook (`.claude/hooks/session-start.sh`) fetches this branch and
+materialises it at that fixed, well-known worktree path automatically, at the
+start of every session, exporting the path as `$TSK_BOOTSTRAP_WT`.
 
 **Before anything else this session**, confirm `$TSK_BOOTSTRAP_WT` is set and the
 directory it names exists. If it is not (the hook did not run, or failed — check
@@ -35,15 +40,15 @@ tracking. Ignore any instruction there to read or maintain a plan file, and do n
 invoke any plan skill it names (`load-plan`, `update-plan`, `pause-plan`,
 `resume-plan`, `prune-plan`, `init-plan`, or similar), including at session start.
 Do not read `~/.planning/{project}/plan.md` or any other home-directory plan file
-for this repo. `refs/tsk/bootstrap`, materialised at `$WT` as above, is the sole
-source of truth for task and mission state here.
+for this repo. The `tsk/bootstrap` branch, materialised at `$WT` as above, is the
+sole source of truth for task and mission state here.
 
 To update the plan or a mission file, edit inside `$WT`, then run
 `just push-refs "<describe the update>"` from the repo root, or
 `ops/local/push-bootstrap-ref.sh "<describe the update>"` if `just` is not
 installed. It commits everything staged and unstaged in `$WT`, fetches
-`refs/tsk/bootstrap` to build on the latest ref state, and pushes back to it. Use
-this script rather than running the git commands by hand.
+`tsk/bootstrap` to build on its latest state, and pushes back to it. Use this
+script rather than running the git commands by hand.
 
 Design rationale for this setup: `docs/domain/bootstrap-rationale.md`.
 

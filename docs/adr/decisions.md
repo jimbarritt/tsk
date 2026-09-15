@@ -7,3 +7,4 @@
 - [5. TUI State Refresh via File Watch](0005-tui-state-refresh-via-file-watch.md)
 - [6. TUI State Refresh via Daemon Polling](0006-tui-state-refresh-via-daemon-polling.md)
 - [7. Event log as source of truth; markdown and the TUI as read-only projections](0007-event-log-as-source-of-truth.md)
+- [8. Bootstrap data lives on a detached branch, not a custom git ref](0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md)
