@@ -14,10 +14,19 @@ Kind: attainable
 - The missions and tasks for building tsk are held in tsk's own data ref.
 - Agents execute them from there.
 - No bootstrap scaffolding remains.
+- The harness does little more than ensure tsk is installed. It delegates the rest of
+  the work to the tsk binary.
+- An agent never interacts with the `tsk/bootstrap` branch directly.
+- The mission briefing and its format are encoded in the tsk binary rather than held as
+  documents an agent reads.
 
 This is a bootstrap in the compiler sense. The objective is reached when tsk has enough
 capability to host its own development. It is not reached when tsk is feature complete.
 Everything after this point is tracked by tsk.
+
+The `tsk/bootstrap` branch, the markdown briefings on it, and the harness reading them
+by hand are temporary scaffolding and an exploration of the design space. They exist to
+find the shape of the model, and they are removed once tsk holds it.
 
 ## Purpose
 
