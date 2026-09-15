@@ -55,6 +55,12 @@ harness is the envelope. The mission briefing sits inside it.
 - Cloud environment setup scripts are configured from the web (claude.ai/code) or the
   Desktop app only. The iOS/mobile app selects an existing environment but has no UI to
   create or edit one.
+- SessionStart hook confirmed working in a session with only `tsk` attached (2026-09-15):
+  `$TSK_BOOTSTRAP_WT` set correctly, resolving the open question left by the prior
+  session's cross-repo failure (cwd above both `tsk` and `tsk-nexus`, so
+  `tsk/.claude/settings.json` never loaded).
+- `tsk` has no prebuilt binary on `PATH` by default; building from source or
+  `cargo install` is required.
 
 ## Decision authority
 
