@@ -9,17 +9,23 @@ missions into the repository) is done, and T-02 (mission briefing template into 
 harness) is next unblocked. See
 [missions/M-BOOT-02-harness.md](missions/M-BOOT-02-harness.md).
 
-**Needs testing: the SessionStart hook.** `.claude/hooks/session-start.sh` (wrapping
-`ops/local/claude-session-start.sh`) is meant to check out and pull `main`, fetch
-`refs/tsk/bootstrap`, and export its worktree path, automatically at session start. In
+**SessionStart hook: confirmed working with only `tsk` attached.** `.claude/hooks/session-start.sh`
+(wrapping `ops/local/claude-session-start.sh`) checks out and pulls `main`, fetches
+`refs/tsk/bootstrap`, and exports its worktree path, automatically at session start. In
 a session with both `tsk` and `tsk-nexus` attached it did not fire: `$TSK_BOOTSTRAP_WT`
 and `$CLAUDE_PROJECT_DIR` were both empty, and the diagnostics log showed no trace of it
 running. Likely cause: that session's cwd started at the parent directory above both
 repo checkouts, not inside `tsk`, so `tsk/.claude/settings.json` wasn't loaded when
-`SessionStart` fired. Untested: whether it fires correctly in a session with only `tsk`
-attached, where the session should be rooted directly in the repo. Check these
-variables to confirm: `$TSK_BOOTSTRAP_WT` (should point at the worktree path) and
-`$CLAUDE_PROJECT_DIR` (should be the `tsk` repo root).
+`SessionStart` fired. Confirmed 2026-09-15, fresh session, only `tsk` attached: the hook
+fired correctly, `$TSK_BOOTSTRAP_WT` pointed at the worktree path as expected.
+
+**Confirmed: cargo is installed by default in a fresh session environment.** Same
+2026-09-15 fresh session: `cargo --version` returned `cargo 1.94.1 (29ea6fb6a
+2026-03-24)` with no setup step.
+
+**Confirmed: `tsk` is not installed by default.** Same 2026-09-15 fresh session:
+`tsk --version` returned "command not found". No prebuilt `tsk` binary is on `PATH`;
+it would need building from source first.
 
 ## Current mission
 
