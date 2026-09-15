@@ -86,8 +86,10 @@ one moment and subject to revision. Moltke the Elder states the same point earli
 plan of operations extends with any certainty beyond the first encounter with the
 enemy's main force.
 
-Plans nest as missions nest. A task delegated to a sub-agent becomes that agent's
-mission, and that mission has its own plan.
+A plan is a section of a mission briefing, not a document of its own. It is the task
+table the briefing already carries. See `mission-briefing-template.md`. A plan that
+outgrows that table is a signal to delegate: break the work out as sub-missions, each
+with its own briefing and its own plan. Plans nest as missions nest.
 
 Distinguished from: the mission, which holds the objective and therefore the definition
 of done. Reaching the end of a plan does not mean the objective is met, and meeting the

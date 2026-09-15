@@ -63,7 +63,11 @@ mission.}
 
 {Implied tasks the actor must not pursue. One per line.}
 
-## Tasks
+## Plan
+
+This section is the mission's plan: the proposed sequence of tasks for meeting the
+objective. It is provisional, and it is rewritten as execution proceeds. The objective
+above does not move with it.
 
 One list. Every task has an ID, an objective and a status.
 
@@ -78,6 +82,9 @@ Omit if none.}
 
 Tasks the actor adds during execution are implied tasks. They join the same list.
 Tasks in this briefing are specified tasks. The distinction is a flag, not a section.
+
+A plan that outgrows this table is a signal to delegate, not to start a second document.
+Break the work out as sub-missions, each with its own briefing and its own plan.
 
 ## First behaviour
 
@@ -191,7 +198,7 @@ Shell out to the git binary. The Rust git library choice is not yours. See M-008
 - Multi-actor.
 - Conflict handling and the compare and swap retry loop.
 
-## Tasks
+## Plan
 
 ### Specified
 
