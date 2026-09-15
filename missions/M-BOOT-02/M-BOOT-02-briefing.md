@@ -55,7 +55,7 @@ rather than tsk.
 | T-01 | Move the missions into the repository | M-BOOT and its breakout briefings readable from a fresh clone. A cloud session cannot read Jim's home directory | none | DONE |
 | T-02 | Incorporate the mission briefing template into the harness | Template present in `.claude/`, and it states the first behaviour: write your own task list before any other action | none | TODO |
 | T-03 | Define the run record format | Level 1 outcome: done, failed or blocked, with attempt count. Level 2: the actor's account of what it did, what the briefing failed to give it, and what it found wrong | none | TODO |
-| T-04 | Define the thread state format | Records which tasks are done, which is in progress, and where to resume. Written at the end of every session. Readable by a different actor | none | TODO |
+| T-04 | Define the thread state format | Records which tasks are done, which is in progress, and where to resume. Written at the end of every session. Readable by a different actor. Open first: whether the definition of threads is right, see Open decisions | none | TODO |
 | T-05 | Add the hook that writes thread state | Thread state written alongside the missions at session end | T-04 | TODO |
 | T-06 | Add the `SessionEnd` hook for transcripts | Hook pushes the session transcript to the transcripts repo | none | TODO |
 | T-07 | Write `CLAUDE.md` | Points at `docs/` and the template. Holds ways of working | T-02 | TODO |
@@ -72,3 +72,9 @@ and nothing downstream works without it.
 
 - Where the missions live in the repository: a directory, or a git ref. T-01 decides.
 - Run record location: with the missions, or the transcripts repo. T-03 needs it.
+- Whether the definition of threads is right. Jim's current reading: a thread is more
+  about the actors than about overall work status, which is not what the ubiquitous
+  language entry says today. Settle this before T-04 defines a format on top of it.
+- Where thread state lives once it has a format: its own artefact, or the sections of
+  `index.md` that hold it today. Deferred until T-04. Until then `index.md` keeps the
+  summary of missions and tasks with their status.
