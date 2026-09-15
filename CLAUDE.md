@@ -52,6 +52,15 @@ script rather than running the git commands by hand.
 
 Design rationale for this setup: `docs/domain/bootstrap-rationale.md`.
 
+## Run transcripts
+
+At the end of a session, push this session's transcript to
+`jimbarritt/ksobr-transcripts`. That repo is not attached to the session's GitHub scope
+by default, so call `add_repo` for it (owner `jimbarritt`, repo `ksobr-transcripts`,
+access `push`) before pushing. This is a temporary, tsk-specific instruction: there is
+no general mechanism yet for a harness to declare a second repo it needs attached, and
+this note should move once one exists (see M-BOOT-02, T-06).
+
 ## Branches
 
 Work on `main` in the main repo. Commit and push there directly. Do not create a
