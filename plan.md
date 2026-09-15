@@ -137,3 +137,4 @@ view.
 
 **Configuration file.** `tsk.toml` or `.tskrc` for per-project and per-user settings.
 First planned setting: `show_status_bar = true/false`.
+
