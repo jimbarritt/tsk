@@ -86,6 +86,12 @@ one moment and subject to revision. Moltke the Elder states the same point earli
 plan of operations extends with any certainty beyond the first encounter with the
 enemy's main force.
 
+A plan belongs to the actor executing the mission, not to the one who wrote the
+briefing. A briefing may arrive carrying specified tasks, including an essential one,
+but those seed the plan rather than fix it: the actor decides the plan, adds the tasks
+it finds implied, and rewrites as it goes. The handover between the two is expected to
+be refined with use.
+
 A plan is a section of a mission briefing, not a document of its own. It is the task
 table the briefing already carries. See `mission-briefing-template.md`. A plan that
 outgrows that table is a signal to delegate: break the work out as sub-missions, each
