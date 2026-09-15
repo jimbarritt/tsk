@@ -9,6 +9,18 @@ missions into the repository) is done, and T-02 (mission briefing template into 
 harness) is next unblocked. See
 [missions/M-BOOT-02-harness.md](missions/M-BOOT-02-harness.md).
 
+**Needs testing: the SessionStart hook.** `.claude/hooks/session-start.sh` (wrapping
+`ops/local/claude-session-start.sh`) is meant to check out and pull `main`, fetch
+`refs/tsk/bootstrap`, and export its worktree path, automatically at session start. In
+a session with both `tsk` and `tsk-nexus` attached it did not fire: `$TSK_BOOTSTRAP_WT`
+and `$CLAUDE_PROJECT_DIR` were both empty, and the diagnostics log showed no trace of it
+running. Likely cause: that session's cwd started at the parent directory above both
+repo checkouts, not inside `tsk`, so `tsk/.claude/settings.json` wasn't loaded when
+`SessionStart` fired. Untested: whether it fires correctly in a session with only `tsk`
+attached, where the session should be rooted directly in the repo. Check these
+variables to confirm: `$TSK_BOOTSTRAP_WT` (should point at the worktree path) and
+`$CLAUDE_PROJECT_DIR` (should be the `tsk` repo root).
+
 ## Current mission
 
 **M-BOOT-02: harness.** Full briefing:
