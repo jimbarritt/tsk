@@ -57,7 +57,7 @@ rather than tsk.
 | T-03 | Define the run record format | Level 1 outcome: done, failed or blocked, with attempt count. Level 2: the actor's account of what it did, what the briefing failed to give it, and what it found wrong | none | TODO |
 | T-04 | Define the thread state format | Records which tasks are done, which is in progress, and where to resume. Written at the end of every session. Readable by a different actor. Open first: whether the definition of threads is right, see Open decisions | none | TODO |
 | T-05 | Add the hook that writes thread state | Thread state written alongside the missions at session end | T-04 | TODO |
-| T-06 | Add the `SessionEnd` hook for transcripts | Hook pushes the session transcript to the transcripts repo | none | TODO |
+| T-06 | Add the `SessionEnd` hook for transcripts | Hook pushes the session transcript to `ksobr-transcripts`. The repo must be attached with `add_repo` first; that instruction lives in tsk's `CLAUDE.md` for now, as a stopgap. Decide whether the hook can do the attach itself, or whether attaching stays an instruction the agent follows | none | TODO |
 | T-07 | Write `CLAUDE.md` | Points at `docs/` and the template. Holds ways of working | T-02 | TODO |
 | T-08 | Configure `.claude/settings.json` | Hooks wired, permissions set, local session loads without error | T-05, T-06, T-07 | TODO |
 | T-09 | Create the plugin marketplace repo | Harness and the language linter declared in `.claude/settings.json` and installed by a setup script | T-08 | TODO |
