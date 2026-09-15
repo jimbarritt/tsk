@@ -57,7 +57,7 @@ a delegated mission. M-BOOT-04 decides the official data ref layout.
 | ID | Task | Objective | Delegated to | Blocked by | Status |
 |---|---|---|---|---|---|
 | [M-BOOT-01](M-BOOT-01-substrate.md) | Substrate | Every place exists and holds its first content; `docs/` is sufficient for an agent with only the repo clone | none | none | TODO |
-| [M-BOOT-02](M-BOOT-02-harness.md) | Harness | A local session and a test cloud session both load the harness and read a briefing | none | M-BOOT-01 | TODO |
+| [M-BOOT-02](M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local session and a test cloud session both load the harness and read a briefing | none | M-BOOT-01 | TODO |
 | [M-BOOT-03](M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | none | M-BOOT-02 | TODO |
 | M-BOOT-04 | The official data ref | Ref name, tree layout, manifest format, and push and pull protocol exist and are proven by tests | Cloud agents | M-BOOT-03 | TODO |
 | M-BOOT-05 | Migration off the bootstrap ref | Queue held in tsk's own data ref, agents execute from it, bootstrap ref deleted or tagged | Cloud agents | M-BOOT-04 | TODO |

@@ -7,12 +7,12 @@ M-BOOT-01 (substrate) is complete: all eight tasks are done, including the nexus
 territory (`tsk` and `ksobr`). M-BOOT-02 (harness) is in progress: T-01 (move the
 missions into the repository) is done, and T-02 (mission briefing template into the
 harness) is next unblocked. See
-[missions/M-BOOT-02-harness.md](missions/M-BOOT-02-harness.md).
+[missions/M-BOOT-02/M-BOOT-02-briefing.md](missions/M-BOOT-02/M-BOOT-02-briefing.md).
 
 ## Current mission
 
 **M-BOOT-02: harness.** Full briefing:
-[missions/M-BOOT-02-harness.md](missions/M-BOOT-02-harness.md).
+[missions/M-BOOT-02/M-BOOT-02-briefing.md](missions/M-BOOT-02/M-BOOT-02-briefing.md).
 
 Parent mission: **M-BOOT, bootstrap tsk self hosting.** Reached when the missions and
 tasks for building tsk are held in tsk's own data ref and agents execute them from there,
@@ -30,7 +30,7 @@ below and becomes tsk's own backlog once M-BOOT-05 completes.
 |---|---|---|---|
 | [M-BOOT](missions/M-BOOT.md) | Bootstrap tsk self hosting | TODO | none |
 | [M-BOOT-01](missions/M-BOOT-01-substrate.md) | Substrate | ✓ DONE | none |
-| [M-BOOT-02](missions/M-BOOT-02-harness.md) | Harness | IN PROGRESS | M-BOOT-01 |
+| [M-BOOT-02](missions/M-BOOT-02/M-BOOT-02-briefing.md) | Harness | IN PROGRESS | M-BOOT-01 |
 | [M-BOOT-03](missions/M-BOOT-03-operation.md) | Operation | TODO | M-BOOT-02 |
 | M-BOOT-04 | The official data ref | TODO | M-BOOT-03 |
 | M-BOOT-05 | Migration off the bootstrap ref | TODO | M-BOOT-04 |
