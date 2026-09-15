@@ -43,6 +43,9 @@ briefing: [missions/M-BOOT.md](missions/M-BOOT.md).
 
 Essential mission: M-BOOT-05. Its objective and M-BOOT's objective are the same state.
 
+Ideas for missions that are not shaped into briefings yet are kept in
+[future-missions-tbd.md](future-missions-tbd.md). Nothing there is committed to.
+
 Full task breakdowns are in each mission's own briefing under `missions/`. All tsk
 development is tracked through this mission tree. The backlog that predates it is kept
 at the foot of this file and becomes tsk's own once M-BOOT-05 completes.
