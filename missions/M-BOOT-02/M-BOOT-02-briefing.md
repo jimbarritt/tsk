@@ -78,3 +78,9 @@ and nothing downstream works without it.
 - Where thread state lives once it has a format: its own artefact, or the sections of
   `index.md` that hold it today. Deferred until T-04. Until then `index.md` keeps the
   summary of missions and tasks with their status.
+- How a mission briefing reaches an individual agent session, so the session knows what
+  it is working on. Raised by Jim, 2026-09-15. Not a state question: the data ref
+  (`tsk/bootstrap`, or its successor) has no concept of a session, so this cannot be
+  answered by anything held in state. Likely candidates: the session's initial prompt
+  names the mission, or a `SessionStart` hook reads a pointer from somewhere and injects
+  the briefing as context. Undecided. Continue this discussion next.
