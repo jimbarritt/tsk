@@ -59,7 +59,7 @@ M-BOOT-04 decides it.
 - The nexus link direction question.
 - The territory filter command line interface.
 
-## Tasks
+## Plan
 
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|

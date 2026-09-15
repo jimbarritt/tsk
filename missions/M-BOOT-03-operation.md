@@ -52,7 +52,7 @@ Jim decides the cadence and the attempt limit.
 - Building the official data ref. That is M-BOOT-04.
 - Increasing the subscription plan.
 
-## Tasks
+## Plan
 
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|

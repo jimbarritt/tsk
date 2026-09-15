@@ -48,7 +48,7 @@ rather than tsk.
 - Level 3 reflection, a separate scoring pass. Deferred until there are enough runs to
   know what to score.
 
-## Tasks
+## Plan
 
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|

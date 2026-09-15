@@ -52,7 +52,7 @@ a delegated mission. M-BOOT-04 decides the official data ref layout.
 - The nexus link direction question.
 - Building ksobr beyond the harness this bootstrap needs.
 
-## Tasks
+## Plan
 
 | ID | Task | Objective | Delegated to | Blocked by | Status |
 |---|---|---|---|---|---|
