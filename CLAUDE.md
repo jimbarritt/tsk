@@ -8,20 +8,23 @@ This repo's own task and mission tracking lives in the git ref `refs/tsk/bootstr
 on the `origin` remote. It is not a branch and does not come down with a plain
 clone or fetch.
 
-**Before anything else this session**, run `just fetch-refs` if `just` is on
-`PATH`, otherwise run `ops/local/fetch-bootstrap-ref.sh` directly: the recipe is a
-thin wrapper over the script, and a cloud environment may not have `just`
-installed. It fetches the ref and materialises it at a fixed, well-known worktree
-path, refreshing that same path in place if it already exists rather than creating
-a new one. It prints the worktree path on success:
+A `SessionStart` hook (`.claude/hooks/session-start.sh`) fetches this ref and
+materialises it at a fixed, well-known worktree path automatically, at the start
+of every session, exporting that path as `$TSK_BOOTSTRAP_WT`.
+
+**Before anything else this session**, confirm `$TSK_BOOTSTRAP_WT` is set and the
+directory it names exists. If it is not (the hook did not run, or failed — check
+the SessionStart context message), run `just fetch-refs` if `just` is on `PATH`,
+otherwise run `ops/local/fetch-bootstrap-ref.sh` directly, and use its printed
+path instead:
 
 ```bash
-WT="$(just fetch-refs)"          # or: WT="$(ops/local/fetch-bootstrap-ref.sh)"
+WT="${TSK_BOOTSTRAP_WT:-$(just fetch-refs)}"   # or: ops/local/fetch-bootstrap-ref.sh
 ```
 
 `$WT` resolves inside `.git/`, so it is untracked, per-clone, and identical whether
-the session is local or a fresh cloud checkout. Always use this script rather than
-running the fetch and worktree commands by hand; never fetch into a new or
+the session is local or a fresh cloud checkout. Always use the script above rather
+than running the fetch and worktree commands by hand; never fetch into a new or
 randomly named directory.
 
 Read `$WT/plan.md` for current state and next steps, then the relevant
