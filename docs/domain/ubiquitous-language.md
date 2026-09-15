@@ -86,6 +86,10 @@ one moment and subject to revision. Moltke the Elder states the same point earli
 plan of operations extends with any certainty beyond the first encounter with the
 enemy's main force.
 
+A plan has more than one writer, by design. The actor executing the mission owns it, and
+other actors can edit the same document. Conflicts stay rare by convention rather than
+by locking: once a mission is in action, the actor that spawned it does not edit it.
+
 A plan belongs to the actor executing the mission, not to the one who wrote the
 briefing. A briefing may arrive carrying specified tasks, including an essential one,
 but those seed the plan rather than fix it: the actor decides the plan, adds the tasks
