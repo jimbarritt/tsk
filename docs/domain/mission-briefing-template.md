@@ -69,6 +69,11 @@ This section is the mission's plan: the proposed sequence of tasks for meeting t
 objective. It is provisional, and it is rewritten as execution proceeds. The objective
 above does not move with it.
 
+The plan belongs to the actor executing the mission. What the briefing carries here are
+the specified tasks, including any essential one. The actor decides the plan from them,
+adding implied tasks, reordering, and rewriting. The briefing seeds the plan, it does
+not fix it.
+
 One list. Every task has an ID, an objective and a status.
 
 | ID | Task | Objective, in short | Delegated to | Blocked by | Status |
@@ -88,7 +93,8 @@ Break the work out as sub-missions, each with its own briefing and its own plan.
 
 ## First behaviour
 
-{Harness. Write your own task list, including implied tasks, before any other action.}
+{Harness. Take ownership of the plan above before any other action. Add the implied
+tasks, reorder as you see fit, and write it back as your own.}
 
 ## Execution constraints
 
@@ -212,7 +218,7 @@ Task 2. The mission fails if the push does not land.
 
 ## First behaviour
 
-Write your own task list, including implied tasks, before any code.
+Take ownership of the plan above, adding implied tasks, before any code.
 
 ## Execution constraints
 
