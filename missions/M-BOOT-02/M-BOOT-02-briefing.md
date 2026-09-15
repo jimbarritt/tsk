@@ -53,7 +53,7 @@ rather than tsk.
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|
 | T-01 | Move the missions into the repository | M-BOOT and its breakout briefings readable from a fresh clone. A cloud session cannot read Jim's home directory | none | DONE |
-| T-02 | Incorporate the mission briefing template into the harness | Template present in `.claude/`, and it states the first behaviour: write your own task list before any other action | none | TODO |
+| T-02 | Incorporate the mission briefing template into the harness | The harness points a session at `docs/domain/mission-briefing-template.md` and states the first behaviour: take ownership of the plan before any other action. No copy in `.claude/`: tsk is the only repo running this harness, so the docs directory can be relied on. Revisit if another repo installs it | none | TODO |
 | T-03 | Define the run record format | Level 1 outcome: done, failed or blocked, with attempt count. Level 2: the actor's account of what it did, what the briefing failed to give it, and what it found wrong | none | TODO |
 | T-04 | Define the thread state format | Records which tasks are done, which is in progress, and where to resume. Written at the end of every session. Readable by a different actor. Open first: whether the definition of threads is right, see Open decisions | none | TODO |
 | T-05 | Add the hook that writes thread state | Thread state written alongside the missions at session end | T-04 | TODO |

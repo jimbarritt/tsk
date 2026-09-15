@@ -39,3 +39,6 @@ topic files here once this grows unwieldy.
   `tsk/.claude/settings.json` never loaded).
 - `tsk` has no prebuilt binary on `PATH` by default; building from source or
   `cargo install` is required.
+- tsk is the only repo running this harness for now, so the harness can rely on paths in
+  the tsk repo itself, `docs/domain/` included, rather than carrying its own copies.
+  This assumption ends the first time another repo installs the harness.
