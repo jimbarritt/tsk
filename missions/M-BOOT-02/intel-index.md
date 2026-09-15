@@ -42,3 +42,11 @@ topic files here once this grows unwieldy.
 - tsk is the only repo running this harness for now, so the harness can rely on paths in
   the tsk repo itself, `docs/domain/` included, rather than carrying its own copies.
   This assumption ends the first time another repo installs the harness.
+- `jimbarritt/ksobr-transcripts` exists (private, target for T-06) but was empty until
+  this session: no commits, no branches. Attaching a second repo mid-session with
+  `add_repo` and pushing to it from a fresh clone works, confirmed 2026-09-15 by cloning
+  it, committing a test file, and verifying the push landed via the GitHub API rather
+  than trusting the git client's output (the push printed a "push negotiation failed"
+  warning from the proxy but the push itself succeeded). The remaining question for
+  T-06 is whether a repo can be attached automatically at session start rather than
+  requiring an explicit `add_repo` call mid-session; not yet tested.
