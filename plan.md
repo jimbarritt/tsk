@@ -27,6 +27,17 @@ fired correctly, `$TSK_BOOTSTRAP_WT` pointed at the worktree path as expected.
 `tsk --version` returned "command not found". No prebuilt `tsk` binary is on `PATH`;
 it would need building from source first.
 
+**Found: `tsk-bin` is already published on crates.io.** Same 2026-09-15 session, a
+second one: `tsk-bin` and `tsk-core` are published, current release `0.1.7` (last
+published 2026-04-01). The local checkout is ahead, at workspace version `0.2.0`
+(unpublished). Since `cargo` ships pre-installed, the general harness's session init
+can be `cargo install tsk-bin` — no GitHub release pipeline needed. Decision: this
+belongs in the repo's `SessionStart` hook, not an environment setup script, since the
+install is fast (~30s) and the hook already runs identically across every surface
+(web, terminal, mobile, Desktop), where setup scripts can only be configured from the
+web or Desktop app. See [missions/M-BOOT-02-harness.md](missions/M-BOOT-02-harness.md)
+Intelligence for detail. Not yet implemented as a task.
+
 ## Current mission
 
 **M-BOOT-02: harness.** Full briefing:
