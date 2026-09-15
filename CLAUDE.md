@@ -32,8 +32,8 @@ the session is local or a fresh cloud checkout. Always use the script above rath
 than running the fetch and worktree commands by hand; never fetch into a new or
 randomly named directory.
 
-Read `$WT/plan.md` for current state and next steps, then the relevant
-`$WT/missions/*.md` file.
+Read `$WT/index.md` for current state and next steps, then the briefing for the mission
+you are working, under `$WT/missions/`.
 
 This repo overrides the user's global `~/.claude/CLAUDE.md` on task and mission
 tracking. Ignore any instruction there to read or maintain a plan file, and do not
@@ -43,7 +43,7 @@ Do not read `~/.planning/{project}/plan.md` or any other home-directory plan fil
 for this repo. The `tsk/bootstrap` branch, materialised at `$WT` as above, is the
 sole source of truth for task and mission state here.
 
-To update the plan or a mission file, edit inside `$WT`, then run
+To update the index or a mission file, edit inside `$WT`, then run
 `just push-refs "<describe the update>"` from the repo root, or
 `ops/local/push-bootstrap-ref.sh "<describe the update>"` if `just` is not
 installed. It commits everything staged and unstaged in `$WT`, fetches

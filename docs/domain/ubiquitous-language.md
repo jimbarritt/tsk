@@ -72,6 +72,45 @@ An objective is one of two kinds:
   objective is maintained looks like a campaign from below. A weak attainable objective
   is often a maintained condition written as if it were a state; check before writing.
 
+## Plan
+
+The product of planning: a provisional sequence of tasks proposed for meeting a
+mission's objective. A plan belongs to a mission and has no existence apart from one.
+The mission carries the what and the why. The plan carries the how. A plan can be
+discarded and rewritten without the mission changing, because the objective is
+unchanged.
+
+A plan is provisional by definition. US Army doctrine (ADP 5-0) treats planning as
+continuous, which makes a plan an interim product, based on the understanding held at
+one moment and subject to revision. Moltke the Elder states the same point earlier: no
+plan of operations extends with any certainty beyond the first encounter with the
+enemy's main force.
+
+Plans nest as missions nest. A task delegated to a sub-agent becomes that agent's
+mission, and that mission has its own plan.
+
+Distinguished from: the mission, which holds the objective and therefore the definition
+of done. Reaching the end of a plan does not mean the objective is met, and meeting the
+objective does not require the plan to have been followed.
+
+Not adopted as the name of a file or of a top-level artefact. The prior plan format
+(`jimbarritt/dotfiles`, `home/claude/skills/plan-format/PLAN-FORMAT.md`) used "plan" for
+the whole tracking document, holding state for every mission at once. That usage is
+superseded. Mission status is asked for at whatever level of scale is meant, per
+[Scale](#scale), rather than read from one document.
+
+## Planning
+
+The activity that produces a plan. ADP 5-0 defines it as "the art and science of
+understanding a situation, envisioning a desired future, and laying out effective ways
+of bringing that future about", and holds it alongside preparing, executing and
+assessing as activities that run continuously rather than as sequential phases.
+
+Planning starts when a mission is received and continues through execution, because the
+situation keeps changing. Eisenhower's "plans are worthless, but planning is everything"
+places the value in the understanding the activity produces rather than in the document
+it leaves behind.
+
 ## Intelligence (or intel for short)
 
 The general term for input context. It covers earlier candidate terms such as research,
