@@ -25,14 +25,14 @@ if [ -n "$WT" ] && [ -d "$WT" ]; then
   jq -n --arg wt "$WT" '{
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: ("tsk/bootstrap fetched and materialised at " + $wt + " (also exported as $TSK_BOOTSTRAP_WT). Read " + $wt + "/plan.md next.")
+      additionalContext: ("tsk/bootstrap fetched and materialised at " + $wt + " (also exported as $TSK_BOOTSTRAP_WT). Read " + $wt + "/index.md next.")
     }
   }'
 else
   jq -n '{
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: "Warning: the tsk/bootstrap branch could not be fetched automatically at session start (network or git error). Run `just fetch-refs` or `ops/local/fetch-bootstrap-ref.sh` manually before reading plan.md."
+      additionalContext: "Warning: the tsk/bootstrap branch could not be fetched automatically at session start (network or git error). Run `just fetch-refs` or `ops/local/fetch-bootstrap-ref.sh` manually before reading index.md."
     }
   }'
 fi
