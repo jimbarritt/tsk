@@ -28,6 +28,21 @@ handoff pattern — applies differently depending on which one a session is in.
      event besides `/clear` — a mid-session model switch was observed to move it, with
      the session ID unchanged. No restart mechanism has yet been found that changes a
      cloud session's own ID.
+
+     The cloud session ID is also readable directly, with no MCP tool call, as the
+     environment variable `CLAUDE_CODE_REMOTE_SESSION_ID` (`cse_...`; swap the prefix
+     for `session_` to match `get_session`'s `id` field exactly — confirmed
+     byte-identical). This means a plain bash `SessionStart` hook can resolve a cloud
+     session's identity itself, the same way it already can a CLI worktree's.
+
+     There are two different session identifiers in a cloud session's environment, and
+     they must not be conflated. `CLAUDE_CODE_REMOTE_SESSION_ID` is the CCR platform
+     session ID — the one everything above refers to as "the cloud session ID," and the
+     one to use for a thread binding. `CLAUDE_CODE_SESSION_ID` is a separate UUID
+     (confirmed distinct from the above: it matches this session's own scratchpad
+     directory path, so it looks like a lower-level container or instance identifier,
+     not the CCR session). Any design that binds a thread to "the session ID" needs to
+     say `CLAUDE_CODE_REMOTE_SESSION_ID` explicitly.
    - **CLI.** `/clear` produces a new session ID directly. There is no equivalent of
      `worker_epoch` to fall back on here; a worktree is the thing that persists across
      it instead.
