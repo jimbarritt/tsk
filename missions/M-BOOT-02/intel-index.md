@@ -543,3 +543,19 @@ This means a lookup map's value for a thread ID is not necessarily unique in rev
 (one thread can appear against more than one session or worktree key). What running
 the same thread from two actors at once actually does, in practice, is deferred: Jim's
 words, "we can explore this behaviour more fully later."
+
+### Decided: what /resume-thread loads, and how it presents it
+
+Jim, 2026-09-16. No task-index lookup at this point: that's T-04's thread state format,
+not yet designed, and stays out of `/resume-thread` for now. The script (the harness
+side, deterministic) loads the thread's handover note and pushes it into the agent's
+context as a prompt, the same shape as the SessionStart hook's additionalContext.
+
+The agent's job on top of that is to summarise, concisely, then ask whether to carry on
+with the thread or do something else. Fixed shape for the summary:
+
+```
+thread id: <id>
+we are working on mission <mission title>
+this is where we are at: <summary of the handover note>
+```
