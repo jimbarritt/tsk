@@ -279,3 +279,36 @@ That session was also observed running on `claude-haiku-4-5-20251001` while conf
 as `claude-sonnet-5`, switched via `/model` — a live example of `configured_model`
 diverging from the model actually serving a turn, alongside `external_metadata.model`
 and `last_served_model`. Not otherwise relevant to the epoch question; noted in passing.
+
+### Web research: `worker_epoch` is undocumented by Anthropic; one reverse-engineered source corroborates it
+
+Web research run 2026-09-16, checking the `worker_epoch` question against outside
+sources while Jim ran a parallel check from the Claude Code command line.
+
+No official Anthropic documentation defines `worker_epoch`, `turn_handoff`, or
+`session_context`. Anthropic's public Compliance API does document a "Remote" sessions
+endpoint (`platform.claude.com/docs/en/api/compliance/apps/sessions/remote`,
+fetched directly), but it uses a different session-ID scheme (`cse_...`, not the
+`session_...` IDs `get_session` returns here) and exposes only `id`, `status`
+(`active`/`paused`/`archived`/`failed`/`pending`), `created_at`, `updated_at`,
+`product_surface`, and user/agent ownership — no `worker_epoch` field, no
+`turn_handoff`. So `worker_epoch` is not part of Anthropic's documented public API
+surface; it belongs to the private CCR (Claude Code Remote) client protocol between a
+session and its backend, not to anything published.
+
+One unofficial source corroborates the field is real rather than a fabrication or an
+artefact of the other session's own gloss on it. A community-maintained gist
+(`gist.github.com/jedisct1/9627644cda1c3929affe9b1ce8eaf714`), reverse-engineered from
+the Claude Code CLI's own code with specific file:line citations, lists
+`CLAUDE_CODE_WORKER_EPOCH` as an "Internal/hidden" environment variable: "worker epoch
+for CCR client state." It sits in the gist grouped with other CCR bridge/transport
+internals — `CLAUDE_CODE_USE_CCR_V2`, `CLAUDE_CODE_POST_FOR_SESSION_INGRESS_V2`,
+`CLAUDE_CODE_CCR_MIRROR`, `CLAUDE_CODE_ENVIRONMENT_KIND`,
+`CLAUDE_CODE_ENVIRONMENT_RUNNER_VERSION`, `CLAUDE_CODE_SESSION_ACCESS_TOKEN` — which
+places `worker_epoch` in the CCR client/transport layer, consistent with it being
+scoped to a session's own connection state rather than a fact about the shared
+environment. This is a reverse-engineered community source, not Anthropic
+documentation, and does not settle what specifically increments the epoch (container
+restart, reconnect, or hand-off between workers) — that remains open, resting only on
+the two empirical data points already recorded above (survives `/clear`; differs
+between two unrelated sessions in the same environment).
