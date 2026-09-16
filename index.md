@@ -18,18 +18,11 @@ harness) is next unblocked.
 
 ## Next step
 
-Design a way to fire up an agent session with a mission: how a session comes into
-existence already knowing which mission it is executing.
-
-Read this first, it is the groundwork and will save repeating the investigation:
-`docs/kb/session-creation-and-environments.md` in the tsk repo on `main`
-(https://github.com/jimbarritt/tsk/blob/main/docs/kb/session-creation-and-environments.md).
-It sets out which mechanisms can start a session, which of them an orchestrator can
-invoke, the three levers that determine what a session knows once started, and what
-reusing a long-lived session does and does not allow.
-
-Jim has ideas on the design and wants to discuss them before anything is built. Do not
-start implementing. The open decision this settles is recorded under M-BOOT-02.
+Execute M-BOOT-02-01 (continuation harness), delegated from M-BOOT-02's T-13. Briefing:
+[missions/M-BOOT-02-01-continuation-harness.md](missions/M-BOOT-02-01-continuation-harness.md).
+It implements `docs/domain/session-continuation-design.md` in the tsk repo on `main`.
+Read the briefing in full, then that design doc, before writing anything: the design
+doc is the specification, not background reading.
 
 ## Current mission
 
@@ -51,6 +44,7 @@ briefing: [missions/M-BOOT.md](missions/M-BOOT.md).
 | [M-BOOT](missions/M-BOOT.md) | Bootstrap tsk self hosting | tsk hosts its own development, no bootstrap scaffolding left | TODO | none |
 | [M-BOOT-01](missions/M-BOOT-01-substrate.md) | Substrate | Every place the bootstrap needs exists and holds its first content | ✓ DONE | none |
 | [M-BOOT-02](missions/M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local and a cloud session both load the harness and read a briefing | IN PROGRESS | M-BOOT-01 |
+| [M-BOOT-02-01](missions/M-BOOT-02-01-continuation-harness.md) | Continuation harness | `/start-thread`, `/pause-thread`, `/resume-thread` work end to end | TODO | M-BOOT-02 |
 | [M-BOOT-03](missions/M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | TODO | M-BOOT-02 |
 | M-BOOT-04 | The official data ref | No breakout briefing yet | TODO | M-BOOT-03 |
 | M-BOOT-05 | Migration off the bootstrap ref | No breakout briefing yet | TODO | M-BOOT-04 |
