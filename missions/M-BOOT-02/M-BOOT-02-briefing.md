@@ -109,3 +109,24 @@ and nothing downstream works without it.
   earlier open decision above about where thread state lives: that one asks whether the
   index keeps those sections, this one says it should not. To be solved in the next
   session.
+
+- Sessions registering themselves against the mission, as a mechanism for working out
+  where to start. Raised by Jim, 2026-09-16, to explore. A candidate answer to the open
+  decision above on how a briefing reaches a session, and possibly to handoff too: rather
+  than a session reading a single written-down pointer, a session could announce itself
+  against the mission it is working, so the mechanism for finding where to start is
+  registration rather than a note left behind. Not shaped further than this. Explore
+  alongside handoff rather than instead of it.
+
+## Handover
+
+In progress: researching how to build a "continuation harness" — an agent session that
+can hand off to its own successor before running out of context, rather than a human
+restarting it cold. Pick this up in the next session.
+
+Read, in order: `docs/kb/session-creation-and-environments.md` and
+`docs/kb/agent-context-self-regulation-and-unattended-handoff.md`, both in the tsk repo
+on `main`, then this mission's own intel-index.md for the mission-specific thread (the
+working hypothesis, checked and refuted in part, and the confirmed findings on `/goal`
+and `get_session`). Jim has ideas on the design and wants to discuss them before
+anything is built.
