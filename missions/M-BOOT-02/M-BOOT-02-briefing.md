@@ -130,10 +130,12 @@ Pre-clear values, this session, captured 2026-09-16 via `get_session`:
 - Environment ID: `env_0173H2wsxugkZUm5Whrkmtv9`
 - Created: `2026-09-15T12:46:42Z`
 - Context usage at capture: 622,545 / 1,000,000 tokens
+- Worker epoch: `32` (`turn_handoff.worker_epoch`)
 
 Next session: call `get_session` and confirm whether `id` still matches the session ID
-above. That result is the experiment's answer, not a side detail — record it here
-either way.
+above, and whether `turn_handoff.worker_epoch` still reads `32` or has moved on — the
+session ID and the worker epoch could survive `/clear` independently of each other, and
+that distinction is itself part of the answer. Record both results here either way.
 
 Research status otherwise unchanged since the last handover: the self-regulation
 hypothesis is refuted, four mechanisms and four operating contexts are documented in
