@@ -495,3 +495,11 @@ injects additionalContext telling the agent to ask the human directly: "I couldn
 a thread, do you want to start one? If so tell me what mission we are picking up."
 Consistent with staying in supervised mode: creation only happens on an explicit human
 answer naming a mission, never automatically.
+
+### Decided: /start-thread is entirely scriptable, no agent judgement
+
+Jim, 2026-09-16. Unlike `/pause-thread`, which needs the agent to write the summary
+note, everything `/start-thread` does once a mission is named is mechanical: mint the
+slug, check it against the lookup file, write the binding, create the thread's
+`index.md`. The skill is a thin wrapper over a deterministic script; the mission name
+is the only input that isn't already fully determined by the environment.
