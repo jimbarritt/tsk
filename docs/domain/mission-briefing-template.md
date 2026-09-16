@@ -153,6 +153,13 @@ elsewhere is generated from this one. Two authored copies of the same fact drift
 **Harness fields.** The ksobr plugin supplies these when rendering for an agent. Do not
 write them into the mission itself.
 
+**Report location.** Written to `missions/{id}/{id}-{slug}-report.md`: the briefing's
+own filename with a `report` suffix, inside a subdirectory named for the mission's ID.
+The subdirectory exists only once the mission starts executing; the briefing itself
+stays a flat file until then. The full filename, not a generic `report.md`, is
+deliberate: the file may be found outside its directory, and its name should still say
+which mission it belongs to.
+
 ---
 
 ## Worked example, leaf mission
