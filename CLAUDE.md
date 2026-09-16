@@ -28,9 +28,23 @@ WT="${TSK_BOOTSTRAP_WT:-$(just fetch-refs)}"   # or: ops/local/fetch-bootstrap-r
 ```
 
 `$WT` resolves inside `.git/`, so it is untracked, per-clone, and identical whether
-the session is local or a fresh cloud checkout. Always use the script above rather
-than running the fetch and worktree commands by hand; never fetch into a new or
-randomly named directory.
+the session is local or a fresh cloud checkout.
+
+**Never fetch, update or push the bootstrap data by hand. Use the scripts.** Do not
+run `git fetch`, `git rebase`, `git reset` or `git push` against `tsk/bootstrap`
+yourself, in the worktree or anywhere else, and never fetch into a new or randomly
+named directory. Read with `ops/local/fetch-bootstrap-ref.sh`, write with
+`ops/local/push-bootstrap-ref.sh`, or use their `just` equivalents. This holds even
+when a hand-run command looks equivalent to what the script does.
+
+The reason is a name collision on `origin`. Two refs share the name `tsk/bootstrap`:
+the live branch `refs/heads/tsk/bootstrap`, and an orphaned custom ref
+`refs/tsk/bootstrap` left behind by the original design (ADR 0008). Git resolves an
+unqualified `tsk/bootstrap` against `refs/tsk/bootstrap` first, so
+`git fetch origin tsk/bootstrap` exits 0, prints a plausible success line, and
+returns the orphaned ref's content, frozen at 2026-09-14. No error is raised.
+Rebasing onto that state reverts work already on the branch. The scripts spell out
+`refs/heads/tsk/bootstrap` in full and are not affected.
 
 Read `$WT/index.md` for current state and next steps, then the briefing for the mission
 you are working, under `$WT/missions/`.
