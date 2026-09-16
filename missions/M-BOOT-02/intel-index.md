@@ -654,3 +654,20 @@ The two commit-hash fields are script-captured, not agent-written: `/pause-threa
 script already handles the git side, so it reads back the hash it just pushed on each
 branch rather than the agent reporting it. Only "what's next" is the agent's own
 judgement call; everything else in the schema is deterministic.
+
+### Decided: the handover is an append-only event log, not a note that gets overwritten
+
+Jim, 2026-09-16. The handover lives as JSONL under the thread's own directory, one event
+per pause. `/pause-thread`'s job is to append a new event, not to overwrite a file. Each
+event carries the schema already decided: mission briefing link, task ID, the
+script-captured commit hashes on `tsk/bootstrap` and `main`, and the agent-written
+what's-next summary.
+
+Wrapped in a deterministic script, `append-handover.sh`, doing as much of the event as
+possible without agent judgement: it captures both commit hashes and the timestamp
+itself; the agent supplies only the mission link, task ID and what's-next text as
+arguments (mission and task likely already known from the thread's own state, so the
+agent may only need to supply what's-next in practice).
+
+This also settles where the note lives: not `index.md` (that stays a stable pointer),
+but its own append-only file inside `threads/<slug>/`. Exact filename not yet fixed.
