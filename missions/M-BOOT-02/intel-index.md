@@ -678,3 +678,10 @@ Jim, 2026-09-16. The automatic summary on resume is built from the latest event 
 The full event log stays queryable by a human operator directly, for cases like a task
 stalling across several pauses, but that querying is not part of the automatic resume
 flow itself.
+
+### Decided: the handover log is named continuation-state.jsonl
+
+Jim, 2026-09-16. Not `handover.jsonl`. Jim's reasoning: it echoes a concept called
+"continuation" from other work of his, adjacent to but not the same as thread. The file
+lives at `threads/<slug>/continuation-state.jsonl`. Whether "continuation" itself
+belongs in the ubiquitous language, and how it relates to Thread, is not decided yet.
