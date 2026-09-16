@@ -63,7 +63,7 @@ rather than tsk.
 | T-09 | Create the plugin marketplace repo | Harness and the language linter declared in `.claude/settings.json` and installed by a setup script | T-08 | TODO |
 | T-10 | Configure the cloud environment | Network access, environment variables, and a setup script that installs the harness and the linter | T-09 | TODO |
 | T-11 | Confirm GitHub repo access for cloud sessions | A test cloud session clones the tsk repo and reads a briefing | T-10 | TODO |
-| T-12 | Configure `CLAUDE.md` with the Software English compact instructions | Agents in this repo write in Software English by default, in replies and in anything written into a file. Includes the one question at a time rule. Spec: https://github.com/jimbarritt/software-english. Overlaps T-07, which holds ways of working | none | TODO |
+| T-12 | Configure `CLAUDE.md` with the Software English compact instructions | Agents in this repo write in Software English by default, in replies and in anything written into a file. Includes the one question at a time rule. Spec: https://github.com/jimbarritt/software-english. Overlaps T-07, which holds ways of working | none | DONE |
 | T-13 | Build `/start-thread` and `/pause-thread` | Two skills. `/start-thread` resolves the current binding (cloud session ID or worktree) against the lookup maps, binds a new thread if none exists, and takes the mission to work. `/pause-thread` writes a handover note and hands off to a script for everything scriptable, especially git. Design is in intel-index.md; in progress | none | TODO |
 
 **Essential task**: T-11. Repo access denial is the most common cloud routine failure,
