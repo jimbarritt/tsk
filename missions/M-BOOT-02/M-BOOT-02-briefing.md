@@ -127,37 +127,34 @@ and nothing downstream works without it.
   registration rather than a note left behind. Not shaped further than this. Explore
   alongside handoff rather than instead of it.
 
+
 ## Handover
 
-Cross-session experiment in progress, run by Jim: verify whether the session ID
-survives `/clear`, which bears directly on context 1 (supervised interactive).
+Cross-session experiment concluded, 2026-09-16: whether a session ID survives `/clear`.
+Result: it depends on the surface. A cloud session's ID and `worker_epoch` both survive
+`/clear`; the CLI issues a new session ID on `/clear` instead. Neither is thread
+identity in either case — that conclusion is now written into the domain model, not
+just this mission. Don't re-run this experiment; read the findings instead.
 
-Pre-clear values, this session, captured 2026-09-16 via `get_session`:
+Read, in order:
 
-- Session ID: `session_01WePrEonPkCV4kfJPK9D4Sy`
-- Environment ID: `env_0173H2wsxugkZUm5Whrkmtv9`
-- Created: `2026-09-15T12:46:42Z`
-- Context usage at capture: 622,545 / 1,000,000 tokens
-- Worker epoch: `32` (`turn_handoff.worker_epoch`)
+1. `docs/domain/ubiquitous-language.md` on `main` — Actor and Thread entries. Actor is a
+   new term: cardinality (a human holds many threads, an agent session holds one) is
+   what distinguishes it from a thread, and thread identity is tsk's own, never a
+   platform session ID or a worktree path.
+2. `docs/kb/agent-context-self-regulation-and-unattended-handoff.md` on `main` — context
+   1 (supervised interactive), now split into cloud and CLI sub-contexts with the
+   experiment's findings and the same resolution.
+3. This mission's own intel-index.md, for the full experimental trail (four data
+   points) and the fable follow-up on self-regulation mechanisms generally.
 
-Next session: call `get_session` and confirm whether `id` still matches the session ID
-above, and whether `turn_handoff.worker_epoch` still reads `32` or has moved on — the
-session ID and the worker epoch could survive `/clear` independently of each other, and
-that distinction is itself part of the answer. Record both results here either way.
+State of the mission: the thread-definition open decision is settled (see Open
+decisions). T-04 (thread state format) is unblocked. T-13 (a scripted handover skill)
+is still blocked: it needs the thread/binding design worked out, not just named, before
+it can be automated. The remaining open question is whether a thread binds to a mission
+or a mission to a thread — work that next.
 
-Post-clear result, captured 2026-09-16 via `get_session`: both survived. `id` still
-reads `session_01WePrEonPkCV4kfJPK9D4Sy` and `turn_handoff.worker_epoch` still reads
-`32`. `external_metadata.context_usage.used_tokens` reset to `0` (from 622,545
-pre-clear), so `/clear` resets the counted context window without starting a new
-session or a new worker epoch.
-
-Later reading, same session, 2026-09-16: `id` unchanged, `worker_epoch` now `33` (a
-model switch to `claude-fable-5-1` was the only recorded change in between),
-`used_tokens` 636,069 with the pre-clear conversation still in context. See
-intel-index.md, fourth data point, for the discrepancy with the `0` above.
-
-Research status otherwise unchanged since the last handover: the self-regulation
-hypothesis is refuted, four mechanisms and four operating contexts are documented in
-`docs/kb/agent-context-self-regulation-and-unattended-handoff.md` on `main`, and T-13
-(a scripted handover skill) is blocked on context 1 being worked out. Read this
-mission's intel-index.md for the full trail before building anything.
+Outgoing session, for reference only, not for another experiment:
+`session_01WePrEonPkCV4kfJPK9D4Sy`, `worker_epoch` 34 at handover (one more than the
+last recorded reading of 33, with a model switch back to Sonnet the only change in
+between — consistent with, not yet proof of, "any model switch increments the epoch").
