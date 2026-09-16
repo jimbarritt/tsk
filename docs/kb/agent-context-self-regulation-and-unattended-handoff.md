@@ -15,19 +15,33 @@ this document builds on.
 Four contexts frame this whole document. Everything below — mechanisms, `/goal`, the
 handoff pattern — applies differently depending on which one a session is in.
 
-1. **Supervised interactive.** A human is present. A restart gives a new session ID.
-   `/clear` does not: the session's `id` field is unchanged across a `/clear`. What
-   changes instead is `external_metadata.turn_handoff.worker_epoch`, an undocumented
-   counter nested alongside `tools` and a version `v` inside a `turn_handoff` object,
-   confirmed to increment across a `/clear`. `/clear` is available in cloud sessions,
-   but only a human can type it: there is no tool call for it, which is why it sits in
-   this context and not in context 2 — it requires a human present to trigger.
-   `worker_epoch` is a candidate for the identifier this document was missing: one that
-   outlives `/clear` within a single session, distinct from the session ID itself. Not
-   yet explored: what else increments an epoch besides `/clear`, whether
-   `external_metadata.permission_mode_seq` (also seen incrementing) is related, and
-   whether anything reads `worker_epoch` back to resume state rather than only reporting
-   it. Getting this context right is the one most exposed by ordinary use.
+1. **Supervised interactive.** A human is present. `/clear` is available only here —
+   there is no tool call for it, which is why it doesn't belong to context 2 — but what
+   it does to session identity depends on the surface, and this splits the context in
+   two:
+   - **Cloud session** (Claude Code on the web, the apps, `claude --cloud`). `/clear`
+     leaves the session's `id` field unchanged. What changes instead is
+     `external_metadata.turn_handoff.worker_epoch`, an undocumented counter nested
+     alongside `tools` and a version `v` inside a `turn_handoff` object. `worker_epoch`
+     is scoped to the session, not the environment: two unrelated sessions in the same
+     environment reported different values. It also increments on at least one other
+     event besides `/clear` — a mid-session model switch was observed to move it, with
+     the session ID unchanged. No restart mechanism has yet been found that changes a
+     cloud session's own ID.
+   - **CLI.** `/clear` produces a new session ID directly. There is no equivalent of
+     `worker_epoch` to fall back on here; a worktree is the thing that persists across
+     it instead.
+   - Not yet explored: whether `external_metadata.permission_mode_seq` (also seen
+     incrementing) tracks the same thing as `worker_epoch` or something independent,
+     and whether anything reads `worker_epoch` back to resume state rather than only
+     reporting it.
+
+   Neither a session ID nor a worktree is thread identity; each is only what a given
+   sub-context happens to keep durable. Resolution: tsk's own thread concept (Thread and
+   Actor, `docs/domain/ubiquitous-language.md`) is the actual anchor — minted once when
+   the thread starts, associated with an actor, and bound to whichever of these a
+   sub-context offers, rather than being either of them. Getting this binding right is
+   the one most exposed by ordinary use.
 2. **Unsupervised autonomous.** No human present. The agent must both regulate its own
    context and decide when and how to continue, spawning its own successor until the
    mission is done. This is the context the `/goal` + `get_session` + `create_session`
