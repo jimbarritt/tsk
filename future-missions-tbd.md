@@ -22,16 +22,21 @@ tsk's CLAUDE.md (M-BOOT-02 T-12). The harness worked as designed: agent came up,
 specification from an external repo, extracted and integrated the changes, committed and
 pushed to main — all without intervention. No blockers, no prompts. The mechanism is sound.
 
-## tsk and Linear / Jira integration
+## tsk metadata in the nexus, not the repo
 
 Raised by Jim, 2026-09-16.
 
-Research mission: explore the intersection between tsk's mission and task model and
-Linear or Jira, understanding how the two systems might relate, whether tsk replaces
-one, complements it, or needs to interoperate with it.
+tsk currently stores its metadata branch in the repo it manages. This works for repos
+you own, but breaks for repos you don't: you cannot push a branch without the repo's
+permission, and you don't want to ask owners to allowlist your metadata branch.
 
-Open: scope of research, candidate tools and use cases, whether this shapes tsk's
-design or is purely a downstream question.
+Solution: store the metadata branch in the nexus repo instead, namespaced by target
+repo (e.g. `refs/heads/repos/owner/repo-name/missions`). The nexus is already meant to
+index repos; reusing it to hold their tsk metadata is a natural extension.
+
+Open: namespace design, whether a single nexus branch per target repo is enough or
+whether finer granularity is needed, whether this changes the mission model or
+thread continuity story.
 
 ## Agents interrupting each other
 
