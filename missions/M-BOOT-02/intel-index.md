@@ -252,5 +252,30 @@ Both the session ID and the worker epoch survived `/clear` in this test. `/clear
 the counted context window without starting a new session or a new worker epoch. This
 narrows context 1's open question ("a restart gives a new session ID, so continuity
 across that boundary needs an identifier that outlives the ID") — `/clear` is not the
-kind of restart that changes the ID; some other boundary must be. Jim is separately
-checking a session ID pulled from a different session to verify.
+kind of restart that changes the ID; some other boundary must be. Jim separately checked
+a second, unrelated session to see whether `worker_epoch` is shared across sessions in
+the same environment.
+
+### Confirmed directly: `worker_epoch` is scoped to a session, not to an environment
+
+Second data point, gathered by Jim, 2026-09-16, asking an unrelated session ("TSK -
+Offline ideas capture interface", `session_015h8qmbPEuyKyaoY7xuur11`) to run
+`get_session` on itself. Same environment as the session above,
+`env_0173H2wsxugkZUm5Whrkmtv9`, but its own `worker_epoch` read `3`, not anywhere near
+`32`.
+
+If the epoch counted restarts of a container shared across all sessions in an
+environment, two sessions in the same environment could not report such different
+values. It must count something scoped to the individual session instead — most likely
+restarts of that session's own worker.
+
+That session's own gloss on the field — "tracks which generation of the worker
+container this session is running on; increments each time the container restarts or
+hands off work" — is the session's own explanation, not sourced from checked
+documentation. Consistent with what has been confirmed here, but treat as an unverified
+secondary claim, not settled fact, until checked against a primary source.
+
+That session was also observed running on `claude-haiku-4-5-20251001` while configured
+as `claude-sonnet-5`, switched via `/model` — a live example of `configured_model`
+diverging from the model actually serving a turn, alongside `external_metadata.model`
+and `last_served_model`. Not otherwise relevant to the epoch question; noted in passing.
