@@ -72,7 +72,10 @@ and nothing downstream works without it.
 ## Open decisions
 
 - Where the missions live in the repository: a directory, or a git ref. T-01 decides.
-- Run record location: with the missions, or the transcripts repo. T-03 needs it.
+- Run record location: settled, 2026-09-16. With the missions, not the transcripts
+  repo: `missions/{id}/{id}-{slug}-report.md`, in a subdirectory created when the
+  mission starts executing. See the Report location field note in
+  `docs/domain/mission-briefing-template.md` on `main`. T-03 can build on this.
 - Whether the definition of threads is right. Settled, 2026-09-16: Jim's reading held.
   Thread is unchanged in substance (still the execution sequence, still resumable
   possibly as a different actor) but Actor is now a defined term in its own right

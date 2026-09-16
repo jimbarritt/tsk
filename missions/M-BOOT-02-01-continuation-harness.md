@@ -7,6 +7,13 @@
 | Assignee | unassigned |
 | Blocked by | none |
 
+## Scope
+
+Supervised interactive only. A human is present: running `/pause-thread` themselves,
+and answering the `SessionStart` hook's prompt directly when it finds no binding or
+finds one. Building any automated trigger for pausing, such as one driven later by the
+goal verifier, is out of scope for this mission.
+
 ## Objective
 
 Kind: attainable
@@ -94,11 +101,12 @@ mission builds, not background reading.
 ## Execution constraints
 
 Files: a new `.claude/skills/` entry per command, a new `threads/` top-level directory
-on `tsk/bootstrap`, `.claude/hooks/session-start.sh`, and a script location for
-`append-handover.sh` and the binding scripts, consistent with the repo's existing
-`ops/` layout.
+on `tsk/bootstrap`, `.claude/hooks/session-start.sh`, a script location for
+`append-handover.sh` and the binding scripts consistent with the repo's existing
+`ops/` layout, and `missions/M-BOOT-02-01/` for this mission's own report.
 
 ## Report on completion
 
 Outcome: done, failed, or blocked, with attempt count. Your account: what you did, what
-this briefing failed to give you, what you found wrong in it.
+this briefing failed to give you, what you found wrong in it. Write it to
+`missions/M-BOOT-02-01/M-BOOT-02-01-continuation-harness-report.md`.
