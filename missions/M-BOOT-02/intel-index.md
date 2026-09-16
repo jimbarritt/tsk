@@ -234,3 +234,23 @@ which of these a session is in.
    same limit its workers do; continuation has to apply recursively.
 4. **Event-triggered.** A GitHub Action, a PR event, an issue to process. No session
    lineage going in; each firing starts fresh by construction.
+
+### Confirmed directly: `/clear` does not change session ID or worker epoch
+
+Experiment run by Jim, 2026-09-16, bearing directly on context 1 (supervised
+interactive): whether the session ID survives `/clear`.
+
+Pre-clear, captured via `get_session`: `id` was `session_01WePrEonPkCV4kfJPK9D4Sy`,
+`turn_handoff.worker_epoch` was `32`, `external_metadata.context_usage.used_tokens` was
+622,545.
+
+Post-clear, captured via `get_session` in the same session: `id` still read
+`session_01WePrEonPkCV4kfJPK9D4Sy` and `turn_handoff.worker_epoch` still read `32`.
+`external_metadata.context_usage.used_tokens` had reset to `0`.
+
+Both the session ID and the worker epoch survived `/clear` in this test. `/clear` reset
+the counted context window without starting a new session or a new worker epoch. This
+narrows context 1's open question ("a restart gives a new session ID, so continuity
+across that boundary needs an identifier that outlives the ID") — `/clear` is not the
+kind of restart that changes the ID; some other boundary must be. Jim is separately
+checking a session ID pulled from a different session to verify.

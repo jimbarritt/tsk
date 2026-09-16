@@ -137,6 +137,12 @@ above, and whether `turn_handoff.worker_epoch` still reads `32` or has moved on 
 session ID and the worker epoch could survive `/clear` independently of each other, and
 that distinction is itself part of the answer. Record both results here either way.
 
+Post-clear result, captured 2026-09-16 via `get_session`: both survived. `id` still
+reads `session_01WePrEonPkCV4kfJPK9D4Sy` and `turn_handoff.worker_epoch` still reads
+`32`. `external_metadata.context_usage.used_tokens` reset to `0` (from 622,545
+pre-clear), so `/clear` resets the counted context window without starting a new
+session or a new worker epoch.
+
 Research status otherwise unchanged since the last handover: the self-regulation
 hypothesis is refuted, four mechanisms and four operating contexts are documented in
 `docs/kb/agent-context-self-regulation-and-unattended-handoff.md` on `main`, and T-13
