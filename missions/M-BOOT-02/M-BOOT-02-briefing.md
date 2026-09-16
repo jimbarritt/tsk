@@ -124,6 +124,12 @@ In progress: researching how to build a "continuation harness" — an agent sess
 can hand off to its own successor before running out of context, rather than a human
 restarting it cold. Pick this up in the next session.
 
+Outgoing session: `session_01WePrEonPkCV4kfJPK9D4Sy`
+(https://claude.ai/code/session_01WePrEonPkCV4kfJPK9D4Sy). This mission's own working
+example of context 1 below: recorded here, internal to this mission on `tsk/bootstrap`,
+not in the main repo's public docs. Jim can open the transcript directly if picking up
+the reasoning matters more than starting clean.
+
 The research trail is fully written up as of 2026-09-16 — read this mission's own
 intel-index.md first, "Fable follow-up" and "Four operating contexts" sections, then
 follow its links out to the two docs on `main`
