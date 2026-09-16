@@ -28,11 +28,40 @@ passive index), helm, confluence, concourse, depot, relay, hub, registry, direct
 (tooling collisions). Sonatype Nexus, Google Nexus and Nexus Mods are an accepted
 collision.
 
+## Actor
+
+Whoever or whatever holds a thread and executes a mission: a human, or an agent
+session. Not the same as a session: a session is a platform-level execution instance,
+ephemeral and defined by the harness (see `docs/kb/session-creation-and-environments.md`
+in the tsk repo), while an actor is the tsk-domain party using one.
+
+Cardinality is the distinguishing fact, and it settles whether a thread is about the
+actor or about the work: a human actor holds many threads and switches between them,
+which is what `thread switch-to` already assumes. An agent session, by contrast, is
+bound to one thread. A different agent session picking up that thread later is a
+different actor holding it, not the same actor switching.
+
+This is also why thread identity cannot be borrowed from a session's own platform
+identifier. Confirmed empirically (M-BOOT-02, 2026-09-16): a Claude Code cloud
+session's session ID survives `/clear`, but the same command on the CLI produces a new
+one. An identifier that is stable on one surface and not another cannot serve as a
+thread's identity across both. Thread identity is tsk's own, minted once when the
+thread starts, and a session or a worktree binds to it, not the other way round.
+
+Related: operating context (`docs/kb/agent-context-self-regulation-and-unattended-handoff.md`
+in the tsk repo) describes how a session started and who or what is supervising it —
+supervised interactive, unsupervised autonomous, orchestrator spawning workers,
+event-triggered. Actor and operating context overlap but answer different questions:
+operating context is a property of the session, actor is who holds the thread running
+in it.
+
 ## Thread
 
 The execution sequence. A thread holds its own context and can be paused, suspended
 and resumed. This is what lets a human or an agent continue a set of tasks from one
-session to the next, possibly as a different actor.
+session to the next, possibly as a different actor. See Actor for what "different
+actor" means, and why thread identity is tsk's own rather than borrowed from a
+session's platform identifier.
 
 Distinguished from: step, a movement made, independent of people and mostly of time,
 leaving a trail behind similar to a log. Step is not adopted as a unit in tsk.
