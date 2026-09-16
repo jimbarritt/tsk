@@ -312,3 +312,17 @@ documentation, and does not settle what specifically increments the epoch (conta
 restart, reconnect, or hand-off between workers) — that remains open, resting only on
 the two empirical data points already recorded above (survives `/clear`; differs
 between two unrelated sessions in the same environment).
+
+### Confirmed directly: `/clear` behaves differently on the CLI than in Claude Code on the web
+
+Third data point, run by Jim, 2026-09-16. Running `/clear` in the Claude Code CLI
+produces a new session ID. This is the opposite of the cloud-session result recorded
+above, where `/clear` left the session ID (and the worker epoch) unchanged.
+
+So the session ID is not a reliable thread anchor across `/clear` in general — it
+depends on which surface the session is running on. It may still work as an anchor for
+context 1 (supervised interactive) specifically inside Claude Code on the web / Cowork
+cloud sessions, where this mission's own experiment showed it surviving. It does not
+work on the CLI, where `/clear` is a session boundary that changes the ID. Any design
+for a thread anchor needs to name which surface it targets rather than assuming session
+ID behaves the same everywhere.
