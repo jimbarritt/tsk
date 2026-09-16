@@ -618,3 +618,13 @@ Natural location: `.git/worktrees/<name>/tsk-thread-id` for a linked worktree â€
 directory is already private per-worktree metadata, and `git rev-parse --git-dir`
 already resolves to it directly. Where the main worktree's own marker goes is still
 open, since it has no `.git/worktrees/<name>` directory of its own.
+
+### Decided: the worktree marker path is uniform, main worktree included
+
+Jim, 2026-09-16, provisionally ("a little unneeded but let's do it and see"). The
+thread-ID marker file lives at `$(git rev-parse --git-dir)/tsk-thread-id`, the same
+rule for every worktree, main included. No special case: `--git-dir` already resolves
+to a distinct path per worktree (`.git/worktrees/<name>` for a linked one, `.git`
+itself for the main one), so the marker never collides even though the main worktree's
+own `.git` is otherwise shared object/ref storage that every linked worktree also reads
+via `--git-common-dir`. Revisit if it turns out not to earn its keep in practice.
