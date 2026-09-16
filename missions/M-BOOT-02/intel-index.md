@@ -503,3 +503,10 @@ note, everything `/start-thread` does once a mission is named is mechanical: min
 slug, check it against the lookup file, write the binding, create the thread's
 `index.md`. The skill is a thin wrapper over a deterministic script; the mission name
 is the only input that isn't already fully determined by the environment.
+
+### Decided: /start-thread's mission argument is resolved and validated before the script runs
+
+Jim, 2026-09-16. The agent resolves whatever the human says in answer to the hook's
+prompt into a concrete mission ID by reading the mission tree, before calling the
+script. The script itself also validates that ID exists rather than trusting its
+caller — two independent checks, not one relied on to catch everything.
