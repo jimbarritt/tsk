@@ -628,3 +628,12 @@ to a distinct path per worktree (`.git/worktrees/<name>` for a linked one, `.git
 itself for the main one), so the marker never collides even though the main worktree's
 own `.git` is otherwise shared object/ref storage that every linked worktree also reads
 via `--git-common-dir`. Revisit if it turns out not to earn its keep in practice.
+
+### Decided: pausing is manual for now, scoped to the supervised context
+
+Jim, 2026-09-16. For now, design covers the supervised operating context only. Jim runs
+`/pause-thread` himself, manually, before `/clear`. The action set `/pause-thread`
+performs is the same regardless of who or what triggers it; only the trigger is
+expected to change later, likely to an automated one driven by the goal verifier
+(`/goal`), once agent-initiated pausing is designed. Not designing that trigger now,
+only noting the action set should not need to change when it arrives.
