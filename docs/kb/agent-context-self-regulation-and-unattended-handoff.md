@@ -4,8 +4,9 @@ Gathered by a Fable-model subagent's research, verified against primary Anthropi
 documentation, 2026-09-16. Two of the load-bearing claims below — the `/goal` mechanics
 and the exact wording of the context-awareness warning — were independently re-checked
 against `code.claude.com` and `platform.claude.com` directly and match precisely.
-`get_session`'s behaviour was independently confirmed live, in this repo's own session,
-against actual output rather than documentation, since no public page describes it. See
+`get_session`'s behaviour was independently confirmed by direct observation of a running
+session, against actual output rather than documentation, since no public page describes
+it. See
 `docs/kb/session-creation-and-environments.md` for the session-orchestration mechanics
 this document builds on.
 
@@ -14,25 +15,19 @@ this document builds on.
 Four contexts frame this whole document. Everything below — mechanisms, `/goal`, the
 handoff pattern — applies differently depending on which one a session is in.
 
-1. **Supervised interactive.** A human is present; this document was written inside one.
-   A restart gives a new session ID. `/clear` does not: confirmed live, 2026-09-16, by
-   calling `get_session` on this repo's own session (iOS origin, cloud environment)
-   before and after `/clear` ran, and the session's `id` field was unchanged. What
-   changed was `external_metadata.turn_handoff.worker_epoch`, an undocumented counter
-   nested alongside `tools` and a version `v` inside a `turn_handoff` object, from 28 to
-   30 across two `/clear` calls. `/clear` is available in cloud sessions, but only a
-   human can type it: there is no tool call for it, which is exactly why it sits in this
-   context and not in context 2 — it requires a human present to trigger. `worker_epoch`
-   is a candidate for the identifier this document was missing: one that outlives
-   `/clear` within a single session, distinct from the session ID itself. Not yet
-   explored: what else increments an epoch besides `/clear`, whether
-   `external_metadata.permission_mode_seq` (also seen incrementing, currently `"36"`) is
-   related, and whether anything reads `worker_epoch` back to resume state rather than
-   only reporting it. Live example: during this document's own writing, a reply got
-   pasted back several turns later and was mistaken for evidence of lost context, purely
-   because nothing tied that reply's identity to anything more durable than "earlier in
-   this same long conversation" — `worker_epoch`, once understood further, may be exactly
-   that durable tie. Getting this context right is the one most exposed by ordinary use.
+1. **Supervised interactive.** A human is present. A restart gives a new session ID.
+   `/clear` does not: the session's `id` field is unchanged across a `/clear`. What
+   changes instead is `external_metadata.turn_handoff.worker_epoch`, an undocumented
+   counter nested alongside `tools` and a version `v` inside a `turn_handoff` object,
+   confirmed to increment across a `/clear`. `/clear` is available in cloud sessions,
+   but only a human can type it: there is no tool call for it, which is why it sits in
+   this context and not in context 2 — it requires a human present to trigger.
+   `worker_epoch` is a candidate for the identifier this document was missing: one that
+   outlives `/clear` within a single session, distinct from the session ID itself. Not
+   yet explored: what else increments an epoch besides `/clear`, whether
+   `external_metadata.permission_mode_seq` (also seen incrementing) is related, and
+   whether anything reads `worker_epoch` back to resume state rather than only reporting
+   it. Getting this context right is the one most exposed by ordinary use.
 2. **Unsupervised autonomous.** No human present. The agent must both regulate its own
    context and decide when and how to continue, spawning its own successor until the
    mission is done. This is the context the `/goal` + `get_session` + `create_session`

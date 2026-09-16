@@ -115,12 +115,10 @@ one is ready, is mechanically supported.
 
 What is not supported is an agent resetting its own session. `/clear` is available in
 cloud sessions, but only a human can type it: there is no tool call for it, so an agent
-cannot invoke it on itself. This is why it belongs to the supervised interactive context
-specifically. See context 1 in
+cannot invoke it on itself. See context 1 in
 `docs/kb/agent-context-self-regulation-and-unattended-handoff.md` for what `/clear`
-actually does to a running session, confirmed live, which corrects an earlier version of
-this document that claimed `/clear` was unavailable in cloud sessions altogether.
-`/compact` and `/context` remain the mechanisms available to the agent directly, and
+does to a running session. `/compact` and `/context` remain the mechanisms available to
+the agent directly, and
 compaction summarises the conversation rather than discarding it, so a worker carries its
 history into the next mission it is given. Context accumulates across every mission that
 worker takes.
