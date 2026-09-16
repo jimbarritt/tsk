@@ -190,3 +190,47 @@ session on itself, not merely reported in secondary sources. Worth checking whet
 fable follow-up finds anything that uses self-inspection like this as part of a larger
 pattern, since this session could only confirm the primitive exists, not that anything
 built on it does.
+
+### Fable follow-up: the working hypothesis is refuted, not confirmed
+
+Fable-model research, 2026-09-16, checked directly against primary Anthropic
+documentation (two claims re-verified independently: the `/goal` mechanics against
+`code.claude.com/docs/en/goal`, and the exact context-awareness warning wording against
+`platform.claude.com/docs/en/build-with-claude/context-windows` — both matched
+precisely). Full write-up, sources and open items:
+`docs/kb/agent-context-self-regulation-and-unattended-handoff.md` in the tsk repo on
+`main`.
+
+The working hypothesis above does not hold as stated. Four mechanisms exist, in
+ascending order of agent control: automatic compaction (no agent input — and more than
+one product sits here, Claude Code's own auto-compaction and the API's separate
+server-side compaction beta); context awareness (the API injects remaining budget after
+every tool call, confirmed verbatim); agent-directed persistence (the API memory tool
+and Claude Code's auto memory — the agent chooses what to write); and on-demand session
+inspection (`get_session`, confirmed above, undocumented publicly). Combined with
+`create_session`, the last two give a single cloud session everything it needs to read
+its own usage and spawn its own successor — a concrete "unattended handoff" pattern
+using `/goal` is written up in the doc, with its weak joints listed honestly (`/goal`'s
+availability in a cloud or routine-started session is unverified; threshold judgement by
+a small model reading text is the weakest link).
+
+### Four operating contexts, the doc's actual framing
+
+Named by Jim, 2026-09-16, once it became clear "the four mechanisms" and "the four
+things Jim meant" were not the same four things — a real ambiguity, not a
+misunderstanding, and the confusion is recorded in the doc itself as a live example
+under context 1. These now open
+`docs/kb/agent-context-self-regulation-and-unattended-handoff.md`, ahead of the
+mechanisms above: every mechanism applies differently, or not at all, depending on
+which of these a session is in.
+
+1. **Supervised interactive.** A human present; this document was written inside one. A
+   restart gives a new session ID, so continuity across that boundary needs an
+   identifier that outlives the ID. Least developed context, and the one to work next.
+2. **Unsupervised autonomous.** No human present; the agent regulates its own context
+   and spawns its own continuation until the mission completes. What the `/goal` +
+   `get_session` + `create_session` pattern above targets.
+3. **Orchestrator spawning workers.** The orchestrator is itself a session and hits the
+   same limit its workers do; continuation has to apply recursively.
+4. **Event-triggered.** A GitHub Action, a PR event, an issue to process. No session
+   lineage going in; each firing starts fresh by construction.

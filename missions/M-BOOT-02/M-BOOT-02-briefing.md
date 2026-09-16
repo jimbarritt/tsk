@@ -124,23 +124,22 @@ In progress: researching how to build a "continuation harness" — an agent sess
 can hand off to its own successor before running out of context, rather than a human
 restarting it cold. Pick this up in the next session.
 
-Read, in order: `docs/kb/session-creation-and-environments.md` and
-`docs/kb/agent-context-self-regulation-and-unattended-handoff.md`, both in the tsk repo
-on `main`, then this mission's own intel-index.md for the mission-specific thread (the
-working hypothesis, checked and refuted in part, and the confirmed findings on `/goal`
-and `get_session`). Jim has ideas on the design and wants to discuss them before
-anything is built.
+The research trail is fully written up as of 2026-09-16 — read this mission's own
+intel-index.md first, "Fable follow-up" and "Four operating contexts" sections, then
+follow its links out to the two docs on `main`
+(`docs/kb/session-creation-and-environments.md` and
+`docs/kb/agent-context-self-regulation-and-unattended-handoff.md`) for full detail and
+sources. Don't re-derive any of this; it's settled ground.
 
-As of 2026-09-16, the self-regulation doc now opens with four operating contexts —
-supervised interactive, unsupervised autonomous, orchestrator spawning workers,
-event-triggered — that frame the whole document. These are a separate axis from the
-four mechanisms (compaction, context awareness, agent-directed persistence, session
-inspection): a mechanism applies differently, or not at all, depending on which context
-a session is running in. Read the operating contexts first; they're at the top of the
-doc for a reason.
+State of the research: the working hypothesis that no self-regulation mechanism exists
+is refuted. Four mechanisms exist (compaction, context awareness, agent-directed
+persistence, session inspection), and four operating contexts frame how they apply
+(supervised interactive, unsupervised autonomous, orchestrator spawning workers,
+event-triggered) — a session in context 1 (this harness's own context) doesn't need the
+same mechanisms as one in context 2.
 
-Context 1, supervised interactive, is the least developed and the most immediately
-useful to get right: it's the context this harness itself runs in, and the problem it
-names — a session restart gives a new session ID, so continuity across that boundary
-needs an identifier that outlives the ID — was demonstrated live during this document's
-own writing, not hypothetically. Jim considers this the one to nail next.
+Next: context 1, supervised interactive, is the least developed and the one Jim wants
+worked next. Its core problem — a session restart gives a new session ID, so continuity
+across that boundary needs an identifier that outlives the ID — is not yet solved, only
+named. Jim has ideas on the design and wants to discuss them before anything is built.
+Do not start implementing.
