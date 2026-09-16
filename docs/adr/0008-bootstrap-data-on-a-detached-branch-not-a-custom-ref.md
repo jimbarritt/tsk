@@ -96,29 +96,14 @@ scratch.
   creation outside `refs/heads/*`); a human with direct repo access can remove
   it via the GitHub UI or API if wanted.
 
-  **Correction, 2026-09-16.** This consequence originally ended "it is otherwise
-  harmless to leave in place". That is wrong, and the error cost data.
-
-  The orphaned ref shadows the branch in any command that names the ref without
-  qualifying it. Git resolves `tsk/bootstrap` against `refs/tsk/bootstrap` before
-  `refs/heads/tsk/bootstrap`, so `git fetch origin tsk/bootstrap` exits 0, prints
-  a plausible success line, and delivers the orphaned ref's content, frozen at
-  2026-09-14. No error is raised, and the stale result is indistinguishable from
-  a correct one without inspecting the SHA.
-
-  In a 2026-09-16 session an agent ran that command by hand four times, rebased
-  onto the stale state each time, and overwrote a section of
-  `future-missions-tbd.md` that had been added earlier in the same session. A
-  push was rejected as non-fast-forward, a symptom that was misread as ordinary
-  contention, and a duplicated section was committed in the course of retrying.
-  The loss was found by inspection, not by any failure signal.
-
-  `ops/local/fetch-bootstrap-ref.sh` and `ops/local/push-bootstrap-ref.sh` both
-  spell out `refs/heads/tsk/bootstrap` in full and are unaffected. The hazard
-  only reaches a session that runs git against the bootstrap data by hand, which
-  `CLAUDE.md` now prohibits explicitly, with this collision given as the reason.
-  Deleting the orphaned ref removes the hazard at source, and remains a task for
-  a human with direct repo access.
+  Amended 2026-09-16. This consequence previously ended "it is otherwise
+  harmless to leave in place". The orphaned ref shadows the branch. Git resolves
+  an unqualified `tsk/bootstrap` against `refs/tsk/bootstrap` before
+  `refs/heads/tsk/bootstrap`, so `git fetch origin tsk/bootstrap` exits 0 and
+  returns the orphaned ref's content, frozen at 2026-09-14. No error is raised,
+  and the result is indistinguishable from a correct fetch without inspecting
+  the SHA. The fetch and push scripts qualify the ref in full and are unaffected.
+  Deleting the orphaned ref removes the hazard at source.
 - General lesson for any future tsk design: from a Claude Code cloud session,
   git state can only be written to `refs/heads/*` (ordinary branches). Custom
   ref namespaces cannot be written by any path available in that sandbox: not
