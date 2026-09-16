@@ -33,9 +33,17 @@ the session is local or a fresh cloud checkout.
 **Never fetch, update or push the bootstrap data by hand. Use the scripts.** Do not
 run `git fetch`, `git rebase`, `git reset` or `git push` against `tsk/bootstrap`
 yourself, in the worktree or anywhere else, and never fetch into a new or randomly
-named directory. Read with `ops/local/fetch-bootstrap-ref.sh`, write with
-`ops/local/push-bootstrap-ref.sh`, or use their `just` equivalents. This holds even
-when a hand-run command looks equivalent to what the script does.
+named directory. This holds for a read-only check as much as for an update: a bare
+`git fetch origin tsk/bootstrap`, or `git log`/`git ls-tree` against a bare
+`origin/tsk/bootstrap`, run only to verify something, hits the exact same collision
+below and returns silently wrong content, with no error to flag it. Read with
+`ops/local/fetch-bootstrap-ref.sh`, write with `ops/local/push-bootstrap-ref.sh`, or
+use their `just` equivalents. This holds even when a hand-run command looks
+equivalent to what the script does.
+
+To check the branch's real state directly, without running either script, spell out
+the ref in full: `git fetch origin refs/heads/tsk/bootstrap`, then read `FETCH_HEAD`.
+Anything shorter is a guess, not a check.
 
 The reason is a name collision on `origin`. Two refs share the name `tsk/bootstrap`:
 the live branch `refs/heads/tsk/bootstrap`, and an orphaned custom ref
