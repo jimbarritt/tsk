@@ -637,3 +637,20 @@ performs is the same regardless of who or what triggers it; only the trigger is
 expected to change later, likely to an automated one driven by the goal verifier
 (`/goal`), once agent-initiated pausing is designed. Not designing that trigger now,
 only noting the action set should not need to change when it arrives.
+
+### Decided: the handover note schema
+
+Jim, 2026-09-16. A fixed schema, not free text, with a template alongside the mission
+briefing template's. Fields:
+
+- Mission briefing: a link to the actual briefing document, not a bare mission ID
+  (consistent with the earlier thread-index decision).
+- Task ID: the task in flight when the thread paused.
+- What's next: a brief descriptive summary, agent-written.
+- Last pushed commit on `tsk/bootstrap`.
+- Last pushed commit on `main`.
+
+The two commit-hash fields are script-captured, not agent-written: `/pause-thread`'s
+script already handles the git side, so it reads back the hash it just pushed on each
+branch rather than the agent reporting it. Only "what's next" is the agent's own
+judgement call; everything else in the schema is deterministic.
