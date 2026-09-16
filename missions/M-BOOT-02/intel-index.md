@@ -685,3 +685,13 @@ Jim, 2026-09-16. Not `handover.jsonl`. Jim's reasoning: it echoes a concept call
 "continuation" from other work of his, adjacent to but not the same as thread. The file
 lives at `threads/<slug>/continuation-state.jsonl`. Whether "continuation" itself
 belongs in the ubiquitous language, and how it relates to Thread, is not decided yet.
+
+### Decided: lookup map entries carry a registered-at timestamp
+
+Jim, 2026-09-16. Each entry in `lookup-by-cloud-session.json` and
+`lookup-by-worktree.json` is `{ "thread_id": "<slug>", "registered_at": "<timestamp>" }`,
+not a bare string. Reasoning: cheap to add, useful for diagnosis later, particularly
+once `/resume-thread`'s additive take-over means the same thread can have more than one
+binding and their relative age matters. Event-sourcing the lookup maps themselves (an
+append-only log of registrations rather than current-state JSON) was raised and set
+aside for later, not needed yet.
