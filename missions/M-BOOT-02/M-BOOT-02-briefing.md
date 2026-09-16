@@ -143,6 +143,11 @@ reads `session_01WePrEonPkCV4kfJPK9D4Sy` and `turn_handoff.worker_epoch` still r
 pre-clear), so `/clear` resets the counted context window without starting a new
 session or a new worker epoch.
 
+Later reading, same session, 2026-09-16: `id` unchanged, `worker_epoch` now `33` (a
+model switch to `claude-fable-5-1` was the only recorded change in between),
+`used_tokens` 636,069 with the pre-clear conversation still in context. See
+intel-index.md, fourth data point, for the discrepancy with the `0` above.
+
 Research status otherwise unchanged since the last handover: the self-regulation
 hypothesis is refuted, four mechanisms and four operating contexts are documented in
 `docs/kb/agent-context-self-regulation-and-unattended-handoff.md` on `main`, and T-13

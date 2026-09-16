@@ -326,3 +326,28 @@ cloud sessions, where this mission's own experiment showed it surviving. It does
 work on the CLI, where `/clear` is a session boundary that changes the ID. Any design
 for a thread anchor needs to name which surface it targets rather than assuming session
 ID behaves the same everywhere.
+
+### Fourth data point: `worker_epoch` moved from 32 to 33 across a model switch, session ID unchanged
+
+Captured 2026-09-16 via `get_session` in the same session as the `/clear` experiment
+above, some time after the post-clear reading. `id` still
+`session_01WePrEonPkCV4kfJPK9D4Sy`. `turn_handoff.worker_epoch` now `33`. The one
+recorded change to the session between the two readings is the serving model:
+`user_switched_model` and `last_served_model` moved from `claude-sonnet-5` to
+`claude-fable-5-1`, while `configured_model` stayed `claude-sonnet-5`.
+
+So a model switch, or the worker hand-off it causes, is one thing that increments the
+epoch, and it does so without touching the session ID. Consistent with the
+reverse-engineered gloss above (the epoch counts hand-offs of the session's own worker),
+but this is one observation with one intervening variable, not a controlled test:
+nothing rules out an unrelated worker restart in the same window.
+
+Discrepancy, recorded rather than smoothed over: at this reading
+`external_metadata.context_usage.used_tokens` was 636,069, not 0, and the session's full
+pre-clear conversation was still present in context. The post-clear reading above
+reported `used_tokens` reset to `0`. Either the reset was momentary and the platform
+rehydrated the conversation (documented behaviour when a reclaimed session is reopened
+is "a fresh VM with your conversation history restored"), or the `0` was read at a
+different moment or from a different vantage. Unresolved. The point for context 1
+stands either way: `/clear` in a cloud session is not a boundary that changes the
+session ID, and the CLI finding above shows the CLI is.
