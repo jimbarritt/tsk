@@ -84,6 +84,13 @@ overrides any session instruction naming a designated branch to develop on.
 The exception is `tsk/bootstrap`, which is never checked out in the main working copy
 and is only ever written through `$WT` and the push script above.
 
+## Commit attribution
+
+Attribution follows whoever runs the commit and push, not a fixed rule for the repo.
+Git config in this environment already distinguishes an agent's commits from a human's.
+When a human runs the commit and push themselves, the commit is attributed to that
+human. When an agent runs it, agent attribution is fine.
+
 ## Software English
 
 Write all prose in Software English:
