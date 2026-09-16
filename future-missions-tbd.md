@@ -83,3 +83,26 @@ Jim's read: this is probably a set of skills rather than more prose in `CLAUDE.m
 Open: which document types are worth defining, whether a skill per type is the right
 granularity, and whether review runs as a skill the agent invokes, a hook, or a check in
 CI alongside the secrets scanning in the mission above.
+
+## Long lived workers, and where continuity belongs
+
+Raised by Jim, 2026-09-16, from the question of whether cloud sessions can be reused as a
+pool of workers rather than created fresh per mission.
+
+Reusing a session is mechanically supported: `create_trigger` fires into a named
+`persistent_session_id`, and `claude -p --cloud <session-id>` queues a message into an
+existing session. See `docs/kb/session-creation-and-environments.md` in the tsk repo for
+the mechanics and their limits.
+
+The domain question it raises: a worker that takes mission after mission accumulates
+continuity of its own, independent of any single mission. The ubiquitous language today
+defines a thread as the execution sequence, resumable "possibly as a different actor",
+which puts continuity in the work and lets actors come and go. A worker pool inverts
+that: continuity sits in the actor, and missions pass through it. Both are coherent. They
+disagree about where continuity is anchored.
+
+This is the same tension already flagged against M-BOOT-02 T-04, that a thread may be
+more about the actors than about overall work status. Settle them together.
+
+Open: whether tsk models the worker as a first-class thing at all, or whether a worker is
+simply an actor that happens to persist, with threads still carrying the continuity.
