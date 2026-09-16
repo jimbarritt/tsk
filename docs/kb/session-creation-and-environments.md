@@ -1,7 +1,7 @@
 # Session creation and environments
 
 Gathered while working M-BOOT-02 (harness), investigating how a mission briefing gets
-associated with a session. Facts collected 2026-09-16, from direct inspection of the
+associated with a session. Facts collected 2026-09-16, from direct inspection of a
 running session and the platform's own tools. Not yet a design: see
 `missions/M-BOOT-02/M-BOOT-02-briefing.md` on `tsk/bootstrap` for the open decision this
 feeds.
@@ -85,15 +85,13 @@ bundles a container, repo/network access, and configuration. `create_session` cr
 of these. If `environment_id` is omitted, the new session inherits the calling session's
 environment.
 
-This session's own facts, read directly from `get_session`:
+`get_session`, called with no `session_id`, describes the calling session itself. Its
+fields include `session_id`, `environment_id`, `environment_kind` (for example
+`anthropic_cloud`), and `origin` (the surface that started it: `ios`, `web`, a CLI
+invocation, and so on).
 
-- `session_id`: `session_01WePrEonPkCV4kfJPK9D4Sy`
-- `environment_id`: `env_0173H2wsxugkZUm5Whrkmtv9`, named "Default", `environment_kind`:
-  `anthropic_cloud`
-- `origin`: `ios` — this exact session was opened from the iOS app
-
-`list_environments` for this account currently returns two environments, "Test Cargo" and
-"Default", both `kind: anthropic_cloud`. Neither is a Cowork environment.
+`list_environments` returns the account's own environments, each carrying a `kind`.
+Nothing requires any of them to be `remote_cowork`; an account can hold none.
 
 A Cowork session is a distinct thing: per `create_session`'s own tool description, one is
 spawned only "when [`environment_id`] resolves to the `remote_cowork` environment
@@ -102,11 +100,9 @@ account's enabled skills, plugins, and a Cowork-specific system prompt server-si
 that ignores several of `create_session`'s fields (`source_url`, `extra_allowed_tools`,
 `append_system_prompt`, `environment_variables`).
 
-So: yes, one Claude session can create another cloud session, by calling
-`create_session`. Whether the result is an ordinary Claude Code Remote session (what this
-session itself is, visible in the same sessions list this session appears in, in
-claude.ai/code and in the iOS app) or a Cowork session depends entirely on which
-environment it resolves to. Today, this account has no `remote_cowork`-kind environment
-in its `list_environments` output, so a `create_session` call made from here, with no
-`environment_id` given, inherits this session's own `anthropic_cloud` environment and
-produces another ordinary cloud session, not a Cowork session.
+So: one Claude session can create another cloud session, by calling `create_session`.
+Whether the result is an ordinary Claude Code Remote session, visible in the normal
+sessions list on claude.ai/code and the apps, or a Cowork session depends entirely on
+which environment it resolves to. When the calling session's own environment is not
+`remote_cowork` and no `environment_id` is given, the new session inherits that
+non-Cowork environment and is an ordinary cloud session, not a Cowork session.
