@@ -174,3 +174,19 @@ agent itself calling functions to move data between memory tiers on its own judg
 Whether anything resembling that exists inside Claude Code or the Claude Agent SDK
 specifically, as opposed to only in third-party research, is the open question a
 follow-up needs to settle.
+
+### Confirmed directly: a session can inspect its own context usage on demand
+
+Confirmed 2026-09-16, by calling `get_session` with no `session_id` on a running
+session: the result includes `external_metadata.context_usage`, with `used_tokens` and
+`max_tokens`. This is a genuine capability, distinct from everything else found above —
+auto-compaction, `PreCompact`/`PostCompact`, external decomposition all act without the
+agent needing to know its own usage; this lets an agent find out.
+
+It does not, on its own, close the self-regulation question: nothing prompts an agent to
+call it, and nothing here acts on the number once known. But it is a precondition any
+self-directed mechanism would need, and it is confirmed to exist today, callable by a
+session on itself, not merely reported in secondary sources. Worth checking whether the
+fable follow-up finds anything that uses self-inspection like this as part of a larger
+pattern, since this session could only confirm the primitive exists, not that anything
+built on it does.
