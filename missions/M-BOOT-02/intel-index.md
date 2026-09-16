@@ -351,3 +351,64 @@ is "a fresh VM with your conversation history restored"), or the `0` was read at
 different moment or from a different vantage. Unresolved. The point for context 1
 stands either way: `/clear` in a cloud session is not a boundary that changes the
 session ID, and the CLI finding above shows the CLI is.
+
+## Design: reverse-lookup from binding to thread
+
+Jim's design, 2026-09-16, built on the confirmed findings above.
+
+Decision: bind a thread to whatever each sub-context of context 1 offers as its
+durable identifier. Cloud sessions bind thread to session ID, since that ID is now
+confirmed stable across `/clear`. The CLI binds thread to worktree: to run several work
+actors in parallel on the CLI, give each its own worktree. Neither the session ID nor
+the worktree is the thread's identity — see Actor and Thread in
+`docs/domain/ubiquitous-language.md` on `main` — they are just what each sub-context
+keeps durable enough to bind to.
+
+Given that, the harness needs one thing: a lookup that turns what it knows at
+`SessionStart` (a session ID, or a worktree path) into a thread ID, or establishes that
+none exists yet.
+
+**Two tiers, not one.** A binding-table lookup alone only recovers a thread already
+bound to the exact session or worktree in front of it — same cloud session across
+`/clear`, same CLI worktree reused. It cannot recover a thread from a genuinely new
+session or worktree, because nothing yet connects the new key to an old thread. That
+case needs an explicit pointer — the initial prompt, or a Handover-style note — naming
+which thread to resume. Tier 1 is the automatic case; tier 2 is the told case.
+
+**Algorithm:**
+
+1. Detect sub-context: `$CLAUDE_CODE_REMOTE` is `true` in a cloud session, unset
+   locally. (Confirmed pattern, from the session-creation doc's own SessionStart hook
+   example.)
+2. Resolve the sub-context's key:
+   - Cloud: the session ID, from `get_session` with no arguments. This is an MCP tool
+     call, not something a bash `SessionStart` hook script can make on its own — open
+     question below.
+   - CLI: the worktree path, from `git rev-parse --show-toplevel`. A bash hook can do
+     this itself, no agent turn required.
+3. Look the key up in the binding table (see storage, below).
+   - Found: this is that thread. Load its state and continue.
+   - Not found: go to 4.
+4. Check whether the initial prompt or a Handover pointer names a thread ID to resume.
+   - Named: bind the new key to that thread ID (write the binding), resume that thread.
+   - Not named: mint a new thread ID, write a new binding for the key, start fresh.
+
+**Storage.** The binding table needs to outlive any single mission, because a thread
+now can too (see the Thread/Mission relationship just added to the ubiquitous
+language). It doesn't belong inside this mission's own intel or briefing. For now,
+while `tsk/bootstrap` is still the scaffolding standing in for tsk's own data (see
+M-BOOT's objective), a table at the root of `tsk/bootstrap` — sibling to `index.md` and
+`future-missions-tbd.md` — is the pragmatic place; call it out explicitly as temporary,
+since the actual home is `tsk/threads/` once tsk itself implements this. Not yet
+created.
+
+**Open questions, not yet resolved:**
+
+- Can a `SessionStart` hook read the platform session ID itself, without the agent
+  making an MCP tool call first? If not — and nothing found so far suggests it can —
+  step 2's cloud branch has to happen as the agent's first behaviour, not inside the
+  hook script, which means the hook can resolve a CLI thread before the first turn but
+  a cloud session cannot resolve its own thread until the model is already running.
+- The thread ID minting scheme itself: not decided.
+- Whether "several work actors, one worktree each" needs anything beyond what
+  `git worktree add` already gives, or whether tsk needs its own wrapper around it.
