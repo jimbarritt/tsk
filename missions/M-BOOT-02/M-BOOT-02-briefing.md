@@ -130,3 +130,17 @@ on `main`, then this mission's own intel-index.md for the mission-specific threa
 working hypothesis, checked and refuted in part, and the confirmed findings on `/goal`
 and `get_session`). Jim has ideas on the design and wants to discuss them before
 anything is built.
+
+As of 2026-09-16, the self-regulation doc now opens with four operating contexts —
+supervised interactive, unsupervised autonomous, orchestrator spawning workers,
+event-triggered — that frame the whole document. These are a separate axis from the
+four mechanisms (compaction, context awareness, agent-directed persistence, session
+inspection): a mechanism applies differently, or not at all, depending on which context
+a session is running in. Read the operating contexts first; they're at the top of the
+doc for a reason.
+
+Context 1, supervised interactive, is the least developed and the most immediately
+useful to get right: it's the context this harness itself runs in, and the problem it
+names — a session restart gives a new session ID, so continuity across that boundary
+needs an identifier that outlives the ID — was demonstrated live during this document's
+own writing, not hypothetically. Jim considers this the one to nail next.
