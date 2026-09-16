@@ -1,108 +1,156 @@
 # Session creation and environments
 
-Gathered while working M-BOOT-02 (harness), investigating how a mission briefing gets
-associated with a session. Facts collected 2026-09-16, from direct inspection of a
-running session and the platform's own tools. Not yet a design: see
-`missions/M-BOOT-02/M-BOOT-02-briefing.md` on `tsk/bootstrap` for the open decision this
-feeds.
+Reference for orchestrating agent sessions. Two dimensions: the mechanisms that start a
+session, and the levers that determine what it knows once started.
 
-## Summary
+## Contents
 
-Eight ways to get a new agent running, not six: the six below, plus a local subagent
-spawned in-process by the Agent tool, and a headless `claude -p` invocation shelled from
-an external script. The two additions matter to an orchestration engine specifically,
-because they don't provision a cloud environment at all; they run wherever the calling
-process already is.
+- [Triggering a session](#triggering-a-session)
+- [Controlling context](#controlling-context)
+- [Constraints](#constraints)
+- [Appendix: every way a session starts](#appendix-every-way-a-session-starts)
+- [Appendix: reusing a session, and resetting one](#appendix-reusing-a-session-and-resetting-one)
+- [Appendix: environments and Cowork sessions](#appendix-environments-and-cowork-sessions)
 
-Once a session exists, three separate mechanisms feed it context, and they compose
-rather than substitute for each other:
+## Triggering a session
 
-- **The initial prompt** — universal across every creation path that allows one at all.
-- **What's committed to the repo** — `CLAUDE.md` and `.claude/`, mainly `SessionStart`
-  hooks, detailed below. Depends on which repo and branch got checked out, which is
-  itself a parameter the creator sets (`source_url`, `source_revision`), not automatic.
-- **The environment** — see below. User-created only, through the web or Desktop app;
-  nothing available to a running session can create one, only select an existing one by
-  ID. A dedicated environment per territory (`ksobr-env`, and so on) is a reasonable use
-  of this, and matches the Territory concept already in `docs/domain/ubiquitous-language.md`
-  rather than inventing a new one.
+Four mechanisms can be invoked programmatically. These are the ones available to an
+orchestrator. The full list of ways a session starts is in the appendix.
 
-A fourth lever, permission mode (`plan`, `default`, `acceptEdits`, `bypassPermissions`,
-`dontAsk`), is easy to mistake for a fourth context mechanism but isn't one: it
-constrains what the session may do without approval, not what it knows.
+| Mechanism | Invoked by | Creates a session | Cloud environment |
+|---|---|---|---|
+| Programmatic creation | `create_session` | Yes | Selected by ID, or inherited from the caller |
+| Scheduled Routine | `create_trigger` | Yes per firing, or fires into a named existing session | Selected |
+| Local subagent | The Agent tool | No: runs in-process inside the calling session | None of its own |
+| Headless invocation | `claude -p`, shelled from a script | Yes: a separate `claude` process | None, unless also given `--cloud` |
 
-## Ways a new session gets created
+The other paths are not orchestrator-invocable. A person starts a session from the local
+CLI, or from claude.ai/code and the apps. An external event starts one through a GitHub
+Action or a PR event, or delivers into an existing session through a PR-activity
+subscription. An orchestrator can cause such an event, but it does not make the call.
 
-1. Local interactive CLI. Run `claude` in the repo. First message is typed by the person.
-2. claude.ai/code (web, desktop, mobile app). Same shape: a session against a repo, first
-   message typed by the person.
-3. A GitHub Action or PR event triggers a cloud session (for example: PR opened, CI
-   failure). Initial context comes from the event, not from an authored prompt.
-4. Programmatic session creation. One session calls `create_session` and spawns another,
-   passing an explicit `prompt` string, and optionally a source repo and branch.
-5. A scheduled Routine (`create_trigger`). Fires on a cron schedule or once, either into
-   an existing persistent session or spawning a fresh session on each firing
-   (`create_new_session_on_fire`). Also carries a `prompt` string.
-6. An existing session kept alive on a PR-activity subscription. No new session created;
-   it keeps receiving webhook events into the same conversation.
-7. A local subagent, spawned in-process by the Agent tool. Runs inside an
-   already-initialised session and inherits that session's loaded `CLAUDE.md` rather
-   than loading its own. Whether `SessionStart` hooks fire again for a subagent
-   specifically is not verified here.
-8. A headless `claude -p` invocation, shelled from an external script. A real, separate
-   `claude` process, so it loads `CLAUDE.md` and fires hooks the same as any interactive
-   session, but it runs on whatever machine executes the script, with no cloud
-   environment attached, no setup script, no network policy, unless also given
-   `--cloud`.
+## Controlling context
 
-Only paths 1, 2, 4, 5, 7, and 8 let anyone author the initial prompt freely. Paths 3 and
-6 do not. The one thing the harness can rely on across paths 1 through 6 and path 8 is a
-`SessionStart` hook reading state out of the repository itself, since that does not
-depend on the prompt at all — path 7 is the exception, since whether the hook fires
-again for a subagent is unverified. This is what `tsk`'s own `SessionStart` hook already
-does for mission state: see
-`ops/local/claude-session-start.sh` and the `index.md` "Current mission" line on
-`tsk/bootstrap`. The gap: that is a single pointer, so it does not say which mission a
-session should pick up when more than one is unblocked at once.
+Three mechanisms determine what a session knows. They compose. None substitutes for
+another.
 
-## Environment variables do not persist within a session
+| Mechanism | What it carries | Set by | Applies to |
+|---|---|---|---|
+| Initial prompt | The instruction the session starts from | The caller, at invocation | Every path except the two driven by an external event |
+| Repository contents | `CLAUDE.md` and `.claude/`, chiefly the `SessionStart` hooks | What is committed, plus which repository and revision is checked out | Every path. The only mechanism that works without an authored prompt, because it reads out of the repository rather than out of the invocation |
+| Environment | Container, repository and network access, environment variables | A person, in advance, through the web or the Desktop app | Cloud sessions only |
 
-Tested directly: `export TSK_TEST_VAR=hello` in one Bash tool call, then read back empty
-in the next Bash tool call. Shell state does not persist between tool calls in this
-harness; only the working directory does. A session cannot set an environment variable
-for itself that lasts beyond a single command.
+Permission mode is a fourth lever and is not a context mechanism. It constrains what a
+session may do without approval, not what it knows. Values: `plan`, `default`,
+`acceptEdits`, `bypassPermissions`, `dontAsk`.
 
-Environment variables that persist across a whole session, or across every session in an
-environment, are a different mechanism entirely: they are set in the environment's own
-configuration (see `mcp__Claude_Code_Remote__list_environments` /
-`create_session`'s `environment_id`), not by a running session acting on itself.
+Which levers each triggering mechanism exposes:
 
-## Cloud sessions, "environments", and Cowork sessions
+| | Initial prompt | Repository and revision | Environment |
+|---|---|---|---|
+| `create_session` | Set | Set via `source_url`, `source_revision` | Selected by ID, or inherited |
+| `create_trigger` | Set | Set | Selected |
+| Agent tool subagent | Set | Inherited from the calling session | None of its own |
+| `claude -p` | Set | Whatever is checked out where the script runs | None, unless `--cloud` |
 
-A "cloud session" (what the CLI calls a Claude Code Remote session) runs inside an
-"environment": a tagged ID (`env_...`, or `ccpool_...` for a self-hosted pool) that
-bundles a container, repo/network access, and configuration. `create_session` creates one
-of these. If `environment_id` is omitted, the new session inherits the calling session's
-environment.
+## Constraints
 
-`get_session`, called with no `session_id`, describes the calling session itself. Its
-fields include `session_id`, `environment_id`, `environment_kind` (for example
-`anthropic_cloud`), and `origin` (the surface that started it: `ios`, `web`, a CLI
-invocation, and so on).
+**An environment cannot be created programmatically.** Environments are created by a
+person, through the web or the Desktop app. Nothing available to a running session
+creates one. An orchestrator selects an existing environment by ID, or inherits the
+calling session's.
 
-`list_environments` returns the account's own environments, each carrying a `kind`.
-Nothing requires any of them to be `remote_cowork`; an account can hold none.
+**A session cannot set a durable environment variable for itself.** Shell state does not
+carry between tool calls; only the working directory does. An `export` in one call is
+gone by the next. Variables that persist across a whole session, or across every session
+in an environment, are set in the environment's own configuration.
 
-A Cowork session is a distinct thing: per `create_session`'s own tool description, one is
-spawned only "when [`environment_id`] resolves to the `remote_cowork` environment
-(explicitly or via inheritance)" — a different environment kind that assembles the
-account's enabled skills, plugins, and a Cowork-specific system prompt server-side, and
-that ignores several of `create_session`'s fields (`source_url`, `extra_allowed_tools`,
-`append_system_prompt`, `environment_variables`).
+**A subagent has no environment of its own.** It runs inside the calling session's, and
+inherits that session's loaded `CLAUDE.md` rather than loading its own. Whether
+`SessionStart` hooks fire again for a subagent is unverified.
 
-So: one Claude session can create another cloud session, by calling `create_session`.
-Whether the result is an ordinary Claude Code Remote session, visible in the normal
-sessions list on claude.ai/code and the apps, or a Cowork session depends entirely on
-which environment it resolves to. When the calling session's own environment is not
-`remote_cowork` and no `environment_id` is given, the new session inherits that
-non-Cowork environment and is an ordinary cloud session, not a Cowork session.
+## Appendix: every way a session starts
+
+1. Local interactive CLI. Run `claude` in the repository. The person types the first
+   message.
+2. claude.ai/code, and the Desktop and mobile apps. Same shape: a session against a
+   repository, first message typed by the person.
+3. A GitHub Action or PR event triggers a cloud session, for example a PR opening or a CI
+   failure. The initial context comes from the event, not from an authored prompt.
+4. `create_session`. One session spawns another, passing an explicit `prompt`, and
+   optionally a source repository and revision.
+5. A scheduled Routine, `create_trigger`. Fires on a cron schedule or once, either into an
+   existing persistent session or spawning a fresh one per firing
+   (`create_new_session_on_fire`). Carries a `prompt`.
+6. A PR-activity subscription. No new session: webhook events keep arriving in an
+   existing conversation.
+7. A subagent, spawned in-process by the Agent tool.
+8. `claude -p`, shelled from an external script. A separate `claude` process, so it loads
+   `CLAUDE.md` and fires hooks as any session does, but it runs wherever the script runs.
+
+Paths 3 and 6 are the two where nobody authors the initial prompt. Every other path
+allows one.
+
+A `SessionStart` hook reading state out of the repository is the one mechanism common to
+paths 1 to 6 and path 8, because it does not depend on the prompt. Path 7 is unverified.
+tsk uses this for mission state: `ops/local/claude-session-start.sh`, and the "Current
+mission" line in `index.md` on `tsk/bootstrap`. Its limit: a single pointer does not say
+which mission a session should pick up when more than one is unblocked.
+
+## Appendix: reusing a session, and resetting one
+
+A session can be addressed and given new work after it was created. Three mechanisms
+exist:
+
+- `create_trigger` takes `persistent_session_id`, which fires into a named existing
+  session rather than spawning one.
+- `claude -p "message" --cloud <session-id>` queues a message into an existing session,
+  from any machine logged in to the same account.
+- A session reports `cross_session_inbound` in `get_session` when it can receive messages
+  from another session.
+
+So a pool of long-lived workers, each addressable by session ID and handed a mission when
+one is ready, is mechanically supported.
+
+What is not supported is resetting one. `/clear` is unavailable in cloud sessions; the
+documentation directs the reader to start a new session instead. `/compact` and
+`/context` do work, but compaction summarises the conversation rather than discarding it,
+so a worker carries its history into the next mission it is given. Context accumulates
+across every mission that worker takes.
+
+Session count itself is cheap. There is no separate compute charge for a cloud VM, and
+rate limits are shared across the account and consumed by parallel work rather than by
+the number of sessions in existence. An idle session has its VM reclaimed, and reopening
+it provisions a fresh VM with the conversation history restored, so a pool of workers
+buys stable addresses rather than warm containers. `archive_session` exists for managing
+the resulting list.
+
+The trade, then, is between a new session per mission, which starts with clean context
+and leaves a list to archive, and a long-lived worker, which keeps a stable identity and
+continuity at the cost of carrying every previous mission with it.
+
+## Appendix: environments and Cowork sessions
+
+An environment carries a tagged ID: `env_...`, or `ccpool_...` for a self-hosted pool. It
+bundles a container, repository and network access, and configuration. If
+`environment_id` is omitted on `create_session`, the new session inherits the calling
+session's.
+
+`get_session`, called with no `session_id`, describes the calling session. Its fields
+include `session_id`, `environment_id`, `environment_kind` (for example
+`anthropic_cloud`), and `origin`, the surface that started it. `list_environments`
+returns the account's environments, each carrying a `kind`.
+
+A Cowork session is a distinct kind. Per `create_session`'s tool description, one is
+spawned only when `environment_id` resolves to the `remote_cowork` environment, whether
+explicitly or by inheritance. That environment kind assembles the account's enabled
+skills, plugins and a Cowork system prompt server-side, and ignores several of
+`create_session`'s fields: `source_url`, `extra_allowed_tools`, `append_system_prompt`
+and `environment_variables`.
+
+So one session can create another cloud session by calling `create_session`. Whether the
+result is an ordinary cloud session, visible in the normal sessions list on
+claude.ai/code and the apps, or a Cowork session, depends entirely on which environment
+it resolves to. When the calling session's environment is not `remote_cowork` and no
+`environment_id` is given, the new session inherits that non-Cowork environment and is an
+ordinary cloud session.
