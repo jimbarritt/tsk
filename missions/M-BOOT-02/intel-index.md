@@ -468,11 +468,13 @@ that bites in practice.
 
 Jim, 2026-09-16. Each thread directory has an `index.md` (same convention as missions
 and as tsk's own existing thread directories, per the legacy backlog note above). At
-minimum it links to the thread's mission. Everything else it should hold — thread-local
-state, the handover note itself, its relationship to the mission's Plan (the task table)
-— is deferred. Priority is getting `/start-thread` and `/pause-thread` working first;
-the Plan relationship specifically is a separate question to come back to, not decided
-against.
+minimum it links to the thread's mission — a link to the actual briefing document
+(`missions/<id>/<id>-briefing.md`), not a bare mission ID string, so the reference is
+directly followable rather than needing a second lookup to resolve. Everything else it
+should hold — thread-local state, the handover note itself, its relationship to the
+mission's Plan (the task table) — is deferred. Priority is getting `/start-thread` and
+`/pause-thread` working first; the Plan relationship specifically is a separate question
+to come back to, not decided against.
 
 ### Decided: /pause-thread, the handover counterpart to /start-thread
 
