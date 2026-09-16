@@ -37,7 +37,7 @@ it.
 
 ## Intelligence
 
-- `docs/kb/session-continuation-design.md` (in the tsk repo, on `main`): the full
+- `docs/domain/session-continuation-design.md` (in the tsk repo, on `main`): the full
   design this mission implements. Read this in full before writing anything; it is the
   specification, not background reading.
 - `docs/domain/ubiquitous-language.md`: Actor, Thread, Thread continuation.
@@ -48,7 +48,7 @@ it.
 
 ## Decision authority
 
-Jim decides any change to the design recorded in `docs/kb/session-continuation-design.md`
+Jim decides any change to the design recorded in `docs/domain/session-continuation-design.md`
 itself. Implementation choices the design doesn't cover, such as script language or file
 layout inside `threads/<slug>/` beyond what it specifies, are this mission's own.
 
@@ -88,7 +88,7 @@ automatically, and the objective is not met by the scripts existing alone.
 ## First behaviour
 
 Take ownership of the plan above, adding implied tasks, before any code. Read
-`docs/kb/session-continuation-design.md` in full first; it is the specification this
+`docs/domain/session-continuation-design.md` in full first; it is the specification this
 mission builds, not background reading.
 
 ## Execution constraints

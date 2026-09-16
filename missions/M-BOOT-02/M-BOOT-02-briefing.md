@@ -64,7 +64,7 @@ rather than tsk.
 | T-10 | Configure the cloud environment | Network access, environment variables, and a setup script that installs the harness and the linter | none | T-09 | TODO |
 | T-11 | Confirm GitHub repo access for cloud sessions | A test cloud session clones the tsk repo and reads a briefing | none | T-10 | TODO |
 | T-12 | Configure `CLAUDE.md` with the Software English compact instructions | Agents in this repo write in Software English by default, in replies and in anything written into a file. Includes the one question at a time rule. Spec: https://github.com/jimbarritt/software-english. Overlaps T-07, which holds ways of working | none | none | DONE |
-| T-13 | Build `/start-thread`, `/pause-thread` and `/resume-thread` | Design complete, recorded in `docs/kb/session-continuation-design.md` on `main` and this mission's `intel-index.md`. Delegated for implementation | M-BOOT-02-01 | none | TODO |
+| T-13 | Build `/start-thread`, `/pause-thread` and `/resume-thread` | Design complete, recorded in `docs/domain/session-continuation-design.md` on `main` and this mission's `intel-index.md`. Delegated for implementation | M-BOOT-02-01 | none | TODO |
 
 **Essential task**: T-11. Repo access denial is the most common cloud routine failure,
 and nothing downstream works without it.
