@@ -59,3 +59,27 @@ Candidate shape, sketched, not decided:
      on. A history rewrite is worse: it changes the bad commit's SHA and rebases
      everything after it. Whether `main` should be frozen while a finding is under
      remediation is unresolved.
+
+## Software English review, and document types, in the harness
+
+Raised by Jim, 2026-09-16, after `docs/kb/session-creation-and-environments.md` came out
+a mess: written as a first-person log of one session's inspection, with live identifiers
+in it, when what was wanted was a reference document.
+
+Two connected needs:
+
+1. Software English review as part of the harness, so prose an agent writes into the
+   repository gets checked rather than trusted. Spec:
+   https://github.com/jimbarritt/software-english. M-BOOT-02 T-12 covers putting the
+   compact instructions into `CLAUDE.md`, which is the instruction half. This is the
+   review half.
+2. The harness defines specific document types with specific rules, so that "create a
+   ref document" has one meaning and produces the right shape. A reference document, a
+   mission briefing, an intel file, an ADR and a KB entry are not the same kind of
+   writing, and today only the mission briefing has a template.
+
+Jim's read: this is probably a set of skills rather than more prose in `CLAUDE.md`.
+
+Open: which document types are worth defining, whether a skill per type is the right
+granularity, and whether review runs as a skill the agent invokes, a hook, or a check in
+CI alongside the secrets scanning in the mission above.
