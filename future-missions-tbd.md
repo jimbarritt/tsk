@@ -4,23 +4,33 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
-## Validation: Agent spawning and autonomous execution
+## Report: spawning an agent session to execute a task
 
-Logged 2026-09-16.
+Logged 2026-09-16. Session `session_01EepA7GiwbvHJVWxr8JKQ3N`.
 
-Spawned agent session `session_01EepA7GiwbvHJVWxr8JKQ3N` to add software English prompt to
-tsk's CLAUDE.md (M-BOOT-02 T-12). The harness worked as designed: agent came up, read the
-specification from an external repo, extracted and integrated the changes, committed and
-pushed to main — all without intervention. No blockers, no prompts. The mechanism is sound.
+Jim planned to add the compact Software English instructions to `CLAUDE.md` (M-BOOT-02
+T-12) himself. Instead this session spawned an agent session with `create_session` and
+gave it the task.
 
-## Validation: Agent spawning and autonomous execution
+The agent session started, read the Software English specification from an external
+repository, wrote the instructions into `CLAUDE.md`, committed, and pushed to `main`.
+It ran to completion with no intervention and no blocking prompts. T-12 is marked done
+on this branch at commit `a448461`.
 
-Logged 2026-09-16.
+Jim's read: the harness works. Recorded here because it is the first end to end run of
+spawn, execute, push without a human in the loop, and because it bears on M-BOOT-03,
+whose objective is one unattended run producing a pull request and a run record.
 
-Spawned agent session `session_01EepA7GiwbvHJVWxr8JKQ3N` to add software English prompt to
-tsk's CLAUDE.md (M-BOOT-02 T-12). The harness worked as designed: agent came up, read the
-specification from an external repo, extracted and integrated the changes, committed and
-pushed to main — all without intervention. No blockers, no prompts. The mechanism is sound.
+## tsk and Linear / Jira integration
+
+Raised by Jim, 2026-09-16.
+
+Research mission: explore the intersection between tsk's mission and task model and
+Linear or Jira. Understand how the two relate, and whether tsk replaces one, complements
+it, or interoperates with it.
+
+Open: scope of the research, candidate tools and use cases, and whether this shapes tsk's
+design or is purely a downstream question.
 
 ## tsk metadata in the nexus, not the repo
 
