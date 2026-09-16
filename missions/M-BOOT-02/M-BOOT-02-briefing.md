@@ -121,32 +121,22 @@ and nothing downstream works without it.
 
 ## Handover
 
-In progress: researching how to build a "continuation harness" — an agent session that
-can hand off to its own successor before running out of context, rather than a human
-restarting it cold. Pick this up in the next session.
+Cross-session experiment in progress, run by Jim: verify whether the session ID
+survives `/clear`, which bears directly on context 1 (supervised interactive).
 
-Outgoing session: `session_01WePrEonPkCV4kfJPK9D4Sy`
-(https://claude.ai/code/session_01WePrEonPkCV4kfJPK9D4Sy). This mission's own working
-example of context 1 below: recorded here, internal to this mission on `tsk/bootstrap`,
-not in the main repo's public docs. Jim can open the transcript directly if picking up
-the reasoning matters more than starting clean.
+Pre-clear values, this session, captured 2026-09-16 via `get_session`:
 
-The research trail is fully written up as of 2026-09-16 — read this mission's own
-intel-index.md first, "Fable follow-up" and "Four operating contexts" sections, then
-follow its links out to the two docs on `main`
-(`docs/kb/session-creation-and-environments.md` and
-`docs/kb/agent-context-self-regulation-and-unattended-handoff.md`) for full detail and
-sources. Don't re-derive any of this; it's settled ground.
+- Session ID: `session_01WePrEonPkCV4kfJPK9D4Sy`
+- Environment ID: `env_0173H2wsxugkZUm5Whrkmtv9`
+- Created: `2026-09-15T12:46:42Z`
+- Context usage at capture: 622,545 / 1,000,000 tokens
 
-State of the research: the working hypothesis that no self-regulation mechanism exists
-is refuted. Four mechanisms exist (compaction, context awareness, agent-directed
-persistence, session inspection), and four operating contexts frame how they apply
-(supervised interactive, unsupervised autonomous, orchestrator spawning workers,
-event-triggered) — a session in context 1 (this harness's own context) doesn't need the
-same mechanisms as one in context 2.
+Next session: call `get_session` and confirm whether `id` still matches the session ID
+above. That result is the experiment's answer, not a side detail — record it here
+either way.
 
-Next: context 1, supervised interactive, is the least developed and the one Jim wants
-worked next. Its core problem — a session restart gives a new session ID, so continuity
-across that boundary needs an identifier that outlives the ID — is not yet solved, only
-named. Jim has ideas on the design and wants to discuss them before anything is built.
-Do not start implementing.
+Research status otherwise unchanged since the last handover: the self-regulation
+hypothesis is refuted, four mechanisms and four operating contexts are documented in
+`docs/kb/agent-context-self-regulation-and-unattended-handoff.md` on `main`, and T-13
+(a scripted handover skill) is blocked on context 1 being worked out. Read this
+mission's intel-index.md for the full trail before building anything.
