@@ -486,3 +486,12 @@ the note, then commit and push via `push-bootstrap-ref.sh` — is the working mo
 what the script does; `/pause-thread` formalises it rather than inventing something new.
 
 This is the concrete shape of T-13. Update the task to name both commands.
+
+### Decided: what the SessionStart hook does on no binding found
+
+Jim, 2026-09-16. The hook always runs the deterministic lookup (worktree map, then
+cloud-session map). If neither has an entry, it doesn't create a thread silently — it
+injects additionalContext telling the agent to ask the human directly: "I couldn't find
+a thread, do you want to start one? If so tell me what mission we are picking up."
+Consistent with staying in supervised mode: creation only happens on an explicit human
+answer naming a mission, never automatically.
