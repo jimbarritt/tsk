@@ -512,3 +512,20 @@ Jim, 2026-09-16. The agent resolves whatever the human says in answer to the hoo
 prompt into a concrete mission ID by reading the mission tree, before calling the
 script. The script itself also validates that ID exists rather than trusting its
 caller — two independent checks, not one relied on to catch everything.
+
+### Decided: /resume-thread, symmetric to /pause-thread, and the hook's other branch
+
+Jim, 2026-09-16. A third skill, `/resume-thread <thread-id>`, the load counterpart to
+`/pause-thread`'s save. This resolves the hook's two branches cleanly: when the
+deterministic lookup finds a binding, the hook doesn't load the thread itself — it
+prompts the agent to run `/resume-thread` with that ID, the same way the not-found
+branch prompts the agent to ask the human and then run `/start-thread`. Both branches
+end the same way, by naming a command and letting the agent invoke it, rather than the
+hook doing the loading or the asking itself.
+
+This also settles the tier-2 case from the original reverse-lookup design (an explicit
+pointer naming a thread to resume, rather than the automatic binding lookup finding
+one): it's the same command, `/resume-thread <thread-id>`, just invoked directly with an
+arbitrary ID instead of one the hook supplied. No separate mechanism needed. Jim's own
+framing: this is what lets a different actor take over an existing thread — resuming
+isn't restricted to the session or worktree the thread was originally bound to.
