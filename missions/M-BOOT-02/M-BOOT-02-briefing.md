@@ -83,4 +83,14 @@ and nothing downstream works without it.
   (`tsk/bootstrap`, or its successor) has no concept of a session, so this cannot be
   answered by anything held in state. Likely candidates: the session's initial prompt
   names the mission, or a `SessionStart` hook reads a pointer from somewhere and injects
-  the briefing as context. Undecided. Continue this discussion next.
+  the briefing as context. Undecided, and the next thing to work.
+
+  The mechanics are now established and written up:
+  `docs/kb/session-creation-and-environments.md` in the tsk repo on `main`
+  (https://github.com/jimbarritt/tsk/blob/main/docs/kb/session-creation-and-environments.md).
+  It covers which mechanisms start a session and which an orchestrator can invoke, the
+  three levers that set what a session knows (initial prompt, repository contents,
+  environment), and the limits of reusing a long-lived session. Read it before designing
+  anything, rather than re-deriving it.
+
+  Jim has ideas on the design and wants to discuss them first. Do not start implementing.

@@ -16,6 +16,21 @@ territory (`tsk` and `ksobr`). M-BOOT-02 (harness) is in progress: T-01 (move th
 missions into the repository) is done, and T-02 (mission briefing template into the
 harness) is next unblocked.
 
+## Next step
+
+Design a way to fire up an agent session with a mission: how a session comes into
+existence already knowing which mission it is executing.
+
+Read this first, it is the groundwork and will save repeating the investigation:
+`docs/kb/session-creation-and-environments.md` in the tsk repo on `main`
+(https://github.com/jimbarritt/tsk/blob/main/docs/kb/session-creation-and-environments.md).
+It sets out which mechanisms can start a session, which of them an orchestrator can
+invoke, the three levers that determine what a session knows once started, and what
+reusing a long-lived session does and does not allow.
+
+Jim has ideas on the design and wants to discuss them before anything is built. Do not
+start implementing. The open decision this settles is recorded under M-BOOT-02.
+
 ## Current mission
 
 **M-BOOT-02: harness.** Full briefing:
