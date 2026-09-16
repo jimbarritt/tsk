@@ -73,6 +73,26 @@ over its life — a maintenance or coordination actor is the clear case, picking
 whatever needs attention across missions rather than being handed one. Most threads
 will still be one-to-one with a mission in practice; the model just doesn't force it.
 
+## Thread continuation
+
+A record of a thread's state at the point it paused, one entry in an append-only event
+log. Distinguished from Thread itself: the thread is the identity, held across every
+pause and resume; a continuation is one snapshot within it, added each time a pause
+happens.
+
+Each continuation carries a fixed schema: the mission briefing it points at, the task in
+progress, the commit `tsk/bootstrap` and `main` were each at when the thread paused, and
+a short written account of what to do next. The commit fields and the record's own
+timestamp come from a script, since the script already handles the git side of a pause.
+The what's-next account is the one field a human or an agent writes by judgement.
+
+Resuming a thread reads the latest continuation by default. Earlier ones stay in the log
+and can be read directly, for example to notice a task stalling across several pauses.
+
+Named "thread continuation" rather than "continuation" alone because the record already
+lives inside the thread's own directory, so the qualifier keeps the term consistent with
+its location rather than adding one only some readers would need.
+
 ## Task
 
 The unit of work. Nestable to any depth. Every task has an identity, an objective and a
