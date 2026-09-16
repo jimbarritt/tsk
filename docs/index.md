@@ -54,3 +54,4 @@ Background theory and research grounding for key domain concepts.
 
 - [background-theory.md](kb/background-theory.md): theoretical foundations for Navigation and Delta. Co-equality of event, delta, and path.
 - [product-and-scale-theory.md](kb/product-and-scale-theory.md): separation of Story card, Product capability, and Delta. No-complecting applied to tracking.
+- [session-creation-and-environments.md](kb/session-creation-and-environments.md): the six ways a session gets created, why env vars don't persist within one, and how cloud sessions differ from Cowork sessions.
