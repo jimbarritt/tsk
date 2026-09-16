@@ -94,3 +94,18 @@ and nothing downstream works without it.
   anything, rather than re-deriving it.
 
   Jim has ideas on the design and wants to discuss them first. Do not start implementing.
+
+- **Handoff**, as a concept to follow up on. Named by Jim, 2026-09-16, after a session
+  ended by writing the next step and its groundwork down for whoever picks the work up
+  next. Whether it earns a place in the ubiquitous language is open, and so is its
+  relationship to thread state: T-04 already describes recording which tasks are done,
+  which is in progress and where to resume, written at the end of every session and
+  readable by a different actor, which is close to the same thing under another name.
+  Resolve the overlap rather than defining both.
+
+- `index.md` is the wrong home for what is next. Noted by Jim, 2026-09-16. Recording the
+  next step there means every session has to edit the index to say where it got to, which
+  makes a navigational file carry state that changes on every run. This sharpens the
+  earlier open decision above about where thread state lives: that one asks whether the
+  index keeps those sections, this one says it should not. To be solved in the next
+  session.
