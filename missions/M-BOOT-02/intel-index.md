@@ -695,3 +695,27 @@ once `/resume-thread`'s additive take-over means the same thread can have more t
 binding and their relative age matters. Event-sourcing the lookup maps themselves (an
 append-only log of registrations rather than current-state JSON) was raised and set
 aside for later, not needed yet.
+
+### Decided: no lookup-by-worktree.json; the marker file is the whole binding
+
+Jim, 2026-09-16. Dropped from the design: `lookup-by-worktree.json` is unnecessary. The
+`tsk-thread-id` marker file, written at `$(git rev-parse --git-dir)/tsk-thread-id`,
+already is the worktree's binding, colocated with the worktree itself, with no name to
+key on and so no name-recycling problem to guard against in the first place. Only the
+cloud-session side needs a shared, durable map (`lookup-by-cloud-session.json` on
+`tsk/bootstrap`), because a cloud session's identity is a string with no persistent
+local file store attached to it that survives reclaim and reopen. This also means the
+worktree side of an additive take-over needs no special handling: each worktree's marker
+is its own file, so two worktrees pointing at the same thread never collide.
+
+### Decided: each continuation event records who wrote it, as a URN
+
+Jim, 2026-09-16. A field in each `continuation-state.jsonl` event names the actor's
+binding that wrote it, as a URN: `urn:tsk:worktree:<name>` for a worktree,
+`urn:tsk:cloudsession:<session-id>` for a cloud session. One field, self-describing by
+its URN scheme, not a separate type flag alongside a bare ID.
+
+This settles the diagnosability question raised the same day (a central place to answer
+"which worktrees are bound to thread X"): no separate registry needed. Reading a
+thread's own continuation log already answers it, listing every actor that has ever
+paused that thread.
