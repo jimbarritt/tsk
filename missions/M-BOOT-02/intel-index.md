@@ -671,3 +671,10 @@ agent may only need to supply what's-next in practice).
 
 This also settles where the note lives: not `index.md` (that stays a stable pointer),
 but its own append-only file inside `threads/<slug>/`. Exact filename not yet fixed.
+
+### Decided: /resume-thread reads only the latest event by default
+
+Jim, 2026-09-16. The automatic summary on resume is built from the latest event alone.
+The full event log stays queryable by a human operator directly, for cases like a task
+stalling across several pauses, but that querying is not part of the automatic resume
+flow itself.
