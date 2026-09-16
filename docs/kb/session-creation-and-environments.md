@@ -10,6 +10,7 @@ session, and the levers that determine what it knows once started.
 - [Constraints](#constraints)
 - [Appendix: every way a session starts](#appendix-every-way-a-session-starts)
 - [Appendix: reusing a session, and resetting one](#appendix-reusing-a-session-and-resetting-one)
+- [Appendix: handoff between sessions](#appendix-handoff-between-sessions)
 - [Appendix: environments and Cowork sessions](#appendix-environments-and-cowork-sessions)
 
 ## Triggering a session
@@ -129,7 +130,19 @@ The trade, then, is between a new session per mission, which starts with clean c
 and leaves a list to archive, and a long-lived worker, which keeps a stable identity and
 continuity at the cost of carrying every previous mission with it.
 
-## Appendix: environments and Cowork sessions
+## Appendix: handoff between sessions
+
+Given no reset is available, and a fresh session has no memory of what came before, the
+mechanism that carries continuity across that boundary is writing state down for
+whoever runs next to read: a fresh session via a `SessionStart` hook, a different actor
+picking up a thread, or a person continuing by hand. Call this a handoff.
+
+tsk's own harness does this today: `index.md` on `tsk/bootstrap` carries a section
+naming what to work next, read by the `SessionStart` hook before anything else. This
+exposes an open problem rather than solving it cleanly: a file meant for navigation and
+a file meant to record what changed last session are two different jobs, and putting
+both in `index.md` means every handoff edits a file whose other purpose is to stay
+stable. Where handoff state should live instead is not yet decided.
 
 An environment carries a tagged ID: `env_...`, or `ccpool_...` for a self-hosted pool. It
 bundles a container, repository and network access, and configuration. If
