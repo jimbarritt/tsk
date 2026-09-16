@@ -529,3 +529,17 @@ one): it's the same command, `/resume-thread <thread-id>`, just invoked directly
 arbitrary ID instead of one the hook supplied. No separate mechanism needed. Jim's own
 framing: this is what lets a different actor take over an existing thread — resuming
 isn't restricted to the session or worktree the thread was originally bound to.
+
+### Decided: /resume-thread on take-over is additive, with a printed warning
+
+Jim, 2026-09-16. When `/resume-thread <thread-id>` runs for a session or worktree not
+already bound to that thread, it appends the new binding rather than replacing the old
+one. Nothing stops two actors running the same thread at once; the binding maps record
+that as fact rather than hiding it. The script prints a warning when it finds the thread
+already bound elsewhere, so the actor doing the take-over sees it, but does not block
+the resume.
+
+This means a lookup map's value for a thread ID is not necessarily unique in reverse
+(one thread can appear against more than one session or worktree key). What running
+the same thread from two actors at once actually does, in practice, is deferred: Jim's
+words, "we can explore this behaviour more fully later."
