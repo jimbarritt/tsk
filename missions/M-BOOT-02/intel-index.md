@@ -591,3 +591,30 @@ worktree, renamed mid-test to check stability).
 Recommendation for the thread-binding scheme: key the worktree lookup map on `<name>`
 (the basename `git rev-parse --git-dir` returns inside `/worktrees/`), not on the
 absolute path. Detect "in a worktree" first via `git-dir != git-common-dir`.
+
+### Confirmed by follow-up test: the worktree admin name is not permanently unique
+
+2026-09-16, empirical, git 2.43.0, scratch repo. The `.git/worktrees/<name>` basename
+from the earlier finding is stable across a rename or `git worktree move`, but not a
+permanent identity:
+
+- Basename collision at `git worktree add` time produces a suffix (`feature`,
+  `feature1`, ...), decided by what else exists under `.git/worktrees/` at that moment,
+  not by the path.
+- Removing a worktree frees its name. A later, unrelated worktree created with the same
+  directory basename, even at a different path, is assigned the same name. Confirmed
+  directly: removed a worktree named `feature`, created an unconnected one elsewhere with
+  the same basename, got `feature` again.
+- The main worktree (the primary checkout) has no admin name at all: `--git-dir` and
+  `--git-common-dir` are equal there, so this mechanism doesn't identify it.
+
+### Decided: the worktree binding is tsk's own ID, stored as metadata inside .git
+
+Jim, 2026-09-16. Because the git-assigned admin name can be recycled by an unrelated
+worktree after removal, `/start-thread` writes its own thread ID as a file inside
+`.git`, not just relying on git's `<name>`. Constraint: it must live inside `.git` as
+metadata, untracked, so it never appears in the repo's tree or reaches the remote.
+Natural location: `.git/worktrees/<name>/tsk-thread-id` for a linked worktree — that
+directory is already private per-worktree metadata, and `git rev-parse --git-dir`
+already resolves to it directly. Where the main worktree's own marker goes is still
+open, since it has no `.git/worktrees/<name>` directory of its own.
