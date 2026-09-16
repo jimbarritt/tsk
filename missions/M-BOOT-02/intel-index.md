@@ -445,3 +445,21 @@ retry would ever fire.
 If a thread ID is ever passed outside its own namespace (cross-repo, external
 reference), wrap it in a URN rather than baking a prefix into the ID itself. Not needed
 yet; noted for when it is.
+
+### Decided: two independent lookup maps, not one with a type field
+
+Jim, 2026-09-16. `threads/lookup-by-cloud-session.json` and
+`threads/lookup-by-worktree.json`, each a flat map from binding value to thread ID. The
+lookup script branches structurally — check the worktree map first (its key,
+`git rev-parse --show-toplevel`, is always computable, cloud or CLI), then the
+cloud-session map (only queryable when `$CLAUDE_CODE_REMOTE_SESSION_ID` is set) — rather
+than carrying a `binding_type` field to dispatch on. Worktree wins if both would somehow
+match, since it's the more specific binding.
+
+This is more general than "cloud defaults to session ID unless in a worktree": nothing
+ties a cloud session to session-level binding specifically. A cloud session working from
+more than one worktree in the same session gets a thread per worktree via the worktree
+map; the cloud-session map only matters for the default case, one worktree per session,
+where it doesn't come up. In ordinary use only one map will ever have an entry for a
+given session, so the precedence rule is there for the deliberate case, not a decision
+that bites in practice.
