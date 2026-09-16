@@ -4,6 +4,15 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## Validation: Agent spawning and autonomous execution
+
+Logged 2026-09-16.
+
+Spawned agent session `session_01EepA7GiwbvHJVWxr8JKQ3N` to add software English prompt to
+tsk's CLAUDE.md (M-BOOT-02 T-12). The harness worked as designed: agent came up, read the
+specification from an external repo, extracted and integrated the changes, committed and
+pushed to main — all without intervention. No blockers, no prompts. The mechanism is sound.
+
 ## tsk and Linear / Jira integration
 
 Raised by Jim, 2026-09-16.
