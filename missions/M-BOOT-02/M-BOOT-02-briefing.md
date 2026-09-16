@@ -50,21 +50,21 @@ rather than tsk.
 
 ## Plan
 
-| ID | Task | Objective | Blocked by | Status |
-|---|---|---|---|---|
-| T-01 | Move the missions into the repository | M-BOOT and its breakout briefings readable from a fresh clone. A cloud session cannot read Jim's home directory | none | DONE |
-| T-02 | Incorporate the mission briefing template into the harness | The harness points a session at `docs/domain/mission-briefing-template.md` and states the first behaviour: take ownership of the plan before any other action. No copy in `.claude/`: tsk is the only repo running this harness, so the docs directory can be relied on. Revisit if another repo installs it | none | TODO |
-| T-03 | Define the run record format | Level 1 outcome: done, failed or blocked, with attempt count. Level 2: the actor's account of what it did, what the briefing failed to give it, and what it found wrong | none | TODO |
-| T-04 | Define the thread state format | Records which tasks are done, which is in progress, and where to resume. Written at the end of every session. Readable by a different actor. Thread definition and its relationship to Mission are both settled, see Open decisions; the reverse-lookup design there is a dependency, not yet implemented | none | TODO |
-| T-05 | Add the hook that writes thread state | Thread state written alongside the missions at session end | T-04 | TODO |
-| T-06 | Add the `SessionEnd` hook for transcripts | Hook pushes the session transcript to `ksobr-transcripts`. Settled: the hook cannot attach the repo itself, since `add_repo` is an MCP tool call the agent makes and a bash hook has no path to MCP tools; attaching stays an instruction the agent follows, which lives in tsk's `CLAUDE.md` for now, as a stopgap | none | TODO |
-| T-07 | Write `CLAUDE.md` | Points at `docs/` and the template. Holds ways of working | T-02 | TODO |
-| T-08 | Configure `.claude/settings.json` | Hooks wired, permissions set, local session loads without error | T-05, T-06, T-07 | TODO |
-| T-09 | Create the plugin marketplace repo | Harness and the language linter declared in `.claude/settings.json` and installed by a setup script | T-08 | TODO |
-| T-10 | Configure the cloud environment | Network access, environment variables, and a setup script that installs the harness and the linter | T-09 | TODO |
-| T-11 | Confirm GitHub repo access for cloud sessions | A test cloud session clones the tsk repo and reads a briefing | T-10 | TODO |
-| T-12 | Configure `CLAUDE.md` with the Software English compact instructions | Agents in this repo write in Software English by default, in replies and in anything written into a file. Includes the one question at a time rule. Spec: https://github.com/jimbarritt/software-english. Overlaps T-07, which holds ways of working | none | DONE |
-| T-13 | Build `/start-thread` and `/pause-thread` | Two skills. `/start-thread` resolves the current binding (cloud session ID or worktree) against the lookup maps, binds a new thread if none exists, and takes the mission to work. `/pause-thread` writes a handover note and hands off to a script for everything scriptable, especially git. Design is in intel-index.md; in progress | none | TODO |
+| ID | Task | Objective | Delegated to | Blocked by | Status |
+|---|---|---|---|---|---|
+| T-01 | Move the missions into the repository | M-BOOT and its breakout briefings readable from a fresh clone. A cloud session cannot read Jim's home directory | none | none | DONE |
+| T-02 | Incorporate the mission briefing template into the harness | The harness points a session at `docs/domain/mission-briefing-template.md` and states the first behaviour: take ownership of the plan before any other action. No copy in `.claude/`: tsk is the only repo running this harness, so the docs directory can be relied on. Revisit if another repo installs it | none | none | TODO |
+| T-03 | Define the run record format | Level 1 outcome: done, failed or blocked, with attempt count. Level 2: the actor's account of what it did, what the briefing failed to give it, and what it found wrong | none | none | TODO |
+| T-04 | Define the thread state format | Records which tasks are done, which is in progress, and where to resume. Written at the end of every session. Readable by a different actor. Thread definition and its relationship to Mission are both settled, see Open decisions; the reverse-lookup design there is a dependency, not yet implemented | none | none | TODO |
+| T-05 | Add the hook that writes thread state | Thread state written alongside the missions at session end | none | T-04 | TODO |
+| T-06 | Add the `SessionEnd` hook for transcripts | Hook pushes the session transcript to `ksobr-transcripts`. Settled: the hook cannot attach the repo itself, since `add_repo` is an MCP tool call the agent makes and a bash hook has no path to MCP tools; attaching stays an instruction the agent follows, which lives in tsk's `CLAUDE.md` for now, as a stopgap | none | none | TODO |
+| T-07 | Write `CLAUDE.md` | Points at `docs/` and the template. Holds ways of working | none | T-02 | TODO |
+| T-08 | Configure `.claude/settings.json` | Hooks wired, permissions set, local session loads without error | none | T-05, T-06, T-07 | TODO |
+| T-09 | Create the plugin marketplace repo | Harness and the language linter declared in `.claude/settings.json` and installed by a setup script | none | T-08 | TODO |
+| T-10 | Configure the cloud environment | Network access, environment variables, and a setup script that installs the harness and the linter | none | T-09 | TODO |
+| T-11 | Confirm GitHub repo access for cloud sessions | A test cloud session clones the tsk repo and reads a briefing | none | T-10 | TODO |
+| T-12 | Configure `CLAUDE.md` with the Software English compact instructions | Agents in this repo write in Software English by default, in replies and in anything written into a file. Includes the one question at a time rule. Spec: https://github.com/jimbarritt/software-english. Overlaps T-07, which holds ways of working | none | none | DONE |
+| T-13 | Build `/start-thread`, `/pause-thread` and `/resume-thread` | Design complete, recorded in `docs/kb/session-continuation-design.md` on `main` and this mission's `intel-index.md`. Delegated for implementation | M-BOOT-02-01 | none | TODO |
 
 **Essential task**: T-11. Repo access denial is the most common cloud routine failure,
 and nothing downstream works without it.

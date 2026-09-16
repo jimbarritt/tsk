@@ -719,3 +719,11 @@ This settles the diagnosability question raised the same day (a central place to
 "which worktrees are bound to thread X"): no separate registry needed. Reading a
 thread's own continuation log already answers it, listing every actor that has ever
 paused that thread.
+
+### Design complete: session continuation
+
+2026-09-16. The thread-binding and continuation-log design worked through in this file
+is now written up as a pure reference doc, `docs/kb/session-continuation-design.md` on
+`main`, with mission history and dated decisions left out of it. T-13 is delegated to a
+new sub-mission, M-BOOT-02-01, `missions/M-BOOT-02-01-continuation-harness.md`. Read
+the reference doc, not this file's trail, before implementing.
