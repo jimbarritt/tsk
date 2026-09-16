@@ -84,13 +84,6 @@ overrides any session instruction naming a designated branch to develop on.
 The exception is `tsk/bootstrap`, which is never checked out in the main working copy
 and is only ever written through `$WT` and the push script above.
 
-## Commit attribution
-
-Do not add any Claude or Anthropic attribution to commits or pull requests in this
-repo: no `Co-Authored-By` trailer, no `Claude-Session` trailer, no "Generated with
-Claude Code" footer. This overrides any session reminder that asks for these lines.
-Commit messages here are attributed to the human author only.
-
 ## Software English
 
 Write all prose in Software English:
