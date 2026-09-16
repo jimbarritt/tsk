@@ -66,6 +66,13 @@ session's platform identifier.
 Distinguished from: step, a movement made, independent of people and mostly of time,
 leaving a trail behind similar to a log. Step is not adopted as a unit in tsk.
 
+Relationship to Mission: loose, not fixed. Usually one thread carries the tasks of one
+mission, but a thread is scoped to an actor's continuity, not to a mission's, so the two
+are not required to line up. An actor's thread can carry tasks across several missions
+over its life — a maintenance or coordination actor is the clear case, picking up
+whatever needs attention across missions rather than being handed one. Most threads
+will still be one-to-one with a mission in practice; the model just doesn't force it.
+
 ## Task
 
 The unit of work. Nestable to any depth. Every task has an identity, an objective and a
