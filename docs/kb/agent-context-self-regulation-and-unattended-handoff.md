@@ -15,13 +15,24 @@ Four contexts frame this whole document. Everything below — mechanisms, `/goal
 handoff pattern — applies differently depending on which one a session is in.
 
 1. **Supervised interactive.** A human is present; this document was written inside one.
-   No initial-prompt gap, but a different problem: a restart, or `/clear`, gives a new
-   session ID, so continuation across that boundary needs an identifier that outlives
-   the session ID itself. Live example: during this document's own writing, a reply got
+   A restart gives a new session ID. `/clear` does not: confirmed live, 2026-09-16, by
+   calling `get_session` on this repo's own session (iOS origin, cloud environment)
+   before and after `/clear` ran, and the session's `id` field was unchanged. What
+   changed was `external_metadata.turn_handoff.worker_epoch`, an undocumented counter
+   nested alongside `tools` and a version `v` inside a `turn_handoff` object, from 28 to
+   30 across two `/clear` calls. `/clear` is available in cloud sessions, but only a
+   human can type it: there is no tool call for it, which is exactly why it sits in this
+   context and not in context 2 — it requires a human present to trigger. `worker_epoch`
+   is a candidate for the identifier this document was missing: one that outlives
+   `/clear` within a single session, distinct from the session ID itself. Not yet
+   explored: what else increments an epoch besides `/clear`, whether
+   `external_metadata.permission_mode_seq` (also seen incrementing, currently `"36"`) is
+   related, and whether anything reads `worker_epoch` back to resume state rather than
+   only reporting it. Live example: during this document's own writing, a reply got
    pasted back several turns later and was mistaken for evidence of lost context, purely
    because nothing tied that reply's identity to anything more durable than "earlier in
-   this same long conversation." Getting this context right is the one most exposed by
-   ordinary use, and the one this document has the least to say about so far.
+   this same long conversation" — `worker_epoch`, once understood further, may be exactly
+   that durable tie. Getting this context right is the one most exposed by ordinary use.
 2. **Unsupervised autonomous.** No human present. The agent must both regulate its own
    context and decide when and how to continue, spawning its own successor until the
    mission is done. This is the context the `/goal` + `get_session` + `create_session`
