@@ -9,6 +9,30 @@ against actual output rather than documentation, since no public page describes 
 `docs/kb/session-creation-and-environments.md` for the session-orchestration mechanics
 this document builds on.
 
+## Operating contexts
+
+Four contexts frame this whole document. Everything below — mechanisms, `/goal`, the
+handoff pattern — applies differently depending on which one a session is in.
+
+1. **Supervised interactive.** A human is present; this document was written inside one.
+   No initial-prompt gap, but a different problem: a restart, or `/clear`, gives a new
+   session ID, so continuation across that boundary needs an identifier that outlives
+   the session ID itself. Live example: during this document's own writing, a reply got
+   pasted back several turns later and was mistaken for evidence of lost context, purely
+   because nothing tied that reply's identity to anything more durable than "earlier in
+   this same long conversation." Getting this context right is the one most exposed by
+   ordinary use, and the one this document has the least to say about so far.
+2. **Unsupervised autonomous.** No human present. The agent must both regulate its own
+   context and decide when and how to continue, spawning its own successor until the
+   mission is done. This is the context the `/goal` + `get_session` + `create_session`
+   pattern below targets directly.
+3. **Orchestrator spawning workers.** A level above (2): the orchestrator is itself a
+   session, and it eventually hits the same context limit its workers do. Continuation
+   has to apply recursively, not only to the leaves.
+4. **Event-triggered.** A GitHub Action, a PR event, an issue to process. No session
+   lineage going in at all; each firing starts genuinely fresh, by construction rather
+   than by choice.
+
 ## Summary
 
 An earlier hypothesis held that no mechanism lets an agent manage its own context, other
@@ -24,7 +48,35 @@ order of agent control:
 4. **On-demand session inspection.** A cloud session reads its own token usage through
    an MCP tool. Unconfirmed in public documentation, observed directly.
 
-## Context awareness (confirmed)
+Each level is a degree of agent control, not a single tool. More than one product can
+sit at the same level — level 1 has two, level 3 has two — and a level's number says
+how much say the agent has over what happens there, not how many implementations exist.
+The sections below are ordered and numbered to match.
+
+## 1. Automatic compaction (confirmed)
+
+Platform-triggered, with no agent input — but not one tool. Two distinct products sit
+at this level.
+
+**Claude Code auto-compaction.** Triggers automatically as the context window fills,
+cannot be disabled, and is not something an agent decides to do itself.
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` overrides the trigger threshold; `/compact` remains
+available for an on-demand pass with optional focus instructions. See
+`docs/kb/session-creation-and-environments.md` for where this sits among a session's
+other configuration.
+Source: [Claude Code compaction docs](https://platform.claude.com/docs/en/build-with-claude/compaction), primary.
+
+**API server-side compaction.** A separate surface from Claude Code's own behaviour
+above: the Claude API automatically summarises earlier parts of a conversation on the
+server once it approaches the context limit, so the conversation can continue past it.
+In beta, for Claude 4.6 and later models.
+Source: [Context windows](https://platform.claude.com/docs/en/build-with-claude/context-windows), primary, confirmed directly 2026-09-16.
+
+Neither tool gives the agent a say in when compaction happens or what it preserves —
+that is what distinguishes this level, the least agent control, from the three that
+follow.
+
+## 2. Context awareness (confirmed)
 
 Claude Sonnet 5, Sonnet 4.6, Sonnet 4.5, and Haiku 4.5 track their remaining context
 window automatically; there is nothing to enable. The system prompt of every request
@@ -40,7 +92,10 @@ Documented purpose is pacing a task against remaining space, not checkpointing. 
 models (4.7 and later), and the Fable and Mythos model families, do not receive these
 injected tags; task budgets exist as an explicit alternative for those.
 
-## Agent-directed persistence (confirmed)
+## 3. Agent-directed persistence (confirmed)
+
+Again more than one tool at this level: two distinct stores, each with its own scope
+and mechanics.
 
 **API memory tool (`memory_20250818`).** A file-based store outside the context window,
 with create, read, update and delete on a `/memories` directory. The backend is
@@ -66,7 +121,7 @@ not at the model's discretion, and are harness-side scripts rather than agent-in
 persistence. Hooks do not receive context metrics.
 Source: [Claude Code glossary](https://code.claude.com/docs/en/glossary), primary.
 
-## On-demand session inspection (unconfirmed in docs, observed live)
+## 4. On-demand session inspection (unconfirmed in docs, observed live)
 
 `get_session`, part of an MCP server named `Claude_Code_Remote`, alongside
 `create_session`, `list_sessions` and `create_trigger`. Called with no arguments, it
