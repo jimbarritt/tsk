@@ -133,3 +133,44 @@ so they are omitted; the pattern is the useful part.
 - The memory tool, if it turns out to apply to a Claude Code cloud session, might be a
   ready-made place for handoff state to live, rather than tsk building its own artefact
   for it. This needs checking directly, not assuming from a summary.
+
+### Read directly: Anthropic's harness article
+
+`https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents`,
+read 2026-09-16 via search-aggregated secondary sources, since `anthropic.com` is
+blocked by this session's egress proxy and could not be fetched directly.
+
+An initializer runs once: a `feature_list.json` enumerating 200+ granular features, all
+marked failing at the start; a git repo with an initial commit; a `claude-progress.txt`
+log; an `init.sh` script. A coder then runs incrementally, one feature at a time, each
+session committing to git with a descriptive message and updating the progress log —
+the artefacts a fresh context window needs to reconstruct state without replaying the
+conversation. State is characterised as externalised, path-addressable and
+compaction-stable, attributed by the secondary sources to "Pan et al.", suggesting this
+formalises an existing framework rather than inventing one; the citation itself was not
+chased down. JSON was chosen over Markdown for the feature list specifically because
+models are less likely to inappropriately edit JSON. Nothing found, even indirectly,
+describes the agent itself deciding when to checkpoint or interacting with compaction —
+the pattern avoids that question by making state durable across compaction rather than
+by influencing its timing.
+
+### Working hypothesis: no self-regulation mechanism, only external decomposition
+
+Jim's synthesis, 2026-09-16, checked against the findings above.
+
+Hypothesis: no mechanism lets a session regulate its own context, other than
+auto-compaction — and that is not really an exception, since the platform triggers it
+regardless of what the agent wants, rather than the agent choosing to act. Most
+strategies found instead rely on breaking the work into the smallest pieces feasible
+before handing it to an agent, externally, rather than on the agent judging for itself
+when to act.
+
+Checked: holds for everything confirmed in Anthropic's own tooling. `PreCompact` and
+`PostCompact` are hooks the harness can act on, not the agent choosing to. The
+initializer/coder pattern above matches the hypothesis's second half directly: work is
+decomposed into 200+ granular features before any coder agent runs. One qualification —
+the wider research literature (MemGPT) does describe an agent-driven mechanism, the
+agent itself calling functions to move data between memory tiers on its own judgement.
+Whether anything resembling that exists inside Claude Code or the Claude Agent SDK
+specifically, as opposed to only in third-party research, is the open question a
+follow-up needs to settle.
