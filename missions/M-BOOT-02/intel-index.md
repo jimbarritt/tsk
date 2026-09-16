@@ -463,3 +463,26 @@ map; the cloud-session map only matters for the default case, one worktree per s
 where it doesn't come up. In ordinary use only one map will ever have an entry for a
 given session, so the precedence rule is there for the deliberate case, not a decision
 that bites in practice.
+
+### Decided: threads/<slug>/ holds an index; full content deferred
+
+Jim, 2026-09-16. Each thread directory has an `index.md` (same convention as missions
+and as tsk's own existing thread directories, per the legacy backlog note above). At
+minimum it links to the thread's mission. Everything else it should hold — thread-local
+state, the handover note itself, its relationship to the mission's Plan (the task table)
+— is deferred. Priority is getting `/start-thread` and `/pause-thread` working first;
+the Plan relationship specifically is a separate question to come back to, not decided
+against.
+
+### Decided: /pause-thread, the handover counterpart to /start-thread
+
+Jim, 2026-09-16. A second skill, doing the handover and tidy-up that ends a thread's
+current session. Split deliberately: the agent writes a summary handover note (this is
+inherently a judgement call, not scriptable — it requires understanding what happened),
+then calls a script for everything downstream of having that note, especially the git
+operations (commit, push), which should be as deterministic as `/start-thread`'s own
+lookup-and-bind logic. The pattern this session has followed by hand all along — write
+the note, then commit and push via `push-bootstrap-ref.sh` — is the working model for
+what the script does; `/pause-thread` formalises it rather than inventing something new.
+
+This is the concrete shape of T-13. Update the task to name both commands.
