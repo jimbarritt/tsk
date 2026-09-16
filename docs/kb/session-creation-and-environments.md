@@ -6,6 +6,31 @@ running session and the platform's own tools. Not yet a design: see
 `missions/M-BOOT-02/M-BOOT-02-briefing.md` on `tsk/bootstrap` for the open decision this
 feeds.
 
+## Summary
+
+Eight ways to get a new agent running, not six: the six below, plus a local subagent
+spawned in-process by the Agent tool, and a headless `claude -p` invocation shelled from
+an external script. The two additions matter to an orchestration engine specifically,
+because they don't provision a cloud environment at all; they run wherever the calling
+process already is.
+
+Once a session exists, three separate mechanisms feed it context, and they compose
+rather than substitute for each other:
+
+- **The initial prompt** — universal across every creation path that allows one at all.
+- **What's committed to the repo** — `CLAUDE.md` and `.claude/`, mainly `SessionStart`
+  hooks, detailed below. Depends on which repo and branch got checked out, which is
+  itself a parameter the creator sets (`source_url`, `source_revision`), not automatic.
+- **The environment** — see below. User-created only, through the web or Desktop app;
+  nothing available to a running session can create one, only select an existing one by
+  ID. A dedicated environment per territory (`ksobr-env`, and so on) is a reasonable use
+  of this, and matches the Territory concept already in `docs/domain/ubiquitous-language.md`
+  rather than inventing a new one.
+
+A fourth lever, permission mode (`plan`, `default`, `acceptEdits`, `bypassPermissions`,
+`dontAsk`), is easy to mistake for a fourth context mechanism but isn't one: it
+constrains what the session may do without approval, not what it knows.
+
 ## Ways a new session gets created
 
 1. Local interactive CLI. Run `claude` in the repo. First message is typed by the person.
@@ -20,11 +45,22 @@ feeds.
    (`create_new_session_on_fire`). Also carries a `prompt` string.
 6. An existing session kept alive on a PR-activity subscription. No new session created;
    it keeps receiving webhook events into the same conversation.
+7. A local subagent, spawned in-process by the Agent tool. Runs inside an
+   already-initialised session and inherits that session's loaded `CLAUDE.md` rather
+   than loading its own. Whether `SessionStart` hooks fire again for a subagent
+   specifically is not verified here.
+8. A headless `claude -p` invocation, shelled from an external script. A real, separate
+   `claude` process, so it loads `CLAUDE.md` and fires hooks the same as any interactive
+   session, but it runs on whatever machine executes the script, with no cloud
+   environment attached, no setup script, no network policy, unless also given
+   `--cloud`.
 
-Only paths 1, 2, 4, and 5 let anyone author the initial prompt freely. Paths 3 and 6 do
-not. The one thing the harness can rely on across all six paths is a `SessionStart` hook
-reading state out of the repository itself, since that does not depend on the prompt at
-all. This is what `tsk`'s own `SessionStart` hook already does for mission state: see
+Only paths 1, 2, 4, 5, 7, and 8 let anyone author the initial prompt freely. Paths 3 and
+6 do not. The one thing the harness can rely on across paths 1 through 6 and path 8 is a
+`SessionStart` hook reading state out of the repository itself, since that does not
+depend on the prompt at all — path 7 is the exception, since whether the hook fires
+again for a subagent is unverified. This is what `tsk`'s own `SessionStart` hook already
+does for mission state: see
 `ops/local/claude-session-start.sh` and the `index.md` "Current mission" line on
 `tsk/bootstrap`. The gap: that is a single pointer, so it does not say which mission a
 session should pick up when more than one is unblocked at once.
