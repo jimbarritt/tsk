@@ -4,6 +4,17 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## tsk and Linear / Jira integration
+
+Raised by Jim, 2026-09-16.
+
+Research mission: explore the intersection between tsk's mission and task model and
+Linear or Jira, understanding how the two systems might relate, whether tsk replaces
+one, complements it, or needs to interoperate with it.
+
+Open: scope of research, candidate tools and use cases, whether this shapes tsk's
+design or is purely a downstream question.
+
 ## Agents interrupting each other
 
 Raised by Jim, 2026-09-15.
