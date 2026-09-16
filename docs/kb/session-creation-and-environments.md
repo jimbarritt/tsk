@@ -94,9 +94,8 @@ allows one.
 
 A `SessionStart` hook reading state out of the repository is the one mechanism common to
 paths 1 to 6 and path 8, because it does not depend on the prompt. Path 7 is unverified.
-tsk uses this for mission state: `ops/local/claude-session-start.sh`, and the "Current
-mission" line in `index.md` on `tsk/bootstrap`. Its limit: a single pointer does not say
-which mission a session should pick up when more than one is unblocked.
+Its limit: a single pointer does not say which piece of work a session should pick up
+when more than one is unblocked.
 
 ## Appendix: reusing a session, and resetting one
 
