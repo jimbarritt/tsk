@@ -559,3 +559,35 @@ thread id: <id>
 we are working on mission <mission title>
 this is where we are at: <summary of the handover note>
 ```
+
+### Confirmed by subagent: how to identify a git worktree, and its stable ID
+
+Researched 2026-09-16, verified empirically in a scratch repo (main clone plus a linked
+worktree, renamed mid-test to check stability).
+
+- `git rev-parse --show-toplevel` returns the worktree's working directory. It tracks
+  cwd, not a durable identity: it changes the moment the worktree directory is renamed
+  or moved. Not suitable as a stable ID.
+- `git rev-parse --git-dir` and `--git-common-dir` are equal in a normal clone
+  (`.git`) and diverge in a linked worktree: `--git-dir` returns
+  `<main-repo>/.git/worktrees/<name>`, `--git-common-dir` returns `<main-repo>/.git`.
+  `git-dir != git-common-dir` is the test for "am I in a linked worktree at all."
+- The stable ID is `<name>`, the basename of the path `--git-dir` returns. It's set once
+  at `git worktree add` time (defaults to the target directory's basename, deduplicated
+  on collision) and does not change when the worktree is later renamed or moved —
+  confirmed: `--git-dir` kept reporting the same `<name>` after a rename, while
+  `--show-toplevel` changed immediately.
+- The link is bidirectional: the worktree's own `.git` is a file containing
+  `gitdir: <main-repo>/.git/worktrees/<name>` (forward pointer); the admin directory
+  holds a `gitdir` file with the reverse pointer and a `commondir` file (`../..`). Moving
+  the worktree leaves the forward pointer working but the reverse pointer stale, which
+  `git worktree list` flags as `prunable` until `git worktree repair <new-path>` fixes it.
+- `git worktree list --porcelain` exposes path, full HEAD SHA and branch per worktree,
+  but not `<name>` itself — that has to be derived from `--git-dir`, not read off `list`.
+- Not a novel technique: the same pattern (derive worktree identity from the `.git` file's
+  `gitdir:` target, basename after `/worktrees/`) already exists in other agent/worktree
+  tooling doing the same session-to-worktree binding job.
+
+Recommendation for the thread-binding scheme: key the worktree lookup map on `<name>`
+(the basename `git rev-parse --git-dir` returns inside `/worktrees/`), not on the
+absolute path. Detect "in a worktree" first via `git-dir != git-common-dir`.
