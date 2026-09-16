@@ -55,7 +55,7 @@ rather than tsk.
 | T-01 | Move the missions into the repository | M-BOOT and its breakout briefings readable from a fresh clone. A cloud session cannot read Jim's home directory | none | DONE |
 | T-02 | Incorporate the mission briefing template into the harness | The harness points a session at `docs/domain/mission-briefing-template.md` and states the first behaviour: take ownership of the plan before any other action. No copy in `.claude/`: tsk is the only repo running this harness, so the docs directory can be relied on. Revisit if another repo installs it | none | TODO |
 | T-03 | Define the run record format | Level 1 outcome: done, failed or blocked, with attempt count. Level 2: the actor's account of what it did, what the briefing failed to give it, and what it found wrong | none | TODO |
-| T-04 | Define the thread state format | Records which tasks are done, which is in progress, and where to resume. Written at the end of every session. Readable by a different actor. Thread definition settled, see Open decisions; still open there is whether a thread binds to a mission or a mission to a thread | none | TODO |
+| T-04 | Define the thread state format | Records which tasks are done, which is in progress, and where to resume. Written at the end of every session. Readable by a different actor. Thread definition and its relationship to Mission are both settled, see Open decisions; the reverse-lookup design there is a dependency, not yet implemented | none | TODO |
 | T-05 | Add the hook that writes thread state | Thread state written alongside the missions at session end | T-04 | TODO |
 | T-06 | Add the `SessionEnd` hook for transcripts | Hook pushes the session transcript to `ksobr-transcripts`. Settled: the hook cannot attach the repo itself, since `add_repo` is an MCP tool call the agent makes and a bash hook has no path to MCP tools; attaching stays an instruction the agent follows, which lives in tsk's `CLAUDE.md` for now, as a stopgap | none | TODO |
 | T-07 | Write `CLAUDE.md` | Points at `docs/` and the template. Holds ways of working | T-02 | TODO |
@@ -81,9 +81,11 @@ and nothing downstream works without it.
   thread identity is now explicitly tsk's own, not borrowed from a session ID or a
   worktree, since neither is stable across every surface (confirmed: a cloud session's
   ID survives `/clear`, a CLI session's does not). T-04 can build on this rather than
-  waiting on it. Still open under T-04 itself: whether a thread binds to a mission or a
-  mission to a thread — the same question as the sessions-registering-against-a-mission
-  idea below.
+  waiting on it. The thread-to-mission relationship is also settled, 2026-09-16: loose,
+  not fixed. Usually one-to-one in practice, but a thread is scoped to an actor's
+  continuity, not to a mission's, so a maintenance or coordination actor's thread can
+  carry tasks across several missions over its life. Recorded in
+  `docs/domain/ubiquitous-language.md`, Thread entry.
 - Where thread state lives once it has a format: its own artefact, or the sections of
   `index.md` that hold it today. Deferred until T-04. Until then `index.md` keeps the
   summary of missions and tasks with their status.
@@ -120,12 +122,13 @@ and nothing downstream works without it.
   session.
 
 - Sessions registering themselves against the mission, as a mechanism for working out
-  where to start. Raised by Jim, 2026-09-16, to explore. A candidate answer to the open
-  decision above on how a briefing reaches a session, and possibly to handoff too: rather
-  than a session reading a single written-down pointer, a session could announce itself
-  against the mission it is working, so the mechanism for finding where to start is
-  registration rather than a note left behind. Not shaped further than this. Explore
-  alongside handoff rather than instead of it.
+  where to start. Raised by Jim, 2026-09-16, to explore. Superseded by a more precise
+  design, 2026-09-16: a session registers itself against a thread, not directly against
+  a mission, since that is the actual binding decided (session ID or worktree to thread
+  ID) and mission is at most one loose step further. See "Design: reverse-lookup from
+  binding to thread" in intel-index.md for the algorithm. Not yet implemented — the
+  binding table it depends on doesn't exist yet, and neither does the thread ID minting
+  scheme.
 
 
 ## Handover
