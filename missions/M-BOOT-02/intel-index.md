@@ -412,3 +412,22 @@ created.
 - The thread ID minting scheme itself: not decided.
 - Whether "several work actors, one worktree each" needs anything beyond what
   `git worktree add` already gives, or whether tsk needs its own wrapper around it.
+
+### Confirmed directly: a cloud session's ID is a plain environment variable, no MCP call needed
+
+Confirmed 2026-09-16, by reading the environment directly in a running cloud session:
+`CLAUDE_CODE_REMOTE_SESSION_ID` holds the session ID (as `cse_...`; swap the prefix to
+`session_...` to match `get_session`'s `id` field exactly — confirmed byte-identical in
+this session). This overturns the open question raised earlier: a bash `SessionStart`
+hook can resolve a cloud session's identity itself, with no MCP tool call and no agent
+turn required, exactly as it already can for a CLI worktree. `$CLAUDE_CODE_REMOTE=true`
+distinguishes cloud from local, `$CLAUDE_CODE_WORKER_EPOCH` is also a plain env var
+(read `36` here, against `get_session`'s `turn_handoff.worker_epoch` reading `34` at
+the last check — a discrepancy between the two reporting paths, not yet explained).
+
+Also present: `CLAUDE_CODE_SESSION_ID` (a UUID, e.g.
+`67689032-cb06-598e-bf1d-8b0501a09628`), a distinct identifier from
+`CLAUDE_CODE_REMOTE_SESSION_ID` — it matches the scratchpad directory path quoted in
+this session's own system prompt, so it looks like a lower-level container or instance
+ID, not the CCR platform session ID. Don't conflate the two; the thread binding should
+use `CLAUDE_CODE_REMOTE_SESSION_ID`, not this one.
