@@ -431,3 +431,17 @@ Also present: `CLAUDE_CODE_SESSION_ID` (a UUID, e.g.
 this session's own system prompt, so it looks like a lower-level container or instance
 ID, not the CCR platform session ID. Don't conflate the two; the thread binding should
 use `CLAUDE_CODE_REMOTE_SESSION_ID`, not this one.
+
+### Decided: thread ID scheme
+
+Jim, 2026-09-16. Bare slug, no prefix — the `threads/` directory is the namespace, so
+the ID doesn't need to carry one. 8 characters, lowercase alphanumeric (`0-9a-z`, base
+36): space is 36^8 ≈ 2.82×10^12, giving a birthday-paradox collision probability of
+roughly 0.18% across 100,000 threads (n²/2N). The creation script also checks the new
+slug against the lookup file and regenerates on collision, which makes an actual
+collision impossible regardless of that figure — the math only says how rarely the
+retry would ever fire.
+
+If a thread ID is ever passed outside its own namespace (cross-repo, external
+reference), wrap it in a URN rather than baking a prefix into the ID itself. Not needed
+yet; noted for when it is.
