@@ -143,4 +143,6 @@ under the nexus and territory mission, not as tsk's own ubiquitous language.
   objective, because there is no completion to report on. Found writing M-STAND-01,
   where the section is omitted under the template's own rule to omit a field rather
   than write "none" in it. What a standing mission reports, and when, is unsettled: the
-  thread's continuation log is the only record it leaves today.
+  thread's continuation log is the only record it leaves today. Jim's candidate answer,
+  2026-09-17: a standing mission could provide a regular report on some kind of
+  schedule. Not designed, and the schedule is not specified.
