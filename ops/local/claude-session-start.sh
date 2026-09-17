@@ -22,10 +22,20 @@ if [ -n "$WT" ] && [ -d "$WT" ]; then
   if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
     echo "export TSK_BOOTSTRAP_WT=\"$WT\"" >> "$CLAUDE_ENV_FILE"
   fi
-  jq -n --arg wt "$WT" '{
+
+  BINDING="$(TSK_BOOTSTRAP_WT="$WT" ops/local/thread-resolve-binding.sh 2>/dev/null || true)"
+
+  if [ -n "$BINDING" ]; then
+    THREAD_ID="${BINDING#*:}"
+    THREAD_MSG=" An existing thread binding was found: $BINDING. Run /resume-thread $THREAD_ID next."
+  else
+    THREAD_MSG=" No thread binding was found for this session or worktree. Ask directly which mission to work, then run /start-thread for it."
+  fi
+
+  jq -n --arg wt "$WT" --arg thread_msg "$THREAD_MSG" '{
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: ("tsk/bootstrap fetched and materialised at " + $wt + " (also exported as $TSK_BOOTSTRAP_WT). Read " + $wt + "/index.md next.")
+      additionalContext: ("tsk/bootstrap fetched and materialised at " + $wt + " (also exported as $TSK_BOOTSTRAP_WT). Read " + $wt + "/index.md next." + $thread_msg)
     }
   }'
 else
