@@ -113,8 +113,7 @@ appears in the other's diff.
 
 Supersedes "data ref", which named a mechanism rather than the thing, and which stopped
 being accurate the moment ADR 0008 moved the store off a custom git ref and onto a
-branch. Mission M-BOOT-04 still carries "the official data ref" in its title; that is
-known and not yet renamed.
+branch. Renamed everywhere it appeared, including mission M-BOOT-04's title, 2026-09-17.
 
 Rejected: account (the mission briefing template already uses "your account" for the
 actor's own report), record (M-BOOT-02's run record holds that word), chronicle (says
