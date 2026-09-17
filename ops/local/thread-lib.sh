@@ -43,7 +43,9 @@ thread_mint_id() {
   local wt id
   wt="$(thread_wt)"
   while :; do
-    id="$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 8)"
+    # tr is killed by SIGPIPE once head has its 8 bytes; that is expected,
+    # not a failure, so pipefail is suspended for this one pipeline.
+    id="$(set +o pipefail; LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 8)"
     if [ "${#id}" -eq 8 ] && [ ! -e "$wt/threads/$id" ]; then
       printf '%s\n' "$id"
       return 0
