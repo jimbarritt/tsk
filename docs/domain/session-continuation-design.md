@@ -112,7 +112,7 @@ One JSON object per line, appended, never rewritten. Fields:
 | Mission briefing link | Agent (usually already known from thread state) | The briefing document the thread is working |
 | Task ID | Agent (usually already known from thread state) | The task in progress when the thread paused |
 | What's next | Agent | A short account of where things stand |
-| Commit on `tsk/bootstrap` | Script | The commit the push script left the branch at |
+| Commit on `tsk/bootstrap` | Script | The commit `tsk/bootstrap` was at when the pause began, read before this entry is appended. It cannot be the commit the push then creates: that commit contains this entry, so no hash it carries can name it |
 | Commit on `main` | Script | The commit left on `main` at pause time |
 | Timestamp | Script | When the entry was appended |
 | Written by | Script | `urn:tsk:worktree:<name>` or `urn:tsk:cloudsession:<session-id>`, naming the binding that wrote this entry |
