@@ -29,6 +29,22 @@ handoff pattern — applies differently depending on which one a session is in.
      the session ID unchanged. No restart mechanism has yet been found that changes a
      cloud session's own ID.
 
+     It moves for more than those two events. One supervised session read it at 3, and
+     at 16 later the same day, across four model switches and no `/clear`. Leaving a
+     session and returning to it reloads the environment, which accounts for the rest,
+     and makes the counter climb faster under supervision than under an unattended run
+     that holds one turn until it reaches a limit.
+
+     The consequential part is that an increment can fall inside a turn. The resumed
+     turn then carries the conversation but not the tool calls made after the last
+     persisted point, while those calls' side effects persist on disk and on any remote
+     they reached. An agent in that position has acted, holds no record of acting, and
+     can establish what happened only from external state: `git reflog`, the branch, the
+     remote. Two consequences for an unattended design. A run record held in the
+     transcript is not durable against this. And any script that writes shared state has
+     to be safe to run twice, because a restart makes a second run ordinary rather than
+     exceptional; `ops/local/push-bootstrap-ref.sh` was made idempotent for this reason.
+
      The cloud session ID is also readable directly, with no MCP tool call, as the
      environment variable `CLAUDE_CODE_REMOTE_SESSION_ID` (`cse_...`; swap the prefix
      for `session_` to match `get_session`'s `id` field exactly — confirmed
