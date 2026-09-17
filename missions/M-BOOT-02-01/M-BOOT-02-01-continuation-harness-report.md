@@ -78,7 +78,8 @@ or who removes them. I added T-10 to close it.
 
 ## What I found wrong, and got wrong
 
-Three defects, all mine except the second.
+Four defects, all mine except the second. The fourth was found after this report was
+first written, and closed as T-11.
 
 **1. I duplicated the push sequence instead of calling the script.** The first drafts of
 `thread-start.sh`, `thread-append-handover.sh` and `thread-resume.sh` each inlined
@@ -103,6 +104,30 @@ times I was answering the wrong question. The mechanism was fine. The path was n
 location under `.git/` obliges everyone who reads it to re-derive that distinction, and
 in a supervised context that cost is paid by the supervisor, repeatedly. Being right
 about the mechanism is not the same as the design being right.
+
+**4. The ledger fetch resets over a commit that was never pushed.** T-11.
+
+`push-bootstrap-ref.sh` commits, then pushes. A worker restart can end a turn between
+those two steps. What it leaves is a commit the worktree holds and origin does not, in a
+worktree that is clean, so defect 2's dirty-tree guard does not fire and the next
+`reset --hard` orphans the commit. The `SessionStart` hook runs that fetch at every
+session start, so the loss runs unattended, before any agent is placed to notice it.
+
+Both scripts changed. `push-bootstrap-ref.sh` is idempotent: it commits only when
+something is staged, and pushes a commit an earlier run left behind (`e3ec479`). The
+fetch now leaves the worktree as it is in that state, and the hook reports the pending
+commit in `additionalContext` (`57b5320`). Refusing at session start and pushing from
+the fetch were both weighed: refusing blocks the session until someone clears it by
+hand, and pushing would make a read path write to origin.
+
+The part worth keeping is Jim's addition to the message. It tells the agent the commit
+may be its own work from a turn it holds no record of making, and not to assume another
+actor made it. The agent that finds the commit is usually the agent that made it. I
+assumed the opposite earlier the same day: I found a commit I had no record of, decided
+a second session had made it, and reported a shared-worktree hazard between sessions
+that does not exist. The reflog settled it in one command, which I should have run
+before reasoning. Left unsaid in the hook's message, that same reading invites an agent
+to discard real work.
 
 ## The worktree relocation
 
@@ -150,10 +175,11 @@ interventions would have happened, and the first three defects would all have sh
   are proven.
 - **Confirm or correct the commit-on-`tsk/bootstrap` reading.** Jim's call, per Decision
   authority.
-- **The `Edit` tool has not been retested against the new path.** The relocation's
-  premise is that the escalation follows the path. Editing via a script at the new
-  location runs unprompted, and every push during and after the move ran unprompted, but
-  a direct `Edit` call at the new path is the clean confirmation and has not been made.
+- **The `Edit` tool was retested against the new path, 2026-09-17, and the premise
+  holds.** Direct `Edit` calls at the state-home location run with no prompt. The same
+  edit, to the same file, was refused twice at the old `.git/` path earlier that day.
+  Before and after on one file in one session, so the path is confirmed as the
+  discriminator rather than inferred from correlation.
 - **T-04, the thread state format, is still open and this mission deliberately did not
   encroach on it.** A continuation event carries one what's-next line. Which tasks are
   done, and which is in progress, still has no home.

@@ -98,29 +98,10 @@ automatically, and the objective is not met by the scripts existing alone.
 the scripts against but the live `tsk/bootstrap` branch, so the briefing's plan was
 missing the step that keeps that proof from leaving permanent test data behind.
 
-**Task added after completion, 2026-09-17**: T-11. A worker restart can end a turn
-between the commit and the push in `push-bootstrap-ref.sh`. That leaves the worktree
-clean, so the dirty-tree guard in `fetch-bootstrap-ref.sh` does not catch it, and the
-next `git reset --hard` orphans the commit. The `SessionStart` hook calls that fetch at
-every session start, so the loss happens automatically, before any agent is in a
-position to notice the pending commit.
-
-`push-bootstrap-ref.sh` was made idempotent on `main` at `e3ec479`: it now commits only
-when something is staged, and pushes a commit an earlier run left behind. That recovers
-the state whenever the push script runs. It does not cover the fetch path, which is the
-one that runs unattended.
-
-Resolved 2026-09-17: the fetch leaves the worktree as it is and reports the pending
-commit through the hook's `additionalContext`. It still prints the path and exits 0, so
-`just fetch-refs` and the thread scripts are unaffected.
-
-The message tells the agent to read what the commit changes before deciding, and says
-the commit may be its own work from a turn it holds no record of. A worker restart can
-end a turn between a commit and its push, so the agent that finds the commit is often
-the one that made it. Left unsaid, the natural reading is that another actor made it,
-which invites discarding real work.
-
-Landed on `main` at `57b5320`.
+**Task added after completion, 2026-09-17**: T-11. The ledger fetch reset over a commit
+that was never pushed, which a worker restart can leave behind. The defect, the two
+scripts that changed, and the options weighed are recorded as defect 4 in the mission
+report.
 
 **Note on the commit-on-`tsk/bootstrap` field (T-06).** The design names this field "the
 commit the push script left the branch at," which read literally is self-referential: the
