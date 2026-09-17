@@ -21,6 +21,46 @@ Jim's read: the harness works. Recorded here because it is the first end to end 
 spawn, execute, push without a human in the loop, and because it bears on M-BOOT-03,
 whose objective is one unattended run producing a pull request and a run record.
 
+## GitHub PR suggestion banner for metadata branch
+
+Raised by Jim, 2026-09-16.
+
+`tsk/bootstrap` is a real branch now (not a custom ref), which lets agents push to it
+from cloud sessions. GitHub's web UI sees a real branch and shows a persistent banner
+asking if you want to create a pull request from it, treating it like a development
+branch. This is noise.
+
+Candidate solutions: a branch protection rule that hides the branch from PR suggestions,
+or a `.github/workflows` check that auto-closes any PR opened against or from
+`tsk/bootstrap`, or marking the branch as draft-only in some way, or documenting the
+branch in a way that makes GitHub understand it is not for PRs.
+
+Open: whether GitHub supports suppressing PR suggestions per branch, what mechanism
+works, whether the solution applies to other metadata branches (if tsk ever has more
+than one).
+
+## Design decision recording beyond ADRs
+
+Raised by Jim, 2026-09-17.
+
+ADRs capture architectural decisions that have consequences lasting the lifetime of the
+project. Not all design decisions are at that scale. Some are more local: why a
+particular component is structured one way, why a feature works this way, constraints
+discovered and recorded.
+
+These decisions are worth capturing for future reference, so people rebuilding or
+refactoring that code understand what was already decided. They may not warrant an ADR,
+but they need to live somewhere that is not a code comment (those rot) and not a
+passing conversation.
+
+Research mission: what document types and structures make sense for recording these?
+Does tsk need a "design notes" or "design rationale" directory separate from ADRs?
+How granular should they be? Where do they live in the repo structure?
+
+Open: scope (what qualifies), form (one per decision or grouped by area), archive
+(do old decisions get pruned or kept forever), whether this is just a refined version
+of the ADR process applied at finer scale or fundamentally different.
+
 ## tsk and Linear / Jira integration
 
 Raised by Jim, 2026-09-16.
