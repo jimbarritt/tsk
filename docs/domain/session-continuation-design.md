@@ -96,9 +96,12 @@ Each thread has a directory, `threads/<slug>/`, holding:
 - `index.md`: a stable pointer. At minimum, a link to the mission briefing document the
   thread is working, not a bare mission ID. Further contents are undecided; see
   Deferred.
-- `continuation-state.jsonl`: the append-only log of continuation events. Named "thread
-  continuation" in `docs/domain/ubiquitous-language.md`, qualified because the record
-  already lives inside the thread's own directory.
+- `continuation-state.jsonl`: an append only store of continuation contexts that were
+  passed between thread pause and resume. Named "thread continuation" in
+  `docs/domain/ubiquitous-language.md`, qualified because the record already lives
+  inside the thread's own directory. It is a state store that keeps its history, not a
+  log: what it holds is the state a resume reads, and earlier entries are kept rather
+  than being the point of the file.
 
 ## Continuation events
 
