@@ -4,6 +4,18 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## What pausing a thread really means
+
+Raised by Jim, 2026-09-17.
+
+Investigate further what pausing a thread really means. A thread should have a state of
+paused or running.
+
+There is no such state today. A pause appends a continuation state entry and nothing
+records that the thread is paused, so the only evidence is whether the latest entry still
+describes where things stand. Work done after a pause leaves that entry stale with
+nothing marking it so, and the thread has to be paused again.
+
 ## Report: spawning an agent session to execute a task
 
 Logged 2026-09-16. Session `session_01EepA7GiwbvHJVWxr8JKQ3N`.
