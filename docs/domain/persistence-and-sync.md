@@ -58,12 +58,12 @@ Rust is confirmed. Go was considered for portfolio value and rejected.
 
 ## Open
 
-- The data ref tree layout: how per-actor NDJSON logs sit in the tree.
+- The ledger tree layout: how per-actor NDJSON logs sit in the tree.
 - The manifest format: what it lists, how entries are keyed.
 - The push and pull protocol: the retry loop, lease handling, conflict cases.
 - Rust git library choice: `git2`, `gitoxide`, or shelling out to the `git` binary.
 - Daemon addressing across projects: one `tskd` serving many projects, or one per
   project.
 
-These are decided by mission M-BOOT-04, the official data ref mission (not yet broken
+These are decided by mission M-BOOT-04, the official ledger mission (not yet broken
 into its own briefing at the time of writing).
