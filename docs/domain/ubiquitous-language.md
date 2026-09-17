@@ -159,6 +159,26 @@ objective as standing, attainable or maintained.
 The document handed to an agent, rendering a mission for a specific actor. The same
 mission renders differently for a human and for a cloud agent.
 
+## Mission report
+
+The account a mission leaves behind: what was done, what the briefing failed to give the
+actor, and what the actor found wrong, including in its own work.
+
+A report carries feedback and nothing else. Feedback is a statement of something found,
+written so a reader learns from it without having to act on it. An inconsistency the
+mission hit, a defect in its inputs, a judgement the actor had to make to proceed: each
+is reported as what happened.
+
+A report never carries an open question. Nothing in it waits on an answer, asks a reader
+to decide, or stays live after the mission closes. Where a finding needs a decision or
+further work, that work is tracked where work is tracked, as a mission or a task, and the
+report states the finding rather than holding the request.
+
+The test: reading a report tells you what happened. It never leaves you owing it a reply.
+
+A report is written once or repeatedly over the mission's life, whichever suits it, and
+takes addenda: a later finding is appended rather than replacing what is there.
+
 ## Objective
 
 What a mission is for, and how its progress is judged. Every mission has one.

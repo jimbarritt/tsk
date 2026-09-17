@@ -97,7 +97,9 @@ tasks, reorder as you see fit, and write it back as your own.}
 ## Report on completion
 
 {Harness. Outcome: done, failed, or blocked, with attempt count. Your account: what you
-did, what this briefing failed to give you, what you found wrong in it.}
+did, what this briefing failed to give you, what you found wrong in it, including in
+your own work. Feedback only. Do not write an open question, a request for a decision,
+or anything that waits on a reply.}
 ```
 
 ---
@@ -113,6 +115,13 @@ the ledger's `missions/` it sits in rather than by a field in the briefing.
 **Reports.** A mission reports once or repeatedly over time, whichever suits it. There
 is no rule fixing which. A report also takes addenda: a later finding is appended to the
 existing report rather than replacing it or starting a new document.
+
+A report carries feedback and never an open question. State what you found, including an
+inconsistency in your inputs and a judgement you had to make to get past it. Do not ask
+the reader to confirm, decide, or come back to you. Where a finding needs a decision or
+further work, that belongs where work is tracked, as a mission or a task; the report
+records the finding. Reading a report tells you what happened, and never leaves you
+owing it a reply.
 
 **Task objectives.** Every task has one, by the model. In the table, write it short. A
 delegated task's full objective lives in its own briefing.
