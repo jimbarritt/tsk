@@ -65,8 +65,3 @@ mission has no task that finishes.
 
 Take ownership of the plan above before any other action. Then say you are ready to
 capture, and wait. Do not open the conversation by proposing ideas.
-
-## Report on completion
-
-Does not apply. The objective is maintained, so this mission has no completion. A pause
-records what was captured; see the thread's continuation log.
