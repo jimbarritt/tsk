@@ -85,6 +85,15 @@ rather than destroying it.
   `ops/local/bootstrap-wt-path.sh`, and the fetch script refuses to reset over a
   dirty worktree. This defect predates this ADR and was latent in the original
   design.
+
+  Amended 2026-09-17. The dirty-tree guard is necessary but not sufficient. A
+  commit made without a push leaves the worktree clean, so the guard does not
+  fire and `reset --hard` orphans the commit. A worker restart produces exactly
+  that state, by ending a turn between the commit and the push in
+  `push-bootstrap-ref.sh`. The `SessionStart` hook calls the fetch at every
+  session start, so that reset runs unattended. `push-bootstrap-ref.sh` is now
+  idempotent and recovers the state whenever it runs; guarding the fetch path is
+  tracked as M-BOOT-02-01 T-11.
 - Anything holding the old path is stale. `$TSK_BOOTSTRAP_WT` is re-exported by
   the `SessionStart` hook each session, so it corrects itself.
 - The deeper question of storing mission metadata separately from the main
