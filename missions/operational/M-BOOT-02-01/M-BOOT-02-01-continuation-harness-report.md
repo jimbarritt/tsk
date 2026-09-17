@@ -40,7 +40,7 @@ Changed as a consequence, not as a specified task:
 
 The full cycle was run end to end twice: once against the original scripts, once again
 after the worktree relocation. Start minted and bound a thread, pause appended a
-continuation event, resume read back the mission link and the what's-next text
+continuation state entry, resume read back the mission link and the what's-next text
 unchanged. The `SessionStart` hook resolved the binding and named `/resume-thread` with
 the right ID. Take-over was proven from a second git worktree standing in as a
 different actor: the warning named the prior actor, and the bind proceeded.
@@ -61,9 +61,9 @@ file. That cleanup is T-10, which the briefing did not specify.
 
 **The commit-on-`tsk/bootstrap` field is not implementable as written.** The design doc
 names it "the commit the push script left the branch at". Read literally that is
-self-referential: the event line recording the commit is part of the commit being
+self-referential: the entry recording the commit is part of the commit being
 recorded, and no commit hash can describe a tree containing itself. I took it as the
-branch's HEAD immediately before the event is appended, which matches how commit-on-main
+branch's HEAD immediately before the entry is appended, which matches how commit-on-main
 is captured, and recorded the reasoning in the plan rather than treating it as blocking.
 This is the one place I resolved an ambiguity by judgement rather than by asking. Worth
 Jim confirming, since the design doc is his to change.
@@ -181,7 +181,7 @@ interventions would have happened, and the first three defects would all have sh
   Before and after on one file in one session, so the path is confirmed as the
   discriminator rather than inferred from correlation.
 - **T-04, the thread state format, is still open and this mission deliberately did not
-  encroach on it.** A continuation event carries one what's-next line. Which tasks are
+  encroach on it.** A continuation state entry carries one what's-next line. Which tasks are
   done, and which is in progress, still has no home.
 - **Deferred points in the design doc stay deferred**, as the briefing instructed: the
   thread-to-Plan relationship, what two actors on one thread should actually do, and

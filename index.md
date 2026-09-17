@@ -27,7 +27,7 @@ Read it before picking the next mission: it carries three findings that outlive 
 mission, and two open items for Jim.
 
 Back to M-BOOT-02's own plan. T-04 (thread state format) is the next unblocked task and
-the one M-BOOT-02-01 deliberately did not encroach on: a continuation event carries a
+the one M-BOOT-02-01 deliberately did not encroach on: a continuation state entry carries a
 single what's-next line, so which tasks are done and which is in progress still has no
 home.
 

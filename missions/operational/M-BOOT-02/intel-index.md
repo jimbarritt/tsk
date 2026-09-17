@@ -708,7 +708,7 @@ local file store attached to it that survives reclaim and reopen. This also mean
 worktree side of an additive take-over needs no special handling: each worktree's marker
 is its own file, so two worktrees pointing at the same thread never collide.
 
-### Decided: each continuation event records who wrote it, as a URN
+### Decided: each continuation state entry records who wrote it, as a URN
 
 Jim, 2026-09-16. A field in each `continuation-state.jsonl` event names the actor's
 binding that wrote it, as a URN: `urn:tsk:worktree:<name>` for a worktree,

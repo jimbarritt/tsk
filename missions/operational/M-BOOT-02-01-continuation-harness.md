@@ -20,7 +20,7 @@ goal verifier, is out of scope for this mission.
   current binding (cloud session ID or worktree marker), mints a new thread only when
   none exists, and takes a mission argument the agent resolves and validates before the
   script runs.
-- `/pause-thread` exists as a skill: it appends one continuation event to
+- `/pause-thread` exists as a skill: it appends one continuation state entry to
   `threads/<slug>/continuation-state.jsonl` via `append-handover.sh`, with the commit
   hash on `tsk/bootstrap`, the commit hash on `main`, and a timestamp captured by the
   script, and the mission link, task ID and what's-next text supplied by the agent.
@@ -68,7 +68,7 @@ layout inside `threads/<slug>/` beyond what it specifies, are this mission's own
 ## Out of scope
 
 - The thread state format proper (M-BOOT-02, T-04): which tasks are done, which is in
-  progress. A continuation event's task ID and what's-next fields are enough here.
+  progress. A continuation state entry's task ID and what's-next fields are enough here.
 - An automated `/pause-thread` trigger.
 - The Plan's relationship to a thread.
 - A worktree registry or index beyond the marker file and the continuation log.
@@ -82,8 +82,8 @@ layout inside `threads/<slug>/` beyond what it specifies, are this mission's own
 | T-03 | Cloud session binding | Script reads `CLAUDE_CODE_REMOTE_SESSION_ID` and reads and writes `threads/lookup-by-cloud-session.json`, entries `{thread_id, registered_at}` | T-02 | DONE |
 | T-04 | Worktree binding | Script resolves `$(git rev-parse --git-dir)` and reads and writes the `tsk-thread-id` marker file there | T-02 | DONE |
 | T-05 | `/start-thread` skill | Wraps T-01 to T-04: resolves the current binding, mints only if none exists, agent resolves and validates the mission argument first | T-03, T-04 | DONE |
-| T-06 | `append-handover.sh` and `/pause-thread` skill | Script appends a continuation event, capturing both commit hashes and a timestamp; skill supplies the mission link, task ID and what's-next text | T-02 | DONE |
-| T-07 | `/resume-thread` skill | Loads the latest continuation event for a given thread ID, presents it, agent replies with the fixed-shape summary and asks whether to continue; take-over is additive, with a printed warning if the thread is already bound elsewhere | T-06 | DONE |
+| T-06 | `append-handover.sh` and `/pause-thread` skill | Script appends a continuation state entry, capturing both commit hashes and a timestamp; skill supplies the mission link, task ID and what's-next text | T-02 | DONE |
+| T-07 | `/resume-thread` skill | Loads the latest continuation state entry for a given thread ID, presents it, agent replies with the fixed-shape summary and asks whether to continue; take-over is additive, with a printed warning if the thread is already bound elsewhere | T-06 | DONE |
 | T-08 | Extend the `SessionStart` hook | Resolves the binding (T-03, T-04); prompts `/resume-thread` on a hit; prompts the human for a mission then `/start-thread` on a miss | T-05, T-07 | DONE |
 | T-09 | Prove the full cycle | Start a thread, pause it, `/clear`, resume it; the resumed summary correctly names the mission and the prior what's-next text | T-08 | DONE |
 | T-10 | Clean up the proof cycle's test thread | T-09 exercises the real scripts against the real `tsk/bootstrap` data (there is no mock to run them against). Its test thread, and any binding entries it wrote, are removed and pushed once T-09 is confirmed, so no test debris is left in `threads/` | T-09 | DONE |
