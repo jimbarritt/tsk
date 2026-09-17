@@ -16,8 +16,7 @@ nexus one.
 
 A consequence: a tsk install does not hold a fixed list of roots. It connects to one
 nexus, and the wider network becomes available by following links from there. Each
-project repo keeps its own event log under its own data ref; the nexus only records
-where to find it.
+repo keeps its own ledger; the nexus only records where to find it.
 
 ## Why a coordination repo, not a GitHub feature
 
