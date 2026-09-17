@@ -34,23 +34,16 @@ if [ -n "$PRIOR_ACTORS" ] && ! printf '%s\n' "$PRIOR_ACTORS" | grep -qxF "$CURRE
 fi
 
 # Additive take-over: bind regardless of what was already found above.
-NEEDS_PUSH=0
 if [ -n "${CLAUDE_CODE_REMOTE_SESSION_ID:-}" ]; then
   EXISTING="$(thread_resolve_binding || true)"
   if [ "$EXISTING" != "cloud:$THREAD_ID" ]; then
     thread_bind_cloud "$THREAD_ID" "$WT"
-    NEEDS_PUSH=1
+    "$(dirname "${BASH_SOURCE[0]}")/push-bootstrap-ref.sh" "Bind $CURRENT_ACTOR to thread $THREAD_ID"
   fi
 else
+  # Local-only: the worktree marker lives in this worktree's own git
+  # metadata, never on tsk/bootstrap, so there is nothing to push.
   thread_bind_worktree "$THREAD_ID"
-fi
-
-if [ "$NEEDS_PUSH" -eq 1 ]; then
-  cd "$WT"
-  git add -A
-  git commit -m "Bind $CURRENT_ACTOR to thread $THREAD_ID"
-  git fetch origin refs/heads/tsk/bootstrap
-  git push origin HEAD:refs/heads/tsk/bootstrap
 fi
 
 LOG="$DIR/continuation-state.jsonl"

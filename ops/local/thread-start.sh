@@ -41,10 +41,6 @@ THREAD_ID="$(thread_mint_id)"
 "$(dirname "${BASH_SOURCE[0]}")/thread-scaffold.sh" "$THREAD_ID" "$BRIEFING_PATH"
 thread_bind_current "$THREAD_ID" "$WT"
 
-cd "$WT"
-git add -A
-git commit -m "Start thread $THREAD_ID for mission $MISSION_ID"
-git fetch origin refs/heads/tsk/bootstrap
-git push origin HEAD:refs/heads/tsk/bootstrap
+"$(dirname "${BASH_SOURCE[0]}")/push-bootstrap-ref.sh" "Start thread $THREAD_ID for mission $MISSION_ID"
 
 echo "started:$THREAD_ID"
