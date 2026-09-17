@@ -21,7 +21,21 @@ if [ -d "$WT" ]; then
     echo "       To read the path without refreshing, use ops/local/bootstrap-wt-path.sh" >&2
     exit 1
   fi
-  git -C "$WT" reset --hard "$SHA" >/dev/null
+  # Exits 0 and still prints the path: a pending commit is a state to report,
+  # not a failure. just fetch-refs and the thread scripts call this for the
+  # path, and a non-zero exit would abort them.
+  PENDING="$(bootstrap_wt_pending_commits "$WT" "$SHA")"
+  if [ -n "$PENDING" ]; then
+    {
+      echo "note: $WT holds a commit that is not on origin's tsk/bootstrap:"
+      printf '%s\n' "$PENDING" | sed 's/^/        /'
+      echo "      Leaving the worktree as it is rather than resetting over it."
+      echo "      Push it with ops/local/push-bootstrap-ref.sh, or discard it"
+      echo "      deliberately with: git -C \"$WT\" reset --hard $SHA"
+    } >&2
+  else
+    git -C "$WT" reset --hard "$SHA" >/dev/null
+  fi
 else
   mkdir -p "$(dirname "$WT")"
   git worktree add --detach "$WT" "$SHA" >/dev/null

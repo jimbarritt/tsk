@@ -49,6 +49,17 @@ bootstrap_wt_path() {
   printf '%s/repos/%s/bootstrap\n' "$(bootstrap_state_root)" "$(bootstrap_clone_id)"
 }
 
+# Commits the worktree holds that origin's tip does not, newest first. Empty
+# when the worktree is level with origin or behind it.
+#
+# A commit made without a push leaves a clean worktree, so a status check
+# cannot see it, and reset --hard would orphan it. A worker restart produces
+# exactly that state by ending a turn between the commit and the push.
+bootstrap_wt_pending_commits() {
+  local wt="$1" origin_sha="$2"
+  git -C "$wt" log --oneline "$origin_sha..HEAD" 2>/dev/null
+}
+
 # Move a clone off the historical in-.git/ checkout. Refuses rather than
 # destroying anything if that worktree holds uncommitted work.
 bootstrap_migrate_legacy_wt() {
