@@ -47,6 +47,7 @@ Architecture Decision Records capture why significant technical choices were mad
 - [0006-tui-state-refresh-via-daemon-polling.md](adr/0006-tui-state-refresh-via-daemon-polling.md): current approach via daemon polling. File watch unreliable on macOS.
 - [0007-event-log-as-source-of-truth.md](adr/0007-event-log-as-source-of-truth.md): NDJSON log holds state. SQLite cache and markdown are projections.
 - [0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md](adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md): why the bootstrap data store moved from a custom git ref to a branch — the Claude Code cloud sandbox proxy blocks writes outside `refs/heads/*`.
+- [0009-bootstrap-worktree-outside-the-git-directory.md](adr/0009-bootstrap-worktree-outside-the-git-directory.md): why the bootstrap worktree moved out of `.git/` to an XDG state path, keyed per clone.
 - [beads-vs-tsk-viability.md](decisions/beads-vs-tsk-viability.md): strategic assessment of tsk against beads issue tracker.
 
 ## Knowledge base
