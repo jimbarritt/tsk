@@ -45,6 +45,19 @@ To check the branch's real state directly, without running either script, spell 
 the ref in full: `git fetch origin refs/heads/tsk/bootstrap`, then read `FETCH_HEAD`.
 Anything shorter is a guess, not a check.
 
+**This also binds a script you write, not only a command you run directly.** A
+script that needs to commit and push to `tsk/bootstrap` calls
+`ops/local/push-bootstrap-ref.sh` (or `fetch-bootstrap-ref.sh` for a read) from
+inside itself. It does not inline its own `git add` / `git commit` / `git fetch
+origin refs/heads/tsk/bootstrap` / `git push origin HEAD:refs/heads/tsk/bootstrap`
+sequence, even spelled out in full and even when it looks correct: a second copy
+of that sequence is a second thing to keep in sync with the real script, and the
+whole point of the two scripts existing is that there is exactly one place this
+logic lives. This was found and fixed in M-BOOT-02-01: its first drafts of
+`thread-start.sh`, `thread-append-handover.sh` and `thread-resume.sh` each
+duplicated the push sequence inline instead of calling
+`push-bootstrap-ref.sh`.
+
 The reason is a name collision on `origin`. Two refs share the name `tsk/bootstrap`:
 the live branch `refs/heads/tsk/bootstrap`, and an orphaned custom ref
 `refs/tsk/bootstrap` left behind by the original design (ADR 0008). Git resolves an

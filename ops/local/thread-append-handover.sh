@@ -55,10 +55,6 @@ jq -nc \
     written_by: $written_by
   }' >> "$LOG"
 
-cd "$WT"
-git add -A
-git commit -m "Pause thread $THREAD_ID: $TASK_ID"
-git fetch origin refs/heads/tsk/bootstrap
-git push origin HEAD:refs/heads/tsk/bootstrap
+"$(dirname "${BASH_SOURCE[0]}")/push-bootstrap-ref.sh" "Pause thread $THREAD_ID: $TASK_ID"
 
 echo "paused:$THREAD_ID"
