@@ -32,8 +32,13 @@ order:
   directed. A state, not an action, so it is checkable.
 - **Task**: a defined action or activity assigned to an individual or organisation,
   imposed by an appropriate authority.
-- **Function**: the broad, enduring role an organisation exists to perform. A
-  separate branch, not a level in the same chain.
+- **Role**: "the broad and enduring purposes for which the Services and the
+  combatant commands were established in law" (JP 1). A separate branch, not a level
+  in the same chain.
+- **Function**: "the broad, general, and enduring role for which an organization is
+  designed, equipped, and trained" (JP 1). Also a separate branch. JP 1 warns that
+  roles, missions and functions are used interchangeably in practice and that the
+  distinction between them matters.
 
 Supporting points that carried into tsk's model:
 
@@ -59,6 +64,54 @@ Supporting points that carried into tsk's model:
 One operations-research paper (not doctrine) models campaign objectives as **axes**,
 each a totally ordered set of objectives with precedence constraints. This matches
 the bootstrap sequence's own missions 1 to 6, which must run in order.
+
+## Standing missions, and the maintained objective
+
+Cross-checked against doctrine on 2026-09-17, after the question arose of what to do
+with a thread that has no mission: a session kept open to capture ideas, a tidy up
+thread that looks for work needing a nudge, a reviewer watching missions for drift, a
+mission that distils trends out of mission reports. None of them finishes.
+
+What doctrine confirms:
+
+- **Standing** is the right word for a mission that continues indefinitely. UK defence
+  doctrine separates **standing commitments**, the enduring non-discretionary tasks, from
+  **contingent commitments**, held at readiness against a possible deployment. US joint
+  doctrine uses the same word for a standing joint task force: one with "an enduring
+  mission that is projected to continue indefinitely".
+- **Steady-state** is doctrine's term for the work itself: "cumulative day-to-day
+  activities that are outside of major surge operations". This is the closest doctrinal
+  match for the four examples above.
+- **Role** and **function**, above, are how doctrine names an enduring responsibility
+  without calling it a mission. Both sit on a separate branch from the campaign, mission,
+  task chain.
+
+Where tsk deviates, deliberately:
+
+- **The maintained objective is tsk's own, not doctrine's.** Doctrine's principle of
+  objective directs every operation toward "a clearly defined, decisive, and attainable
+  objective" (JP 3-0, JP 5-0). Attainability is the point of the principle, so doctrine
+  has no objective that is never done. It reaches the same place by a different route: the
+  standing commitment endures, and the operations under it each carry attainable
+  objectives.
+- tsk collapses that into one object, a mission whose objective kind is `maintained`, and
+  accepts the deviation. Doctrine is advisory here, per the posture above. The alternative,
+  a second first-class object beside mission, was rejected: a standing mission needs a
+  briefing, a task list, a thread and continuations, which are the things a mission
+  already has.
+
+Consequences recorded at the time:
+
+- Standing missions are kept in their own subdirectory of the ledger, not mixed into the
+  bootstrap sequence's tree. They are not blocked by anything and they do not sequence.
+- A standing mission has no DONE, so the status column in the ledger index does not apply
+  to it unchanged.
+- A standing mission is closer to a description of an actor than to a unit of work: the
+  responsibility it carries, and the skills it needs. Doctrine has this too, as the
+  mission essential task list: "a listing of tasks the unit must be able to perform",
+  held per unit and derived from its anticipated missions rather than from any single
+  one. Whether tsk models that separately is open, and is recorded in the ledger's
+  future missions rather than settled here.
 
 ## The tsk and ksobr boundary
 
