@@ -88,9 +88,24 @@ layout inside `threads/<slug>/` beyond what it specifies, are this mission's own
 | T-07 | `/resume-thread` skill | Loads the latest continuation event for a given thread ID, presents it, agent replies with the fixed-shape summary and asks whether to continue; take-over is additive, with a printed warning if the thread is already bound elsewhere | T-06 | TODO |
 | T-08 | Extend the `SessionStart` hook | Resolves the binding (T-03, T-04); prompts `/resume-thread` on a hit; prompts the human for a mission then `/start-thread` on a miss | T-05, T-07 | TODO |
 | T-09 | Prove the full cycle | Start a thread, pause it, `/clear`, resume it; the resumed summary correctly names the mission and the prior what's-next text | T-08 | TODO |
+| T-10 | Clean up the proof cycle's test thread | T-09 exercises the real scripts against the real `tsk/bootstrap` data (there is no mock to run them against). Its test thread, and any binding entries it wrote, are removed and pushed once T-09 is confirmed, so no test debris is left in `threads/` | T-09 | TODO |
 
 **Essential task**: T-08. Without the hook wired up, nothing invokes the mechanism
 automatically, and the objective is not met by the scripts existing alone.
+
+**Implied task added on take-up, 2026-09-16**: T-10. T-09's proof has nothing else to run
+the scripts against but the live `tsk/bootstrap` branch, so the briefing's plan was
+missing the step that keeps that proof from leaving permanent test data behind.
+
+**Note on the commit-on-`tsk/bootstrap` field (T-06).** The design names this field "the
+commit the push script left the branch at," which read literally is self-referential: the
+event line recording that commit is itself part of the commit being recorded, and a
+commit hash cannot describe a tree that contains itself. Taken as an implementation
+choice within the design rather than a change to it: `append-handover.sh` captures
+`tsk/bootstrap`'s HEAD in `$TSK_BOOTSTRAP_WT` immediately before appending the event,
+i.e. the commit the branch was already at when the pause began, matching how `commit on
+main` is captured (also read before any push). Flagging this here rather than treating it
+as blocking, since the alternative reading is not implementable as stated.
 
 ## First behaviour
 
