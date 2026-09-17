@@ -3,12 +3,18 @@
 #
 # Design reference: docs/domain/session-continuation-design.md on main.
 
-# thread_wt: print the bootstrap worktree path, fetching it into existence
-# first if the caller hasn't already (e.g. a plain `claude -p` invocation
-# with no SessionStart hook run yet).
+# thread_wt: print the bootstrap worktree path. Resolves the path only; it
+# never refreshes, so it cannot discard uncommitted work in the worktree.
+# Falls back to fetching only when the worktree does not exist at all.
 thread_wt() {
+  local wt
   if [ -n "${TSK_BOOTSTRAP_WT:-}" ] && [ -d "${TSK_BOOTSTRAP_WT}" ]; then
     printf '%s\n' "$TSK_BOOTSTRAP_WT"
+    return 0
+  fi
+  wt="$("$(dirname "${BASH_SOURCE[0]}")/bootstrap-wt-path.sh")"
+  if [ -d "$wt" ]; then
+    printf '%s\n' "$wt"
   else
     "$(dirname "${BASH_SOURCE[0]}")/fetch-bootstrap-ref.sh"
   fi

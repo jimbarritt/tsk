@@ -27,22 +27,28 @@ path instead:
 WT="${TSK_BOOTSTRAP_WT:-$(just fetch-refs)}"   # or: ops/local/fetch-bootstrap-ref.sh
 ```
 
-`$WT` resolves inside `.git/`, so it is untracked, per-clone, and identical whether
-the session is local or a fresh cloud checkout.
+`$WT` resolves to
+`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/bootstrap`: outside the
+repository, per clone, and identical whether the session is local or a fresh cloud
+checkout. `<clone-id>` is minted once and stored in `.git/tsk-clone-id`, so it
+survives the clone directory being renamed or moved. It used to sit inside `.git/`;
+see `docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md` for why it moved.
+`fetch-bootstrap-ref.sh` migrates an existing clone off the old location
+automatically, and refuses rather than discarding if that worktree holds
+uncommitted work.
 
 **`$WT` is a checkout location, not a ref. Editing a file there is not "editing the
 ref."** A ref is a pointer file under `.git/refs/` (or packed). `$WT` is where a
-linked worktree's ordinary working-tree files live — `missions/*.md`, `index.md`,
-no different in kind from a file in the main checkout, just at a path that happens
-to sit under `.git/`. That placement is deliberate (see
-`docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`): a path
-under `.git/` is automatically per-clone and untracked, with nothing to gitignore
-and no risk of it leaking into `main`. It is not evidence of touching git
-internals, even though it looks that way at a glance. The actual, real trap
-sharing this territory is the ref-name collision above; conflating the two is a
-false alarm, not the real one, and has come up more than once. Editing a file
-inside `$WT` with an ordinary file edit, then running `push-bootstrap-ref.sh`, is
-the correct and only sanctioned way to change `tsk/bootstrap`'s content.
+linked worktree's ordinary working-tree files live: `missions/*.md`, `index.md`, no
+different in kind from a file in the main checkout. Editing a file inside `$WT`,
+then running `push-bootstrap-ref.sh`, is the correct and only sanctioned way to
+change `tsk/bootstrap`'s content. The real trap in this territory is the ref-name
+collision below, not the checkout.
+
+**To read the path, use `ops/local/bootstrap-wt-path.sh`, not
+`fetch-bootstrap-ref.sh`.** The fetch script also refreshes the worktree to
+origin's latest, so calling it merely to resolve a path is a write operation.
+`bootstrap-wt-path.sh` is pure and has no side effects.
 
 **Never fetch, update or push the bootstrap data by hand. Use the scripts.** Do not
 run `git fetch`, `git rebase`, `git reset` or `git push` against `tsk/bootstrap`
