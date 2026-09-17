@@ -65,8 +65,8 @@ self-referential: the entry recording the commit is part of the commit being
 recorded, and no commit hash can describe a tree containing itself. I took it as the
 branch's HEAD immediately before the entry is appended, which matches how commit-on-main
 is captured, and recorded the reasoning in the plan rather than treating it as blocking.
-This is the one place I resolved an ambiguity by judgement rather than by asking. Worth
-Jim confirming, since the design doc is his to change.
+This is the one place I resolved an ambiguity by judgement rather than by asking. The
+design doc was corrected to describe what the field holds, on 2026-09-17.
 
 **No guidance on proving the cycle without `/clear`.** The objective assumes a capability
 the actor does not have. The briefing's own Intelligence section points at the document
@@ -173,8 +173,10 @@ interventions would have happened, and the first three defects would all have sh
 
 - T-13 is complete. The three commands exist, are wired to the `SessionStart` hook, and
   are proven.
-- **Confirm or correct the commit-on-`tsk/bootstrap` reading.** Jim's call, per Decision
-  authority.
+- **The commit-on-`tsk/bootstrap` field was specified impossibly, and the design doc now
+  says what it holds.** Corrected 2026-09-17 to the commit the branch was at when the
+  pause began, which is what the script had always written and the only value the field
+  can carry.
 - **The `Edit` tool was retested against the new path, 2026-09-17, and the premise
   holds.** Direct `Edit` calls at the state-home location run with no prompt. The same
   edit, to the same file, was refused twice at the old `.git/` path earlier that day.
