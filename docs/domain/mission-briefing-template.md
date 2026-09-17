@@ -34,11 +34,8 @@ anything else worth recording belongs in a section below.
 
 ## Objective
 
-Kind: {attainable | maintained}
-
-{One checkable statement per line. For an attainable objective, each line is a state
-that is either true or false. For a maintained objective, each line is a condition to
-hold true.}
+{One checkable statement per line. A line is either a state that is true or false, or a
+measure that moves over time. Both are objectives; neither needs declaring as a type.}
 
 ## Purpose
 
@@ -82,9 +79,6 @@ One list. Every task has an ID, an objective and a status.
 
 **Essential task**: {which ID, and why the mission fails without it.}
 
-**Maintained tasks**: {any task whose objective is a condition rather than a state.
-Omit if none.}
-
 Tasks the actor adds during execution are implied tasks. They join the same list.
 Tasks in this briefing are specified tasks. The distinction is a flag, not a section.
 
@@ -113,9 +107,12 @@ did, what this briefing failed to give you, what you found wrong in it.}
 **ID.** Stable across renames. Numbers restart nowhere. Use the ID in every reference to
 the mission.
 
-**Objective kind.** Attainable is the default. Use maintained only for a condition that
-is never done. A weak attainable objective is often a maintained condition written as
-if it were a state. Check before writing.
+**Category.** A mission is administrative or operational, set by which subdirectory of
+the ledger's `missions/` it sits in rather than by a field in the briefing.
+
+**Reports.** A mission reports once or repeatedly over time, whichever suits it. There
+is no rule fixing which. A report also takes addenda: a later finding is appended to the
+existing report rather than replacing it or starting a new document.
 
 **Task objectives.** Every task has one, by the model. In the table, write it short. A
 delegated task's full objective lives in its own briefing.
@@ -175,8 +172,6 @@ which mission it belongs to.
 | Blocked by | M-006 |
 
 ## Objective
-
-Kind: attainable
 
 - Given a repo with a local tsk event log and a git remote, running `tsk sync push`
   results in `git ls-remote origin refs/tsk/data` returning a commit.

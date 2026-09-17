@@ -140,7 +140,18 @@ them is a mission. Most tasks never become missions.
 Tasks are scale-free: a task at a higher level becomes a mission for a sub-agent. The
 common element across levels is the objective.
 
-Rejected: work package, replaced by mission.
+A mission is one of two categories, set by which subdirectory of the ledger's
+`missions/` it sits in:
+
+- **Operational**: a mission that builds or changes the artefacts.
+- **Administrative**: a mission that keeps the work itself in order, such as capturing
+  ideas, tidying, or reviewing missions for drift.
+
+The category says where a mission is filed. It does not change a mission's structure or
+how it is executed.
+
+Rejected: work package, replaced by mission. Rejected: classifying a mission or its
+objective as standing, attainable or maintained.
 
 ## Mission briefing
 
@@ -149,37 +160,15 @@ mission renders differently for a human and for a cloud agent.
 
 ## Objective
 
-An objective is one of two kinds:
-- **Attainable**: a state that is checkable and finishable. The default.
-- **Maintained**: a condition held true over time and never done. A mission whose
-  objective is maintained looks like a campaign from below. A weak attainable objective
-  is often a maintained condition written as if it were a state; check before writing.
+What a mission is for, and how its progress is judged. Every mission has one.
 
-### Unresolved: mission and objective kinds
+An objective is a fixed end point, or a measure that moves over time. "The three commands
+exist and are wired to the hook" is the first. "Reduce our error rate" and "reduce token
+consumption" are the second. Both are objectives. Neither is a separate kind of thing,
+and a mission does not declare which it carries.
 
-The two kinds above are under revision. Jim's points, 2026-09-17, recorded verbatim and
-not yet reconciled with the entries above or with
-[mission-model.md](mission-model.md#standing-missions-and-the-maintained-objective):
-
-> 1. All threads will have a mission
-> 2. Missions can either be time and scope bound or standing.
-> 3. All missions have an objective
-> 4. An objective can be a fixed end point or it can be a measure over time ?for eg reduce our error rate over time, reduce token consumption over time.)
-> 5. The core different between a standing mission and an attainable mission is that one is time bound and the other extends over time.
-> 6. Actually a standing mission could also have a duration (monitor this situation for the next 5 month)
->
-> So. Actually maybe the real material difference is simply the temporality.
-
-Also open, raised in the same exchange: whether **attainable** is the right name.
-
-What the name rests on: "attainable" is doctrine's word, from the principle of objective,
-which directs every operation toward "a clearly defined, decisive, and attainable" goal.
-What is tsk's own, and not doctrine's, is using it as the name of a *kind* of objective.
-Doctrine applies the word to every objective, as a quality each one must have. It has no
-taxonomy of objective kinds, because an objective that cannot be attained is a defective
-objective rather than a second sort of one. So the name currently borrows doctrine's
-authority for a distinction doctrine does not draw. Sources:
-[military-doctrine-sources.md](../kb/military-doctrine-sources.md).
+An objective may also carry a duration, and that is independent of its shape: a measure
+over time can still run for a fixed period.
 
 ## Plan
 

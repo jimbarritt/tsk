@@ -78,9 +78,9 @@ event. An actor's account of the run is a run record, so it is ksobr.
 
 ## Open
 
-- Decided in principle, fields not yet defined: an objective is one of two
-  kinds, attainable or maintained (see
-  [ubiquitous-language.md](ubiquitous-language.md#objective)). No separate
+- Decided in principle, fields not yet defined: a mission is administrative or
+  operational, carried by its subdirectory rather than by a field (see
+  [ubiquitous-language.md](ubiquitous-language.md#mission)). No separate
   campaign or major-operation object type is added above mission, even though
   doctrine nests campaign above mission: Scale, one of tsk's four dimensions,
   rejects fixed echelons, and doctrine only has them because armies use fixed
