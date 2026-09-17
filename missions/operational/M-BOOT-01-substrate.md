@@ -34,7 +34,7 @@ places it writes to exist, and agents cannot execute without the intelligence.
 
 ## Decision authority
 
-Jim decides the bootstrap substrate. The official data ref layout is not decided here.
+Jim decides the bootstrap substrate. The official ledger layout is not decided here.
 M-BOOT-04 decides it.
 
 ## Constraints
@@ -53,7 +53,7 @@ M-BOOT-04 decides it.
 
 ## Out of scope
 
-- The official data ref layout.
+- The official ledger layout.
 - The nexus link direction question.
 - The territory filter command line interface.
 

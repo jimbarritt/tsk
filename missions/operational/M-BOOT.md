@@ -9,12 +9,12 @@
 
 ## Objective
 
-- The missions and tasks for building tsk are held in tsk's own data ref.
+- The missions and tasks for building tsk are held in tsk's own ledger.
 - Agents execute them from there.
 - No bootstrap scaffolding remains.
 - The harness does little more than ensure tsk is installed. It delegates the rest of
   the work to the tsk binary.
-- An agent never interacts with the data ref directly. It goes through tsk.
+- An agent never interacts with the ledger directly. It goes through tsk.
 - The mission briefing and its format are encoded in the tsk binary rather than held as
   documents an agent reads.
 
@@ -26,7 +26,7 @@ What is temporary is `tsk/bootstrap` itself, the markdown briefings on it, and t
 harness reading them by hand. That arrangement is scaffolding and an exploration of the
 design space, removed at M-BOOT-05.
 
-What persists is the official data ref under its own name, which M-BOOT-04 decides.
+What persists is the official ledger under its own name, which M-BOOT-04 decides.
 `docs/domain/persistence-and-sync.md` records `refs/tsk/data` as the name from the
 original design. Whether it can stay a custom ref is open: per
 `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md` the cloud
@@ -51,7 +51,7 @@ stepping stone in realising the tsk vision.
 ## Decision authority
 
 Jim decides everything within this objective, except where a task defers a decision to
-a delegated mission. M-BOOT-04 decides the official data ref layout.
+a delegated mission. M-BOOT-04 decides the official ledger layout.
 
 ## Constraints
 
@@ -73,15 +73,15 @@ a delegated mission. M-BOOT-04 decides the official data ref layout.
 | [M-BOOT-01](M-BOOT-01-substrate.md) | Substrate | Every place exists and holds its first content; `docs/` is sufficient for an agent with only the repo clone | none | none | TODO |
 | [M-BOOT-02](M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local session and a test cloud session both load the harness and read a briefing | none | M-BOOT-01 | TODO |
 | [M-BOOT-03](M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | none | M-BOOT-02 | TODO |
-| M-BOOT-04 | The official data ref | Ref name, tree layout, manifest format, and push and pull protocol exist and are proven by tests | Cloud agents | M-BOOT-03 | TODO |
-| M-BOOT-05 | Migration off the bootstrap ref | Queue held in tsk's own data ref, agents execute from it, bootstrap ref deleted or tagged | Cloud agents | M-BOOT-04 | TODO |
+| M-BOOT-04 | The official ledger | Ref name, tree layout, manifest format, and push and pull protocol exist and are proven by tests | Cloud agents | M-BOOT-03 | TODO |
+| M-BOOT-05 | Migration off the bootstrap ref | Queue held in tsk's own ledger, agents execute from it, bootstrap ref deleted or tagged | Cloud agents | M-BOOT-04 | TODO |
 
 **Essential task**: M-BOOT-05. Its objective and this mission's objective are the same
 state.
 
 M-BOOT-04 will decompose into at least these candidate tasks:
 
-- Data ref tree layout.
+- Ledger tree layout.
 - Manifest format.
 - Push and pull protocol, including the compare and swap retry loop.
 - Rust git library selection: `git2`, `gitoxide`, or the `git` binary.

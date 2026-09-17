@@ -39,7 +39,7 @@ Its intelligence is gathered in
 [missions/operational/M-BOOT-02/intel-index.md](missions/operational/M-BOOT-02/intel-index.md).
 
 Parent mission: **M-BOOT, bootstrap tsk self hosting.** Reached when the missions and
-tasks for building tsk are held in tsk's own data ref and agents execute them from there,
+tasks for building tsk are held in tsk's own ledger and agents execute them from there,
 with no bootstrap scaffolding remaining. This is a bootstrap in the compiler sense:
 reached when tsk can host its own development, not when tsk is feature complete. Full
 briefing: [missions/operational/M-BOOT.md](missions/operational/M-BOOT.md).
@@ -53,7 +53,7 @@ briefing: [missions/operational/M-BOOT.md](missions/operational/M-BOOT.md).
 | [M-BOOT-02](missions/operational/M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local and a cloud session both load the harness and read a briefing | IN PROGRESS | M-BOOT-01 |
 | [M-BOOT-02-01](missions/operational/M-BOOT-02-01-continuation-harness.md) | Continuation harness | `/start-thread`, `/pause-thread`, `/resume-thread` work end to end | ✓ DONE | M-BOOT-02 |
 | [M-BOOT-03](missions/operational/M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | TODO | M-BOOT-02 |
-| M-BOOT-04 | The official data ref | No breakout briefing yet | TODO | M-BOOT-03 |
+| M-BOOT-04 | The official ledger | No breakout briefing yet | TODO | M-BOOT-03 |
 | M-BOOT-05 | Migration off the bootstrap ref | No breakout briefing yet | TODO | M-BOOT-04 |
 | [M-LAB](missions/operational/M-LAB-ai-lab-notes.md) | AI lab notes (journalling plugin) | Skeleton, most fields TBD | TODO | none |
 

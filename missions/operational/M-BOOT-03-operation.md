@@ -47,14 +47,14 @@ Jim decides the cadence and the attempt limit.
 
 ## Out of scope
 
-- Building the official data ref. That is M-BOOT-04.
+- Building the official ledger. That is M-BOOT-04.
 - Increasing the subscription plan.
 
 ## Plan
 
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|
-| T-01 | Write three briefings by hand | Three briefings in the repository, subjects in order: push a single actor's event log to a data ref, fetch and read the data ref, add the manifest | none | TODO |
+| T-01 | Write three briefings by hand | Three briefings in the repository, subjects in order: push a single actor's event log to the ledger, fetch and read the ledger, add the manifest | none | TODO |
 | T-02 | Execute each briefing manually on Sonnet 5 | Each executed in one Claude Code thread, with a run record | T-01 | TODO |
 | T-03 | Correct the briefing format from the run records | Every defect found in a run record is fixed in the template or in `docs/`, not in the code | T-02 | TODO |
 | T-04 | Record consumption per run | A figure from Settings then Usage for each run | T-02 | TODO |

@@ -62,7 +62,8 @@ rather than tsk.
 | T-10 | Configure the cloud environment | Network access, environment variables, and a setup script that installs the harness and the linter | none | T-09 | TODO |
 | T-11 | Confirm GitHub repo access for cloud sessions | A test cloud session clones the tsk repo and reads a briefing | none | T-10 | TODO |
 | T-12 | Configure `CLAUDE.md` with the Software English compact instructions | Agents in this repo write in Software English by default, in replies and in anything written into a file. Includes the one question at a time rule. Spec: https://github.com/jimbarritt/software-english. Overlaps T-07, which holds ways of working | none | none | DONE |
-| T-13 | Build `/start-thread`, `/pause-thread` and `/resume-thread` | Design complete, recorded in `docs/domain/session-continuation-design.md` on `main` and this mission's `intel-index.md`. Delegated for implementation | M-BOOT-02-01 | none | TODO |
+| T-13 | Build `/start-thread`, `/pause-thread` and `/resume-thread` | Design complete, recorded in `docs/domain/session-continuation-design.md` on `main` and this mission's `intel-index.md`. Delegated for implementation | M-BOOT-02-01 | none | DONE |
+| T-14 | Fix: no automatic resume after a pause and a `/clear` | Found by Jim, 2026-09-17: pausing a thread, then `/clear`, then restarting did not auto-resume the thread. The `SessionStart` hook is meant to find the existing binding and prompt `/resume-thread` itself; instead nothing happened and the human had to notice and act. Fix so the hook's found-a-binding branch (M-BOOT-02-01, `ops/local/claude-session-start.sh`) actually fires in this exact sequence | none | none | TODO |
 
 **Essential task**: T-11. Repo access denial is the most common cloud routine failure,
 and nothing downstream works without it.
@@ -91,7 +92,7 @@ and nothing downstream works without it.
   `index.md` that hold it today. Deferred until T-04. Until then `index.md` keeps the
   summary of missions and tasks with their status.
 - How a mission briefing reaches an individual agent session, so the session knows what
-  it is working on. Raised by Jim, 2026-09-15. Not a state question: the data ref
+  it is working on. Raised by Jim, 2026-09-15. Not a state question: the ledger
   (`tsk/bootstrap`, or its successor) has no concept of a session, so this cannot be
   answered by anything held in state. Likely candidates: the session's initial prompt
   names the mission, or a `SessionStart` hook reads a pointer from somewhere and injects
