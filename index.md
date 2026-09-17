@@ -18,11 +18,17 @@ harness) is next unblocked.
 
 ## Next step
 
-Execute M-BOOT-02-01 (continuation harness), delegated from M-BOOT-02's T-13. Briefing:
-[missions/M-BOOT-02-01-continuation-harness.md](missions/M-BOOT-02-01-continuation-harness.md).
-It implements `docs/domain/session-continuation-design.md` in the tsk repo on `main`.
-Read the briefing in full, then that design doc, before writing anything: the design
-doc is the specification, not background reading.
+M-BOOT-02-01 (continuation harness) is done, 2026-09-17. `/start-thread`,
+`/pause-thread` and `/resume-thread` exist, are wired to the `SessionStart` hook, and
+were proven end to end. Report:
+[missions/M-BOOT-02-01/M-BOOT-02-01-continuation-harness-report.md](missions/M-BOOT-02-01/M-BOOT-02-01-continuation-harness-report.md).
+Read it before picking the next mission: it carries three findings that outlive this
+mission, and two open items for Jim.
+
+Back to M-BOOT-02's own plan. T-04 (thread state format) is the next unblocked task and
+the one M-BOOT-02-01 deliberately did not encroach on: a continuation event carries a
+single what's-next line, so which tasks are done and which is in progress still has no
+home.
 
 ## Current mission
 
@@ -44,7 +50,7 @@ briefing: [missions/M-BOOT.md](missions/M-BOOT.md).
 | [M-BOOT](missions/M-BOOT.md) | Bootstrap tsk self hosting | tsk hosts its own development, no bootstrap scaffolding left | TODO | none |
 | [M-BOOT-01](missions/M-BOOT-01-substrate.md) | Substrate | Every place the bootstrap needs exists and holds its first content | ✓ DONE | none |
 | [M-BOOT-02](missions/M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local and a cloud session both load the harness and read a briefing | IN PROGRESS | M-BOOT-01 |
-| [M-BOOT-02-01](missions/M-BOOT-02-01-continuation-harness.md) | Continuation harness | `/start-thread`, `/pause-thread`, `/resume-thread` work end to end | TODO | M-BOOT-02 |
+| [M-BOOT-02-01](missions/M-BOOT-02-01-continuation-harness.md) | Continuation harness | `/start-thread`, `/pause-thread`, `/resume-thread` work end to end | ✓ DONE | M-BOOT-02 |
 | [M-BOOT-03](missions/M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | TODO | M-BOOT-02 |
 | M-BOOT-04 | The official data ref | No breakout briefing yet | TODO | M-BOOT-03 |
 | M-BOOT-05 | Migration off the bootstrap ref | No breakout briefing yet | TODO | M-BOOT-04 |
