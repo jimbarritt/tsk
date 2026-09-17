@@ -155,6 +155,32 @@ An objective is one of two kinds:
   objective is maintained looks like a campaign from below. A weak attainable objective
   is often a maintained condition written as if it were a state; check before writing.
 
+### Unresolved: mission and objective kinds
+
+The two kinds above are under revision. Jim's points, 2026-09-17, recorded verbatim and
+not yet reconciled with the entries above or with
+[mission-model.md](mission-model.md#standing-missions-and-the-maintained-objective):
+
+> 1. All threads will have a mission
+> 2. Missions can either be time and scope bound or standing.
+> 3. All missions have an objective
+> 4. An objective can be a fixed end point or it can be a measure over time ?for eg reduce our error rate over time, reduce token consumption over time.)
+> 5. The core different between a standing mission and an attainable mission is that one is time bound and the other extends over time.
+> 6. Actually a standing mission could also have a duration (monitor this situation for the next 5 month)
+>
+> So. Actually maybe the real material difference is simply the temporality.
+
+Also open, raised in the same exchange: whether **attainable** is the right name.
+
+What the name rests on: "attainable" is doctrine's word, from the principle of objective,
+which directs every operation toward "a clearly defined, decisive, and attainable" goal.
+What is tsk's own, and not doctrine's, is using it as the name of a *kind* of objective.
+Doctrine applies the word to every objective, as a quality each one must have. It has no
+taxonomy of objective kinds, because an objective that cannot be attained is a defective
+objective rather than a second sort of one. So the name currently borrows doctrine's
+authority for a distinction doctrine does not draw. Sources:
+[military-doctrine-sources.md](../kb/military-doctrine-sources.md).
+
 ## Plan
 
 The product of planning: a provisional sequence of tasks proposed for meeting a
