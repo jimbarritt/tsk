@@ -171,7 +171,7 @@ which mission it belongs to.
 ## Worked example, leaf mission
 
 ```markdown
-# Mission: Push a single actor's event log to the data ref
+# Mission: Push a single actor's event log to the ledger
 
 | Field | Value |
 |---|---|

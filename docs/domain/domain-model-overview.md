@@ -98,5 +98,5 @@ event. An actor's account of the run is a run record, so it is ksobr.
 - Not decided: how this model relates to milestones, or to any grouping of
   tasks above a mission.
 - A mission can defer a decision to a later mission. M-BOOT-01 does not decide
-  the official data ref layout; M-BOOT-04 does. Decision authority is
+  the official ledger layout; M-BOOT-04 does. Decision authority is
   therefore a field whose value is sometimes "not yours, see mission {id}".
