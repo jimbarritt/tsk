@@ -190,3 +190,46 @@ interventions would have happened, and the first three defects would all have sh
   ref" in the Nexus entry. ADR 0008 moved it onto a branch, so that term is now wrong
   wherever it appears. Jim asked for candidate terms for the two stores at the end of
   this session; the outcome of that belongs in the ubiquitous language, not here.
+
+## Addendum, 2026-09-17: the mission classification was dropped
+
+Added after the Outcome above was settled. The rule that a report takes addenda rather
+than being replaced was decided in the same exchange, so this section is its first use.
+
+**What was dropped.** Missions were classified as standing, and objectives as attainable
+or maintained. Both are gone. A mission is now administrative or operational, carried by
+which subdirectory of the ledger's `missions/` its briefing sits in and by nothing else.
+M-STAND-01 became M-ADMIN-01 under `missions/administrative/`, and every other mission
+moved to `missions/operational/`.
+
+**Why.** Jim's test: the kind determined no different behaviour and no different
+structure. A briefing marked `maintained` was executed exactly as one marked
+`attainable`. A field that changes nothing costs reading and returns nothing.
+
+**What the name was resting on.** "Attainable" is doctrine's word, from the principle of
+objective, which directs every operation toward "a clearly defined, decisive, and
+attainable" goal. Doctrine applies it to every objective, as a quality each one must
+have. It has no kinds of objective, because an objective that cannot be attained is a
+defective objective rather than a second sort of one. Lifting one adjective out of that
+phrase and making it half of a taxonomy produced a distinction doctrine does not draw,
+under a word that made it look as though doctrine did. Jim put it directly: "you just
+selected a single word from that list. There's no specific reference to defining mission
+types, you have just derived that."
+
+**My part in it.** I put a distinction to Jim that was not real: whether a standing
+objective is "checkable right now, true or false" or "a genuine objective with no end
+date". The first of those is what the briefing template already said, so I offered the
+existing model back to him as the alternative to itself. That cost an exchange and
+settled nothing. He stopped it: "I feel like you are going round in circles a bit and are
+getting lost." The earlier doctrine cross-check recorded in `mission-model.md` carries the
+same fault in a quieter form. It confirmed that "standing" was a real doctrinal word and
+treated that as support for a classification doctrine never proposed.
+
+**What replaced it.** An objective is a fixed end point, or a measure that moves over
+time. Both are objectives, and a mission does not declare which it carries. A duration is
+independent of either, so a measure over time can still run for a fixed period. A mission
+reports once or repeatedly as suits it, with no rule fixing which.
+
+**What this reverses.** M-STAND-01 was written in this mission's closing exchanges, under
+the classification now removed. The mission's own deliverables, the three commands and
+the `SessionStart` hook, are untouched by the change.
