@@ -11,8 +11,6 @@ Skeleton. Fields marked TBD are not yet decided.
 
 ## Objective
 
-Kind: TBD
-
 - A journalling plugin exists in the plugin marketplace.
 - The plugin takes a root local repo and records notes there.
 - The record of building tsk and ksobr is documented in that repo.
@@ -47,7 +45,7 @@ TBD.
 
 ## Open decisions
 
-- The objective kind. Recording the build history is a maintained condition. Building
-  the plugin is attainable. These may be two objectives, or two missions.
+- Recording the build history and building the plugin may be two objectives, or two
+  missions.
 - Where the notes repo sits relative to the nexus.
 - Whether the plugin writes through tsk or directly to the repo.

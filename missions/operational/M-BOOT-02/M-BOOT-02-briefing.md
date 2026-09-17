@@ -9,8 +9,6 @@
 
 ## Objective
 
-Kind: attainable
-
 - A local Claude Code session in the tsk repo loads the harness without error.
 - A test cloud session clones the tsk repo, loads the harness, and reads a briefing from
   the repository.

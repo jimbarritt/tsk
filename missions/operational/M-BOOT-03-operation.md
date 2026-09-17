@@ -9,8 +9,6 @@
 
 ## Objective
 
-Kind: attainable
-
 - A consumption figure is recorded for each of three manually executed briefings.
 - A cadence for the routine is calculated from those figures, and it keeps projected
   weekly consumption under the weekly cap with headroom for review sessions.
@@ -65,13 +63,10 @@ Jim decides the cadence and the attempt limit.
 | T-07 | Define the run loop | Pull, read the queue, take the first unblocked mission or resume an open thread, implement, run tests, push a branch, open a pull request, update status, write the run record and the thread state | T-06 | TODO |
 | T-08 | Prove one unattended run | One run produces a pull request, a run record, and thread state, with no human intervention | T-07 | TODO |
 | T-09 | Prove resumption | A second run continues the first run's thread from its state rather than restarting the mission | T-08 | TODO |
-| T-10 | Review each run | Maintained: every pull request merged or returned within one day, every blocked mission decided | T-08 | Maintained |
+| T-10 | Review each run | Every pull request merged or returned within one day, every blocked mission decided | T-08 | TODO |
 
 **Essential task**: T-03. The purpose of the manual runs is to find defects in the
 briefing format, not to ship the storage layer.
-
-**Maintained task**: T-10 is a condition held true while the bootstrap runs, not a step
-toward the objective.
 
 ## Open decisions
 

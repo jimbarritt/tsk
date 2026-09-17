@@ -2,14 +2,12 @@
 
 | Field | Value |
 |---|---|
-| ID | M-STAND-01 |
+| ID | M-ADMIN-01 |
 | Territory | agentic research |
 | Assignee | Jim, with a session agent recording |
 | Blocked by | none |
 
 ## Objective
-
-Kind: maintained
 
 - An idea Jim states in a session is written to the ledger before that session ends.
 - The written idea uses Jim's own terminology, with no label or shorthand invented for
@@ -20,8 +18,8 @@ Kind: maintained
 
 - [../../future-missions-tbd.md](../../future-missions-tbd.md): where a captured idea
   goes, and the format existing entries use.
-- `docs/domain/mission-model.md` in the tsk repo, under standing missions: why this is a
-  mission with a maintained objective rather than a new kind of object, and where tsk
+- `docs/domain/mission-model.md` in the tsk repo, under mission categories: why this is a
+  mission rather than a new kind of object, and where tsk
   deviates from doctrine in saying so.
 - `docs/domain/ubiquitous-language.md` in the tsk repo, Objective: the two objective
   kinds.
@@ -51,15 +49,12 @@ commits to nothing.
 
 | ID | Task | Objective, in short | Delegated to | Blocked by | Status |
 |---|---|---|---|---|---|
-| T-01 | Capture an idea when Jim states one | The idea is on the ledger, in Jim's terminology, pushed | none | none | maintained |
-| T-02 | Keep the record attributable | Every entry names who raised it and the date | none | none | maintained |
-| T-03 | Keep captured ideas separable | One idea per entry, so a later decision acts on one alone | none | none | maintained |
+| T-01 | Capture an idea when Jim states one | The idea is on the ledger, in Jim's terminology, pushed | none | none | in progress |
+| T-02 | Keep the record attributable | Every entry names who raised it and the date | none | none | in progress |
+| T-03 | Keep captured ideas separable | One idea per entry, so a later decision acts on one alone | none | none | in progress |
 
 **Essential task**: T-01. The mission fails if an idea is stated and not written down,
 because the session ends and the idea is gone.
-
-**Maintained tasks**: T-01, T-02, T-03. All three are conditions, not states. This
-mission has no task that finishes.
 
 ## First behaviour
 

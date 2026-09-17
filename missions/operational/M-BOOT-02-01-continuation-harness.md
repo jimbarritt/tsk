@@ -16,8 +16,6 @@ goal verifier, is out of scope for this mission.
 
 ## Objective
 
-Kind: attainable
-
 - `/start-thread` exists as a skill backed by a deterministic script: it resolves the
   current binding (cloud session ID or worktree marker), mints a new thread only when
   none exists, and takes a mission argument the agent resolves and validates before the

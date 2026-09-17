@@ -1,3 +1,3 @@
 # Thread 9qo5iin0
 
-Mission briefing: [missions/standing/M-STAND-01-idea-capture.md](missions/standing/M-STAND-01-idea-capture.md)
+Mission briefing: [missions/administrative/M-ADMIN-01-idea-capture.md](missions/administrative/M-ADMIN-01-idea-capture.md)

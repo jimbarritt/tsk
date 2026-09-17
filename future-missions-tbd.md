@@ -194,20 +194,20 @@ simply an actor that happens to persist, with threads still carrying the continu
 ## Actor definition
 
 Raised by Jim, 2026-09-17, while resolving what to do with a thread that has no mission.
-A standing mission (idea capture, tidy up, architecture review, distilling mission
-reports) is almost an "actor definition", something like a custom agent. It is more about
-the actor than about the work: what is your responsibility, what are your skills.
+An administrative mission (idea capture, tidy up, architecture review, distilling
+mission reports) is almost an "actor definition", something like a custom agent. It is
+more about the actor than about the work: what is your responsibility, what are your
+skills.
 
-Jim's read: this might be an additional concept. Come back to it later. The standing
-mission, a mission whose objective kind is `maintained`, is what the four examples are
-recorded as for now.
+Jim's read: this might be an additional concept. Come back to it later. An administrative
+mission is what the four examples are recorded as for now.
 
 Doctrine has a close match, found in the same session: the mission essential task list,
 "a listing of tasks the unit must be able to perform", held per unit and derived from the
 unit's anticipated missions rather than from any single one. Standardised METLs are the
 official lists of "the fundamental tasks that units are designed to perform in any
 operational environment". See `docs/domain/mission-model.md` in the tsk repo, under
-standing missions, for the rest of that cross-check.
+mission categories, for the rest of that cross-check.
 
 Open: whether an actor definition is a first-class object in tsk, and how it relates to
-Actor, which the ubiquitous language already defines, and to the standing mission.
+Actor, which the ubiquitous language already defines, and to the administrative mission.

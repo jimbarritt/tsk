@@ -9,8 +9,6 @@
 
 ## Objective
 
-Kind: attainable
-
 - The missions and tasks for building tsk are held in tsk's own data ref.
 - Agents execute them from there.
 - No bootstrap scaffolding remains.

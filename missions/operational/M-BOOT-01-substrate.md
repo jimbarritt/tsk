@@ -9,8 +9,6 @@
 
 ## Objective
 
-Kind: attainable
-
 - Every place the bootstrap needs exists, and each holds its first content.
 - The planning directory in Jim's home directory holds M-BOOT and its breakout
   briefings.
