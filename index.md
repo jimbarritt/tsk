@@ -59,6 +59,29 @@ briefing: [missions/M-BOOT.md](missions/M-BOOT.md).
 
 Essential mission: M-BOOT-05. Its objective and M-BOOT's objective are the same state.
 
+## Standing missions
+
+A mission whose objective kind is `maintained`: a condition held true over time, never
+done. Kept in `missions/standing/` and out of the tree above, because these do not
+sequence and nothing blocks them. They have no DONE, so the tree's status column does
+not apply to them and this table omits it.
+
+| ID | Mission | Objective |
+|---|---|---|
+| [M-STAND-01](missions/standing/M-STAND-01-idea-capture.md) | Idea capture | An idea Jim states in a session reaches the ledger rather than being lost |
+
+This is the answer to a thread that has no mission, settled 2026-09-17. A session kept
+open to capture ideas, a tidy up thread looking for work that needs a nudge, a reviewer
+watching missions for drift, a mission distilling trends out of mission reports: each is
+a mission with a maintained objective, not a mission without one. The harness needs
+nothing added for them. `thread-start.sh` validates one thing, that the briefing path
+exists, so a standing mission takes a thread, a pause and a resume like any other.
+Rationale and the doctrine cross-check: `docs/domain/mission-model.md` in the tsk repo,
+under standing missions.
+
+Only M-STAND-01 has a briefing. The other three examples are recorded there as examples,
+not as missions.
+
 Ideas for missions that are not shaped into briefings yet are kept in
 [future-missions-tbd.md](future-missions-tbd.md). Nothing there is committed to.
 
