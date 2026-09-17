@@ -45,18 +45,6 @@ commits to nothing.
 - Executing any work the idea describes.
 - Rewriting an earlier entry to match a later one.
 
-## Plan
-
-| ID | Task | Objective, in short | Delegated to | Blocked by | Status |
-|---|---|---|---|---|---|
-| T-01 | Capture an idea when Jim states one | The idea is on the ledger, in Jim's terminology, pushed | none | none | in progress |
-| T-02 | Keep the record attributable | Every entry names who raised it and the date | none | none | in progress |
-| T-03 | Keep captured ideas separable | One idea per entry, so a later decision acts on one alone | none | none | in progress |
-
-**Essential task**: T-01. The mission fails if an idea is stated and not written down,
-because the session ends and the idea is gone.
-
 ## First behaviour
 
-Take ownership of the plan above before any other action. Then say you are ready to
-capture, and wait. Do not open the conversation by proposing ideas.
+Say you are ready to capture, and wait. Do not open the conversation by proposing ideas.
