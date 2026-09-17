@@ -13,7 +13,7 @@ Depends on: `docs/domain/ubiquitous-language.md` (Actor, Thread, Thread continua
 
 - [Binding a session to a thread](#binding-a-session-to-a-thread)
 - [Thread identity and the threads directory](#thread-identity-and-the-threads-directory)
-- [Continuation events](#continuation-events)
+- [Continuation state entries](#continuation-state-entries)
 - [The three commands](#the-three-commands)
 - [Resolution at session start](#resolution-at-session-start)
 - [Deferred](#deferred)
@@ -103,7 +103,7 @@ Each thread has a directory, `threads/<slug>/`, holding:
   log: what it holds is the state a resume reads, and earlier entries are kept rather
   than being the point of the file.
 
-## Continuation events
+## Continuation state entries
 
 One JSON object per line, appended, never rewritten. Fields:
 
@@ -114,18 +114,19 @@ One JSON object per line, appended, never rewritten. Fields:
 | What's next | Agent | A short account of where things stand |
 | Commit on `tsk/bootstrap` | Script | The commit the push script left the branch at |
 | Commit on `main` | Script | The commit left on `main` at pause time |
-| Timestamp | Script | When the event was appended |
-| Written by | Script | `urn:tsk:worktree:<name>` or `urn:tsk:cloudsession:<session-id>`, naming the binding that wrote this event |
+| Timestamp | Script | When the entry was appended |
+| Written by | Script | `urn:tsk:worktree:<name>` or `urn:tsk:cloudsession:<session-id>`, naming the binding that wrote this entry |
 
 The commit and timestamp fields are deterministic: a script captures them, since the
 same script already handles the git side of a pause. Only the mission link, task ID
 and what's-next text involve judgement, and even the first two are usually already
 known rather than freshly decided.
 
-Resuming a thread reads only the latest event by default. Earlier events stay in the
-log and can be read directly, for example to notice a task stalling across several
-pauses. The written-by field on every event also means the log doubles as the answer
-to "which actors have touched this thread": no separate registry is needed.
+Resuming a thread reads the latest entry by default, selected by timestamp. Earlier
+entries stay in the store and can be read directly, for example to notice a task
+stalling across several pauses. A later entry supersedes an earlier one by being later;
+nothing needs to say so. The written-by field on every entry also means the store
+answers "which actors have touched this thread": no separate registry is needed.
 
 ## The three commands
 
@@ -150,9 +151,9 @@ argument is resolved.
 
 ### `/pause-thread`
 
-Writes one continuation event, via a script, `append-handover.sh`. The script captures
-the commit hashes and the timestamp; the agent supplies the mission link, task ID and
-what's-next text as arguments.
+Writes one continuation state entry, via a script, `append-handover.sh`. The script
+captures the commit hashes and the timestamp; the agent supplies the mission link, task
+ID and what's-next text as arguments.
 
 For now, `/pause-thread` is invoked manually, in the supervised operating context: a
 human runs it themselves before `/clear`. The action set is expected to stay the same
@@ -161,7 +162,7 @@ for the unsupervised case; only the trigger changes.
 
 ### `/resume-thread <thread-id>`
 
-The load counterpart to `/pause-thread`'s save. Loads the latest continuation event for
+The load counterpart to `/pause-thread`'s save. Loads the latest continuation state entry for
 the given thread ID and presents it to the agent as a prompt. The agent replies with a
 fixed-shape summary, then asks whether to continue with the thread or do something
 else:
@@ -203,7 +204,7 @@ Points raised during this design and explicitly set aside, not yet decided:
 
 - The relationship between a thread and the mission's Plan.
 - The thread state format proper (which tasks are done, which is in progress, as
-  distinct from a single what's-next line in a continuation event).
+  distinct from a single what's-next line in a continuation state entry).
 - What running the same thread from two actors at once should actually do, beyond
   printing a warning.
 - Whether "Continuation" as a term on its own, distinct from "Thread continuation",

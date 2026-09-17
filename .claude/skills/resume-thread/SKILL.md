@@ -1,6 +1,6 @@
 ---
 name: resume-thread
-description: Load a tsk thread's latest continuation event and pick the work back up, as the thread's original actor after a session boundary, or as a different actor taking over. Invoke as /resume-thread <thread-id>, or automatically when the SessionStart hook finds an existing binding. Design reference — docs/domain/session-continuation-design.md.
+description: Load a tsk thread's latest continuation state entry and pick the work back up, as the thread's original actor after a session boundary, or as a different actor taking over. Invoke as /resume-thread <thread-id>, or automatically when the SessionStart hook finds an existing binding. Design reference — docs/domain/session-continuation-design.md.
 ---
 
 Backs the `/resume-thread <thread-id>` command from
@@ -22,7 +22,7 @@ happens; it does not refuse.
 
    This binds the current session or worktree to the thread (additive), and
    prints one JSON object: `{"thread_id", "latest", "warning"}`, where `latest`
-   is the most recent continuation event (or `{}` if the thread has never been
+   is the most recent continuation state entry (or `{}` if the thread has never been
    paused) and `warning` is non-empty if the thread was already associated
    with a different actor.
 

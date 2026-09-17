@@ -22,7 +22,7 @@ thread_wt() {
 
 # thread_refresh_wt: fetch the latest tsk/bootstrap into the worktree and
 # print its path. Use before any read that must not be stale (collision
-# checks, reading the latest continuation event) and before any write.
+# checks, reading the latest continuation state entry) and before any write.
 thread_refresh_wt() {
   "$(dirname "${BASH_SOURCE[0]}")/fetch-bootstrap-ref.sh"
 }
@@ -141,11 +141,11 @@ thread_bind_current() {
 }
 
 # thread_written_by_actors <thread-id> <wt>: distinct written-by URNs from
-# the thread's continuation log, one per line. Empty if the thread has no
-# continuation events yet.
+# the thread's continuation state, one per line. Empty if the thread has no
+# continuation state entries yet.
 thread_written_by_actors() {
-  local thread_id="$1" wt="$2" log
-  log="$wt/threads/$thread_id/continuation-state.jsonl"
-  [ -f "$log" ] || return 0
-  jq -r '.written_by // empty' "$log" | sort -u
+  local thread_id="$1" wt="$2" store
+  store="$wt/threads/$thread_id/continuation-state.jsonl"
+  [ -f "$store" ] || return 0
+  jq -r '.written_by // empty' "$store" | sort -u
 }
