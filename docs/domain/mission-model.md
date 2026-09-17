@@ -17,6 +17,10 @@ execution.
 
 ## Doctrine reference
 
+Links to the publications cited throughout this file are collected in
+[docs/kb/military-doctrine-sources.md](../kb/military-doctrine-sources.md), which also
+records which quotations here are still unverified against primary text.
+
 Research from US and NATO joint doctrine (JP 1, JP 3-0) informed the mission model.
 Levels of war (strategic, operational, tactical) classify actions by which level of
 objective they serve, not by any property of the action itself. Terms, in nesting

@@ -59,3 +59,4 @@ Background theory and research grounding for key domain concepts.
 - [product-and-scale-theory.md](kb/product-and-scale-theory.md): separation of Story card, Product capability, and Delta. No-complecting applied to tracking.
 - [session-creation-and-environments.md](kb/session-creation-and-environments.md): orchestrating agent sessions. Which mechanisms start one, and which levers set what it knows.
 - [agent-context-self-regulation-and-unattended-handoff.md](kb/agent-context-self-regulation-and-unattended-handoff.md): context awareness, agent-directed memory, `/goal`, and a pattern for a cloud session to hand off to its own successor before running out of room.
+- [military-doctrine-sources.md](kb/military-doctrine-sources.md): the primary doctrine sources the mission model draws on, with links, and which citations in the repo are unverified.
