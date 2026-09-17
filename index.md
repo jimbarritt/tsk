@@ -18,9 +18,11 @@ harness) is next unblocked.
 
 ## Next step
 
-M-BOOT-02-01 (continuation harness) is done, 2026-09-17. `/start-thread`,
-`/pause-thread` and `/resume-thread` exist, are wired to the `SessionStart` hook, and
-were proven end to end. Report:
+M-BOOT-02-01 (continuation harness) was reported done on 2026-09-17 and reopened the
+same day. `/start-thread`, `/pause-thread` and `/resume-thread` exist, are wired to the
+`SessionStart` hook, and were proven end to end. T-11, added and closed after the
+report, guards the ledger fetch against resetting over a commit that was never pushed.
+Report:
 [missions/M-BOOT-02-01/M-BOOT-02-01-continuation-harness-report.md](missions/M-BOOT-02-01/M-BOOT-02-01-continuation-harness-report.md).
 Read it before picking the next mission: it carries three findings that outlive this
 mission, and two open items for Jim.
@@ -50,7 +52,7 @@ briefing: [missions/M-BOOT.md](missions/M-BOOT.md).
 | [M-BOOT](missions/M-BOOT.md) | Bootstrap tsk self hosting | tsk hosts its own development, no bootstrap scaffolding left | TODO | none |
 | [M-BOOT-01](missions/M-BOOT-01-substrate.md) | Substrate | Every place the bootstrap needs exists and holds its first content | ✓ DONE | none |
 | [M-BOOT-02](missions/M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local and a cloud session both load the harness and read a briefing | IN PROGRESS | M-BOOT-01 |
-| [M-BOOT-02-01](missions/M-BOOT-02-01-continuation-harness.md) | Continuation harness | `/start-thread`, `/pause-thread`, `/resume-thread` work end to end | ✓ DONE | M-BOOT-02 |
+| [M-BOOT-02-01](missions/M-BOOT-02-01-continuation-harness.md) | Continuation harness | `/start-thread`, `/pause-thread`, `/resume-thread` work end to end | IN PROGRESS | M-BOOT-02 |
 | [M-BOOT-03](missions/M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | TODO | M-BOOT-02 |
 | M-BOOT-04 | The official data ref | No breakout briefing yet | TODO | M-BOOT-03 |
 | M-BOOT-05 | Migration off the bootstrap ref | No breakout briefing yet | TODO | M-BOOT-04 |

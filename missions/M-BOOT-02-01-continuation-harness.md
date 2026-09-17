@@ -110,33 +110,17 @@ when something is staged, and pushes a commit an earlier run left behind. That r
 the state whenever the push script runs. It does not cover the fetch path, which is the
 one that runs unattended.
 
-Jim decided the shape on 2026-09-17, under Decision authority above. Three options were
-put:
+Resolved 2026-09-17: the fetch leaves the worktree as it is and reports the pending
+commit through the hook's `additionalContext`. It still prints the path and exits 0, so
+`just fetch-refs` and the thread scripts are unaffected.
 
-- Refuse, matching the dirty-tree guard. Consistent, but a failed fetch blocks session
-  start until someone clears it by hand.
-- Push the pending commit. Self-healing, but the fetch script then writes to `origin`,
-  which contradicts its read-only role.
-- Leave the worktree untouched and report the pending commit in the hook's
-  `additionalContext`. Loses nothing and blocks nothing, but relies on the agent acting
-  on what it is told.
+The message tells the agent to read what the commit changes before deciding, and says
+the commit may be its own work from a turn it holds no record of. A worker restart can
+end a turn between a commit and its push, so the agent that finds the commit is often
+the one that made it. Left unsaid, the natural reading is that another actor made it,
+which invites discarding real work.
 
-The third was taken. `fetch-bootstrap-ref.sh` leaves the worktree as it is and reports
-on stderr, still printing the path and exiting 0 so `just fetch-refs` and the thread
-scripts are unaffected. The hook discards that stderr, so it runs the same check and
-puts the result in `additionalContext`.
-
-Jim's addition, and the reason the message is worded as it is: the report tells the
-agent to read what the commit changes before deciding, and states that the commit may
-be the reading agent's own work from a turn it holds no record of making. A worker
-restart can end a turn between a commit and its push, so the agent that finds the
-commit is often the agent that made it. Left unsaid, the natural reading is that
-another actor made it, which invites discarding real work. That misreading already
-happened once, on 2026-09-17, before this guard existed.
-
-Landed on `main` at `57b5320`. Verified against all four paths: clean and level resets
-quietly; clean and ahead leaves the commit in place and warns; dirty still refuses;
-the hook carries the warning only in the second case.
+Landed on `main` at `57b5320`.
 
 **Note on the commit-on-`tsk/bootstrap` field (T-06).** The design names this field "the
 commit the push script left the branch at," which read literally is self-referential: the
