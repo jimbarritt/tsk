@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Backing script for /pause-thread. Appends one continuation event to
+# Backing script for /pause-thread. Appends one continuation state entry to
 # threads/<id>/continuation-state.jsonl and pushes.
 #
 # The commit-on-tsk/bootstrap field is captured as the branch's HEAD
-# immediately before this event is appended (the state the thread was
+# immediately before this entry is appended (the state the thread was
 # working against when it paused), not the commit this push produces —
 # that commit cannot describe its own tree. See the mission's plan note
 # on this field for the reasoning.
@@ -25,10 +25,10 @@ TASK_ID="$3"
 WHATS_NEXT="$4"
 
 WT="$(thread_refresh_wt)"
-LOG="$WT/threads/$THREAD_ID/continuation-state.jsonl"
+STORE="$WT/threads/$THREAD_ID/continuation-state.jsonl"
 
-if [ ! -f "$LOG" ]; then
-  echo "error: no such thread: $THREAD_ID (expected $LOG)" >&2
+if [ ! -f "$STORE" ]; then
+  echo "error: no such thread: $THREAD_ID (expected $STORE)" >&2
   exit 1
 fi
 
@@ -53,7 +53,7 @@ jq -nc \
     commit_on_main: $commit_on_main,
     timestamp: $timestamp,
     written_by: $written_by
-  }' >> "$LOG"
+  }' >> "$STORE"
 
 "$(dirname "${BASH_SOURCE[0]}")/push-bootstrap-ref.sh" "Pause thread $THREAD_ID: $TASK_ID"
 

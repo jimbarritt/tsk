@@ -23,7 +23,7 @@ see the Artefact and Ledger entries in `docs/domain/ubiquitous-language.md`.
 | | What it holds | Where |
 |---|---|---|
 | **The artefacts** | What a mission builds: source, `docs/`, `ops/`, `.claude/` | `main`, in the ordinary checkout |
-| **The ledger** | Missions, briefings, threads, continuation events, mission reports | The `tsk/bootstrap` branch, checked out elsewhere |
+| **The ledger** | Missions, briefings, threads, continuation state entries, mission reports | The `tsk/bootstrap` branch, checked out elsewhere |
 
 They are two branches of the same GitHub repository, `jimbarritt/tsk`. They are never
 checked out together. Changes to the artefacts go to `main` in the normal way. The
@@ -58,7 +58,7 @@ missions/<id>/                  a mission's report, once it starts executing
 future-missions-tbd.md          ideas not yet shaped into briefings
 threads/lookup-by-cloud-session.json    cloud session ID -> thread ID
 threads/<thread-id>/index.md            a pointer to the mission being worked
-threads/<thread-id>/continuation-state.jsonl   the thread's continuation events
+threads/<thread-id>/continuation-state.jsonl   the thread's continuation state entries
 ```
 
 This checkout used to sit inside the repository's `.git/` directory. It moved out on
@@ -78,8 +78,8 @@ scripts spell the ref out in full.
 | `fetch-bootstrap-ref.sh` | Refreshes the worktree to origin's latest, prints the path | Resets the worktree. Refuses if it holds uncommitted work |
 | `push-bootstrap-ref.sh "<message>"` | Commits everything in the worktree and pushes to `tsk/bootstrap` | Commits and pushes |
 | `thread-start.sh` | Mints and binds a thread | Writes and pushes |
-| `thread-append-handover.sh` | Appends a continuation event | Writes and pushes |
-| `thread-resume.sh` | Loads a thread's latest continuation event | Binds, and pushes if the binding changed |
+| `thread-append-handover.sh` | Appends a continuation state entry | Writes and pushes |
+| `thread-resume.sh` | Loads a thread's latest continuation state entry | Binds, and pushes if the binding changed |
 | `thread-resolve-binding.sh` | Prints the current binding, if any | None beyond a fetch |
 
 To read the path, use `bootstrap-wt-path.sh`. `fetch-bootstrap-ref.sh` also refreshes,
@@ -95,13 +95,13 @@ Actor entries in `docs/domain/ubiquitous-language.md`.
 worktree to it. If a binding already exists, it says so and points you at
 `/resume-thread` instead, because that case is a resume, not a start.
 
-**`/pause-thread`** writes one continuation event: the mission briefing, the task in
+**`/pause-thread`** writes one continuation state entry: the mission briefing, the task in
 progress, a short account of where things stand, plus the commit on `tsk/bootstrap`,
 the commit on `main`, a timestamp, and which actor wrote it. Run it before `/clear`.
 The commit hashes and timestamp come from the script; the three judgement fields come
 from the agent.
 
-**`/resume-thread <thread-id>`** loads the latest continuation event, binds the current
+**`/resume-thread <thread-id>`** loads the latest continuation state entry, binds the current
 session or worktree to that thread, and reports:
 
 ```

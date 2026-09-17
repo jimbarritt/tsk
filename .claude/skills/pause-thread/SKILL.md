@@ -1,6 +1,6 @@
 ---
 name: pause-thread
-description: Record a continuation event for the current thread before ending the session, so a later /resume-thread (by this actor or another) can pick the work back up. Invoke explicitly as /pause-thread, always run by the human themselves before /clear in this supervised-interactive-only mission. Design reference — docs/domain/session-continuation-design.md.
+description: Record a continuation state entry for the current thread before ending the session, so a later /resume-thread (by this actor or another) can pick the work back up. Invoke explicitly as /pause-thread, always run by the human themselves before /clear in this supervised-interactive-only mission. Design reference — docs/domain/session-continuation-design.md.
 ---
 
 Backs the `/pause-thread` command from `docs/domain/session-continuation-design.md`
@@ -23,7 +23,7 @@ and mission M-BOOT-02-01's Scope).
    (no binding), there is no thread to pause — say so and stop; do not start
    one implicitly.
 
-2. **Compose the continuation event's three judgement fields**, from what you
+2. **Compose the continuation state entry's three judgement fields**, from what you
    already know about the thread (usually already on hand from thread state,
    not freshly decided):
    - `<mission-briefing-link>`: the mission briefing this thread is working.

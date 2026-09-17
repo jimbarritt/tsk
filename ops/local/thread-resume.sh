@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Backing script for /resume-thread <thread-id>. Loads the latest
-# continuation event, binds the current surface to the thread (additive:
+# continuation state entry, binds the current surface to the thread (additive:
 # proceeds even if the thread already has another binding, but warns),
-# and prints the event as JSON plus any warning, for the skill to present.
+# and prints the entry as JSON plus any warning, for the skill to present.
 #
 # Usage: thread-resume.sh <thread-id>
 
@@ -46,10 +46,10 @@ else
   thread_bind_worktree "$THREAD_ID"
 fi
 
-LOG="$DIR/continuation-state.jsonl"
+STORE="$DIR/continuation-state.jsonl"
 LATEST="{}"
-if [ -s "$LOG" ]; then
-  LATEST="$(tail -n1 "$LOG")"
+if [ -s "$STORE" ]; then
+  LATEST="$(tail -n1 "$STORE")"
 fi
 
 jq -nc \

@@ -19,7 +19,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 - [territory-and-nexus.md](domain/territory-and-nexus.md): why territory and nexus are separate concepts rather than fused.
 - [persistence-and-sync.md](domain/persistence-and-sync.md): state persistence strategy and event log design using custom Rust sync.
 - [mission-briefing-template.md](domain/mission-briefing-template.md): rendering format for missions as briefings for humans and agents.
-- [session-continuation-design.md](domain/session-continuation-design.md): thread binding, the continuation event log, and the `/start-thread`, `/pause-thread`, `/resume-thread` commands.
+- [session-continuation-design.md](domain/session-continuation-design.md): thread binding, the continuation state store, and the `/start-thread`, `/pause-thread`, `/resume-thread` commands.
 
 ## User guide
 
