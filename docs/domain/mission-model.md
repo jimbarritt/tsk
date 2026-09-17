@@ -69,53 +69,48 @@ One operations-research paper (not doctrine) models campaign objectives as **axe
 each a totally ordered set of objectives with precedence constraints. This matches
 the bootstrap sequence's own missions 1 to 6, which must run in order.
 
-## Standing missions, and the maintained objective
+## Mission categories
 
-Cross-checked against doctrine on 2026-09-17, after the question arose of what to do
-with a thread that has no mission: a session kept open to capture ideas, a tidy up
-thread that looks for work needing a nudge, a reviewer watching missions for drift, a
-mission that distils trends out of mission reports. None of them finishes.
+The question that produced this section was what to do with a thread that has no
+mission: a session kept open to capture ideas, a tidy up thread that looks for work
+needing a nudge, a reviewer watching missions for drift, a mission that distils trends
+out of mission reports. Every thread has a mission, so each of those needs one.
 
-What doctrine confirms:
+A mission is **administrative** or **operational**. Operational missions build or change
+the artefacts. Administrative missions keep the work itself in order, which is what the
+four examples above do. The category is carried by which subdirectory of the ledger's
+`missions/` the briefing sits in, and by nothing else: there is no field for it in a
+briefing, and it changes neither a mission's structure nor how it is executed.
 
-- **Standing** is the right word for a mission that continues indefinitely. UK defence
-  doctrine separates **standing commitments**, the enduring non-discretionary tasks, from
-  **contingent commitments**, held at readiness against a possible deployment. US joint
-  doctrine uses the same word for a standing joint task force: one with "an enduring
-  mission that is projected to continue indefinitely".
-- **Steady-state** is doctrine's term for the work itself: "cumulative day-to-day
-  activities that are outside of major surge operations". This is the closest doctrinal
-  match for the four examples above.
-- **Role** and **function**, above, are how doctrine names an enduring responsibility
-  without calling it a mission. Both sit on a separate branch from the campaign, mission,
-  task chain.
+An earlier version of this section classified missions as standing, and their objectives
+as attainable or maintained. That classification was dropped on 2026-09-17. It named no
+difference in behaviour or structure, so it earned nothing. What it did carry was a
+borrowed authority it was not entitled to: "attainable" is doctrine's word from the
+principle of objective, where it is a quality every objective must have, and doctrine
+has no taxonomy of objective kinds to take it from.
 
-Where tsk deviates, deliberately:
+What survives the change:
 
-- **The maintained objective is tsk's own, not doctrine's.** Doctrine's principle of
-  objective directs every operation toward "a clearly defined, decisive, and attainable
-  objective" (JP 3-0, JP 5-0). Attainability is the point of the principle, so doctrine
-  has no objective that is never done. It reaches the same place by a different route: the
-  standing commitment endures, and the operations under it each carry attainable
-  objectives.
-- tsk collapses that into one object, a mission whose objective kind is `maintained`, and
-  accepts the deviation. Doctrine is advisory here, per the posture above. The alternative,
-  a second first-class object beside mission, was rejected: a standing mission needs a
-  briefing, a task list, a thread and continuations, which are the things a mission
-  already has.
-
-Consequences recorded at the time:
-
-- Standing missions are kept in their own subdirectory of the ledger, not mixed into the
-  bootstrap sequence's tree. They are not blocked by anything and they do not sequence.
-- A standing mission has no DONE, so the status column in the ledger index does not apply
-  to it unchanged.
-- A standing mission is closer to a description of an actor than to a unit of work: the
-  responsibility it carries, and the skills it needs. Doctrine has this too, as the
-  mission essential task list: "a listing of tasks the unit must be able to perform",
-  held per unit and derived from its anticipated missions rather than from any single
-  one. Whether tsk models that separately is open, and is recorded in the ledger's
-  future missions rather than settled here.
+- An objective is a fixed end point, or a measure that moves over time. Both are
+  objectives, and a mission does not declare which it carries. A duration is independent
+  of either: a measure over time can still run for a fixed period.
+- Administrative missions sit in their own subdirectory, are not blocked by anything, and
+  do not sequence.
+- A mission with no end point has no DONE, so the status column in the ledger index does
+  not apply to it unchanged.
+- Such a mission is closer to a description of an actor than to a unit of work: the
+  responsibility it carries, and the skills it needs. Doctrine has this as the mission
+  essential task list, "a listing of tasks the unit must be able to perform", held per
+  unit and derived from its anticipated missions rather than from any single one. Whether
+  tsk models that separately is open, and is recorded in the ledger's future missions
+  rather than settled here.
+- Doctrine's nearest terms, recorded because the reading was done: UK defence doctrine
+  separates **standing commitments**, the enduring non-discretionary tasks, from
+  **contingent commitments**, held at readiness. **Steady-state** is doctrine's term for
+  "cumulative day-to-day activities that are outside of major surge operations", which is
+  the closest match for the four examples. **Role** and **function** are how doctrine
+  names an enduring responsibility without calling it a mission. None of these is adopted
+  as a tsk term.
 
 ## The tsk and ksobr boundary
 
@@ -143,10 +138,8 @@ under the nexus and territory mission, not as tsk's own ubiquitous language.
   referenced from a mission rather than written into it.
 - The mission object's full field list is not yet fixed beyond what the mission
   briefing template already specifies.
-- The briefing template's Report on completion has no meaning for a maintained
-  objective, because there is no completion to report on. Found writing M-STAND-01,
-  where the section is omitted under the template's own rule to omit a field rather
-  than write "none" in it. What a standing mission reports, and when, is unsettled: the
-  thread's continuation log is the only record it leaves today. Jim's candidate answer,
-  2026-09-17: a standing mission could provide a regular report on some kind of
-  schedule. Not designed, and the schedule is not specified.
+- What a mission with no end point reports was open, because the briefing template's
+  Report on completion assumes a completion. Settled 2026-09-17: a mission reports once
+  or repeatedly over time, whichever suits it, with no rule fixing which, and a report
+  takes addenda rather than being replaced. The template carries this. What is still
+  open is the schedule for a repeating report, which is not designed.
