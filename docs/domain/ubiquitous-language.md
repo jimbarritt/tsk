@@ -17,10 +17,10 @@ with the compliance-as-theatre usage in Thinking in Code.
 
 ## Nexus
 
-The discovery and routing mechanism. Nothing more. A nexus holds the index of projects
+The discovery and routing mechanism. Nothing more. A nexus holds the index of the repos
 in its area, and links to other nexuses. A nexus does not define a boundary, the
-territory does that. Each project repo keeps its own event log under its own data ref;
-the nexus records where to find it.
+territory does that. Each repo keeps its own [ledger](#ledger); the nexus records where
+to find it.
 
 Rejected: base camp and Basecamp (an existing product in the same category), mission
 control and operations centre (hold an operational-control sense that does not fit a
@@ -92,6 +92,33 @@ and can be read directly, for example to notice a task stalling across several p
 Named "thread continuation" rather than "continuation" alone because the record already
 lives inside the thread's own directory, so the qualifier keeps the term consistent with
 its location rather than adding one only some readers would need.
+
+## Ledger
+
+The store of a repo's own mission and task data: missions and their briefings, threads,
+thread continuations, and the reports missions leave behind. One ledger per repo. It is
+data rather than a line of development, which is why it is kept apart from the
+[artefacts](#artefact) instead of sitting beside them.
+
+Today the ledger is the `tsk/bootstrap` branch, checked out at a fixed path outside the
+repository (`docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`,
+`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md`). That is the mechanism
+in use, not the definition. M-BOOT-04 and M-BOOT-05 move it, and the term survives the
+move.
+
+Distinguished from the artefacts: the artefacts are what a mission builds, the ledger is
+the account of the building. A change to one leaves the other untouched, and neither
+appears in the other's diff.
+
+Supersedes "data ref", which named a mechanism rather than the thing, and which stopped
+being accurate the moment ADR 0008 moved the store off a custom git ref and onto a
+branch. Mission M-BOOT-04 still carries "the official data ref" in its title; that is
+known and not yet renamed.
+
+Rejected: account (the mission briefing template already uses "your account" for the
+actor's own report), record (M-BOOT-02's run record holds that word), chronicle (says
+nothing ledger does not), data branch and bootstrap branch (name the mechanism, so they
+rot when the mechanism changes, exactly as "data ref" did).
 
 ## Task
 
@@ -248,6 +275,23 @@ than eventually intended.
 One of tsk's four core dimensions (Navigation, Delta, Product, Scale), per the README.
 Describes the thing being built: not a plan of work, but what the product does or
 should do for its users, and the state it is in.
+
+## Artefact
+
+A made thing that a mission builds: a library, a package, a binary, a schema, a
+document. Code and documentation are both artefacts, and the term prefers neither.
+
+Held deliberately general, and not expressed in the code. An artefact has no identity,
+no status field and no lifecycle of its own in tsk today. It is the word for what sits
+in the repo, used when that needs distinguishing from the [ledger](#ledger).
+
+Distinguished from Product, which is a dimension: Product describes what the thing does
+for its users and the state it is in, while artefacts are the material that implements
+it. Naming the files "the product" would complect the two, which the Story card and
+Product capability entries already warn against.
+
+Distinguished from Delta, which is a change to the artefacts, not the artefacts
+themselves.
 
 ## Story card
 

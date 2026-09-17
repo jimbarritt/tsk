@@ -17,26 +17,28 @@ behind it, see `docs/domain/session-continuation-design.md`; for the terms, see
 
 ## Two stores, not one
 
-Work on tsk involves two separate stores, in two different places.
+Work on tsk involves two separate stores, in two different places. They have names:
+see the Artefact and Ledger entries in `docs/domain/ubiquitous-language.md`.
 
 | | What it holds | Where |
 |---|---|---|
-| The repository's own code and docs | Source, `docs/`, `ops/`, `.claude/` | `main`, in the ordinary checkout |
-| tsk's mission and task data | Missions, briefings, threads, continuation events | The `tsk/bootstrap` branch, checked out elsewhere |
+| **The artefacts** | What a mission builds: source, `docs/`, `ops/`, `.claude/` | `main`, in the ordinary checkout |
+| **The ledger** | Missions, briefings, threads, continuation events, mission reports | The `tsk/bootstrap` branch, checked out elsewhere |
 
 They are two branches of the same GitHub repository, `jimbarritt/tsk`. They are never
-checked out together. Code changes go to `main` in the normal way. Mission and task
-state goes to `tsk/bootstrap` through its own scripts.
+checked out together. Changes to the artefacts go to `main` in the normal way. The
+ledger is written through its own scripts.
 
-The reason they are split: mission data is data, not a line of development. Keeping it
-on its own branch means a change to what a mission says never appears in a code diff,
-and vice versa.
+The reason they are split: the ledger is data, not a line of development. Keeping it on
+its own branch means a change to what a mission says never appears in a diff of the
+artefacts, and vice versa. The artefacts are what a mission builds; the ledger is the
+account of the building.
 
 ## Where each one lives
 
-**The code**: wherever you cloned the repository. Nothing unusual.
+**The artefacts**: wherever you cloned the repository. Nothing unusual.
 
-**The mission data**: a linked git worktree at
+**The ledger**: a linked git worktree at
 
 ```
 ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/bootstrap

@@ -12,7 +12,7 @@ Start here to navigate the documentation. An agent with only the repo clone shou
 
 Core concepts and models that shape tsk's design. Start with ubiquitous language to understand the terminology.
 
-- [ubiquitous-language.md](domain/ubiquitous-language.md): every term tsk uses, with definitions and rejected alternatives.
+- [ubiquitous-language.md](domain/ubiquitous-language.md): every term tsk uses, with definitions and rejected alternatives. Includes Ledger (a repo's own mission and task data) and Artefact (what a mission builds), the two sides of the split.
 - [domain-model-overview.md](domain/domain-model-overview.md): the mission and task model's decided rules, the tsk/ksobr split table, and open questions.
 - [mission-model.md](domain/mission-model.md): why the mission model is structured this way, grounded in military doctrine.
 - [bootstrap-rationale.md](domain/bootstrap-rationale.md): the stage-zero self-hosting problem, and the plan format gaps behind tsk's task fields.
