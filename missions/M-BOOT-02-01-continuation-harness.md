@@ -79,16 +79,16 @@ layout inside `threads/<slug>/` beyond what it specifies, are this mission's own
 
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|
-| T-01 | Thread ID minting | A script mints an 8-character lowercase base36 slug, checked against existing `threads/` entries for collision | none | TODO |
-| T-02 | `threads/<slug>/` scaffolding | Script creates the directory, an `index.md` linking to the mission briefing, and an empty `continuation-state.jsonl` | T-01 | TODO |
-| T-03 | Cloud session binding | Script reads `CLAUDE_CODE_REMOTE_SESSION_ID` and reads and writes `threads/lookup-by-cloud-session.json`, entries `{thread_id, registered_at}` | T-02 | TODO |
-| T-04 | Worktree binding | Script resolves `$(git rev-parse --git-dir)` and reads and writes the `tsk-thread-id` marker file there | T-02 | TODO |
-| T-05 | `/start-thread` skill | Wraps T-01 to T-04: resolves the current binding, mints only if none exists, agent resolves and validates the mission argument first | T-03, T-04 | TODO |
-| T-06 | `append-handover.sh` and `/pause-thread` skill | Script appends a continuation event, capturing both commit hashes and a timestamp; skill supplies the mission link, task ID and what's-next text | T-02 | TODO |
-| T-07 | `/resume-thread` skill | Loads the latest continuation event for a given thread ID, presents it, agent replies with the fixed-shape summary and asks whether to continue; take-over is additive, with a printed warning if the thread is already bound elsewhere | T-06 | TODO |
-| T-08 | Extend the `SessionStart` hook | Resolves the binding (T-03, T-04); prompts `/resume-thread` on a hit; prompts the human for a mission then `/start-thread` on a miss | T-05, T-07 | TODO |
-| T-09 | Prove the full cycle | Start a thread, pause it, `/clear`, resume it; the resumed summary correctly names the mission and the prior what's-next text | T-08 | TODO |
-| T-10 | Clean up the proof cycle's test thread | T-09 exercises the real scripts against the real `tsk/bootstrap` data (there is no mock to run them against). Its test thread, and any binding entries it wrote, are removed and pushed once T-09 is confirmed, so no test debris is left in `threads/` | T-09 | TODO |
+| T-01 | Thread ID minting | A script mints an 8-character lowercase base36 slug, checked against existing `threads/` entries for collision | none | DONE |
+| T-02 | `threads/<slug>/` scaffolding | Script creates the directory, an `index.md` linking to the mission briefing, and an empty `continuation-state.jsonl` | T-01 | DONE |
+| T-03 | Cloud session binding | Script reads `CLAUDE_CODE_REMOTE_SESSION_ID` and reads and writes `threads/lookup-by-cloud-session.json`, entries `{thread_id, registered_at}` | T-02 | DONE |
+| T-04 | Worktree binding | Script resolves `$(git rev-parse --git-dir)` and reads and writes the `tsk-thread-id` marker file there | T-02 | DONE |
+| T-05 | `/start-thread` skill | Wraps T-01 to T-04: resolves the current binding, mints only if none exists, agent resolves and validates the mission argument first | T-03, T-04 | DONE |
+| T-06 | `append-handover.sh` and `/pause-thread` skill | Script appends a continuation event, capturing both commit hashes and a timestamp; skill supplies the mission link, task ID and what's-next text | T-02 | DONE |
+| T-07 | `/resume-thread` skill | Loads the latest continuation event for a given thread ID, presents it, agent replies with the fixed-shape summary and asks whether to continue; take-over is additive, with a printed warning if the thread is already bound elsewhere | T-06 | DONE |
+| T-08 | Extend the `SessionStart` hook | Resolves the binding (T-03, T-04); prompts `/resume-thread` on a hit; prompts the human for a mission then `/start-thread` on a miss | T-05, T-07 | DONE |
+| T-09 | Prove the full cycle | Start a thread, pause it, `/clear`, resume it; the resumed summary correctly names the mission and the prior what's-next text | T-08 | DONE |
+| T-10 | Clean up the proof cycle's test thread | T-09 exercises the real scripts against the real `tsk/bootstrap` data (there is no mock to run them against). Its test thread, and any binding entries it wrote, are removed and pushed once T-09 is confirmed, so no test debris is left in `threads/` | T-09 | DONE |
 
 **Essential task**: T-08. Without the hook wired up, nothing invokes the mechanism
 automatically, and the objective is not met by the scripts existing alone.
