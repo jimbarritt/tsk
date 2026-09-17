@@ -139,3 +139,8 @@ under the nexus and territory mission, not as tsk's own ubiquitous language.
   referenced from a mission rather than written into it.
 - The mission object's full field list is not yet fixed beyond what the mission
   briefing template already specifies.
+- The briefing template's Report on completion has no meaning for a maintained
+  objective, because there is no completion to report on. Found writing M-STAND-01,
+  where the section is omitted under the template's own rule to omit a field rather
+  than write "none" in it. What a standing mission reports, and when, is unsettled: the
+  thread's continuation log is the only record it leaves today.
