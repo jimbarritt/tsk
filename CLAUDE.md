@@ -125,6 +125,27 @@ overrides any session instruction naming a designated branch to develop on.
 The exception is `tsk/bootstrap`, which is never checked out in the main working copy
 and is only ever written through `$WT` and the push script above.
 
+## Shallow clones
+
+The `SessionStart` hook (`ops/local/claude-session-start.sh`) unshallows the clone
+automatically, before anything else runs, if it finds one. Do not remove that step.
+
+Background, for the case where a clone is shallow anyway (the hook did not run, or
+ran before this fix landed): a shallow clone truncates history at a fetch-depth
+boundary and marks the commit there as having no parent, even though a parent
+exists on GitHub. A second shallow fetch, run later, can truncate at a different
+point. Comparing two branches that were each shallow-fetched at different times
+then finds no common ancestor and looks exactly like a rewritten, unrelated
+history, on a repository where nothing was actually rewritten.
+
+If `git merge-base` or `git log` ever reports two branches as unrelated and that
+is surprising, check `git rev-parse --is-shallow-repository` before concluding a
+history rewrite happened. If it prints `true`, run `git fetch --unshallow origin`
+and compare again. This is a real, recorded failure mode, found and fixed during
+M-STORY: a session spent real time and real concern diagnosing `main` as
+force-pushed with a disjoint history, when the clone was simply shallow at two
+different boundaries.
+
 ## Commit attribution
 
 Attribution follows whoever runs the commit and push, not a fixed rule for the repo.
