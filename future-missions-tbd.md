@@ -16,6 +16,36 @@ records that the thread is paused, so the only evidence is whether the latest en
 describes where things stand. Work done after a pause leaves that entry stale with
 nothing marking it so, and the thread has to be paused again.
 
+## Claude Code Projects redesign: compare against tsk's own model
+
+Raised by Jim, 2026-09-18, from
+[claude.com/blog/projects-redesigned](https://claude.com/blog/projects-redesigned).
+
+Anthropic announced a redesigned Projects experience for Claude Code, in beta from
+2026-09-17. A project now has a coordinator that receives instructions and routes each
+one to a new or existing worker thread, monitors progress, reviews output, and assembles
+the result. Worker threads share project memory: decisions and instructions carry across
+work spanning several days, for example a release date moving or who must be consulted
+before a service changes. Projects also gain a library of user files and Claude-created
+artefacts, so a later thread can reuse material an earlier one produced. Each worker
+thread is a full Claude Code session in its own right, so parallel work counts against
+plan limits accordingly.
+
+Research mission: this sits in the same territory tsk models. A coordinator routing to
+threads maps onto tsk's actor and thread concepts; shared project memory maps onto
+something like the ledger; the artefact library maps onto tsk's own Artefact term.
+Understand where the two agree, where they differ, and whether tsk's model should account
+for a product that now does part of this natively.
+
+Open: whether this changes tsk's scope, whether tsk should integrate with or sit
+alongside this feature, and whether tsk's terminology (coordinator vs. actor, project
+memory vs. ledger) should converge with Anthropic's or stay deliberately distinct.
+Sources found during capture, not yet read in full: the blog post above (blocked from
+this sandbox's egress proxy), and secondary coverage at
+[VentureBeat](https://venturebeat.com/orchestration/anthropic-launches-claude-code-projects-an-always-on-conversation-that-remembers-and-delegates-your-long-running-dev-work),
+[Unite.AI](https://www.unite.ai/anthropic-redesigns-claude-code-projects-to-coordinate-agent-threads/),
+and [DevOps.com](https://devops.com/anthropic-adds-a-coordinator-to-claude-projects-for-running-ai-work-in-parallel/).
+
 ## Report: spawning an agent session to execute a task
 
 Logged 2026-09-16. Session `session_01EepA7GiwbvHJVWxr8JKQ3N`.
