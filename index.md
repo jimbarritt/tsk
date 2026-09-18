@@ -64,6 +64,7 @@ briefing: [missions/operational/M-BOOT.md](missions/operational/M-BOOT.md).
 | M-BOOT-04 | The official ledger | No breakout briefing yet | TODO | M-BOOT-03 |
 | M-BOOT-05 | Migration off the bootstrap ref | No breakout briefing yet | TODO | M-BOOT-04 |
 | [M-LAB](missions/operational/M-LAB-ai-lab-notes.md) | AI lab notes (journalling plugin) | Skeleton, most fields TBD | TODO | none |
+| [M-STORY](missions/operational/M-STORY-tsk-story-deck.md) | tsk story deck | A Marp deck in `docs/slide-decks/overview-for-engineers/` tells tsk's domain and features as a product, for other engineers | TODO | none |
 
 Essential mission: M-BOOT-05. Its objective and M-BOOT's objective are the same state.
 
