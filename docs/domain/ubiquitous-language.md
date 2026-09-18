@@ -125,6 +125,28 @@ rot when the mechanism changes, exactly as "data ref" did).
 The unit of work. Nestable to any depth. Every task has an identity, an objective and a
 status from the start, not a line of text in a table.
 
+## Task weight
+
+How much form a task needs, in four discrete steps rather than a continuum:
+
+1. **Ad hoc.** Asked for directly, in conversation, and done. Never recorded as a task.
+2. **Simple.** A short description, nothing more.
+3. **Structured.** A full objective: the checkable state the Task entry already
+   requires of every task. This step is where that requirement starts to matter in
+   practice.
+4. **Mission.** Beyond structured, the task is delegated rather than carried further as
+   a task. See Mission for the test.
+
+Named weight rather than reusing [Scale](#scale): Scale is the continuous zoom
+dimension across Navigation, Delta, Product and Scale itself, and these are four
+distinct forms, not a point on that continuum. Rejected: task scale (the collision just
+described), task tier (tier reads as a ranking of quality, not of form).
+
+Open point, not yet resolved: Mission's own test for graduating a task is delegation to
+a different actor. This scale's fourth step describes it by duration instead, a task
+expected to run more than a few turns. Whether these are one test seen two ways, or
+duration is a second, independent trigger for mission-hood, is undecided.
+
 ## Mission
 
 The way an agent or a human receives instructions. A mission has an objective, which also serves as its
