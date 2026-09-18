@@ -48,6 +48,7 @@ column does not apply and this table omits it.
 | ID | Mission | Objective |
 |---|---|---|
 | [M-ADMIN-01](missions/administrative/M-ADMIN-01-idea-capture.md) | Idea capture | An idea Jim states in a session reaches the ledger rather than being lost |
+| [M-ADMIN-02](missions/administrative/M-ADMIN-02-adhoc-tasks.md) | Ad hoc tasks | A task Jim raises mid-session, unrelated to that session's mission, is tracked to done rather than lost |
 
 This is the answer to a thread that has no mission, settled 2026-09-17. A session kept
 open to capture ideas, a tidy up thread looking for work that needs a nudge, a reviewer
