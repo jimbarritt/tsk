@@ -203,6 +203,27 @@ more about the actors than about overall work status. Settle them together.
 Open: whether tsk models the worker as a first-class thing at all, or whether a worker is
 simply an actor that happens to persist, with threads still carrying the continuity.
 
+## Autonomous conflict resolution on tsk/bootstrap pushes
+
+Raised by Jim, 2026-09-18, alongside the `push-bootstrap-ref.sh` fix for concurrent
+pushes (M-BOOT-02).
+
+That fix rebases onto origin's tip and retries when a concurrent push is
+non-conflicting, but aborts with a message and stops on a real conflict, for a human to
+resolve by hand. An autonomous agent has no human to hand this to.
+
+Jim raised two directions: escalate to Jim for assistance, or have the agent attempt
+self-resolution. He connected this to "Agents interrupting each other" above: the two
+sessions in conflict could have a discussion with each other, possibly over the same
+peer to peer gossip protocol raised there, rather than one session resolving the
+conflict blind.
+
+Jim's read: might be part of a later mission. Not decided.
+
+Open: whether self-resolution is safe for ledger content (missions, tasks, thread
+state) at all, what a discussion between sessions would need mechanically, and whether
+it is the same mechanism as the interrupting-each-other idea or a different one.
+
 ## Actor definition
 
 Raised by Jim, 2026-09-17, while resolving what to do with a thread that has no mission.
