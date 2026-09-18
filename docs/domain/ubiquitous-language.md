@@ -125,9 +125,11 @@ rot when the mechanism changes, exactly as "data ref" did).
 The unit of work. Nestable to any depth. Every task has an identity, an objective and a
 status from the start, not a line of text in a table.
 
-## Task weight
+## Task scope
 
-How much form a task needs, in four discrete steps rather than a continuum:
+How much a task carries, in four discrete steps rather than a continuum. Not fixed when
+the task is created: working a task can discover that it needs more than the step it
+started at.
 
 1. **Ad hoc.** Asked for directly, in conversation, and done. Never recorded as a task.
 2. **Simple.** A short description, nothing more.
@@ -137,10 +139,15 @@ How much form a task needs, in four discrete steps rather than a continuum:
 4. **Mission.** Beyond structured, the task is delegated rather than carried further as
    a task. See Mission for the test.
 
-Named weight rather than reusing [Scale](#scale): Scale is the continuous zoom
-dimension across Navigation, Delta, Product and Scale itself, and these are four
-distinct forms, not a point on that continuum. Rejected: task scale (the collision just
-described), task tier (tier reads as a ranking of quality, not of form).
+Discovered, not assigned. A task can start at one step and move to a higher one as work
+on it reveals more than was visible when it was scoped. Case in point: M-BOOT-02's T-14
+was raised as a short bugfix, then found during its own investigation to need the scope
+of a delegated mission, M-BOOT-02-02.
+
+Distinct from [Scale](#scale) despite the similar name: Scale is the continuous zoom
+dimension across Navigation, Delta, Product and Scale itself; this is four distinct
+steps, not a point on a continuum. Rejected: task tier (tier reads as a ranking of
+quality, not of scope).
 
 Open point, not yet resolved: Mission's own test for graduating a task is delegation to
 a different actor. This scale's fourth step describes it by duration instead, a task
