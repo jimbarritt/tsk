@@ -105,13 +105,21 @@ thread_resolve_binding_at() {
   return 1
 }
 
-# thread_resolve_binding: resolve the current binding against a freshly
-# fetched worktree. Use before any write that must not act on stale state
-# (start, resume). Prints "cloud:<thread-id>" or "worktree:<thread-id>"
-# and exits 0 on a hit, prints nothing and exits 1 on a miss.
+# thread_resolve_binding [<wt>]: resolve the current binding. With no
+# argument, fetches a fresh worktree first (the safe default; use this
+# before any write that must not act on stale state — start, resume).
+# Prints "cloud:<thread-id>" or "worktree:<thread-id>" and exits 0 on a
+# hit, prints nothing and exits 1 on a miss.
+#
+# Pass <wt> only when the caller fetched it in this same invocation, to
+# skip a redundant second fetch. An ambient value such as $TSK_BOOTSTRAP_WT
+# lives for a whole session and is not proof of freshness; do not pass
+# that here on its own say-so.
 thread_resolve_binding() {
-  local wt
-  wt="$(thread_refresh_wt)"
+  local wt="${1:-}"
+  if [ -z "$wt" ]; then
+    wt="$(thread_refresh_wt)"
+  fi
   thread_resolve_binding_at "$wt"
 }
 
