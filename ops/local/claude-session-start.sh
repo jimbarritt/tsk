@@ -4,6 +4,17 @@ set -uo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# A shallow clone truncates history at an arbitrary boundary and marks the
+# commit there as if it had no parent. Two shallow fetches at different times
+# can truncate at two different points, so a later comparison between them
+# (e.g. local main against origin/main) finds no common ancestor and looks
+# exactly like a rewritten, unrelated history. It is neither: the real
+# history is continuous on GitHub, just not present in this clone. Unshallow
+# once, here, so no session ever has to tell the two apart.
+if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
+  git fetch --unshallow origin >/dev/null 2>&1 || true
+fi
+
 source "$REPO_ROOT/ops/local/bootstrap-wt-lib.sh"
 source "$REPO_ROOT/ops/local/thread-lib.sh"
 
