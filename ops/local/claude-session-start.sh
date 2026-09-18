@@ -5,6 +5,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 source "$REPO_ROOT/ops/local/bootstrap-wt-lib.sh"
+source "$REPO_ROOT/ops/local/thread-lib.sh"
 
 INPUT="$(cat)"
 SOURCE="$(printf '%s' "$INPUT" | jq -r '.source // empty')"
@@ -46,7 +47,7 @@ if [ -n "$WT" ] && [ -d "$WT" ]; then
     THREAD_ID="${BINDING#*:}"
     THREAD_MSG=" An existing thread binding was found: $BINDING. Run /resume-thread $THREAD_ID next."
   else
-    THREAD_MSG=" No thread binding was found for this session or worktree. Ask directly which mission to work, then run /start-thread for it."
+    THREAD_MSG=" $(thread_unbound_prompt_text)"
   fi
 
   jq -n --arg wt "$WT" --arg thread_msg "$THREAD_MSG" --arg pending_msg "$PENDING_MSG" '{

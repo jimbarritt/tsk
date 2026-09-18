@@ -75,13 +75,14 @@ thread_cloud_lookup_path() {
   printf '%s/threads/lookup-by-cloud-session.json\n' "$wt"
 }
 
-# thread_resolve_binding: resolve the current binding. Checks the cloud
-# session ID first; falls back to the worktree marker. Prints
-# "cloud:<thread-id>" or "worktree:<thread-id>" and exits 0 on a hit,
-# prints nothing and exits 1 on a miss.
-thread_resolve_binding() {
-  local wt lookup id marker
-  wt="$(thread_refresh_wt)"
+# thread_resolve_binding_at <wt>: binding lookup body, given a worktree
+# path the caller has already resolved. Prints "cloud:<thread-id>" or
+# "worktree:<thread-id>" and exits 0 on a hit, prints nothing and exits 1
+# on a miss. Shared by thread_resolve_binding (fetches first) and
+# thread_resolve_binding_local (does not), so the lookup logic itself
+# has exactly one copy.
+thread_resolve_binding_at() {
+  local wt="$1" lookup id marker
   if [ -n "${CLAUDE_CODE_REMOTE_SESSION_ID:-}" ]; then
     lookup="$(thread_cloud_lookup_path "$wt")"
     if [ -f "$lookup" ]; then
@@ -102,6 +103,38 @@ thread_resolve_binding() {
     fi
   fi
   return 1
+}
+
+# thread_resolve_binding: resolve the current binding against a freshly
+# fetched worktree. Use before any write that must not act on stale state
+# (start, resume). Prints "cloud:<thread-id>" or "worktree:<thread-id>"
+# and exits 0 on a hit, prints nothing and exits 1 on a miss.
+thread_resolve_binding() {
+  local wt
+  wt="$(thread_refresh_wt)"
+  thread_resolve_binding_at "$wt"
+}
+
+# thread_resolve_binding_local: same lookup, without fetching. For a check
+# that runs on every turn (the Stop hook binding guard, M-BOOT-02-02) a
+# network fetch on every turn is slow and fragile, and unnecessary: a
+# binding this session itself wrote is already reflected in its own
+# worktree checkout without re-fetching it. Exits 1, same as a miss, if the
+# worktree does not exist yet at all.
+thread_resolve_binding_local() {
+  local wt
+  wt="$("$(dirname "${BASH_SOURCE[0]}")/bootstrap-wt-path.sh")"
+  [ -d "$wt" ] || return 1
+  thread_resolve_binding_at "$wt"
+}
+
+# thread_unbound_prompt_text: the instruction shown to the agent when no
+# binding is found. Shared by the SessionStart hook (fires once) and the
+# Stop hook binding guard (repeats every turn until bound, M-BOOT-02-02),
+# so the two call sites cannot drift the way the push sequence once did
+# (see CLAUDE.md).
+thread_unbound_prompt_text() {
+  printf '%s' "No thread binding was found for this session or worktree. Use the AskUserQuestion tool to ask which mission to work: offer your best-inferred candidate (from index.md, the mission tree, or anything already said this session) as one selectable option, one or two other unblocked missions as alternatives, and leave free text open for anything else. Once answered, run /start-thread for it, or /resume-thread <thread-id> if an existing thread is named instead."
 }
 
 # thread_bind_cloud <thread-id> <wt>: write/update the cloud lookup entry
