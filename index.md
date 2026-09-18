@@ -8,36 +8,6 @@ mission, not the name of a file holding the state of all of them. See
 `docs/domain/ubiquitous-language.md` in the tsk repo. To ask where things stand, ask for
 mission status at the level of scale you mean.
 
-## Where we are
-
-M-BOOT-01 (substrate) is complete: all eight tasks are done, including the nexus repo
-(`jimbarritt/tsk-nexus`), which now holds `nexus.json` indexing the `agentic-engineering`
-territory (`tsk` and `ksobr`). M-BOOT-02 (harness) is in progress: T-01 (move the
-missions into the repository) is done, and T-02 (mission briefing template into the
-harness) is next unblocked.
-
-## Next step
-
-M-BOOT-02-01 (continuation harness) is done, 2026-09-17. `/start-thread`,
-`/pause-thread` and `/resume-thread` exist, are wired to the `SessionStart` hook, and
-were proven end to end. It was reopened once the same day for T-11, which guards the
-ledger fetch against resetting over a commit that was never pushed. Report:
-[missions/operational/M-BOOT-02-01/M-BOOT-02-01-continuation-harness-report.md](missions/operational/M-BOOT-02-01/M-BOOT-02-01-continuation-harness-report.md).
-Read it before picking the next mission: it carries three findings that outlive this
-mission, and two open items for Jim.
-
-M-BOOT-02-02 (thread binding resilience) is done, 2026-09-18, closing T-14. A `Stop`
-hook now runs every turn and blocks turn completion until a thread is bound, replacing
-the one-shot `SessionStart` nudge that could be skipped once conversation moved
-elsewhere. Proven live against a real cloud session given an immediate unrelated first
-message. Report:
-[missions/operational/M-BOOT-02-02/M-BOOT-02-02-thread-binding-resilience-report.md](missions/operational/M-BOOT-02-02/M-BOOT-02-02-thread-binding-resilience-report.md).
-
-T-04 (thread state format) is separately the next unblocked task on M-BOOT-02's own
-plan, and the one M-BOOT-02-01 deliberately did not encroach on: a continuation state
-entry carries a single what's-next line, so which tasks are done and which is in
-progress still has no home.
-
 ## Current mission
 
 **M-BOOT-02: harness.** Full briefing:
