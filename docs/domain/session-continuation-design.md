@@ -16,6 +16,7 @@ Depends on: `docs/domain/ubiquitous-language.md` (Actor, Thread, Thread continua
 - [Continuation state entries](#continuation-state-entries)
 - [The three commands](#the-three-commands)
 - [Resolution at session start](#resolution-at-session-start)
+- [Binding persistence across a turn](#binding-persistence-across-a-turn)
 - [Deferred](#deferred)
 
 ## Binding a session to a thread
@@ -191,12 +192,67 @@ The `SessionStart` hook extends to:
 
 1. Resolve the current binding (cloud session ID, or worktree marker).
 2. If found, prompt the agent to run `/resume-thread <thread-id>` with the resolved ID.
-3. If not found, prompt the agent to ask the human directly: no thread found, do they
-   want to start one, and if so, for what mission. Once answered, the agent runs
-   `/start-thread`.
+3. If not found, prompt the agent to ask the human directly, as a structured question
+   (`AskUserQuestion`: selectable options plus free text), not a plain message: no
+   thread found, which mission do they want to work, with an initial inference offered
+   as a candidate option. Once answered, the agent runs `/start-thread`.
 
 The hook never creates a thread itself. Both branches end by naming a command and
 letting the agent invoke it, not by the hook doing the loading or the asking itself.
+
+Corrected by M-BOOT-02-02: this section originally described the not-found prompt as
+plain text ("ask the human directly... do they want to start one"). It was found to be
+skippable in practice, not wrong in what it asked for: see Binding persistence below.
+
+## Binding persistence across a turn
+
+Added by M-BOOT-02-02, which closes a gap this design left open: the `SessionStart`
+hook above names the required action once, at the very start of a session. Naming it
+once is not the same as it happening. The gap was found in practice on 2026-09-17/18:
+the hook's `additionalContext` correctly named the required action, and it was still
+skipped once conversation moved elsewhere, leaving the session unbound for its entire
+duration. A single injection point competing with a salient literal request from the
+human has no guarantee of being honoured on every run, however clearly it is worded.
+
+**Mechanism.** A `Stop` hook, `ops/local/thread-binding-guard.sh`, runs on every turn,
+not once at session start. It checks the current binding; if none is found, it blocks
+the turn from completing (`{"decision": "block", "reason": "..."}`), and the agent
+continues the same turn instead of handing control back. The reason text is the same
+instruction the `SessionStart` hook gives on a miss (`thread_unbound_prompt_text` in
+`thread-lib.sh`), so the two call sites cannot drift apart the way the push sequence
+once did (see `CLAUDE.md`). This holds even when the human's first message after a
+`SessionStart` firing, or after a `/clear`, is unrelated to any mission: the agent may
+answer it, but the turn cannot end until a thread is bound, so the binding instruction
+cannot be silently dropped as a casualty of that answer.
+
+**Why a `Stop` hook and not `/goal`.** `/goal`'s evaluator is a fast model judging
+whether a condition holds from the transcript alone; whether a thread is bound is a
+plain boolean fact, checkable by a deterministic script with no judgement involved. Using
+`/goal` for it would also occupy the one-goal-per-session slot a mission's own
+verification work might later want, and `/goal` is documented as built for the
+unsupervised context, not this design's supervised-interactive scope.
+
+**Why the check does not fetch.** `thread_resolve_binding_local` (`thread-lib.sh`)
+performs the same lookup as `thread_resolve_binding` but never calls
+`fetch-bootstrap-ref.sh`. Refreshing over the network on every turn would be slow and
+liable to fail transiently, and it is unnecessary here: a binding this session itself
+wrote is already reflected in its own worktree checkout without being fetched again.
+
+**Safety valve.** The guard does not track its own attempt count. Claude Code overrides
+a `Stop` hook that blocks eight times in a row without progress, which is the actual
+backstop; `AskUserQuestion` cannot fail to elicit a response, so reaching that cap would
+mean the binding flow itself is broken, a case this script cannot repair by trying a
+ninth time.
+
+**Proof.** Proven by a live cloud session, given an immediate, unrelated first message
+("What's 17 times 23?"): the guard blocked the plain answer from completing the turn,
+and the agent's next action was the structured `AskUserQuestion` call named above,
+correctly naming the mission that produced the gap as its top-billed candidate. The
+`/clear` scenario was not proven live the same way: no tool call lets an agent trigger
+`/clear` on itself, the same limitation M-BOOT-02-01's report recorded. It holds by
+construction instead: the guard depends on no conversational state, only on the
+worktree marker or the cloud lookup entry, neither of which `/clear` changes, so its
+behaviour cannot differ before and after one.
 
 ## Deferred
 
