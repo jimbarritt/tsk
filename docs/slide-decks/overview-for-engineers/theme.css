@@ -1,0 +1,110 @@
+/* @theme tsk-overview */
+/* Marp theme for the tsk engineering overview deck.
+   Visual language follows jimbarritt/ag-seminar's theme.css: same palette,
+   typography and slide conventions, retitled for this deck. */
+
+@import 'default';
+
+:root {
+  --fg: #1a1a1a;
+  --muted: #555;
+  --accent: #0a4d8c;
+  --rule: #e5e5e5;
+  --code-bg: #f5f5f7;
+}
+
+section {
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", Roboto, system-ui, sans-serif;
+  font-size: 26px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: #ffffff;
+  padding: 60px 80px;
+}
+
+h1, h2, h3 {
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--fg);
+}
+
+h1 { font-size: 1.7em; border-bottom: 1px solid var(--rule); padding-bottom: 0.3em; }
+h2 { font-size: 1.3em; }
+h3 { font-size: 1.1em; color: var(--accent); }
+
+a { color: var(--accent); }
+
+strong { font-weight: 600; color: var(--accent); }
+
+code, pre {
+  font-family: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+code { background: var(--code-bg); padding: 1px 6px; border-radius: 3px; font-size: 0.9em; }
+
+pre {
+  background: var(--code-bg);
+  padding: 0.8em 1em;
+  border-radius: 6px;
+  line-height: 1.4;
+}
+
+blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 0.2em 1em;
+  color: var(--muted);
+}
+
+table { font-size: 0.78em; }
+th, td { border-bottom: 1px solid var(--rule); padding: 0.4em 0.6em; }
+th { font-weight: 600; background: var(--code-bg); }
+
+img { background: transparent; }
+
+/* Keep images clear of the footer / page number.
+   Fixed px against Marp's 720px canvas, for the same reason ag-seminar's
+   theme uses px here: vh grows with the browser viewport and % doesn't
+   resolve reliably in Marp's foreignObject wrapping. */
+section img {
+  display: block;
+  margin: 0.3em auto;
+  max-width: 92%;
+  max-height: 500px;
+}
+
+/* Slide with slightly reduced font to fit dense content */
+section.dense { font-size: 0.85em; }
+
+footer, header {
+  color: var(--muted);
+  font-size: 0.55em;
+}
+
+section::after {
+  color: var(--muted);
+  font-size: 0.55em;
+}
+
+/* Title / section-divider slides: use with <!-- _class: lead --> */
+section.lead {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+section.lead h1 {
+  border-bottom: none;
+  font-size: 2.2em;
+  color: var(--accent);
+}
+
+section.lead h2 {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* Right-side footer: project name just left of the page number */
+section[data-marpit-pagination]::after {
+  content: 'tsk\00A0\00A0\00A0\00A0' attr(data-marpit-pagination);
+}
