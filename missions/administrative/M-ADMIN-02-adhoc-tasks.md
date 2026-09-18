@@ -51,6 +51,7 @@ mission's plan instead of here, and say so rather than duplicating it silently.
 | ID | Task | Objective, in short | Delegated to | Blocked by | Status |
 |---|---|---|---|---|---|
 | T-01 | Create this mission's briefing | M-ADMIN-02 exists in `missions/administrative/`, and appears in `index.md`'s administrative missions table | none | none | DONE |
+| T-02 | Strip the tsk `README.md` down to a four-step quickstart | `README.md` keeps only the strapline, the four numbered steps, and a short docs table; prerequisites, installation, upgrading and CI move to `docs/user-guide/installation.md` (new), linked from `docs/index.md` | none | none | DONE |
 
 ## First behaviour
 
