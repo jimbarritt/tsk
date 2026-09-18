@@ -35,7 +35,9 @@ fi
 
 # Additive take-over: bind regardless of what was already found above.
 if [ -n "${CLAUDE_CODE_REMOTE_SESSION_ID:-}" ]; then
-  EXISTING="$(thread_resolve_binding || true)"
+  # $WT was just fetched above, so pass it through rather than fetching a
+  # second time (M-BOOT-02, ad-hoc task: double fetch on every /resume-thread).
+  EXISTING="$(thread_resolve_binding "$WT" || true)"
   if [ "$EXISTING" != "cloud:$THREAD_ID" ]; then
     thread_bind_cloud "$THREAD_ID" "$WT"
     "$(dirname "${BASH_SOURCE[0]}")/push-bootstrap-ref.sh" "Bind $CURRENT_ACTOR to thread $THREAD_ID"

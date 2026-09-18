@@ -41,7 +41,9 @@ if [ -n "$WT" ] && [ -d "$WT" ]; then
     PENDING_MSG=""
   fi
 
-  BINDING="$(TSK_BOOTSTRAP_WT="$WT" ops/local/thread-resolve-binding.sh 2>/dev/null || true)"
+  # $WT was just fetched above, so pass it through rather than fetching a
+  # second time (M-BOOT-02, ad-hoc task: double fetch on every SessionStart).
+  BINDING="$(ops/local/thread-resolve-binding.sh "$WT" 2>/dev/null || true)"
 
   if [ -n "$BINDING" ]; then
     THREAD_ID="${BINDING#*:}"
