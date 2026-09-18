@@ -31,20 +31,64 @@ artefacts, so a later thread can reuse material an earlier one produced. Each wo
 thread is a full Claude Code session in its own right, so parallel work counts against
 plan limits accordingly.
 
-Research mission: this sits in the same territory tsk models. A coordinator routing to
-threads maps onto tsk's actor and thread concepts; shared project memory maps onto
-something like the ledger; the artefact library maps onto tsk's own Artefact term.
-Understand where the two agree, where they differ, and whether tsk's model should account
-for a product that now does part of this natively.
+A first comparison was made against the domain docs on 2026-09-18. Its findings, and the
+questions they leave, are below.
 
-Open: whether this changes tsk's scope, whether tsk should integrate with or sit
-alongside this feature, and whether tsk's terminology (coordinator vs. actor, project
-memory vs. ledger) should converge with Anthropic's or stay deliberately distinct.
-Sources found during capture, not yet read in full: the blog post above (blocked from
-this sandbox's egress proxy), and secondary coverage at
+**Thread converges.** Anthropic's thread and tsk's Thread do the same job: hold context,
+sustain work across days, subdivide. `vision.md` has threads as "fractal, pausable,
+resumable, and able to hold their own context, the way a stack frame does in a
+programming model". Two designs reaching the same unit independently is evidence the
+unit is real.
+
+**The difference is fusion, not absence.** Anthropic joins three pairs that tsk keeps
+apart. Thread and session are one object there; tsk binds them and records why, with the
+`/clear` finding in the Actor entry. Inputs and outputs share one library there; tsk
+splits ledger from artefact by definition. Work sits inside a project container there;
+tsk has no container. Each is tsk declining to complect, not tsk missing a part.
+
+**A project is a mission, described loosely.** Anthropic's project is a repo, a goal and
+some configuration. In tsk that is territory, objective and constraints, each with its
+own definition. tsk also already refused a container above mission on stronger grounds:
+`domain-model-overview.md` records that no campaign or major-operation type is added
+"even though doctrine nests campaign above mission: Scale, one of tsk's four dimensions,
+rejects fixed echelons". Doctrine offered a container with an argument behind it and tsk
+declined. Missions are scale free, so no project type is needed.
+
+**A coordinator is an actor.** The Actor entry already anticipates one: "a maintenance or
+coordination actor is the clear case, picking up whatever needs attention across missions
+rather than being handed one." tsk has not built the automation. The model has the place
+for it without a new type.
+
+**Shared memory is mostly a boundary tsk drew.** Constraints such as who to consult
+before a service changes belong in a briefing's Constraints section. Check-in frequency
+and update verbosity only make sense because a harness executes the work, so they are
+ksobr by the existing boundary test. What has no home is a live cross-mission fact such
+as a release date moving, which is the same gap as
+[Design decision recording beyond ADRs](#design-decision-recording-beyond-adrs) in this
+file.
+
+**The differentiation line is unchanged.** `vision.md` separates tsk from Beads because
+Beads is "scoped to orchestrating agent work" while tsk "is about collaboration between
+humans and agents, and between humans and humans, not agent orchestration alone." Claude
+Code Projects is agent orchestration. The same line separates tsk from it.
+
+Open, and worth the research mission:
+
+- **M-BOOT-03 may be building what the platform now provides.** A thread there opens
+  pull requests and runs tests on its own branch. M-BOOT-03's objective is one unattended
+  run producing a pull request and a run record, and its T-07 defines the run loop. Check
+  before building further.
+- **Whether convergence makes tsk's model more valuable as a substrate or less valuable
+  as a product.** Anthropic reaching the same unit is evidence the model is right, and
+  evidence the product layer is absorbing the model layer. This is the question
+  `docs/decisions/beads-vs-tsk-viability.md` already frames, now with a second data point.
+
+Sources: the blog post above, whose full text Jim supplied because
+`claude.com` is blocked from the cloud sandbox's egress proxy. Secondary coverage at
 [VentureBeat](https://venturebeat.com/orchestration/anthropic-launches-claude-code-projects-an-always-on-conversation-that-remembers-and-delegates-your-long-running-dev-work),
 [Unite.AI](https://www.unite.ai/anthropic-redesigns-claude-code-projects-to-coordinate-agent-threads/),
-and [DevOps.com](https://devops.com/anthropic-adds-a-coordinator-to-claude-projects-for-running-ai-work-in-parallel/).
+and [DevOps.com](https://devops.com/anthropic-adds-a-coordinator-to-claude-projects-for-running-ai-work-in-parallel/),
+none of it read in full.
 
 ## Report: spawning an agent session to execute a task
 
