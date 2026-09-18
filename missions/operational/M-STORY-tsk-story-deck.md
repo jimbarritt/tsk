@@ -71,16 +71,23 @@ constraints below) is the actor's to decide.
 
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|
-| T-01 | Gather source material | A list of candidate domain concepts and shipped features to cover, drawn from the docs in Intelligence | none | TODO |
-| T-02 | Review `ag-seminar` for style | Notes on visual and narrative style to carry into this deck | none | TODO |
-| T-03 | Draft the narrative outline | A slide-by-slide outline (title, one-line content, which visual each needs) exists and Jim has approved it | T-01, T-02 | TODO |
-| T-04 | Set up Marp tooling | `docs/slide-decks/overview-for-engineers/` has its own `package.json` with `@marp-team/marp-cli` as a pnpm dependency and a build script; running it renders the deck with no errors | none | TODO |
-| T-05 | Build the deck | Slide content and visuals built to match the approved outline; deck renders cleanly | T-03, T-04 | TODO |
-| T-06 | Jim reviews v1 | Jim has seen the rendered deck and approved it, or named changes | T-05 | TODO |
+| T-01 | Gather source material | A list of candidate domain concepts and shipped features to cover, drawn from the docs in Intelligence | none | DONE |
+| T-02 | Review `ag-seminar` for style | Notes on visual and narrative style to carry into this deck | none | DONE |
+| T-03 | Draft the narrative outline | A slide-by-slide outline (title, one-line content, which visual each needs) exists and Jim has approved it | T-01, T-02 | DONE (drafted; Jim's approval folded into T-06, see note below) |
+| T-04 | Set up Marp tooling | `docs/slide-decks/overview-for-engineers/` has its own `package.json` with `@marp-team/marp-cli` as a pnpm dependency and a build script; running it renders the deck with no errors | none | DONE |
+| T-05 | Build the deck | Slide content and visuals built to match the approved outline; deck renders cleanly | T-03, T-04 | DONE |
+| T-06 | Jim reviews v1 | Jim has seen the rendered deck and approved it, or named changes | T-05 | IN PROGRESS |
 | T-07 | Set up the follow-on admin mission | A new administrative mission briefing exists in `missions/administrative/` for keeping documentation updated going forward. Its exact scope, deck-only versus general documentation, is that mission's own open decision, not settled here | T-06 | TODO |
 
 **Essential task**: T-03. Building slides against an unapproved outline risks telling
 the wrong story; the outline is where that risk is caught cheaply.
+
+Note on T-03's decision authority: this mission's decision authority section gates
+slide-building on Jim approving the outline first. In this run, Jim explicitly asked
+for a full autonomous run producing a basic draft to review as a whole, questions held
+until the end, rather than a separate outline gate. T-01 through T-05 were run in one
+pass on that instruction. The outline is presented alongside the rendered v1 deck for
+T-06, not approved separately beforehand.
 
 ## Open decisions
 
