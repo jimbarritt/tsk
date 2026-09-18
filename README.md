@@ -1,9 +1,22 @@
 # tsk - work with a clear context
 
-1. Clone this repo.
-2. Fire up Claude.
-3. Say "hi".
-4. Let tsk do the rest.
+**1. Clone this repo.**
+```bash
+git clone https://github.com/jimbarritt/tsk.git
+cd tsk
+```
+
+**2. Fire up Claude.**
+```bash
+claude
+```
+
+**3. Say "hi".**
+```
+hi
+```
+
+**4. Let tsk do the rest.**
 
 ## Documentation
 
