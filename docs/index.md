@@ -23,6 +23,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 
 ## User guide
 
+- [installation.md](user-guide/installation.md): prerequisites, installing and upgrading the `tsk` and `tskd` binaries, and CI.
 - [getting-started.md](user-guide/getting-started.md): running the daemon, threads, global storage, project binding, tests, building, publishing.
 - [state-models.md](user-guide/state-models.md): task and thread state models, diversions, and how the daemon and client fit together.
 - [missions-threads-and-continuation.md](user-guide/missions-threads-and-continuation.md): how tsk's own missions and task data are stored and worked, the `/start-thread`, `/pause-thread` and `/resume-thread` commands, and what the `SessionStart` hook does.
