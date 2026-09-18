@@ -1,0 +1,43 @@
+<svg viewBox="0 0 1000 340" xmlns="http://www.w3.org/2000/svg"
+     font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif">
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4f46e5"/>
+    </marker>
+  </defs>
+
+  <!-- the thread: one continuous bar -->
+  <rect x="60" y="150" width="880" height="40" rx="20" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.8"/>
+  <text x="500" y="176" text-anchor="middle" font-size="15" font-weight="700" fill="#312e81">one thread, the same identity throughout</text>
+  <line x1="60" y1="170" x2="920" y2="170" stroke="none"/>
+  <line x1="920" y1="170" x2="940" y2="170" stroke="#4f46e5" stroke-width="1.8" marker-end="url(#a)"/>
+
+  <!-- session A -->
+  <rect x="80" y="40" width="220" height="80" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.6"/>
+  <text x="190" y="72" text-anchor="middle" font-size="15" font-weight="700" fill="#1e3a8a">session, actor A</text>
+  <text x="190" y="94" text-anchor="middle" font-size="12.5" fill="#1d4ed8">works some tasks</text>
+  <line x1="190" y1="120" x2="190" y2="148" stroke="#2563eb" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <!-- pause -->
+  <circle cx="330" cy="170" r="7" fill="#d97706"/>
+  <text x="330" y="212" text-anchor="middle" font-size="13" fill="#92400e">/pause-thread</text>
+  <text x="330" y="230" text-anchor="middle" font-size="11.5" fill="#b45309">writes a continuation entry</text>
+
+  <!-- gap -->
+  <text x="500" y="120" text-anchor="middle" font-size="13" fill="#94a3b8" font-style="italic">session boundary: minutes or days later</text>
+
+  <!-- resume -->
+  <circle cx="660" cy="170" r="7" fill="#059669"/>
+  <text x="660" y="212" text-anchor="middle" font-size="13" fill="#065f46">/resume-thread</text>
+  <text x="660" y="230" text-anchor="middle" font-size="11.5" fill="#047857">reads the latest entry</text>
+
+  <!-- session B -->
+  <rect x="700" y="40" width="220" height="80" rx="12" fill="#ecfdf5" stroke="#059669" stroke-width="1.6"/>
+  <text x="810" y="72" text-anchor="middle" font-size="15" font-weight="700" fill="#065f46">session, actor B</text>
+  <text x="810" y="94" text-anchor="middle" font-size="12.5" fill="#047857">human or agent, picks up where A left off</text>
+  <line x1="810" y1="120" x2="810" y2="148" stroke="#059669" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <text x="500" y="300" text-anchor="middle" font-size="13.5" fill="#64748b">a different actor resuming the same thread is a hand-off, not a restart</text>
+
+</svg>

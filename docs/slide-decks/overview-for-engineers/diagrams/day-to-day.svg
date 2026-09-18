@@ -1,0 +1,35 @@
+<svg viewBox="0 0 1000 360" xmlns="http://www.w3.org/2000/svg"
+     font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif">
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#555"/>
+    </marker>
+  </defs>
+
+  <!-- project directory -->
+  <rect x="40" y="30" width="220" height="66" rx="10" fill="#f8fafc" stroke="#475569" stroke-width="1.6"/>
+  <text x="150" y="58" text-anchor="middle" font-size="14" font-weight="700" fill="#1e293b">your project directory</text>
+  <text x="150" y="78" text-anchor="middle" font-size="12" fill="#475569">tsk thread update --path</text>
+
+  <line x1="150" y1="96" x2="150" y2="126" stroke="#555" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- Thread A: active -->
+  <rect x="40" y="130" width="480" height="70" rx="14" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.8"/>
+  <text x="70" y="158" font-size="16" font-weight="700" fill="#312e81">Thread A: active</text>
+  <text x="70" y="180" font-size="12.5" fill="#4338ca">bound to this directory · tsk where finds it</text>
+
+  <!-- Thread B: paused -->
+  <rect x="40" y="250" width="480" height="70" rx="14" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="0"/>
+  <text x="70" y="278" font-size="16" font-weight="700" fill="#4c1d95">Thread B: paused</text>
+  <text x="70" y="300" font-size="12.5" fill="#6d28d9">a different piece of work, elsewhere</text>
+
+  <!-- diversion arrow -->
+  <path d="M 470 205 C 620 230, 620 260, 480 275" fill="none" stroke="#d97706" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#a)"/>
+  <text x="720" y="222" text-anchor="middle" font-size="14" font-weight="700" fill="#92400e">diversion</text>
+  <text x="720" y="242" text-anchor="middle" font-size="12.5" fill="#b45309">tsk task create "…" --thread B</text>
+  <text x="720" y="260" text-anchor="middle" font-size="12.5" fill="#b45309">recorded on B; A stays active</text>
+
+  <text x="500" y="345" text-anchor="middle" font-size="13" fill="#64748b" font-style="italic">a thought about other work gets captured where it belongs, without losing your place</text>
+
+</svg>

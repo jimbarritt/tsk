@@ -1,0 +1,48 @@
+<svg viewBox="0 0 1000 420" xmlns="http://www.w3.org/2000/svg"
+     font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif">
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#555"/>
+    </marker>
+  </defs>
+
+  <!-- Thread -->
+  <g>
+    <rect x="30" y="120" width="250" height="160" rx="16" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.8"/>
+    <text x="155" y="170" text-anchor="middle" font-size="24" font-weight="700" fill="#312e81">Thread</text>
+    <text x="155" y="202" text-anchor="middle" font-size="14" fill="#4338ca">the execution sequence</text>
+    <text x="155" y="224" text-anchor="middle" font-size="14" fill="#4338ca">held by one actor at a time</text>
+    <text x="155" y="246" text-anchor="middle" font-size="14" fill="#4338ca">pausable, resumable</text>
+  </g>
+
+  <text x="330" y="210" text-anchor="middle" font-size="14" fill="#555">holds</text>
+  <line x1="284" y1="200" x2="366" y2="200" stroke="#555" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- Task -->
+  <g>
+    <rect x="370" y="120" width="250" height="160" rx="16" fill="#eff6ff" stroke="#2563eb" stroke-width="1.8"/>
+    <text x="495" y="170" text-anchor="middle" font-size="24" font-weight="700" fill="#1e3a8a">Task</text>
+    <text x="495" y="202" text-anchor="middle" font-size="14" fill="#1d4ed8">the unit of work</text>
+    <text x="495" y="224" text-anchor="middle" font-size="14" fill="#1d4ed8">nests to any depth</text>
+    <text x="495" y="246" text-anchor="middle" font-size="14" fill="#1d4ed8">objective + status, always</text>
+  </g>
+
+  <text x="665" y="170" text-anchor="middle" font-size="13" fill="#555">delegated to</text>
+  <text x="665" y="186" text-anchor="middle" font-size="13" fill="#555">a different actor</text>
+  <line x1="624" y1="200" x2="706" y2="200" stroke="#555" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- Mission -->
+  <g>
+    <rect x="710" y="120" width="260" height="160" rx="16" fill="#fffbeb" stroke="#d97706" stroke-width="1.8"/>
+    <text x="840" y="170" text-anchor="middle" font-size="24" font-weight="700" fill="#92400e">Mission</text>
+    <text x="840" y="202" text-anchor="middle" font-size="14" fill="#b45309">a task, seen from the</text>
+    <text x="840" y="224" text-anchor="middle" font-size="14" fill="#b45309">receiving actor's side</text>
+    <text x="840" y="246" text-anchor="middle" font-size="14" fill="#b45309">objective, briefing, its own tasks</text>
+  </g>
+
+  <!-- return loop: mission is received onto a new thread -->
+  <path d="M 840 280 C 840 360, 155 360, 155 284" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text x="497" y="385" text-anchor="middle" font-size="14" fill="#64748b" font-style="italic">the receiving actor decomposes it into a new thread's own tasks</text>
+
+</svg>

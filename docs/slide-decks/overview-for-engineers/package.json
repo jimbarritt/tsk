@@ -1,0 +1,13 @@
+{
+  "name": "tsk-overview-for-engineers",
+  "private": true,
+  "description": "tsk overview deck for an audience of engineers and builders",
+  "scripts": {
+    "build": "marp slides.md --theme-set theme.css -o deck.html",
+    "build:pdf": "marp slides.md --theme-set theme.css --allow-local-files -o deck.pdf",
+    "watch": "marp slides.md --theme-set theme.css --watch --preview"
+  },
+  "devDependencies": {
+    "@marp-team/marp-cli": "^4.4.0"
+  }
+}
