@@ -114,6 +114,49 @@ first-class Delta, and no continuous Scale. It is agent orchestration, which is 
 collaboration between humans and agents, and between humans and humans, not agent
 orchestration alone."
 
+### The context boundary: the sharpest difference
+
+Claude Code Projects makes the work fit the context. tsk makes the work outlive the
+context.
+
+The coordinator scopes a request and splits it into threads sized to be completable, so
+the boundary is handled by not reaching it. This matches Anthropic's own published
+pattern for long-running agents, recorded in
+[agent-context-self-regulation-and-unattended-handoff.md](../kb/agent-context-self-regulation-and-unattended-handoff.md):
+an initializer writes a `feature_list.json` of 200-plus granular features before any
+coding agent runs. Decompose first, then run bounded pieces.
+
+tsk inverts it. A thread holds the mission and runs until it judges the objective met.
+The unattended handoff pattern in that same document writes the stop condition as a
+disjunction: the thread prints its own context usage each turn, and crossing the ceiling
+makes the condition refuse until a handoff file exists, is committed and pushed, and a
+successor has been spawned from inside the condition. The document's own summary: "the
+goal clears with state on disk and a successor already running." No controller decides
+the split. The thread establishes that it cannot continue and hands to itself.
+
+| | Claude Code Projects | tsk |
+|---|---|---|
+| Who sizes the work | the coordinator, up front | nobody; the thread runs until the objective is met |
+| At the context limit | not described | the thread writes state, pushes, and spawns its successor, inside the goal condition |
+| What the successor reads | not described | the repository, because a cloud session starts from a fresh clone |
+| Where continuity lives | shared project memory | the ledger |
+
+**The recursion tsk already named.** A coordinator is a conversation. It accumulates
+memory across days and it fills. The same document records this as operating context 3:
+"the orchestrator is itself a session, and it eventually hits the same context limit its
+workers do. Continuation has to apply recursively, not only to the leaves." Shared
+project memory mitigates that without answering it, because retrieval of what was
+decided is not continuation of a running loop.
+
+**Read from a launch post, so test rather than conclude.** The announcement does not say
+what happens when a worker thread fills its context. Absence from a launch post is not
+absence from the product. The test is cheap: give a Projects thread work that cannot fit
+in one context and watch what it does.
+
+**This reframes the substrate question favourably.** If a Projects thread does hit a
+wall, tsk's continuation mechanism is what it needs. That is tsk sitting inside a thread
+rather than against one.
+
 ## Three-part viability verdict
 
 1. **tsk as a research programme: yes.** Two independent designs have now converged on
@@ -166,10 +209,17 @@ token-saving experiment to de-risk the four-dimension claim, keep the research t
 moving regardless of the product outcome, and let the experiment's data decide the
 product question.
 
-One concrete consequence for work already in flight: M-BOOT-03's objective is one
-unattended run producing a pull request and a run record, and its T-07 defines the run
-loop. A Claude Code Projects thread already opens pull requests and runs tests on its own
-branch. Check what the platform provides before building that loop.
+One concrete consequence for work already in flight. M-BOOT-03's T-07 defines the run
+loop, and that task splits in two, with only one half at risk.
+
+The plumbing, implement, run tests, push a branch and open a pull request, is close to
+what a Projects thread does natively. Check before building it.
+
+The continuation is not provided, and it is M-BOOT-03's own objective line: "a second
+unattended run resumes the first run's thread from that state rather than starting the
+mission over." Nothing described in Projects does that. The coordinator reaches the same
+end by starting a fresh thread on a fresh piece, which is starting over by construction
+rather than resuming. That half is tsk's actual contribution to the mission and stands.
 
 ## Related
 
