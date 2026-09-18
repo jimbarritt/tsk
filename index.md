@@ -26,10 +26,18 @@ ledger fetch against resetting over a commit that was never pushed. Report:
 Read it before picking the next mission: it carries three findings that outlive this
 mission, and two open items for Jim.
 
-Back to M-BOOT-02's own plan. T-04 (thread state format) is the next unblocked task and
-the one M-BOOT-02-01 deliberately did not encroach on: a continuation state entry carries a
-single what's-next line, so which tasks are done and which is in progress still has no
-home.
+T-14, found while working M-BOOT-02 directly on 2026-09-17/18, is now delegated to
+M-BOOT-02-02 (thread binding resilience). Briefing:
+[missions/operational/M-BOOT-02-02-thread-binding-resilience.md](missions/operational/M-BOOT-02-02-thread-binding-resilience.md).
+It closes a gap the executing session itself demonstrated: after `SessionStart` fires,
+a session can be left with no thread bound at all if something else grabs the agent's
+attention before it acts on the hook's own instruction. Read the briefing in full before
+starting; it points at the design doc and the M-BOOT-02-01 report in turn.
+
+T-04 (thread state format) is separately the next unblocked task on M-BOOT-02's own
+plan, and the one M-BOOT-02-01 deliberately did not encroach on: a continuation state
+entry carries a single what's-next line, so which tasks are done and which is in
+progress still has no home.
 
 ## Current mission
 
@@ -52,6 +60,7 @@ briefing: [missions/operational/M-BOOT.md](missions/operational/M-BOOT.md).
 | [M-BOOT-01](missions/operational/M-BOOT-01-substrate.md) | Substrate | Every place the bootstrap needs exists and holds its first content | ✓ DONE | none |
 | [M-BOOT-02](missions/operational/M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local and a cloud session both load the harness and read a briefing | IN PROGRESS | M-BOOT-01 |
 | [M-BOOT-02-01](missions/operational/M-BOOT-02-01-continuation-harness.md) | Continuation harness | `/start-thread`, `/pause-thread`, `/resume-thread` work end to end | ✓ DONE | M-BOOT-02 |
+| [M-BOOT-02-02](missions/operational/M-BOOT-02-02-thread-binding-resilience.md) | Thread binding resilience | A session never ends up unbound after `SessionStart` fires, even when distracted first | TODO | M-BOOT-02 |
 | [M-BOOT-03](missions/operational/M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | TODO | M-BOOT-02 |
 | M-BOOT-04 | The official ledger | No breakout briefing yet | TODO | M-BOOT-03 |
 | M-BOOT-05 | Migration off the bootstrap ref | No breakout briefing yet | TODO | M-BOOT-04 |
