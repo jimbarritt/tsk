@@ -1,0 +1,1 @@
+{"source":"github","event_type":"dependabot_alert","action":"created","repo":"jimbarritt/tsk","received_at":"2026-09-19T23:07:56Z","payload":{"action":"created","alert":{"number":1,"state":"open","dependency":{"package":{"name":"test-pkg"}}},"repository":{"full_name":"jimbarritt/tsk"}}}
