@@ -37,8 +37,9 @@ ladder itself.
 Engineer (Gergely Orosz), 10 February 2026 (verified independently against a second
 source, not taken from the article's own metadata alone).
 [newsletter.pragmaticengineer.com/p/steve-yegge-on-ai-agents-and-the](https://newsletter.pragmaticengineer.com/p/steve-yegge-on-ai-agents-and-the).
-A later interview covering the same ladder, alongside Yegge's view that large
-organisations absorb the resulting productivity gains worse than small teams do.
+Yegge retells the same ladder in this interview, roughly a month later, alongside his
+view that large organisations absorb the resulting productivity gains worse than small
+teams do.
 
 ## The ladder, verbatim
 
@@ -83,6 +84,47 @@ agents, which sits at stage 7.
 Eight stages, not ten. The "stage 10" an earlier draft of this file flagged from an
 aggregated source does not belong to this ladder; it was a different, later Yegge essay
 being conflated with this one, and this passage confirms the top rung is stage 8.
+
+## A second telling, from the interview
+
+Jim also supplied the equivalent passage from the Pragmatic Engineer piece, Yegge
+retelling the same ladder in an interview roughly a month later. Also verbatim, also
+not read from the blocked URL:
+
+> agent. I put them all on a spectrum just to show what's going on. Here's the levels:
+>
+> Level 1: no AI
+>
+> Level 2: Coding agent in your IDE, permissions turned on
+>
+> Level 3: Coding agent in IDE, "YOLO mode." Your trust is going up.
+>
+> Level 4: you're starting to not look at the diffs anymore, but at what the agent is
+> doing. You're not reviewing as much, you're letting more of it through, and you're
+> really focused on the conversation with the agent.
+>
+> Level 5: your approach is: "I just want the agent and I'll look at the code in my IDE
+> later, but I'm not coding with my IDE".
+>
+> Level 6: several agents. You're bored because your agent's busy and you want to do
+> something, so you fire up another agent, then another. And you find yourself just
+> multiplexing between them, and you can't "leave" [you start to get addicted to using
+> more agents.]
+>
+> Level 7: 10+ agents, managed by hand. This is where you typically say "oh gosh, I've
+> made a mess! I accidentally texted the wrong agent and didn't realize. How do I
+> coordinate all these agents? What if Claude Code could run Claude Code?"
+>
+> Level 8: you build your own orchestrator to coordinate more agents".
+
+The shape is the same eight rungs, but the two tellings diverge in the middle, not the
+ends. Stages 1 to 3 and 7 to 8 match closely across both. In between, "Welcome to Gas
+Town" describes an agent physically widening on screen and diffs scrolling past
+unread; the interview instead describes attention shifting from the diff to the
+conversation, then splitting across several agents out of boredom, to the point of
+naming it an addiction. Same person, same ladder, two different aspects of climbing it
+emphasised depending on the telling. Worth having both rather than collapsing them into
+one paraphrase.
 
 Where tsk sits on this ladder is the question stage 8 poses directly: building the
 orchestrator, not running one someone else built. Gas Town is Yegge's own answer to that
