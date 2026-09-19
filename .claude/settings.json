@@ -28,5 +28,16 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "software-english-lint@jimbarritt-claude-plugins": true
+  },
+  "extraKnownMarketplaces": {
+    "jimbarritt-claude-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "jimbarritt/claude-plugins"
+      }
+    }
   }
 }

@@ -15,6 +15,12 @@ if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
   git fetch --unshallow origin >/dev/null 2>&1 || true
 fi
 
+# `.claude/settings.json`'s `enabledPlugins` only takes effect once the plugin is
+# actually installed; declaring it there does not install it. Run the install here so
+# a fresh clone (a cloud session included) gets it with no manual `claude plugin
+# install` step. Idempotent: installing an already-installed plugin is a no-op.
+claude plugin install software-english-lint@jimbarritt-claude-plugins --scope project -y >/dev/null 2>&1 || true
+
 source "$REPO_ROOT/ops/local/bootstrap-wt-lib.sh"
 source "$REPO_ROOT/ops/local/thread-lib.sh"
 
