@@ -61,6 +61,13 @@ person, through the web or the Desktop app. Nothing available to a running sessi
 creates one. An orchestrator selects an existing environment by ID, or inherits the
 calling session's.
 
+**Finding the create-environment control, on claude.ai/code.** Confirmed by Jim,
+2026-09-19: not obvious from the sessions list or the settings pages. Start a new
+session. On the new-session screen, before typing the first prompt, a small cloud icon
+sits near the prompt box. It opens environment selection, and a new environment can be
+created directly from there, with no existing one needed first. Once created, it behaves
+like any other environment: selectable by later sessions, listed by `list_environments`.
+
 **A session cannot set a durable environment variable for itself.** Shell state does not
 carry between tool calls; only the working directory does. An `export` in one call is
 gone by the next. Variables that persist across a whole session, or across every session
