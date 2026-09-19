@@ -24,8 +24,8 @@ PLUGIN_MSG=""
 PLUGIN_LOG="$(mktemp)"
 if ! claude plugin marketplace add jimbarritt/claude-plugins >"$PLUGIN_LOG" 2>&1; then
   PLUGIN_MSG=" WARNING: adding the jimbarritt-claude-plugins marketplace failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
-elif ! claude plugin install software-english-lint@jimbarritt-claude-plugins --scope project -y >"$PLUGIN_LOG" 2>&1; then
-  PLUGIN_MSG=" WARNING: installing the software-english-lint plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+elif ! claude plugin install swe@jimbarritt-claude-plugins --scope project -y >"$PLUGIN_LOG" 2>&1; then
+  PLUGIN_MSG=" WARNING: installing the swe plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
 fi
 rm -f "$PLUGIN_LOG"
 

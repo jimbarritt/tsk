@@ -30,7 +30,7 @@
     ]
   },
   "enabledPlugins": {
-    "software-english-lint@jimbarritt-claude-plugins": true
+    "swe@jimbarritt-claude-plugins": true
   },
   "extraKnownMarketplaces": {
     "jimbarritt-claude-plugins": {

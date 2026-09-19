@@ -160,7 +160,7 @@ https://github.com/jimbarritt/software-english/blob/main/spec/SPEC.md
 
 Check your own reply against the spec before sending it. Get it right
 the first time, rather than relying on a rewrite. If the
-[`software-english-lint`](https://github.com/jimbarritt/claude-plugins)
+[`swe`](https://github.com/jimbarritt/claude-plugins)
 Claude Code plugin is installed, it checks every reply and every
 changed document too, as a backstop.
 
