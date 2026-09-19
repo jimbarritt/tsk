@@ -15,11 +15,19 @@ if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
   git fetch --unshallow origin >/dev/null 2>&1 || true
 fi
 
-# `.claude/settings.json`'s `enabledPlugins` only takes effect once the plugin is
-# actually installed; declaring it there does not install it. Run the install here so
-# a fresh clone (a cloud session included) gets it with no manual `claude plugin
-# install` step. Idempotent: installing an already-installed plugin is a no-op.
-claude plugin install software-english-lint@jimbarritt-claude-plugins --scope project -y >/dev/null 2>&1 || true
+# `.claude/settings.json`'s `extraKnownMarketplaces` and `enabledPlugins` only
+# declare intent; neither registers the marketplace with the CLI nor installs the
+# plugin. Both steps below are needed, in order, so a fresh clone (a cloud session
+# included) gets a working plugin with no manual step. Both are idempotent: running
+# either again when already done is a no-op that exits 0.
+PLUGIN_MSG=""
+PLUGIN_LOG="$(mktemp)"
+if ! claude plugin marketplace add jimbarritt/claude-plugins >"$PLUGIN_LOG" 2>&1; then
+  PLUGIN_MSG=" WARNING: adding the jimbarritt-claude-plugins marketplace failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+elif ! claude plugin install software-english-lint@jimbarritt-claude-plugins --scope project -y >"$PLUGIN_LOG" 2>&1; then
+  PLUGIN_MSG=" WARNING: installing the software-english-lint plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+fi
+rm -f "$PLUGIN_LOG"
 
 source "$REPO_ROOT/ops/local/bootstrap-wt-lib.sh"
 source "$REPO_ROOT/ops/local/thread-lib.sh"
@@ -69,17 +77,17 @@ if [ -n "$WT" ] && [ -d "$WT" ]; then
     THREAD_MSG=" $(thread_unbound_prompt_text)"
   fi
 
-  jq -n --arg wt "$WT" --arg thread_msg "$THREAD_MSG" --arg pending_msg "$PENDING_MSG" '{
+  jq -n --arg wt "$WT" --arg thread_msg "$THREAD_MSG" --arg pending_msg "$PENDING_MSG" --arg plugin_msg "$PLUGIN_MSG" '{
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: ("tsk/bootstrap fetched and materialised at " + $wt + " (also exported as $TSK_BOOTSTRAP_WT). Read " + $wt + "/index.md next." + $pending_msg + $thread_msg)
+      additionalContext: ("tsk/bootstrap fetched and materialised at " + $wt + " (also exported as $TSK_BOOTSTRAP_WT). Read " + $wt + "/index.md next." + $pending_msg + $thread_msg + $plugin_msg)
     }
   }'
 else
-  jq -n '{
+  jq -n --arg plugin_msg "$PLUGIN_MSG" '{
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: "Warning: the tsk/bootstrap branch could not be fetched automatically at session start (network or git error). Run `just fetch-refs` or `ops/local/fetch-bootstrap-ref.sh` manually before reading index.md."
+      additionalContext: ("Warning: the tsk/bootstrap branch could not be fetched automatically at session start (network or git error). Run `just fetch-refs` or `ops/local/fetch-bootstrap-ref.sh` manually before reading index.md." + $plugin_msg)
     }
   }'
 fi
