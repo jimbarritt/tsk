@@ -118,6 +118,46 @@ first-class Delta, and no continuous Scale. It is agent orchestration, which is 
 collaboration between humans and agents, and between humans and humans, not agent
 orchestration alone."
 
+### Locked to a substrate, all four of them: tsk's real premise
+
+Claude Code Projects is not the only coordinator-and-threads system, and every one found
+so far shares a property Claude Code Projects has on its own: none of them is portable
+away from the vendor that built it.
+
+- **Claude Code Projects** (Anthropic): every thread is a Claude Code cloud session.
+- **Gas Town** (Steve Yegge, independent of Anthropic): runs 20 to 30 Claude Code
+  instances at once. Built by someone with no reason to favour Anthropic's product over
+  any other, and it still only runs Claude Code.
+- **`/fleet`** (GitHub Copilot CLI): an orchestrator decomposing a task and dispatching
+  Copilot's own agents in parallel. The same coordinator-and-workers shape, on GitHub's
+  own substrate.
+- **Agent HQ** (GitHub): lets a Copilot Business or Pro user pick Claude or Codex as the
+  model a task runs on. This looks like portability, but the choice is which vendor's
+  model GitHub's own orchestration layer calls, not the coordinator-and-threads
+  abstraction itself running on a substrate its own vendor didn't build.
+
+Four independent teams reached the same shape, coordinator plus dispatched threads, and
+every one bolted it to one vendor's execution layer. That is not carelessness on any of
+their parts; a coordinator has to actually run the threads it creates, and the fastest
+way to build one is against the runtime already in front of you.
+
+This is the premise tsk is built on, stated plainly because Jim named it directly: the
+domain, mission, thread, actor, ledger, is defined without reference to which substrate
+executes a thread, and that abstraction is more powerful than any one vendor's
+implementation precisely because it is not confined to that vendor. A tsk thread's actor
+could be a Claude Code session, a Copilot CLI session, or something else; nothing in the
+domain model encodes that choice, the way "every thread is a Claude Code cloud session"
+is encoded into Claude Code Projects by construction.
+
+**Not yet demonstrated, and worth being honest about.** tsk's own bootstrap harness
+currently runs inside Claude Code specifically; `CLAUDE.md` and ADR 0008 both describe
+mechanics tied to "the Claude Code cloud sandbox proxy". That is an implementation fact
+about how tsk bootstraps itself today, not evidence the domain model achieves substrate
+independence in practice. The real test is running a tsk thread with a Copilot CLI
+session, or some other substrate, as its actor, and confirming nothing in the domain
+model quietly assumed Claude Code underneath. Untested, and worth tracking as its own
+question rather than asserting the premise holds because it was designed to.
+
 ### The context boundary: the sharpest difference
 
 Claude Code Projects makes the work fit the context. tsk makes the work outlive the
@@ -236,6 +276,11 @@ unattended run resumes the first run's thread from that state rather than starti
 mission over." Nothing described in Projects does that. The coordinator reaches the same
 end by starting a fresh thread on a fresh piece, which is starting over by construction
 rather than resuming. That half is tsk's actual contribution to the mission and stands.
+
+A second consequence, not yet actioned anywhere: substrate independence is tsk's stated
+premise and an untested one. Worth a mission at some point that runs a tsk thread with a
+non-Claude-Code actor, to find out whether the domain model actually holds that
+abstraction or only claims to.
 
 ## Related
 
