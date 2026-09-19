@@ -21,16 +21,17 @@
 - `docs/domain/mission-model.md` in the tsk repo, under mission categories: why this is a
   mission rather than a new kind of object, and where tsk
   deviates from doctrine in saying so.
-- `docs/domain/ubiquitous-language.md` in the tsk repo, Objective: the two objective
-  kinds.
+- `docs/domain/ubiquitous-language.md` in the tsk repo, Objective: a fixed end point or
+  a measure over time, and a mission does not declare which it carries.
 - [Agentic engineering news feed](https://drive.google.com/drive/folders/1v1EY0IE1l5XXbH7wuksf-dHJuT12x2YJ)
   (Google Drive folder `00-briefing-state`): state for Jim's scheduled "Agentic
-  engineering brief" task, which runs daily at 06:00 UK and trawls AI and
-  orchestration-engine news. `news-feed.ndjson` is the append-only, machine-readable
-  record of every candidate item found, tagged and scored, whether or not it was sent
-  in that day's brief; `README.md` in the same folder documents the record shape and
-  tag vocabulary. Check this when Jim asks for the feed to be scanned for items to turn
-  into ideas.
+  engineering brief" task, which runs daily at 06:00 UK, unattended. `news-ledger.md` is
+  the one file that matters, a plain dedup ledger of every item the brief has already
+  sent: one line per item, `{date sent} | {canonical URL} | {title}`, no summary, no
+  tags, no scoring. Its Drive file ID changes on every run, since Drive cannot edit a
+  file in place; find it by title inside the folder, not by a stored ID. Title and URL
+  alone are not enough to judge an item's relevance to tsk without reading it. Check
+  this when Jim asks for the feed to be scanned for items to turn into ideas.
 
 ## Decision authority
 
