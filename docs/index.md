@@ -50,7 +50,6 @@ Architecture Decision Records capture why significant technical choices were mad
 - [0007-event-log-as-source-of-truth.md](adr/0007-event-log-as-source-of-truth.md): NDJSON log holds state. SQLite cache and markdown are projections.
 - [0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md](adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md): why the bootstrap data store moved from a custom git ref to a branch — the Claude Code cloud sandbox proxy blocks writes outside `refs/heads/*`.
 - [0009-bootstrap-worktree-outside-the-git-directory.md](adr/0009-bootstrap-worktree-outside-the-git-directory.md): why the bootstrap worktree moved out of `.git/` to an XDG state path, keyed per clone.
-- [tsk-viability.md](decisions/tsk-viability.md): tsk's strategic position against others in the space, currently beads and Claude Code Projects, with one verdict over both.
 
 ## Knowledge base
 
@@ -61,3 +60,9 @@ Background theory and research grounding for key domain concepts.
 - [session-creation-and-environments.md](kb/session-creation-and-environments.md): orchestrating agent sessions. Which mechanisms start one, and which levers set what it knows.
 - [agent-context-self-regulation-and-unattended-handoff.md](kb/agent-context-self-regulation-and-unattended-handoff.md): context awareness, agent-directed memory, `/goal`, and a pattern for a cloud session to hand off to its own successor before running out of room.
 - [military-doctrine-sources.md](kb/military-doctrine-sources.md): the primary doctrine sources the mission model draws on, with links, and which citations in the repo are unverified.
+
+### Orchestration ecosystem
+
+Other systems building in tsk's space, and tsk's position against them.
+
+- [tsk-market-position-analysis.md](kb/orchestration-ecosystem/tsk-market-position-analysis.md): tsk's market position against beads and Claude Code Projects, with one verdict over both, and the context-boundary difference that separates tsk from a coordinator model.

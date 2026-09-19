@@ -73,9 +73,9 @@ Beads (by Steve Yegge) is the closest existing tool, but it is scoped to
 orchestrating agent work within the Navigation dimension. tsk is broader: it is about
 collaboration between humans and agents, and between humans and humans, not agent
 orchestration alone. See
-[docs/decisions/tsk-viability.md](decisions/tsk-viability.md) for the detailed
-comparison and the current strategic position, against beads and against Claude Code
-Projects.
+[docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md](kb/orchestration-ecosystem/tsk-market-position-analysis.md)
+for the detailed comparison and the current strategic position, against beads and
+against Claude Code Projects.
 
 Existing tools such as Incident.io, Freshdesk, Port, Notion, and Linear each model a
 piece of this space and get combined ad hoc. tsk's bet is that an actual underlying
@@ -88,6 +88,7 @@ time.
 ## Status
 
 This is the research and product thesis behind tsk, not a settled specification.
-[docs/decisions/tsk-viability.md](decisions/tsk-viability.md) records
+[docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md](kb/orchestration-ecosystem/tsk-market-position-analysis.md)
+records
 the current position on whether and how to pursue tsk as a product versus a research
 programme.
