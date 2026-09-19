@@ -1,5 +1,4 @@
 {
-  "outputStyle": "swe:Software English",
   "skillOverrides": {
     "load-plan": "off",
     "update-plan": "off",
@@ -40,5 +39,6 @@
         "repo": "jimbarritt/claude-plugins"
       }
     }
-  }
+  },
+  "outputStyle": "swe:Software English"
 }
