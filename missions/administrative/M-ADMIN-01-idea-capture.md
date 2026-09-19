@@ -23,6 +23,14 @@
   deviates from doctrine in saying so.
 - `docs/domain/ubiquitous-language.md` in the tsk repo, Objective: the two objective
   kinds.
+- [Agentic engineering news feed](https://drive.google.com/drive/folders/1v1EY0IE1l5XXbH7wuksf-dHJuT12x2YJ)
+  (Google Drive folder `00-briefing-state`): state for Jim's scheduled "Agentic
+  engineering brief" task, which runs daily at 06:00 UK and trawls AI and
+  orchestration-engine news. `news-feed.ndjson` is the append-only, machine-readable
+  record of every candidate item found, tagged and scored, whether or not it was sent
+  in that day's brief; `README.md` in the same folder documents the record shape and
+  tag vocabulary. Check this when Jim asks for the feed to be scanned for items to turn
+  into ideas.
 
 ## Decision authority
 
