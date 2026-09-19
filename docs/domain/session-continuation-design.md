@@ -1,9 +1,11 @@
 # Session continuation design
 
 Reference for the mechanism that lets a session pick up a thread it or another actor
-was working on, across a session boundary. Covers the supervised interactive operating
-context only (see `docs/kb/agent-context-self-regulation-and-unattended-handoff.md` for
-what that means); an automated trigger for pausing is future work, not covered here.
+worked on, across a session boundary. Covers the supervised interactive operating
+context only: a human runs the session directly and can act on a prompt immediately,
+as opposed to an unattended or autonomous run (see
+`docs/kb/agent-context-self-regulation-and-unattended-handoff.md` for the full
+distinction).
 
 Depends on: `docs/domain/ubiquitous-language.md` (Actor, Thread, Thread continuation),
 `docs/kb/session-creation-and-environments.md`,
@@ -17,15 +19,14 @@ Depends on: `docs/domain/ubiquitous-language.md` (Actor, Thread, Thread continua
 - [The three commands](#the-three-commands)
 - [Resolution at session start](#resolution-at-session-start)
 - [Binding persistence across a turn](#binding-persistence-across-a-turn)
-- [Deferred](#deferred)
 
 ## Binding a session to a thread
 
 A binding ties a running session, or a worktree, to a thread ID. Thread identity is
 tsk's own, minted once, never a platform session ID or a path: neither is stable across
-every surface.
+every channel.
 
-| Surface | Binding mechanism |
+| Channel | Binding mechanism |
 |---|---|
 | Cloud session | `CLAUDE_CODE_REMOTE_SESSION_ID` looked up in `threads/lookup-by-cloud-session.json` on `tsk/bootstrap` |
 | CLI worktree | A thread-ID marker file written inside the worktree's own git metadata |
@@ -95,8 +96,7 @@ slug is enough inside it.
 Each thread has a directory, `threads/<slug>/`, holding:
 
 - `index.md`: a stable pointer. At minimum, a link to the mission briefing document the
-  thread is working, not a bare mission ID. Further contents are undecided; see
-  Deferred.
+  thread works on, not a bare mission ID.
 - `continuation-state.jsonl`: an append only store of continuation contexts that were
   passed between thread pause and resume. Named "thread continuation" in
   `docs/domain/ubiquitous-language.md`, qualified because the record already lives
@@ -110,10 +110,10 @@ One JSON object per line, appended, never rewritten. Fields:
 
 | Field | Written by | Description |
 |---|---|---|
-| Mission briefing link | Agent (usually already known from thread state) | The briefing document the thread is working |
+| Mission briefing link | Agent (usually already known from thread state) | The briefing document the thread works on |
 | Task ID | Agent (usually already known from thread state) | The task in progress when the thread paused |
 | What's next | Agent | A short account of where things stand |
-| Commit on `tsk/bootstrap` | Script | The commit `tsk/bootstrap` was at when the pause began, read before this entry is appended. It cannot be the commit the push then creates: that commit contains this entry, so no hash it carries can name it |
+| Commit on `tsk/bootstrap` | Script | The commit `tsk/bootstrap` was at when the pause began, read before this entry is appended. It cannot be the commit the push creates: that commit holds this entry, so its hash is unknown here. |
 | Commit on `main` | Script | The commit left on `main` at pause time |
 | Timestamp | Script | When the entry was appended |
 | Written by | Script | `urn:tsk:worktree:<name>` or `urn:tsk:cloudsession:<session-id>`, naming the binding that wrote this entry |
@@ -127,7 +127,7 @@ Resuming a thread reads the latest entry by default, selected by timestamp. Earl
 entries stay in the store and can be read directly, for example to notice a task
 stalling across several pauses. A later entry supersedes an earlier one by being later;
 nothing needs to say so. The written-by field on every entry also means the store
-answers "which actors have touched this thread": no separate registry is needed.
+answers "which actors touched this thread": no separate registry is needed.
 
 ## The three commands
 
@@ -156,10 +156,8 @@ Writes one continuation state entry, via a script, `append-handover.sh`. The scr
 captures the commit hashes and the timestamp; the agent supplies the mission link, task
 ID and what's-next text as arguments.
 
-For now, `/pause-thread` is invoked manually, in the supervised operating context: a
-human runs it themselves before `/clear`. The action set is expected to stay the same
-once an automated trigger, likely driven by the goal verifier (`/goal`), is designed
-for the unsupervised case; only the trigger changes.
+`/pause-thread` is invoked manually, in the supervised operating context: a human runs
+it themselves before `/clear`.
 
 ### `/resume-thread <thread-id>`
 
@@ -181,10 +179,9 @@ Invoked two ways:
 - Explicitly, naming an arbitrary thread ID. This is how a different actor takes over
   a thread that was not automatically bound to their session or worktree.
 
-Take-over is additive, not exclusive: nothing prevents two actors from being bound to
-the same thread. Binding a session or worktree to a thread that already has another
-binding elsewhere prints a warning but proceeds. What running the same thread from two
-actors at once actually does in practice is not yet explored.
+Multiple actors can be bound to the same thread simultaneously. Binding a session or
+worktree to a thread that already has another binding elsewhere prints a warning but
+proceeds.
 
 ## Resolution at session start
 
@@ -200,19 +197,12 @@ The `SessionStart` hook extends to:
 The hook never creates a thread itself. Both branches end by naming a command and
 letting the agent invoke it, not by the hook doing the loading or the asking itself.
 
-Corrected by M-BOOT-02-02: this section originally described the not-found prompt as
-plain text ("ask the human directly... do they want to start one"). It was found to be
-skippable in practice, not wrong in what it asked for: see Binding persistence below.
-
 ## Binding persistence across a turn
 
-Added by M-BOOT-02-02, which closes a gap this design left open: the `SessionStart`
-hook above names the required action once, at the very start of a session. Naming it
-once is not the same as it happening. The gap was found in practice on 2026-09-17/18:
-the hook's `additionalContext` correctly named the required action, and it was still
-skipped once conversation moved elsewhere, leaving the session unbound for its entire
-duration. A single injection point competing with a salient literal request from the
-human has no guarantee of being honoured on every run, however clearly it is worded.
+The `SessionStart` hook above names the required action once, at the very start of a
+session. Naming it once is not the same as it happening. A binding check that runs
+once at session start can be skipped when conversation moves elsewhere, leaving the
+session unbound for its entire duration.
 
 **Mechanism.** A `Stop` hook, `ops/local/thread-binding-guard.sh`, runs on every turn,
 not once at session start. It checks the current binding; if none is found, it blocks
@@ -241,28 +231,12 @@ wrote is already reflected in its own worktree checkout without being fetched ag
 **Safety valve.** The guard does not track its own attempt count. Claude Code overrides
 a `Stop` hook that blocks eight times in a row without progress, which is the actual
 backstop; `AskUserQuestion` cannot fail to elicit a response, so reaching that cap would
-mean the binding flow itself is broken, a case this script cannot repair by trying a
-ninth time.
+mean the binding mechanism itself is broken, a case this script cannot repair by
+trying a ninth time.
 
-**Proof.** Proven by a live cloud session, given an immediate, unrelated first message
-("What's 17 times 23?"): the guard blocked the plain answer from completing the turn,
-and the agent's next action was the structured `AskUserQuestion` call named above,
-correctly naming the mission that produced the gap as its top-billed candidate. The
-`/clear` scenario was not proven live the same way: no tool call lets an agent trigger
-`/clear` on itself, the same limitation M-BOOT-02-01's report recorded. It holds by
-construction instead: the guard depends on no conversational state, only on the
-worktree marker or the cloud lookup entry, neither of which `/clear` changes, so its
-behaviour cannot differ before and after one.
-
-## Deferred
-
-Points raised during this design and explicitly set aside, not yet decided:
-
-- The relationship between a thread and the mission's Plan.
-- The thread state format proper (which tasks are done, which is in progress, as
-  distinct from a single what's-next line in a continuation state entry).
-- What running the same thread from two actors at once should actually do, beyond
-  printing a warning.
-- Whether "Continuation" as a term on its own, distinct from "Thread continuation",
-  belongs in the ubiquitous language.
-- Any content for `index.md` beyond the mission briefing link.
+**Guarantee.** The mechanism ensures binding even when the first message is unrelated
+to any mission. The `/clear` scenario is not covered by a live run: no tool call lets
+an agent trigger `/clear` on itself, the same limitation M-BOOT-02-01's report
+recorded. The guarantee holds by construction instead: the guard depends on no
+conversational state, only on the worktree marker or the cloud lookup entry, neither
+of which `/clear` changes, so its behaviour cannot differ before and after one.
