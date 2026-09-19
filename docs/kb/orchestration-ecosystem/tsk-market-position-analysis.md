@@ -69,12 +69,16 @@ or measure against. Claude Code is the platform tsk's own harness runs inside.
 
 ### Where Claude Code Projects has converged, and where it hasn't
 
-- **Converged, on the unit that matters**: a thread that holds its own context, pauses
-  and resumes, sustains work over days, and subdivides. This is
+- **Converged, on the unit that matters**: a thread that holds its own context, persists
+  across days of work, can be checked on and steered mid-flight, and subdivides into
+  subagents, loops and workflows. This is close to
   [Thread](../../domain/ubiquitous-language.md#thread) as tsk defines it, and as
   [vision.md](../../vision.md) describes it, "fractal, pausable, resumable, and able to hold
-  their own context, the way a stack frame does in a programming model". Two designs
-  reaching the same unit independently is evidence the unit is real.
+  their own context, the way a stack frame does in a programming model". The announcement
+  does not describe an explicit pause and resume state the way tsk's continuation
+  mechanism does; what converges is the persistent, steerable unit itself, not a
+  confirmed match on that specific mechanic. Two designs reaching a similar unit
+  independently is evidence the unit is real.
 - **Not converged**: three pairs are fused there that tsk keeps apart.
 
 | Pair | Claude Code Projects | tsk |
@@ -119,12 +123,20 @@ orchestration alone."
 Claude Code Projects makes the work fit the context. tsk makes the work outlive the
 context.
 
-The coordinator scopes a request and splits it into threads sized to be completable, so
-the boundary is handled by not reaching it. This matches Anthropic's own published
-pattern for long-running agents, recorded in
+The announcement splits work by task or domain boundary, not by context size: its two
+worked examples are a thread per endpoint being profiled, and a thread per repo whose
+callers need migrating. It does not say whether or how a thread's scope is calibrated
+against its own context window, and it does not say what happens if a single thread's
+task runs long enough to approach that limit.
+
+This analysis draws a parallel, not a citation, to a separate pattern Anthropic has
+published for long-running agents, recorded in
 [agent-context-self-regulation-and-unattended-handoff.md](../agent-context-self-regulation-and-unattended-handoff.md):
 an initializer writes a `feature_list.json` of 200-plus granular features before any
-coding agent runs. Decompose first, then run bounded pieces.
+coding agent runs, so each piece stays small enough to finish inside one context. That
+decompose-first pattern is a plausible mechanism behind how Projects keeps its threads
+completable. It is not confirmed by the Projects announcement itself, which never
+mentions it.
 
 tsk inverts it. A thread holds the mission and runs until it judges the objective met.
 The unattended handoff pattern in that same document writes the stop condition as a
@@ -136,7 +148,7 @@ the split. The thread establishes that it cannot continue and hands to itself.
 
 | | Claude Code Projects | tsk |
 |---|---|---|
-| Who sizes the work | the coordinator, up front | nobody; the thread runs until the objective is met |
+| Who sizes the work | the coordinator, by how it scopes each request | nobody; the thread runs until the objective is met |
 | At the context limit | not described | the thread writes state, pushes, and spawns its successor, inside the goal condition |
 | What the successor reads | not described | the repository, because a cloud session starts from a fresh clone |
 | Where continuity lives | shared project memory | the ledger |
@@ -148,10 +160,14 @@ workers do. Continuation has to apply recursively, not only to the leaves." Shar
 project memory mitigates that without answering it, because retrieval of what was
 decided is not continuation of a running loop.
 
-**Read from a launch post, so test rather than conclude.** The announcement does not say
-what happens when a worker thread fills its context. Absence from a launch post is not
-absence from the product. The test is cheap: give a Projects thread work that cannot fit
-in one context and watch what it does.
+**The announcement is silent on this, not just brief about it.** Read in full, it
+describes shared memory for decisions and preferences, and describes usage limits at the
+plan level, aggregated across every thread a project runs at once. It says nothing about
+what happens when one worker thread's own context window fills mid-task. That silence
+could mean the platform decomposes finely enough in practice that it rarely happens, or
+that it is not yet solved, or that it is handled by a mechanism the post simply did not
+cover. The test is cheap and settles it either way: give a Projects thread work that
+cannot fit in one context and watch what it does.
 
 **This reframes the substrate question favourably.** If a Projects thread does hit a
 wall, tsk's continuation mechanism is what it needs. That is tsk sitting inside a thread
