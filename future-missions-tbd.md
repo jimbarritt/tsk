@@ -4,6 +4,28 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## External access to Claude Code Remote sessions, and deep-linking
+
+Raised by Jim, 2026-09-19.
+
+Research mission: does an external process, not a Claude Code session, get access to
+list or manage Claude Code Remote sessions.
+
+Found so far: `create_trigger` and `list_triggers` name three caller types, in-session,
+toolbox, and OAuth. `list_triggers` restricts one parameter to OAuth callers and errors
+for the other two on that path. An OAuth-authenticated external caller reaches this
+backend. Not confirmed for session listing specifically; inferred, since Claude Code
+Remote's own web interface is not itself a Claude Code session and needs to list
+sessions to render itself.
+
+Jim's follow-up question, not yet researched: can a URL be generated that deep-links
+into a specific Claude iOS session.
+
+Connects to the substrate-independence point in
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`: session discovery and
+access from outside any one Claude Code session bears on whether a coordinator built
+outside Anthropic's own tooling could reach a Claude Code session as an actor.
+
 ## The "robot factory" framing, and why Jim is doing this concretely
 
 Raised by Jim, 2026-09-19, while pointing at `docs/kb/yegges-levels.md`.
