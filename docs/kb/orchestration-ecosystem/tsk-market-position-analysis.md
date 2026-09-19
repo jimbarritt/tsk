@@ -1,4 +1,4 @@
-# tsk viability against the field
+# tsk market position analysis
 
 Date: 2026-07-01 (beads re-examination), distilled 2026-09-14, widened to cover Claude
 Code Projects 2026-09-18.
@@ -39,12 +39,12 @@ The overlap is architecture and positioning, not conceptual model.
 
 - **Converged**: Dolt, daemon, single-writer, Unix sockets, the plan-replacement pitch,
   the token/context-economy claim, MCP, persistent memory.
-- **Not converged**: beads stays inside the [Navigation](../domain/ubiquitous-language.md#navigation)
+- **Not converged**: beads stays inside the [Navigation](../../domain/ubiquitous-language.md#navigation)
   dimension, with a discrete epic-to-story-to-sub-task hierarchy via dotted IDs, which
-  is exactly the artificial-tier boundary tsk's [Scale](../domain/ubiquitous-language.md#scale)
+  is exactly the artificial-tier boundary tsk's [Scale](../../domain/ubiquitous-language.md#scale)
   dimension exists to dissolve. Beads has no model of
-  [Product](../domain/ubiquitous-language.md#product) (the thing being built), no
-  first-class [Delta](../domain/ubiquitous-language.md#delta), and no continuous,
+  [Product](../../domain/ubiquitous-language.md#product) (the thing being built), no
+  first-class [Delta](../../domain/ubiquitous-language.md#delta), and no continuous,
   fractal Scale.
 
 Yegge's own framing of beads ("forensics, the why of your project, joined against the
@@ -71,16 +71,16 @@ or measure against. Claude Code is the platform tsk's own harness runs inside.
 
 - **Converged, on the unit that matters**: a thread that holds its own context, pauses
   and resumes, sustains work over days, and subdivides. This is
-  [Thread](../domain/ubiquitous-language.md#thread) as tsk defines it, and as
-  [vision.md](../vision.md) describes it, "fractal, pausable, resumable, and able to hold
+  [Thread](../../domain/ubiquitous-language.md#thread) as tsk defines it, and as
+  [vision.md](../../vision.md) describes it, "fractal, pausable, resumable, and able to hold
   their own context, the way a stack frame does in a programming model". Two designs
   reaching the same unit independently is evidence the unit is real.
 - **Not converged**: three pairs are fused there that tsk keeps apart.
 
 | Pair | Claude Code Projects | tsk |
 |---|---|---|
-| Thread and session | one object | bound, not identical, with the reason recorded under [Actor](../domain/ubiquitous-language.md#actor) |
-| Inputs and outputs | one library | [Ledger](../domain/ubiquitous-language.md#ledger) and [Artefact](../domain/ubiquitous-language.md#artefact), split by definition |
+| Thread and session | one object | bound, not identical, with the reason recorded under [Actor](../../domain/ubiquitous-language.md#actor) |
+| Inputs and outputs | one library | [Ledger](../../domain/ubiquitous-language.md#ledger) and [Artefact](../../domain/ubiquitous-language.md#artefact), split by definition |
 | Work and its container | a project holds the work | no container; one entity at every zoom |
 
 None of those is tsk missing a part. Each is tsk declining to complect two things the
@@ -89,13 +89,13 @@ product ships joined.
 **A project is a mission described loosely.** A repo, a goal and configuration is, in
 tsk, a territory, an objective and constraints, each with its own definition. tsk also
 refused a container above mission once already, on stronger grounds than this:
-[domain-model-overview.md](../domain/domain-model-overview.md) records that no campaign
+[domain-model-overview.md](../../domain/domain-model-overview.md) records that no campaign
 or major-operation type is added "even though doctrine nests campaign above mission:
 Scale, one of tsk's four dimensions, rejects fixed echelons". Doctrine offered a
 container type with an argument behind it and tsk declined. Missions are scale free, so
 no project type is needed.
 
-**A coordinator is an actor.** The [Actor](../domain/ubiquitous-language.md#actor) entry
+**A coordinator is an actor.** The [Actor](../../domain/ubiquitous-language.md#actor) entry
 already anticipates one: "a maintenance or coordination actor is the clear case, picking
 up whatever needs attention across missions rather than being handed one." tsk has not
 built the automation, which is a different statement from the model lacking a place for
@@ -110,7 +110,7 @@ ledger's future missions as design decision recording beyond ADRs.
 
 **Same dimensional limit as beads.** Claude Code Projects models no Product, no
 first-class Delta, and no continuous Scale. It is agent orchestration, which is the axis
-[vision.md](../vision.md) already uses to separate tsk from beads: tsk "is about
+[vision.md](../../vision.md) already uses to separate tsk from beads: tsk "is about
 collaboration between humans and agents, and between humans and humans, not agent
 orchestration alone."
 
@@ -122,7 +122,7 @@ context.
 The coordinator scopes a request and splits it into threads sized to be completable, so
 the boundary is handled by not reaching it. This matches Anthropic's own published
 pattern for long-running agents, recorded in
-[agent-context-self-regulation-and-unattended-handoff.md](../kb/agent-context-self-regulation-and-unattended-handoff.md):
+[agent-context-self-regulation-and-unattended-handoff.md](../agent-context-self-regulation-and-unattended-handoff.md):
 an initializer writes a `feature_list.json` of 200-plus granular features before any
 coding agent runs. Decompose first, then run bounded pieces.
 
@@ -223,9 +223,9 @@ rather than resuming. That half is tsk's actual contribution to the mission and 
 
 ## Related
 
-- [docs/domain/ubiquitous-language.md](../domain/ubiquitous-language.md): the Navigation,
+- [docs/domain/ubiquitous-language.md](../../domain/ubiquitous-language.md): the Navigation,
   Delta, Product, and Scale dimensions referenced throughout.
-- [docs/vision.md](../vision.md): the four dimensions, and the line separating tsk from
+- [docs/vision.md](../../vision.md): the four dimensions, and the line separating tsk from
   agent orchestration.
 - The token-saving experiment referenced above has not yet been designed or run as of
   this writing; it is not tracked in the M-BOOT mission tree, which is scoped to
