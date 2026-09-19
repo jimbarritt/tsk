@@ -3,8 +3,8 @@
 A maturity ladder, from Steve Yegge, describing how an engineer's relationship to AI
 tooling deepens: from writing code unaided, through an agent inside an IDE, through a
 single CLI agent, through hand-managing several agents at once, to building an
-orchestrator that runs dozens of agents concurrently. Recorded here as framing for tsk,
-not as a feature description of Yegge's own tools.
+orchestrator. Recorded here as framing for tsk, not as a feature description of Yegge's
+own tools.
 
 ## Why this belongs in tsk's own knowledge base
 
@@ -40,36 +40,53 @@ source, not taken from the article's own metadata alone).
 A later interview covering the same ladder, alongside Yegge's view that large
 organisations absorb the resulting productivity gains worse than small teams do.
 
-## The ladder itself: partially confirmed only
+## The ladder, verbatim
 
-This sandbox's egress proxy blocks both `steve-yegge.medium.com` and
-`newsletter.pragmaticengineer.com` directly, along with every secondary source tried.
-What follows was pieced together from search-result summaries of the primary text, not
-read from it, so treat the wording as approximate and the two missing stages as missing,
-not omitted for space.
+This sandbox's egress proxy blocks `steve-yegge.medium.com` directly, so this is not
+read from the page. Jim supplied the passage below verbatim from "Welcome to Gas Town",
+which settles the two stages an earlier draft of this file had marked unconfirmed, and
+corrects a wrong guess at what stage 8 was: it is the orchestrator, not hand-managed
+agents, which sits at stage 7.
 
-Reasonably corroborated, roughly in Yegge's own terms:
+> First, you should locate yourself on the chart. What stage are you in your
+> AI-assisted coding journey?
+>
+> Stage 1: Zero or Near-Zero AI: maybe code completions, sometimes ask Chat questions
+>
+> Stage 2: Coding agent in IDE, permissions turned on. A narrow coding agent in a
+> sidebar asks your permission to run tools.
+>
+> Stage 3: Agent in IDE, YOLO mode: Trust goes up. You turn off permissions, agent gets
+> wider.
+>
+> Stage 4: In IDE, wide agent: Your agent gradually grows to fill the screen. Code is
+> just for diffs.
+>
+> Stage 5: CLI, single agent. YOLO. Diffs scroll by. You may or may not look at them.
+>
+> Stage 6: CLI, multi-agent, YOLO. You regularly use 3 to 5 parallel instances. You are
+> very fast.
+>
+> Stage 7: 10+ agents, hand-managed. You are starting to push the limits of
+> hand-management.
+>
+> Stage 8: Building your own orchestrator. You are on the frontier, automating your
+> workflow.
+>
+> If you're not at least Stage 7, or maybe Stage 6 and very brave, then you will not be
+> able to use Gas Town. You aren't ready yet. Gas Town is an industrialized coding
+> factory manned by superintelligent robot chimps, and when they feel like it, they can
+> wreck your shit in an instant. They will wreck the other chimps, the workstations, the
+> customers. They'll rip your face off if you aren't already an experienced
+> chimp-wrangler. So no. If you have any doubt whatsoever, then you can't use it.
 
-1. Zero or near-zero AI: maybe code completions, occasionally a chat question.
-2. A coding agent inside an IDE sidebar, permissions on, asking before it runs a tool.
-3. The same agent in an IDE, permissions off ("YOLO mode"): trust rises, the agent
-   widens.
-4. In the IDE, a wide agent: it grows to fill the screen, code becomes something you
-   review as a diff rather than write.
-5. A single CLI agent, YOLO, diffs scrolling past, not always read.
-6. *Not confirmed.*
-7. *Not confirmed.*
-8. Hand-managing ten or more agents at once, without an orchestrator yet.
+Eight stages, not ten. The "stage 10" an earlier draft of this file flagged from an
+aggregated source does not belong to this ladder; it was a different, later Yegge essay
+being conflated with this one, and this passage confirms the top rung is stage 8.
 
-A further level, described as building and using an orchestrator to run dozens of
-agents concurrently, appears in what was retrieved, but whether it is numbered 8, 9, or
-something later in Yegge's own text is unconfirmed: one aggregated source numbers it 8,
-another cites a "stage 10" that may belong to a related but distinct essay ("Welcome to
-Gas City" or "Welcome to the Wasteland", both later Yegge pieces in the same series) and
-should not be assumed to be this ladder's own top rung without checking.
-
-Verifying the exact list against the primary text is a task for a session outside this
-sandbox's network restriction, not settled here.
+Where tsk sits on this ladder is the question stage 8 poses directly: building the
+orchestrator, not running one someone else built. Gas Town is Yegge's own answer to that
+stage. tsk's mission and thread model is a different one, aimed at the same rung.
 
 ## Related
 
