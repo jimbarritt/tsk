@@ -17,6 +17,13 @@ Whether tsk itself is adopted is a separate question. One of Jim's reasons for b
 it, and writing about it, is to experience concretely what running that factory means,
 not only to theorise about it.
 
+The point behind the LinkedIn post, added once the two verbatim tellings of Yegge's
+ladder were both in `docs/kb/yegges-levels.md`: if you don't actually climb the ladder,
+it's hard to really grok what it means. The two tellings themselves are evidence for
+this. Yegge described the same middle rungs differently a month apart, physically the
+first time, psychologically the second, because what a climber notices changes as they
+climb it. You can't get that from reading about it once.
+
 ## What pausing a thread really means
 
 Raised by Jim, 2026-09-17.
