@@ -16,7 +16,7 @@ Depends on: `docs/domain/ubiquitous-language.md` (Actor, Thread, Thread continua
 - [Binding a session to a thread](#binding-a-session-to-a-thread)
 - [Thread identity and the threads directory](#thread-identity-and-the-threads-directory)
 - [Continuation state entries](#continuation-state-entries)
-- [The three commands](#the-three-commands)
+- [The commands](#the-commands)
 - [Resolution at session start](#resolution-at-session-start)
 - [Binding persistence across a turn](#binding-persistence-across-a-turn)
 
@@ -129,7 +129,7 @@ stalling across several pauses. A later entry supersedes an earlier one by being
 nothing needs to say so. The written-by field on every entry also means the store
 answers "which actors touched this thread": no separate registry is needed.
 
-## The three commands
+## The commands
 
 ### `/start-thread`
 
@@ -182,6 +182,36 @@ Invoked two ways:
 Multiple actors can be bound to the same thread simultaneously. Binding a session or
 worktree to a thread that already has another binding elsewhere prints a warning but
 proceeds.
+
+### `/detach-thread`
+
+Backed by `thread-detach.sh`. Removes only the current session's or worktree's own
+binding: the cloud lookup entry, or the worktree marker file. The thread itself, its
+continuation state, and any other actor's binding to it are untouched.
+
+### `/stop-thread [<thread-id>]`
+
+Backed by `thread-stop.sh`. Detaches the current binding, if it points at the target
+thread, deletes the thread's directory (`index.md` and `continuation-state.jsonl`),
+and purges every cloud-session lookup entry still pointing at it — a thread that no
+longer exists cannot be a valid binding target for anyone. With no argument it
+targets the thread currently bound; given an explicit thread ID, it targets that
+thread instead, regardless of the current binding — how `/switch-thread` composes it
+below.
+
+A worktree marker in some other worktree that still names the stopped thread cannot
+be reached or cleaned up from here: it is local metadata inside that other
+worktree's own git directory, invisible to this script. It goes stale silently, the
+same limitation worktree markers already carry generally (no separate lookup map
+exists for them either — see Worktree binding above).
+
+### `/switch-thread [<thread-id>]`
+
+Composes the three commands above rather than duplicating their logic: detach from
+the current thread, ask whether to stop (delete) it or leave it for someone to
+resume later, then resume a different thread. Given an explicit thread ID, resumes
+that thread directly. Given none, lists existing threads (`thread-list.sh`) and asks
+which to resume.
 
 ## Resolution at session start
 
