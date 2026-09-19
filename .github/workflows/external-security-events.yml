@@ -1,0 +1,43 @@
+name: External security events
+
+# Queues native GitHub security events onto tsk/bootstrap's external event queue
+# (M-BOOT-02 T-19), for the M-ADMIN-03 mission to process. Runs under this workflow's
+# own GITHUB_TOKEN, entirely outside the Claude Code proxy and the GitHub App
+# installation that gates it: see T-19's ledger entry for why that route was needed.
+
+on:
+  dependabot_alert:
+    types:
+      [created, reopened, reintroduced, fixed, dismissed, auto_dismissed, auto_reopened]
+  code_scanning_alert:
+    types: [created, reopened, reopened_by_user, closed_by_user, fixed, appeared_in_branch]
+  secret_scanning_alert:
+    types: [created, reopened, resolved, validated]
+  secret_scanning_alert_location:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  queue-event:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tsk
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Append to the external event queue
+        run: |
+          ops/local/append-external-event.sh \
+            "github" \
+            "${{ github.event_name }}" \
+            "${{ github.event.action }}" \
+            "${{ github.repository }}" \
+            "$GITHUB_EVENT_PATH"
