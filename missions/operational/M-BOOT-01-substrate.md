@@ -82,7 +82,7 @@ conversation. Distilled so far: `docs/domain/ubiquitous-language.md`,
 `docs/domain/mission-model.md`, `docs/domain/persistence-and-sync.md`,
 `docs/domain/territory-and-nexus.md`, `docs/kb/background-theory.md`,
 `docs/kb/product-and-scale-theory.md`, `docs/adr/0007-event-log-as-source-of-truth.md`,
-`docs/decisions/tsk-viability.md`, `docs/vision.md`,
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`, `docs/vision.md`,
 `docs/domain/mission-briefing-template.md`. Not yet distilled, and not blocking: the
 Talwrn overlap comparison and most of the Google-hosted `tsk` knowledge-base folder
 (see `.inbox/googledrive-tsk-kb-INDEX.md`); revisit each when a specific mission

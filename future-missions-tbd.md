@@ -21,7 +21,7 @@ nothing marking it so, and the thread has to be paused again.
 Raised by Jim, 2026-09-18, from
 [claude.com/blog/projects-redesigned](https://claude.com/blog/projects-redesigned).
 
-Done, same day. The comparison lives in `docs/decisions/tsk-viability.md` in the tsk
+Done, same day. The comparison lives in `docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md` in the tsk
 repo, which was widened from the beads assessment to cover the field under one verdict.
 
 In short: Claude Code Projects converges on Thread as the unit that holds context and
