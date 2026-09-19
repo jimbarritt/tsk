@@ -1,4 +1,5 @@
 {
+  "outputStyle": "swe:Software English",
   "skillOverrides": {
     "load-plan": "off",
     "update-plan": "off",
