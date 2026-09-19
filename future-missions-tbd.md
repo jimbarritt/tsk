@@ -4,6 +4,19 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## The "robot factory" framing, and why Jim is doing this concretely
+
+Raised by Jim, 2026-09-19, while pointing at `docs/kb/yegges-levels.md`.
+
+Yegge's levels is partly why Jim is doing tsk. It also frames the market and the niche:
+as more organisations realise they need to build a "robot factory", coordinating enough
+concurrent agents that a person can no longer track them by hand, that is where jobs for
+engineers will be. Jim is writing a LinkedIn post about this.
+
+Whether tsk itself is adopted is a separate question. One of Jim's reasons for building
+it, and writing about it, is to experience concretely what running that factory means,
+not only to theorise about it.
+
 ## What pausing a thread really means
 
 Raised by Jim, 2026-09-17.
