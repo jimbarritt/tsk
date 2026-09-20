@@ -1,26 +1,26 @@
 name: External security events
 
-# Queues native GitHub security events onto tsk/bootstrap's external event queue
-# (M-BOOT-02 T-19), for the M-ADMIN-03 mission to process. Runs under this workflow's
-# own GITHUB_TOKEN, entirely outside the Claude Code proxy and the GitHub App
-# installation that gates it: see T-19's ledger entry for why that route was needed.
+# Polls GitHub's Dependabot, code scanning and secret scanning alert APIs and queues
+# each open alert onto tsk/bootstrap's external event queue (M-BOOT-02 T-19), for the
+# M-ADMIN-03 mission to process. Runs under this workflow's own GITHUB_TOKEN, scoped
+# with security-events: read, which is separate from the Claude GitHub App
+# installation that cannot read these endpoints. See T-19's ledger entry: an earlier
+# version of this workflow tried to trigger on dependabot_alert/code_scanning_alert/
+# secret_scanning_alert directly, but those are webhook event types, not valid
+# GitHub Actions `on:` triggers, so every run failed before any job started. Polling
+# on a schedule replaces that.
 
 on:
-  dependabot_alert:
-    types:
-      [created, reopened, reintroduced, fixed, dismissed, auto_dismissed, auto_reopened]
-  code_scanning_alert:
-    types: [created, reopened, reopened_by_user, closed_by_user, fixed, appeared_in_branch]
-  secret_scanning_alert:
-    types: [created, reopened, resolved, validated]
-  secret_scanning_alert_location:
-    types: [created]
+  schedule:
+    - cron: "0 * * * *" # hourly
+  workflow_dispatch: {}
 
 permissions:
   contents: write
+  security-events: read
 
 jobs:
-  queue-event:
+  poll-alerts:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout tsk
@@ -33,11 +33,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Append to the external event queue
+      - name: Poll security alerts and queue them
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ops/local/append-external-event.sh \
-            "github" \
-            "${{ github.event_name }}" \
-            "${{ github.event.action }}" \
-            "${{ github.repository }}" \
-            "$GITHUB_EVENT_PATH"
+          ops/local/poll-security-alerts.sh "${{ github.repository }}"
