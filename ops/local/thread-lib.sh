@@ -3,6 +3,8 @@
 #
 # Design reference: docs/domain/session-continuation-design.md on main.
 
+source "$(dirname "${BASH_SOURCE[0]}")/mint-token-lib.sh"
+
 # thread_wt: print the bootstrap worktree path. Resolves the path only; it
 # never refreshes, so it cannot discard uncommitted work in the worktree.
 # Falls back to fetching only when the worktree does not exist at all.
@@ -51,23 +53,33 @@ thread_worktree_name() {
   basename "$(thread_git_dir)"
 }
 
-# thread_mint_id: an 8-character lowercase base36 slug, checked against
-# threads/ on the (freshly fetched) bootstrap worktree for collision.
-# Prints the id. Caller is responsible for refreshing the worktree first
-# if freshness matters.
+# thread_mint_id: an 8-character lowercase hex slug, checked against threads/
+# on the (freshly fetched) bootstrap worktree for collision. Prints the id.
+# Caller is responsible for refreshing the worktree first if freshness matters.
+#
+# Hex, not the base36 the original design named: the slug comes from
+# tsk_mint_token, which slices a sha256 digest, so the alphabet is whatever the
+# digest is written in. See mint-token-lib.sh for why that replaced reading
+# /dev/urandom. The space narrows from 36^8 to 16^8, about 4.3e9, which the
+# collision check below makes immaterial: it regenerates on a hit, so a
+# duplicate slug is never issued.
 thread_mint_id() {
-  local wt id
+  local wt id attempt
   wt="$(thread_wt)"
-  while :; do
-    # tr is killed by SIGPIPE once head has its 8 bytes; that is expected,
-    # not a failure, so pipefail is suspended for this one pipeline.
-    # 2>/dev/null silences the resulting "write error: Broken pipe" noise.
-    id="$(set +o pipefail; LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | head -c 8)"
-    if [ "${#id}" -eq 8 ] && [ ! -e "$wt/threads/$id" ]; then
+  # Bounded, so a fault that makes every id collide surfaces rather than
+  # spinning forever, as the original unbounded loop would have.
+  for attempt in $(seq 1 100); do
+    if ! id="$(tsk_mint_token 8)"; then
+      echo "thread_mint_id: minting a thread id failed" >&2
+      return 1
+    fi
+    if [ ! -e "$wt/threads/$id" ]; then
       printf '%s\n' "$id"
       return 0
     fi
   done
+  echo "thread_mint_id: no free id after 100 attempts; is $wt/threads intact?" >&2
+  return 1
 }
 
 # thread_actor_urn: the URN naming the current binding surface, per the
