@@ -4,6 +4,29 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## tsk talking to Wheelhouse, and messaging into the tsk nexus
+
+Raised by Jim, 2026-09-20, from Yegge's tweet about orchestration factories exchanging
+ideas with Gas Town and Wheelhouse.
+
+Jim's read: he wants tsk able to talk to Wheelhouse, and wants to interact via some kind
+of messaging with his tsk nexus. He asked whether these are the same answer.
+
+Found so far: Gas Town and Wheelhouse have no documented protocol for messaging between
+separate, independently-run installations. Gas Town's own routing and mail work within
+one town only. What Gas Town, Wheelhouse, and other independent orchestrators share is
+Beads, a shared substrate, not a network protocol between them, consistent with the
+existing finding in `docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`
+that beads is "technically symbiotic... a swappable substrate and a research baseline,
+not an ally."
+
+The tsk nexus (`docs/domain/territory-and-nexus.md`, `jimbarritt/tsk-nexus`) is a
+discovery and routing index today, with no messaging layer, and that gap is already
+logged as open in that document. Both of Jim's asks land on the same missing piece: no
+ready-made inter-instance protocol exists to reuse from either Gas Town or Wheelhouse. A
+messaging layer for the tsk nexus would be new design work, not an adoption of something
+already built elsewhere.
+
 ## Switch tsk's CLAUDE.md to also load as AGENTS.md
 
 Raised by Jim, 2026-09-20, alongside `docs/kb/claude-code-mods.md`.
