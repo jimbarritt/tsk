@@ -446,6 +446,23 @@ If a thread ID is ever passed outside its own namespace (cross-repo, external
 reference), wrap it in a URN rather than baking a prefix into the ID itself. Not needed
 yet; noted for when it is.
 
+Amended, 2026-09-20: the alphabet is now hex, not base36, so the figures above are
+stale. The ID is still a bare 8-character lowercase slug, but it comes from
+`tsk_mint_token` in `ops/local/mint-token-lib.sh`, which slices a sha256 digest, and a
+digest is written in hex. Space is therefore 16^8 ≈ 4.3×10^9. The reason for the change
+was not the alphabet: reading `/dev/urandom` through `tr | head` meant an unbounded
+producer that `head` had to cut off mid-write, so `tr` took SIGPIPE, printed
+"write error: Broken pipe" on every single call, and returned non-zero, both of which
+callers suppressed by hand and both of which then had to be told apart from a genuine
+fault. Hashing a finite seed removes that whole class. The narrower space changes
+nothing that matters: the regenerate-on-collision check this decision already relied on
+still makes a duplicate slug impossible to issue, and the real scale is tens of threads,
+where the per-mint collision chance is around 2×10^-8. The retry loop is now bounded at
+100 attempts rather than `while :;`, so a fault that made every candidate unusable
+reports itself instead of spinning. Jim's steer when choosing between 8 hex, 11 hex and
+keeping base36 by conversion: this is scaffolding until tsk implements identifiers
+itself, so take the smallest diff.
+
 ### Decided: two independent lookup maps, not one with a type field
 
 Jim, 2026-09-16. `threads/lookup-by-cloud-session.json` and
