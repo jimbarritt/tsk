@@ -182,8 +182,56 @@ across all three runs rather than a cold one. Whether the `ttft_ms` gap holds
 at more repeats, and whether it holds at medium and long prompts where the
 model has more to plan before the first token, is unmeasured.
 
+## Third experiment: the full design
+
+5 repeats, 3 lengths, 3 conditions, 45 runs, `sonnet`, 2026-09-20, 0 errors.
+
+| Condition | Length | `duration_ms` | `ttft_ms` | Cost USD | Output tokens |
+|---|---|---|---|---|---|
+| A | short | 2223 | 1119 | 0.0356 | 44 |
+| B | short | 3083 | 2121 | 0.0361 | 44 |
+| C | short | 2184 | 1228 | 0.0400 | 37 |
+| A | medium | 5087 | 3832 | 0.0383 | 300 |
+| B | medium | 5661 | 4269 | 0.0389 | 309 |
+| C | medium | 6213 | 3943 | 0.0426 | 285 |
+| A | long | 16623 | 15042 | 0.0466 | 1112 |
+| B | long | 14678 | 13021 | 0.0470 | 1098 |
+| C | long | 13912 | 12670 | 0.0498 | 985 |
+
+Medians. Full spread, one row per run, is in
+[`latency-results-0.9.1.ndjson`](latency-results-0.9.1.ndjson).
+
+**The `ttft_ms` gap from the basic test does not replicate.** `C - B` on
+`ttft_ms` is -893 ms (short), -326 ms (medium), -351 ms (long): C's
+time-to-first-token is lower than B's at every length, the opposite direction
+from the single-repeat result above. `B - A` is +1002 ms (short), +437 ms
+(medium), -2021 ms (long): no consistent direction there either. At 5
+repeats, the spread within a single condition and length (for example, `A`
+short ranged 2081 to 3284 ms) is often larger than the gap between
+conditions. This design, at this sample size, cannot tell the earlier
+apparent effect apart from ordinary run-to-run noise in the API. The basic
+test's finding stands as what it was: one data point, not a result.
+
+**Cost orders `A < B < C` consistently, at every length.** Not close calls:
+short 0.0356 / 0.0361 / 0.0400, medium 0.0383 / 0.0389 / 0.0426, long 0.0466 /
+0.0470 / 0.0498. `C`'s premium over `B` runs 10.8% (short), 9.5% (medium),
+6.0% (long): shrinking as a fraction of the total as the prompt grows, which
+fits a roughly fixed per-turn addition (the style's own content in the system
+prompt) landing on top of a base cost that scales with the prompt. `C` also
+writes fewer output tokens than `A` or `B` at every length (37 against 44,
+285 against 300 and 309, 985 against 1112 and 1098), so the extra cost is not
+from writing more; it is an input-side cost, which fits the same reading.
+
+**Read together: a real, small, consistent cost. No measured latency cost.**
+The style has a per-turn cost, visible in tokens billed. Whether it has a
+latency cost is not established at this sample size, and the one measurement
+that looked like one, the basic test's `ttft_ms` gap, went the other way here.
+
 ## Files
 
 - [`run-latency-harness.py`](run-latency-harness.py): the harness.
-- Results go to an NDJSON file of the caller's choosing, not into the
-  repository.
+- [`latency-results-0.9.1.ndjson`](latency-results-0.9.1.ndjson): the third
+  experiment's raw output, one row per run, kept as the record backing that
+  section above.
+- `--out` defaults to a path the caller chooses. A run kept only for its own
+  sake, not written up here, has no reason to land in the repository.
