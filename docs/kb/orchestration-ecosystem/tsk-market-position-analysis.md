@@ -282,12 +282,43 @@ premise and an untested one. Worth a mission at some point that runs a tsk threa
 non-Claude-Code actor, to find out whether the domain model actually holds that
 abstraction or only claims to.
 
+## Jev: a related component, not a competing system
+
+Raised by Jim, 2026-09-20, researched in
+[typesafe-jev-classifier.md](../typesafe-jev-classifier.md).
+
+Jev, from TypeSafe AI, is not a coordinator-and-threads system, so it does not belong
+in the systems-assessed list above. It intersects tsk on a narrower point: the
+evaluator mechanism behind a verification loop.
+
+`docs/kb/agent-context-self-regulation-and-unattended-handoff.md` records `/goal`'s own
+evaluator as "a small, separate model (Haiku by default on the Claude API)" that reads
+a condition against the transcript and returns not-yet-met, met, or impossible. That is
+an LLM-as-judge pattern: a small model generating a verdict as text. Jev-as-a-Judge, also
+covered in `typesafe-jev-classifier.md`, answers the same kind of question, whether a
+condition holds against a given state, through a typed classifier instead: `Choice`,
+`Score` or `Noul`, with a probability and confidence, not generated text. Same job,
+different mechanism.
+
+This document and `agent-context-self-regulation-and-unattended-handoff.md` did not
+reference Jev or TypeSafe before this section; this is the first link between them, not
+a citation of one already made.
+
+Not a component decision. `/goal`'s evaluator is Claude Code's own mechanism, not one
+tsk built or could swap independently. Where this becomes live for tsk is if tsk ever
+needs a verification-loop or condition-evaluation mechanism of its own, rather than
+depending on `/goal`, at which point a typed classifier is one candidate shape for that
+evaluator, worth weighing against a small LLM judge on the axes
+`typesafe-jev-classifier.md` reports: consistency, cost, and latency.
+
 ## Related
 
 - [docs/domain/ubiquitous-language.md](../../domain/ubiquitous-language.md): the Navigation,
   Delta, Product, and Scale dimensions referenced throughout.
 - [docs/vision.md](../../vision.md): the four dimensions, and the line separating tsk from
   agent orchestration.
+- [typesafe-jev-classifier.md](../typesafe-jev-classifier.md): research on Jev, cited in
+  the Jev section above for its intersection with `/goal`'s evaluator mechanism.
 - The token-saving experiment referenced above has not yet been designed or run as of
   this writing; it is not tracked in the M-BOOT mission tree, which is scoped to
   bootstrapping self-hosting rather than to this product decision.
