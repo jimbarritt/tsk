@@ -311,14 +311,68 @@ depending on `/goal`, at which point a typed classifier is one candidate shape f
 evaluator, worth weighing against a small LLM judge on the axes
 `typesafe-jev-classifier.md` reports: consistency, cost, and latency.
 
+## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
+
+Raised by Jim, 2026-09-20, from Yegge's essay
+["Seats and Sunsets"](https://yegge.ai/essays/seats-and-sunsets/), on Wheelhouse, his
+private harness for Wyvern.
+
+A seat is a role-based position with persistent context, a defined scope of authority, a
+history, and accountability. Yegge's framing: a plain session has to derive whether an
+action is safe each time it acts; a seat turns that derivation into a lookup. The essay
+ties this to Wheelhouse's own cost problem: distrust forces a model into expensive
+re-verification, and a seat, by caching that trust, cuts the cost.
+
+Jim's read: [Actor](../../domain/ubiquitous-language.md#actor) plus
+[Thread continuation](../../domain/ubiquitous-language.md#thread-continuation) may be the
+breakdown of a seat into tsk's own terms, one object split into two. Not yet decided
+whether tsk adopts anything from this.
+
+### What each side holds
+
+tsk's Actor holds identity and cardinality: whoever holds a thread, human or agent
+session, with the rule that a human holds many threads while an agent session is bound to
+one, and a different session picking up a thread later is a different actor holding it.
+Thread continuation holds a snapshot at each pause: the mission briefing link, the task
+in progress, a written account of what's next, and a written-by field naming which actor
+wrote the entry, forming an audit trail of who touched the thread.
+
+Between them, Actor answers who holds the thread, and Thread continuation answers what
+happened on it so far. Neither holds a scope of authority, and neither caches a trust or
+permission decision the way a seat does. tsk's model today has no place that stores "this
+actor may act on this without re-checking."
+
+### Where the breakdown holds, and where it doesn't
+
+Holds: a seat's history component maps to Thread continuation's append-only store, and
+its identity component maps to Actor. Both systems separate who does the work from the
+record of what was done, even though tsk splits it into two named parts and Wheelhouse
+holds it in one.
+
+Doesn't hold: a seat is tied to a named, standing role, such as the Marshal or the
+Seneschal in Wheelhouse's own crew, that persists across many threads and missions. tsk's
+Actor is thread-scoped by definition: an agent session is bound to one thread, and picking
+up a different thread makes it, by the model's own cardinality rule, a different actor
+holding that thread, not the same actor changing seats. tsk has no concept of a role that
+outlives a single thread's binding and holds authority across missions. Building that
+would mean either loosening Actor's cardinality rule or adding a new part above it, not
+just relabelling Thread continuation.
+
+The essay's actual payload, caching a trust decision so it doesn't need re-deriving, has
+no counterpart in either tsk object. Bringing that in is a new mechanism, not a rename of
+what already exists.
+
 ## Related
 
 - [docs/domain/ubiquitous-language.md](../../domain/ubiquitous-language.md): the Navigation,
-  Delta, Product, and Scale dimensions referenced throughout.
+  Delta, Product, and Scale dimensions referenced throughout, and the Actor and Thread
+  continuation entries cited in the Seats section above.
 - [docs/vision.md](../../vision.md): the four dimensions, and the line separating tsk from
   agent orchestration.
 - [typesafe-jev-classifier.md](../typesafe-jev-classifier.md): research on Jev, cited in
   the Jev section above for its intersection with `/goal`'s evaluator mechanism.
+- [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md): a schema-level
+  sharpening of the Beads section above, on whether beads could be tsk's official ledger.
 - The token-saving experiment referenced above has not yet been designed or run as of
   this writing; it is not tracked in the M-BOOT mission tree, which is scoped to
   bootstrapping self-hosting rather than to this product decision.
