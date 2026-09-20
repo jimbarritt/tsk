@@ -4,6 +4,18 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## Switch tsk's CLAUDE.md to also load as AGENTS.md
+
+Raised by Jim, 2026-09-20, alongside `docs/kb/claude-code-mods.md`.
+
+Jim's read: switch from `CLAUDE.md` to `AGENTS.md` everywhere, for compatibility.
+
+Confirmed while researching mods: Claude Code already supports this today, through the
+built-in `agents-md` mod, on this container's version, 2.1.278. Four loading modes
+exist; `claude-md-and-agents-md` loads both side by side. Not yet decided: which mode,
+whether tsk renames `CLAUDE.md` to `AGENTS.md` outright or adds `AGENTS.md` alongside
+it, and what "everywhere" means, this repo only, or every repo tsk's harness touches.
+
 ## External access to Claude Code Remote sessions, and deep-linking
 
 Raised by Jim, 2026-09-19.
