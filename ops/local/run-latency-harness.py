@@ -10,10 +10,8 @@ Design reference: ops/local/run-latency-harness.md
 
 import argparse
 import json
-import os
 import pathlib
 import random
-import shutil
 import statistics
 import subprocess
 import sys
@@ -25,6 +23,7 @@ PROJECTS_DIR = pathlib.Path.home() / ".claude" / "projects"
 DEFAULT_PLUGIN_CACHE = (
     pathlib.Path.home() / ".claude" / "plugins" / "cache" / "jimbarritt-claude-plugins" / "swe"
 )
+DEFAULT_OUTPUT_STYLE = "swe:Software English"
 
 # Three target lengths, none needing a tool call. Output length drives
 # latency, so the comparison holds only when the prompt is identical across
@@ -46,8 +45,8 @@ PROMPTS = {
 
 CONDITION_HELP = {
     "A": "no plugin, default output style",
-    "B": "plugin loaded with its output style removed, default output style",
-    "C": "plugin loaded intact, so its forced output style applies",
+    "B": "plugin loaded, default output style (not selected)",
+    "C": "plugin loaded, its output style selected",
 }
 
 
@@ -69,27 +68,7 @@ def resolve_plugin_root(given):
     return versions[-1]
 
 
-def stage_plugin_without_output_styles(plugin_root, staging_dir):
-    """Copy the plugin and drop its output-styles directory.
-
-    The plugin's own output style carries `force-for-plugin: true`, so loading
-    the plugin applies that style whatever the session's outputStyle setting
-    says. A condition that wants the plugin's hooks without its style is
-    therefore not reachable through settings alone. Removing the directory
-    from a copy separates the two factors. The copy is temporary and the
-    installed plugin is never touched.
-    """
-    dest = staging_dir / f"{plugin_root.name}-no-output-style"
-    if dest.exists():
-        shutil.rmtree(dest)
-    shutil.copytree(plugin_root, dest)
-    styles = dest / "output-styles"
-    if styles.is_dir():
-        shutil.rmtree(styles)
-    return dest
-
-
-def build_args(condition, plugin_root, staged_root, model, session_id, prompt):
+def build_args(condition, plugin_root, output_style, model, session_id, prompt):
     args = [
         "claude",
         "-p",
@@ -107,10 +86,16 @@ def build_args(condition, plugin_root, staged_root, model, session_id, prompt):
         "--setting-sources",
         "user",
     ]
-    if condition == "B":
-        args += ["--plugin-dir", str(staged_root)]
-    elif condition == "C":
+    if condition in ("B", "C"):
         args += ["--plugin-dir", str(plugin_root)]
+    if condition == "C":
+        # Since the plugin dropped force-for-plugin, loading it no longer
+        # selects its style on its own: an explicit outputStyle is what
+        # separates B from C. --settings JSON merges on top of the
+        # --setting-sources above, confirmed live: an unset outputStyle here
+        # leaves the plugin loaded but its style inactive (condition B); this
+        # merges the same key set to the plugin's style name.
+        args += ["--settings", json.dumps({"outputStyle": output_style})]
     return args
 
 
@@ -124,7 +109,9 @@ def read_hook_costs(session_id):
     """Per-hook durations the CLI recorded for this session.
 
     The result JSON carries no hook timing. The transcript does, under
-    stop_hook_summary entries, one durationMs per hook command.
+    stop_hook_summary entries, one durationMs per hook command. The current
+    plugin release registers no Stop hook, so this is expected to read zero
+    for every condition; kept so a regression would show up here again.
     """
     path = find_transcript(session_id)
     if path is None:
@@ -146,9 +133,9 @@ def read_hook_costs(session_id):
     return hooks, str(path)
 
 
-def run_once(condition, prompt_key, repeat, plugin_root, staged_root, model, workdir, timeout):
+def run_once(condition, prompt_key, repeat, plugin_root, output_style, model, workdir, timeout):
     session_id = str(uuid.uuid4())
-    args = build_args(condition, plugin_root, staged_root, model, session_id, PROMPTS[prompt_key])
+    args = build_args(condition, plugin_root, output_style, model, session_id, PROMPTS[prompt_key])
     started = time.time()
     try:
         proc = subprocess.run(
@@ -206,7 +193,7 @@ def run_once(condition, prompt_key, repeat, plugin_root, staged_root, model, wor
             if duration_ms and output_tokens
             else None,
             # Kept so a reader can confirm the condition did what it claims:
-            # condition C's replies follow Software English, B's do not.
+            # condition C's replies follow Software English, A and B's do not.
             "result_head": (result.get("result") or "")[:400],
         }
     )
@@ -249,6 +236,11 @@ def main():
     )
     parser.add_argument("--out", default="latency-results.ndjson", help="results file to write")
     parser.add_argument("--plugin-root", default=None, help="plugin directory to load")
+    parser.add_argument(
+        "--output-style",
+        default=DEFAULT_OUTPUT_STYLE,
+        help=f"style name for condition C (default {DEFAULT_OUTPUT_STYLE!r})",
+    )
     parser.add_argument("--timeout", type=int, default=300, help="per-run timeout in seconds")
     parser.add_argument("--seed", type=int, default=0, help="shuffle seed for run order")
     parser.add_argument(
@@ -270,7 +262,8 @@ def main():
         if length not in PROMPTS:
             sys.exit(f"error: unknown length {length}")
 
-    plugin_root = resolve_plugin_root(opts.plugin_root) if conditions != ["A"] else None
+    needs_plugin = any(c in ("B", "C") for c in conditions)
+    plugin_root = resolve_plugin_root(opts.plugin_root) if needs_plugin else None
 
     plan = [
         (condition, length, repeat)
@@ -289,30 +282,27 @@ def main():
     print(f"model:      {opts.model}")
     if plugin_root:
         print(f"plugin:     {plugin_root}")
+    if "C" in conditions:
+        print(f"style:      {opts.output_style}")
+
+    if opts.dry_run:
+        for condition, length, repeat in plan:
+            args = build_args(
+                condition, plugin_root, opts.output_style, opts.model, "<uuid>", PROMPTS[length]
+            )
+            print(f"\n{condition} {length} #{repeat}:\n  {' '.join(args[:1] + args[2:])}")
+        return
 
     with tempfile.TemporaryDirectory(prefix="tsk-latency-") as tmp:
-        tmp_path = pathlib.Path(tmp)
-        workdir = tmp_path / "cwd"
+        workdir = pathlib.Path(tmp) / "cwd"
         workdir.mkdir()
-        staged_root = None
-        if "B" in conditions:
-            staged_root = stage_plugin_without_output_styles(plugin_root, tmp_path)
-            print(f"staged B:   {staged_root} (output-styles removed)")
-
-        if opts.dry_run:
-            for condition, length, repeat in plan:
-                args = build_args(
-                    condition, plugin_root, staged_root, opts.model, "<uuid>", PROMPTS[length]
-                )
-                print(f"\n{condition} {length} #{repeat}:\n  {' '.join(args[:1] + args[2:])}")
-            return
 
         rows = []
         if not opts.no_warmup:
             for condition in conditions:
                 print(f"warm-up {condition} (discarded) ...", flush=True)
                 run_once(
-                    condition, lengths[0], 0, plugin_root, staged_root,
+                    condition, lengths[0], 0, plugin_root, opts.output_style,
                     opts.model, workdir, opts.timeout,
                 )
 
@@ -321,7 +311,7 @@ def main():
             for index, (condition, length, repeat) in enumerate(plan, start=1):
                 print(f"[{index}/{len(plan)}] {condition} {length} #{repeat} ...", end="", flush=True)
                 row = run_once(
-                    condition, length, repeat, plugin_root, staged_root,
+                    condition, length, repeat, plugin_root, opts.output_style,
                     opts.model, workdir, opts.timeout,
                 )
                 rows.append(row)
