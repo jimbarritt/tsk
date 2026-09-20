@@ -61,6 +61,7 @@ Background theory and research grounding for key domain concepts.
 - [agent-context-self-regulation-and-unattended-handoff.md](kb/agent-context-self-regulation-and-unattended-handoff.md): context awareness, agent-directed memory, `/goal`, and a pattern for a cloud session to hand off to its own successor before running out of room.
 - [military-doctrine-sources.md](kb/military-doctrine-sources.md): the primary doctrine sources the mission model draws on, with links, and which citations in the repo are unverified.
 - [yegges-levels.md](kb/yegges-levels.md): Steve Yegge's maturity ladder from manual coding to running an orchestrator over many agents, as framing for tsk's own ambition rather than a feature description of his tools.
+- [claude-code-mods.md](kb/claude-code-mods.md): the mods hooks surface in Claude Code, confirmed live in this container via the `agents-md` mod, and why a harness-level hook attaching to engine events matters more to tsk than the `AGENTS.md` question that raised it.
 
 ### Orchestration ecosystem
 
