@@ -52,6 +52,7 @@ mission's plan instead of here, and say so rather than duplicating it silently.
 |---|---|---|---|---|---|
 | T-01 | Create this mission's briefing | M-ADMIN-02 exists in `missions/administrative/`, and appears in `index.md`'s administrative missions table | none | none | DONE |
 | T-02 | Strip the tsk `README.md` down to a four-step quickstart | `README.md` keeps only the strapline, the four numbered steps, and a short docs table; prerequisites, installation, upgrading and CI move to `docs/user-guide/installation.md` (new), linked from `docs/index.md` | none | none | DONE |
+| T-03 | Work the `swe:feedback` / `swe:send-feedback` loop for the "load-bearing" banned-word report, surface two real gaps in the feedback tooling itself | Logged three feedback entries; `/swe:send-feedback` correctly declined to cluster a lone entry; a bundled `wrong-fix` entry was split into two on request; filed [jimbarritt/claude-plugins#4](https://github.com/jimbarritt/claude-plugins/issues/4) (single-entry threshold is the wrong design; no verdict exists for feedback about the skills themselves) and [#5](https://github.com/jimbarritt/claude-plugins/issues/5) (a target repo must be attached to the session before an issue can be filed against it, which is session-harness scoping, not a GitHub constraint) | none | none | DONE |
 
 ## First behaviour
 
