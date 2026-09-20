@@ -96,9 +96,12 @@ Jev is one data point in a wider convergence: a classifier sitting in front of, 
 alongside, an LLM for cheap, structured decisions inside an agent's control loop, the
 same shape as Claude Code's own auto mode classifier
 (`docs/kb/claude-code-mods.md` covers a related but different Claude Code mechanism, the
-hooks surface, not this classifier-in-the-loop pattern). Not yet cited in
-`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`; this note stands on
-its own until that document is widened to include it.
+hooks surface, not this classifier-in-the-loop pattern).
+
+It also intersects `/goal`'s evaluator mechanism directly, covered in
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md` under "Jev: a related
+component, not a competing system": `/goal` uses a small LLM as judge, Jev-as-a-Judge is
+a typed-classifier alternative to that same job.
 
 Whether tsk itself has a use for a classifier like this, for example scoring thread
 state, gating a risky action, or judging whether a mission's objective is met, is not
@@ -131,4 +134,8 @@ decided here. This is a research note, not a proposal.
 ## Related
 
 - [tsk-market-position-analysis.md](orchestration-ecosystem/tsk-market-position-analysis.md):
-  tsk's market position against other systems in this space. Does not yet cite Jev.
+  tsk's market position against other systems in this space, with a section on Jev's
+  intersection with `/goal`'s evaluator mechanism.
+- [agent-context-self-regulation-and-unattended-handoff.md](../agent-context-self-regulation-and-unattended-handoff.md):
+  `/goal`'s own evaluator, "a small, separate model", the LLM-as-judge mechanism
+  Jev-as-a-Judge is a typed-classifier alternative to.
