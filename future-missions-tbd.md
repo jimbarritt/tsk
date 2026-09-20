@@ -356,6 +356,8 @@ and faster, so teams can run evals more often.
 Further reference, added by Jim, 2026-09-20: [typesafe.ai](https://typesafe.ai/), Jev's
 own site. Jim is signing up to its waitlist.
 
+Jim, 2026-09-20: this one needs research.
+
 Same Jev classifier already noted in `docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`
 from LangChain's harness piece, now applied to evals specifically.
 
