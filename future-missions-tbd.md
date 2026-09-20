@@ -298,6 +298,77 @@ Open: whether self-resolution is safe for ledger content (missions, tasks, threa
 state) at all, what a discussion between sessions would need mechanically, and whether
 it is the same mechanism as the interrupting-each-other idea or a different one.
 
+## Auto mode's safety classifier moves server-side
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-19-anthropic-auto-mode-classifier-server-side`).
+
+From Claude Code 2.1.278, Enterprise, Claude API, Bedrock, Vertex and Foundry accounts
+have auto mode's safety classifier run server-side by default, at no charge. A
+client-side fallback covers the case where the server cannot be reached, and a new
+"Auto mode server" row in `/status` shows which mode a session is in.
+[code.claude.com/docs/en/auto-mode-classifier-billing](https://code.claude.com/docs/en/auto-mode-classifier-billing).
+
+## Claude Code workflows pause at a usage limit instead of dropping agents
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-14-claude-code-workflows-pause-usage-limit`).
+
+In Claude Code 2.1.271, a dynamic workflow that hits a usage limit now pauses and
+resumes automatically once the limit resets, rather than dropping the agents running
+inside it. [code.claude.com/docs/en/changelog#2-1-271](https://code.claude.com/docs/en/changelog#2-1-271).
+
+## Claude Code approves network hosts per Bash command in sandboxed auto mode
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-14-claude-code-sandboxing-per-command-hosts`).
+
+In Claude Code 2.1.271, sandboxed auto mode lists the network hosts a Bash command
+needs, and the safety classifier reviews the hosts together with the command. Approval
+opens those hosts for that one command only.
+[code.claude.com/docs/en/sandboxing#per-command-allowed-domains-in-auto-mode](https://code.claude.com/docs/en/sandboxing#per-command-allowed-domains-in-auto-mode).
+
+## Cursor launches Projects, a coordinator agent for large-scale work
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-10-cursor-projects`).
+
+Cursor Projects uses a coordinator agent that plans tasks and delegates to subagents,
+running in the cloud so closing a laptop does not stop the work. It can watch Slack
+channels, pull requests and schedules to start work on its own, and scales to thousands
+of concurrent subagents. [cursor.com/changelog](https://cursor.com/changelog).
+
+A fifth team reaching this coordinator-and-threads shape, after Claude Code Projects,
+Gas Town, Copilot's `/fleet`, and Agent HQ. Bears on
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`.
+
+## LangChain scores agent evals with a classifier instead of an LLM judge
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-20-langchain-jev-as-a-judge-agent-evals`).
+
+LangChain's Jev-as-a-Judge answers Choice, Score or Boolean questions about an agent's
+behaviour directly as typed output, instead of generating text like an LLM judge.
+LangChain says this is 92 to 913 times more consistent than an LLM judge, and cheaper
+and faster, so teams can run evals more often.
+[langchain.com/blog/jev-agent-evals-langsmith](https://www.langchain.com/blog/jev-agent-evals-langsmith).
+
+Same Jev classifier already noted in `docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`
+from LangChain's harness piece, now applied to evals specifically.
+
+## OpenAI's agentic software factory
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-15-pragmatic-engineer-openai-agentic-software-factory`).
+
+OpenAI runs Codex agents through code generation, testing, review, deployment and
+monitoring with little human intervention, using specialised agents for different parts
+of the infrastructure. Pull requests have grown roughly tenfold in six months, forcing
+OpenAI to rethink CI/CD, code review and how it uses pull requests at all.
+[newsletter.pragmaticengineer.com/p/openai-software-factory](https://newsletter.pragmaticengineer.com/p/openai-software-factory)
+(this sandbox's egress proxy blocks the domain directly; not read from the page, only
+the feed's own summary, confirmed by Jim as matching the article).
+
 ## Actor definition
 
 Raised by Jim, 2026-09-17, while resolving what to do with a thread that has no mission.
