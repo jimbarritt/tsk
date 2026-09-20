@@ -2,13 +2,14 @@ name: External security events
 
 # Polls GitHub's Dependabot, code scanning and secret scanning alert APIs and queues
 # each open alert onto tsk/bootstrap's external event queue (M-BOOT-02 T-19), for the
-# M-ADMIN-03 mission to process. Runs under this workflow's own GITHUB_TOKEN, scoped
-# with security-events: read, which is separate from the Claude GitHub App
-# installation that cannot read these endpoints. See T-19's ledger entry: an earlier
-# version of this workflow tried to trigger on dependabot_alert/code_scanning_alert/
-# secret_scanning_alert directly, but those are webhook event types, not valid
-# GitHub Actions `on:` triggers, so every run failed before any job started. Polling
-# on a schedule replaces that.
+# M-ADMIN-03 mission to process. See T-19's ledger entry for the history: an earlier
+# version tried to trigger on dependabot_alert/code_scanning_alert/secret_scanning_alert
+# directly, but those are webhook event types, not valid GitHub Actions `on:` triggers.
+# A schedule replaced that, but the workflow's own automatic GITHUB_TOKEN, even scoped
+# security-events: read, turned out to work for code scanning alerts only: Dependabot
+# and secret scanning alerts reject an installation-type token outright, per GitHub's
+# own API docs for those two endpoints, regardless of declared permissions. GH_PAT, a
+# personal access token in the repo-admin-tasks Environment below, covers all three.
 
 on:
   schedule:
@@ -17,11 +18,11 @@ on:
 
 permissions:
   contents: write
-  security-events: read
 
 jobs:
   poll-alerts:
     runs-on: ubuntu-latest
+    environment: "Repo Admin"
     steps:
       - name: Checkout tsk
         uses: actions/checkout@v4
@@ -35,6 +36,6 @@ jobs:
 
       - name: Poll security alerts and queue them
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           ops/local/poll-security-alerts.sh "${{ github.repository }}"
