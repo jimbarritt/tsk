@@ -59,17 +59,19 @@ runs.
 | Condition | Plugin | Output style |
 |---|---|---|
 | A | not loaded | default |
-| B | loaded, output style removed | default |
-| C | loaded intact | the plugin's forced style |
+| B | loaded, `--plugin-dir` | default (not selected) |
+| C | loaded, `--plugin-dir` | selected, `--settings '{"outputStyle":"..."}'` |
 
 `B - A` isolates the plugin's hooks. `C - B` isolates the output style.
 
-**B needs a staged copy of the plugin.** The plugin's output style carries
-`force-for-plugin: true`, so loading the plugin applies that style whatever the
-session's `outputStyle` setting says. "Plugin on, default style" is therefore
-not reachable through settings at all. The harness copies the plugin to a
-temporary directory, deletes its `output-styles/` directory, and loads the copy
-with `--plugin-dir`. The installed plugin is never modified.
+Before `swe` 0.9.1, its output style carried `force-for-plugin: true`, so
+loading the plugin applied the style whatever `outputStyle` said, and "plugin
+on, default style" was not reachable through settings. B needed a staged copy
+of the plugin with `output-styles/` deleted to get that condition at all. From
+0.9.1 the flag is gone: the style is plain-selectable, so B and C differ only
+in the `--settings` flag, confirmed live (loading the plugin with no
+`outputStyle` override leaves its style inactive; adding the override selects
+it, `is_error: false`, and the reply visibly follows the style's rules).
 
 ## Running it
 
@@ -89,6 +91,10 @@ Runs cost money. 45 runs at a few pence to a few tens of pence each is a real
 spend. Use `--dry-run` first, and `--repeats` to size it.
 
 ## First experiment
+
+Against `swe` 0.7.0, using the staged-copy design for condition B, since
+`force-for-plugin` was still in force. Kept as the record that led to the
+upstream fix; see the second experiment below for the current release.
 
 **Question.** Replies feel slower. Three candidates were proposed: the
 plugin's Stop hook, its `PostToolUse` check on `Write|Edit`, and its output
@@ -133,6 +139,48 @@ being the source of slowness.
 One repeat per cell. Medium and long prompts were not run, and reasoning
 tokens are most likely to appear there. The full design, 5 repeats across 3
 lengths, is what separates an 80 ms difference from noise.
+
+## Second experiment: after the 0.9.1 upgrade
+
+`swe` upgraded from 0.7.0 to 0.9.1: the Stop hook removed entirely, alongside
+`force-for-plugin` on the output style. B no longer needs the staged-copy
+design; see Conditions above. Basic test, one repeat per condition, short
+prompt, `sonnet`, 2026-09-20.
+
+| Condition | `duration_ms` | `ttft_ms` | Generation after `ttft` | Hook ms | Cost USD |
+|---|---|---|---|---|---|
+| A | 2165 | 1187 | 978 | 0 | 0.036 |
+| B | 2110 | 1091 | 1019 | 0 | 0.036 |
+| C | 3106 | 2114 | 992 | 0 | 0.040 |
+
+**The Stop hook's cost is gone.** `hook_ms_total` reads zero for every
+condition, and `B - A` is now 55 ms, within run-to-run noise at one repeat.
+Confirms the fix in jimbarritt/claude-plugins#6: with no Stop hook registered,
+none of the ~2 second cost from the first experiment remains.
+
+**`B` genuinely leaves the style unselected.** Its reply ("lets you check out
+multiple branches ... simultaneously in separate folders") reads like A's,
+not C's ("A git worktree lets you check out multiple branches from one
+repository into separate directories at the same time" — terser, no
+"simultaneously"). Confirms the harness measures what it claims to.
+
+**`C`'s extra cost sits entirely in `ttft_ms`, not generation.** `C - B` on
+`duration_ms` is 996 ms; on `ttft_ms` it is 1023 ms; on generation time after
+the first token it is -27 ms, noise. Whatever the style costs, it costs before
+the first token, not per token after. This fits a system-prompt section the
+model reads before starting to write, not a slower write once started.
+
+**Cache creation tokens do not explain the gap by themselves.** A, B and C
+recorded 6896, 7027 and 7998 `cache_creation_input_tokens`: C's style content
+is a real but modest addition, not the order-of-magnitude difference the cost
+spike in the first experiment showed. That spike does not reproduce here.
+
+### What this basic test does not settle
+
+One repeat per cell, short prompt only, same session-container cache state
+across all three runs rather than a cold one. Whether the `ttft_ms` gap holds
+at more repeats, and whether it holds at medium and long prompts where the
+model has more to plan before the first token, is unmeasured.
 
 ## Files
 
