@@ -14,7 +14,9 @@ Confirmed while researching mods: Claude Code already supports this today, throu
 built-in `agents-md` mod, on this container's version, 2.1.278. Four loading modes
 exist; `claude-md-and-agents-md` loads both side by side. Not yet decided: which mode,
 whether tsk renames `CLAUDE.md` to `AGENTS.md` outright or adds `AGENTS.md` alongside
-it, and what "everywhere" means, this repo only, or every repo tsk's harness touches.
+it.
+
+"Everywhere" means every one of Jim's repos, done one at a time, not in one pass.
 
 ## External access to Claude Code Remote sessions, and deep-linking
 
