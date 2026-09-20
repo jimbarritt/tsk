@@ -132,6 +132,9 @@ stage. tsk's mission and thread model is a different one, aimed at the same rung
 
 ## Related
 
+- [yegge-eight-levels.md](yegge-eight-levels.md): the Pragmatic Engineer telling of the
+  same ladder, extracted as a standalone article with no tsk-specific framing, for
+  sharing on its own.
 - [tsk-market-position-analysis.md](orchestration-ecosystem/tsk-market-position-analysis.md):
   cites Yegge as Beads' author and the source of tsk's "forensics, the why of your
   project" framing. This file adds a second, independent point of contact with his
