@@ -9,5 +9,10 @@
   },
   "devDependencies": {
     "@marp-team/marp-cli": "^4.4.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@xmldom/xmldom": "0.9.12"
+    }
   }
 }
