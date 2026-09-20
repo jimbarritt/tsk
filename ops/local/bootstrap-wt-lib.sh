@@ -38,7 +38,8 @@ bootstrap_clone_id() {
   name="$(basename "$(dirname "$common_dir")" | tr -cd 'A-Za-z0-9._-')"
   [ -n "$name" ] || name="repo"
   # tr is killed by SIGPIPE once head has its bytes; expected, not a failure.
-  suffix="$(set +o pipefail; LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 8)"
+  # 2>/dev/null silences the resulting "write error: Broken pipe" noise.
+  suffix="$(set +o pipefail; LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | head -c 8)"
   id="$name-$suffix"
 
   printf '%s\n' "$id" > "$marker"
