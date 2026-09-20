@@ -6,12 +6,22 @@
 # thread_wt: print the bootstrap worktree path. Resolves the path only; it
 # never refreshes, so it cannot discard uncommitted work in the worktree.
 # Falls back to fetching only when the worktree does not exist at all.
+#
+# Always resolves through bootstrap-wt-path.sh, the same canonical path
+# push-bootstrap-ref.sh and fetch-bootstrap-ref.sh use, rather than trusting
+# $TSK_BOOTSTRAP_WT on its own say-so. An earlier version returned
+# $TSK_BOOTSTRAP_WT directly whenever it was set and the directory existed,
+# on the assumption that it always names the current clone's own worktree.
+# That holds for the SessionStart hook's own clone, but not for a script run
+# from a different clone or worktree while the variable is still exported
+# from an earlier session: the two resolve to different clone IDs, so a
+# thread script can scaffold a thread into one worktree while
+# push-bootstrap-ref.sh, which never reads the variable, pushes against a
+# different, unrelated (possibly nonexistent) one. Found live, M-BOOT-02
+# T-20, while testing against an isolated clone with the main session's
+# $TSK_BOOTSTRAP_WT still in its environment.
 thread_wt() {
   local wt
-  if [ -n "${TSK_BOOTSTRAP_WT:-}" ] && [ -d "${TSK_BOOTSTRAP_WT}" ]; then
-    printf '%s\n' "$TSK_BOOTSTRAP_WT"
-    return 0
-  fi
   wt="$("$(dirname "${BASH_SOURCE[0]}")/bootstrap-wt-path.sh")"
   if [ -d "$wt" ]; then
     printf '%s\n' "$wt"
