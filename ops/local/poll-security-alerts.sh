@@ -6,12 +6,15 @@ set -euo pipefail
 # on tsk/bootstrap (M-BOOT-02 T-19), in a single fetch/append/push cycle covering
 # every alert this run finds.
 #
-# Meant to run under a GitHub Action's own GITHUB_TOKEN, scoped with
-# security-events: read: that token is separate from the Claude GitHub App
-# installation, which cannot read these endpoints, so it is not subject to that gap.
+# Needs a real personal access token, not the Action's own automatic GITHUB_TOKEN:
+# Dependabot alerts and secret scanning alerts both reject an installation-type token
+# outright, confirmed live 2026-09-20, regardless of declared permissions. Only code
+# scanning alerts work with GITHUB_TOKEN. A classic PAT with the security_events
+# scope (or a fine-grained PAT with the matching per-endpoint read permissions) covers
+# all three, so this script uses one PAT throughout rather than mixing tokens.
 #
 # Usage: poll-security-alerts.sh <owner/repo>
-# Reads the token from the GITHUB_TOKEN environment variable.
+# Reads the token from the GH_PAT environment variable.
 
 if [ "$#" -ne 1 ]; then
   echo "usage: poll-security-alerts.sh <owner/repo>" >&2
@@ -19,11 +22,11 @@ if [ "$#" -ne 1 ]; then
 fi
 
 REPO="$1"
-: "${GITHUB_TOKEN:?GITHUB_TOKEN must be set}"
+: "${GH_PAT:?GH_PAT must be set}"
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 
 fetch() {
-  curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" \
+  curl -sS -H "Authorization: Bearer $GH_PAT" -H "Accept: application/vnd.github+json" \
     "https://api.github.com/repos/$REPO/$1?state=open&per_page=100"
 }
 
