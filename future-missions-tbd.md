@@ -353,6 +353,9 @@ LangChain says this is 92 to 913 times more consistent than an LLM judge, and ch
 and faster, so teams can run evals more often.
 [langchain.com/blog/jev-agent-evals-langsmith](https://www.langchain.com/blog/jev-agent-evals-langsmith).
 
+Further reference, added by Jim, 2026-09-20: [typesafe.ai](https://typesafe.ai/), Jev's
+own site. Jim is signing up to its waitlist.
+
 Same Jev classifier already noted in `docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`
 from LangChain's harness piece, now applied to evals specifically.
 
