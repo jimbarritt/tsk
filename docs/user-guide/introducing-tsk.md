@@ -64,7 +64,7 @@ Instructions fall on a scale by size:
 
 - An ad hoc instruction gets carried out directly.
 - A **task** sits in the ledger under a thread.
-- A **mission** holds a briefing: an objective the agent breaks into its
+- A **mission** has a briefing: an objective the agent breaks into its
   own tasks and implementation, any constraints that apply, and, on
   completion, a mission report describing the outcome, written back into
   the ledger.
