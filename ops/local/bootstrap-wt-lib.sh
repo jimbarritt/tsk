@@ -7,6 +7,8 @@
 # Location: ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/bootstrap
 # See docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md.
 
+source "$(dirname "${BASH_SOURCE[0]}")/mint-token-lib.sh"
+
 bootstrap_state_root() {
   printf '%s/tsk\n' "${XDG_STATE_HOME:-$HOME/.local/state}"
 }
@@ -37,9 +39,13 @@ bootstrap_clone_id() {
 
   name="$(basename "$(dirname "$common_dir")" | tr -cd 'A-Za-z0-9._-')"
   [ -n "$name" ] || name="repo"
-  # tr is killed by SIGPIPE once head has its bytes; expected, not a failure.
-  # 2>/dev/null silences the resulting "write error: Broken pipe" noise.
-  suffix="$(set +o pipefail; LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | head -c 8)"
+
+  # A failure here must not be written to the marker: the marker is minted once
+  # and read forever after, so a malformed id would outlive the run that made it.
+  if ! suffix="$(tsk_mint_token 8 "$common_dir")"; then
+    echo "bootstrap_clone_id: could not mint a clone id for $common_dir" >&2
+    return 1
+  fi
   id="$name-$suffix"
 
   printf '%s\n' "$id" > "$marker"
