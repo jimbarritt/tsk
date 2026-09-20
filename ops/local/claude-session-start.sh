@@ -16,16 +16,24 @@ if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
 fi
 
 # `.claude/settings.json`'s `extraKnownMarketplaces` and `enabledPlugins` only
-# declare intent; neither registers the marketplace with the CLI nor installs the
-# plugin. Both steps below are needed, in order, so a fresh clone (a cloud session
-# included) gets a working plugin with no manual step. Both are idempotent: running
-# either again when already done is a no-op that exits 0.
+# declare intent; neither registers the marketplace with the CLI, installs the
+# plugin, nor upgrades an already-installed one. All steps below are needed,
+# in order, so a fresh clone (a cloud session included) gets a working,
+# current plugin with no manual step. Each is idempotent: running it again
+# when already done is a no-op that exits 0. `install` on an already-installed
+# plugin does not upgrade it even when the marketplace offers a newer
+# version, so a separate `update` step is required, after a marketplace
+# refresh so it sees a version newer than the cached one.
 PLUGIN_MSG=""
 PLUGIN_LOG="$(mktemp)"
 if ! claude plugin marketplace add jimbarritt/claude-plugins >"$PLUGIN_LOG" 2>&1; then
   PLUGIN_MSG=" WARNING: adding the jimbarritt-claude-plugins marketplace failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
 elif ! claude plugin install swe@jimbarritt-claude-plugins --scope project -y >"$PLUGIN_LOG" 2>&1; then
   PLUGIN_MSG=" WARNING: installing the swe plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+elif ! claude plugin marketplace update jimbarritt-claude-plugins >"$PLUGIN_LOG" 2>&1; then
+  PLUGIN_MSG=" WARNING: refreshing the jimbarritt-claude-plugins marketplace cache failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+elif ! claude plugin update swe@jimbarritt-claude-plugins --scope project >"$PLUGIN_LOG" 2>&1; then
+  PLUGIN_MSG=" WARNING: updating the swe plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
 fi
 rm -f "$PLUGIN_LOG"
 
