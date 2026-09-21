@@ -4,6 +4,20 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## Humans filling posts, as an answer to the fuel crisis
+
+Raised by Jim, 2026-09-21, from the fuel-crisis and Fable sections of Yegge's "Seats and
+Sunsets". Written up as a reference doc in the tsk repo:
+`docs/kb/orchestration-ecosystem/underlying-energy-constraints-of-running-a-factory.md`.
+
+Jim's read: Yegge's account matches his own intuition that he is needed more when using
+Sonnet, and he cannot afford to run the factory at any scale.
+
+Jim's idea: tsk's model of collab with humans means that humans could fill posts, if the
+agents understand what the post is and when they should escalate, as long as there is a
+comms medium (e.g. Slack). tsk provides a powerful solution to this. Not designed; depends
+on Post, which is itself a placeholder.
+
 ## Seats: wait and let it come out in the design
 
 Raised by Jim, 2026-09-21, after reading the seats comparison in
