@@ -17,6 +17,18 @@ The word "seat" itself doesn't make intuitive sense to him. He asked for another
 describe it given tsk's context, as a future note only. Decision: wait and let it come out
 in the design.
 
+Name settled, 2026-09-21, still not adopted into the ubiquitous language until the design
+calls for it: **post**, the UK doctrine term for an authorised position that exists whether
+filled or vacant and that a person is appointed to. Rejected: billet (the US term for the
+same thing), seat, role (JP 1's sense is organisation-level, the wrong level for an
+individual position).
+
+Doctrine splits a seat five ways, which is the mapping to keep when it comes out in the
+design: the post (the standing position), authority by assignment (vested in the post, not
+the person), standing orders (instructions that persist across incumbents), the incumbent
+(tsk's Actor), and the duty log (tsk's Thread continuation). tsk has the last two. The
+first three are what "seat" bundles in and tsk has no term for.
+
 Connects to an open point already recorded in `docs/domain/mission-model.md` under
 mission categories: a mission with no end point "is closer to a description of an actor
 than to a unit of work: the responsibility it carries, and the skills it needs", and
