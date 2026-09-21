@@ -131,9 +131,13 @@ worth fixing on their own:
   truncated last line breaks reading the entire store, no fallback to the last valid
   line.
 
-Not yet started: which of the two independent bug fixes (`mktemp -p`, the
-`COMMIT_ON_MAIN` reachability check) or the test suite itself to build first is Jim's
-call, asked, not yet answered. | none | none | TODO |
+Broken out into T-23 through T-26 below, 2026-09-21, so each is individually tracked
+rather than sitting only as prose in this entry: Jim's concern, they would otherwise be
+easy to lose. Which to build first is still open. | none | none | TODO |
+| T-23 | Fix `thread_bind_cloud`'s non-atomic write | Found during T-22's research, 2026-09-21. `thread_bind_cloud` (`thread-lib.sh`) writes via `mktemp` then `mv`, but `mktemp` lands in `$TMPDIR`, likely a different filesystem from `$WT`, so the rename degrades to copy-plus-unlink rather than an atomic replace. Fix: `mktemp -p "$(dirname "$lookup")"`. Not yet applied | none | none | TODO |
+| T-24 | Check a continuation entry's recorded commits are reachable on `origin` | Found during T-22's research, 2026-09-21. `thread-append-handover.sh`'s `COMMIT_ON_MAIN` records the local `HEAD`, which can be unpushed or not on `main` at all; a different actor resuming elsewhere cannot see that commit. No invariant currently checks either recorded hash is reachable on `origin` before or after writing the entry. Not yet designed | none | none | TODO |
+| T-25 | Detect a thread that dies before its first continuation entry | Found during T-22's research, 2026-09-21. A thread that starts (`/start-thread`) and crashes before ever running `/pause-thread` leaves no `continuation-state.jsonl` entry at all, so nothing distinguishes it from a thread nobody has touched yet — same shape as a known LangGraph issue, #8764. Not yet designed | none | none | TODO |
+| T-26 | Make the continuation state files safe under concurrent unattended writers | Found during T-22's research, 2026-09-21. Two problems, one root cause: nothing resolves a conflict without a human. (1) Two concurrent pauses conflict on rebase over the last line of `continuation-state.jsonl`; `push-bootstrap-ref.sh` aborts with instructions addressed to a human, which an unattended worker cannot act on. Candidate fix: `continuation-state.jsonl merge=union` in `.gitattributes`, so two independent appends merge cleanly. (2) `threads/lookup-by-cloud-session.json` hits the same conflict but cannot merge=union (each session's entry is a keyed object, not an appended line), so it needs a different fix, not yet designed. Related robustness gap, same area: `thread_written_by_actors` reads the whole JSONL store via `jq` with no fallback, so one torn or truncated last line (a crash mid-write) breaks reading the entire store rather than just that one entry. Not yet designed | none | none | TODO |
 
 **Essential task**: T-11. Repo access denial is the most common cloud routine failure,
 and nothing downstream works without it.
