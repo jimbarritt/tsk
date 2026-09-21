@@ -4,6 +4,24 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## Seats: wait and let it come out in the design
+
+Raised by Jim, 2026-09-21, after reading the seats comparison in
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md` in the tsk repo.
+
+Jim's read: we haven't reached the point of needing seats yet because we are still
+bootstrapping in supervised mode. Until we actually have agents autonomously running and
+trying to manage each other we don't need it, or rather Jim is sitting in all the seats.
+
+The word "seat" itself doesn't make intuitive sense to him. He asked for another way to
+describe it given tsk's context, as a future note only. Decision: wait and let it come out
+in the design.
+
+Connects to an open point already recorded in `docs/domain/mission-model.md` under
+mission categories: a mission with no end point "is closer to a description of an actor
+than to a unit of work: the responsibility it carries, and the skills it needs", and
+whether tsk models that separately is open.
+
 ## tsk talking to Wheelhouse, and messaging into the tsk nexus
 
 Raised by Jim, 2026-09-20, from Yegge's tweet about orchestration factories exchanging
