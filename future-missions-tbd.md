@@ -17,9 +17,11 @@ The word "seat" itself doesn't make intuitive sense to him. He asked for another
 describe it given tsk's context, as a future note only. Decision: wait and let it come out
 in the design.
 
-Name settled, 2026-09-21, still not adopted into the ubiquitous language until the design
-calls for it: **post**, the UK doctrine term for an authorised position that exists whether
-filled or vacant and that a person is appointed to. Rejected: billet (the US term for the
+Name settled, 2026-09-21: **post**, the UK doctrine term for an authorised position that
+exists whether filled or vacant and that a person is appointed to. A placeholder entry now
+sits in `docs/domain/ubiquitous-language.md` in the tsk repo, marked not yet modelled; the
+full doctrine mapping is under Seats in
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`. Rejected: billet (the US term for the
 same thing), seat, role (JP 1's sense is organisation-level, the wrong level for an
 individual position).
 
