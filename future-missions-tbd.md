@@ -443,6 +443,15 @@ OpenAI to rethink CI/CD, code review and how it uses pull requests at all.
 (this sandbox's egress proxy blocks the domain directly; not read from the page, only
 the feed's own summary, confirmed by Jim as matching the article).
 
+## Telemetry for a factory-wide view across agents
+
+Raised by Jim, 2026-09-21, from Claude Code's OpenTelemetry export support.
+
+Jim is thinking about how tsk can get a view of everything that's going on across
+agents, to help humans manage the factory. A telemetry server Jim runs himself, with the
+cloud environment's Claude Code sessions configured to export to it, is one candidate
+mechanism. Still at the "could" stage, not decided.
+
 ## Actor definition
 
 Raised by Jim, 2026-09-17, while resolving what to do with a thread that has no mission.
