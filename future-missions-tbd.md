@@ -452,6 +452,22 @@ agents, to help humans manage the factory. A telemetry server Jim runs himself, 
 cloud environment's Claude Code sessions configured to export to it, is one candidate
 mechanism. Still at the "could" stage, not decided.
 
+## A "chief of staff" post
+
+Raised by Jim, 2026-09-21.
+
+Jim wants a high-level assistant across the whole of his territory, maybe wider: an
+agent he interacts with at a high level, coordinating breakdown of work and tracking
+overall mission status. Jim's read: this is the first instance of the "post" concept he
+believes is already in `docs/domain/ubiquitous-language.md`.
+
+Not yet in that document under that name. The closest existing capture is "Actor
+definition" below, which raises the same shape, "something like a custom agent... more
+about the actor than about the work", and marks it as an additional concept to come back
+to later, not yet settled or named "post".
+
+Jim does not yet know its duties. Captured as an idea only.
+
 ## Actor definition
 
 Raised by Jim, 2026-09-17, while resolving what to do with a thread that has no mission.
