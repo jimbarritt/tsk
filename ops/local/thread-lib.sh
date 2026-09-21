@@ -177,7 +177,11 @@ thread_bind_cloud() {
   mkdir -p "$(dirname "$lookup")"
   [ -f "$lookup" ] || printf '{}' > "$lookup"
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  tmp="$(mktemp)"
+  # -p keeps the temp file on the same filesystem as $lookup, so the mv below
+  # is an atomic rename rather than a copy-plus-unlink across filesystems
+  # (mktemp with no -p defaults to $TMPDIR, which is not guaranteed to share
+  # a filesystem with $WT).
+  tmp="$(mktemp -p "$(dirname "$lookup")")"
   jq --arg k "$CLAUDE_CODE_REMOTE_SESSION_ID" \
      --arg id "$thread_id" \
      --arg at "$now" \
