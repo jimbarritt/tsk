@@ -91,7 +91,49 @@ Routine created: `trig_019AVSCvfqAWSVzeKV88p863`, daily `0 7 * * *` UTC, fresh s
 
 Fixed, 2026-09-19, same day: `thread_wt()` (`thread-lib.sh`) returned `$TSK_BOOTSTRAP_WT` directly whenever set and the directory existed, on the assumption it always names the current clone's own worktree. True for the `SessionStart` hook's own clone, false for a script run from a different clone while the variable is still exported from an earlier session: the two resolve to different clone IDs, so a thread script could scaffold a thread into one worktree while `push-bootstrap-ref.sh`, which never reads the variable, pushed against a different, nonexistent one. `thread_wt()` now always resolves through `bootstrap-wt-path.sh`, the same canonical path `push-bootstrap-ref.sh` and `fetch-bootstrap-ref.sh` already use, so the two cannot disagree. Verified against the same reproduction: `thread_wt()` now returns the same path as `bootstrap_wt_path()` even with a foreign `TSK_BOOTSTRAP_WT` set. Pushed to `main`: `f047228` | none | none | DONE |
 | T-21 | Build a latency harness and find why replies feel slower | Raised by Jim, 2026-09-19/20. Three candidates proposed: the `swe` Stop hook's reply check, its `PostToolUse` check on `Write`\|`Edit`, and its output style raising reasoning tokens. Built `ops/local/run-latency-harness.py` (methodology in the adjacent `.md`): headless `claude -p`, one fresh session per run, reads `duration_ms`/`ttft_ms`/token counts/cost from the result JSON and per-hook `durationMs` from the session transcript, no stopwatch. Three conditions (plugin off; plugin on, output style stripped from a staged copy, since the style's `force-for-plugin: true` makes "plugin on, default style" otherwise unreachable through settings; plugin on intact) isolate the plugin's hooks from its style. Pilot (one repeat, short prompt) found the Stop hook costs ~2037 ms on every turn, including a plain chat reply with nothing to check, reproduced in a clean git repo with no working-tree changes. Narrowed further: the hook's own two sub-steps (the data-fetch script, the linter's `--diff --added-only`) each complete in under 100 ms run directly; wrapped in the hook's own backgrounded subshell and watchdog, the same work costs ~2037 ms, pointing at the hook's process orchestration rather than the check content. Filed upstream: https://github.com/jimbarritt/claude-plugins/issues/6. Output style's own latency cost not established at one repeat; every condition recorded zero thinking tokens at this prompt length. Pushed to `main`: `a9ff714` (harness) | none | none | TODO |
-| T-22 | Continuation test harness | Raised by Jim, 2026-09-21: tsk is close to firing up autonomous worker sessions to complete missions unattended, and continuation (`/start-thread`, `/pause-thread`, `/resume-thread`, `/detach-thread`, `/stop-thread`, T-13/T-20) has only ever been validated by hand, once per change, by a human running the commands and eyeballing the result. Two problems, not one: (1) an unattended worker has nobody to run `/pause-thread` before it runs out of context or gets interrupted — T-17 already names this trigger gap and is not yet solved; (2) even once triggering exists, there is no repeatable way to check continuation actually works, especially the unattended case. Consulting an Agent (opus) for testing-strategy research before shaping this; findings to follow | none | none | TODO |
+| T-22 | Continuation test harness | Raised by Jim, 2026-09-21: tsk is close to firing up autonomous worker sessions to complete missions unattended, and continuation (`/start-thread`, `/pause-thread`, `/resume-thread`, `/detach-thread`, `/stop-thread`, T-13/T-20) has only ever been validated by hand, once per change, by a human running the commands and eyeballing the result. Two problems, not one: (1) an unattended worker has nobody to run `/pause-thread` before it runs out of context or gets interrupted — T-17 already names this trigger gap and is not yet solved; (2) even once triggering exists, there is no repeatable way to check continuation actually works, especially the unattended case. Consulting an Agent (opus) for testing-strategy research before shaping this; findings to follow.
+
+Agent (opus) research back, 2026-09-21. Recommended suite, in priority order: (1) a
+deterministic local script suite running `thread-*.sh` against a temp clone with a
+fake `origin` (no model, no cloud; the 721 lines in `ops/local/thread-*.sh` currently
+have zero coverage — `cli/tests/e2e.rs` is the repo's only test file); (2) a
+replay-corpus test, Temporal's pattern: keep every real `continuation-state.jsonl`
+entry ever written as a golden corpus, replay each against current `thread-resume.sh`
+in CI, assert it still parses and its mission link and commit hashes still resolve;
+(3) crash-point injection, `SIGKILL` a script mid-write (e.g. between the JSONL
+append and the push), assert recovery. A self-interrupting nightly Routine
+(`create_trigger`/`fire_trigger` on a scripted mission that dies mid-task) as one true
+end-to-end smoke test, not the primary suite: slow, cloud-dependent, non-deterministic.
+A written manual checklist only for what nothing above reaches (`/clear` has no tool
+call). `PreCompact` as the pause trigger itself (not just the test target) is weak
+alone: primary docs say it cannot block and `SessionEnd`-family hooks share a 1.5s
+budget, too short for a fetch/rebase/push; split it instead, a fast local-only write in
+`PreCompact`, then push and reload in a `SessionStart` hook matching `source: compact`.
+
+Real bugs found while reading the scripts for this, independent of any harness,
+worth fixing on their own:
+- `thread_bind_cloud`'s `mktemp` + `mv` (`thread-lib.sh`) is likely not atomic:
+  `mktemp` lands in `$TMPDIR`, a different filesystem from `$WT`, so the rename
+  degrades to copy-plus-unlink. Fix: `mktemp -p "$(dirname "$lookup")"`.
+- A pause's `COMMIT_ON_MAIN` (`thread-append-handover.sh`) records the local `HEAD`,
+  which can be unpushed or off `main` entirely; a different actor resuming elsewhere
+  cannot see that commit. No invariant currently checks both recorded hashes are
+  reachable on `origin`.
+- A thread that starts and crashes before its first `continuation-state.jsonl` entry
+  is invisible; nothing detects a zero-entry thread. Same shape as a known LangGraph
+  issue, #8764.
+- Two concurrent pauses conflict on rebase; `push-bootstrap-ref.sh` aborts with
+  instructions addressed to a human, fine when one is present, not for an unattended
+  worker. Candidate fix: `continuation-state.jsonl merge=union` in `.gitattributes`.
+  `threads/lookup-by-cloud-session.json` has the same problem and cannot union-merge;
+  separate fix needed.
+- `thread_written_by_actors` reads the whole JSONL store via `jq`; one torn or
+  truncated last line breaks reading the entire store, no fallback to the last valid
+  line.
+
+Not yet started: which of the two independent bug fixes (`mktemp -p`, the
+`COMMIT_ON_MAIN` reachability check) or the test suite itself to build first is Jim's
+call, asked, not yet answered. | none | none | TODO |
 
 **Essential task**: T-11. Repo access denial is the most common cloud routine failure,
 and nothing downstream works without it.
