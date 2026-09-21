@@ -461,10 +461,16 @@ agent he interacts with at a high level, coordinating breakdown of work and trac
 overall mission status. Jim's read: this is the first instance of the "post" concept he
 believes is already in `docs/domain/ubiquitous-language.md`.
 
-Not yet in that document under that name. The closest existing capture is "Actor
-definition" below, which raises the same shape, "something like a custom agent... more
-about the actor than about the work", and marks it as an additional concept to come back
-to later, not yet settled or named "post".
+Correction to this entry, 2026-09-21: Post was added to that document the same day, by a
+different session, commit `e7ffcf9`, as a placeholder, "not yet modelled: the design has
+not called for it, and the term is recorded now so it is not renamed later." Sourced from
+Steve Yegge's "Seats and Sunsets" essay, Wheelhouse's "seat" concept, mapped in
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md` under Seats. Missed on
+first capture: this session's local checkout of `main` was stale, 20 commits behind, at
+the time.
+
+On Jim's read, this chief-of-staff idea would be the first post actually filled, not just
+named.
 
 Jim does not yet know its duties. Captured as an idea only.
 
