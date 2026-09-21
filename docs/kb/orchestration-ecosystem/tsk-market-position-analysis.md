@@ -325,8 +325,14 @@ re-verification, and a seat, by caching that trust, cuts the cost.
 
 Jim's read: [Actor](../../domain/ubiquitous-language.md#actor) plus
 [Thread continuation](../../domain/ubiquitous-language.md#thread-continuation) may be the
-breakdown of a seat into tsk's own terms, one object split into two. Not yet decided
-whether tsk adopts anything from this.
+breakdown of a seat into tsk's own terms, one object split into two.
+
+Decision, 2026-09-21: tsk does not need this yet. The bootstrap runs in supervised mode,
+with Jim filling every position himself, so the position and the person have had no reason
+to be separated. The concept waits and comes out in the design when agents run
+autonomously and manage each other. Its tsk name is settled ahead of that, as
+[Post](../../domain/ubiquitous-language.md#post), with a placeholder entry in the
+ubiquitous language; the doctrine mapping below is the reason for the name.
 
 ### What each side holds
 
@@ -361,6 +367,62 @@ just relabelling Thread continuation.
 The essay's actual payload, caching a trust decision so it doesn't need re-deriving, has
 no counterpart in either tsk object. Bringing that in is a new mechanism, not a rename of
 what already exists.
+
+### Where doctrine places it
+
+Doctrine has the concept under another name, and splits it more finely than "seat" does.
+Sources and the verification caveat are in
+[military-doctrine-sources.md](../military-doctrine-sources.md): the terms the repo already
+cites were gathered in earlier sessions, and the ones added here come from the same body of
+vocabulary, not from primary text opened inside the sandbox, whose proxy blocks `jcs.mil`.
+
+Already cited in `mission-model.md`, and why each falls short of the seat:
+
+- **Role** and **function** (JP 1, 2013) are organisation-level, "the broad and enduring
+  purposes for which the Services and the combatant commands were established". A seat
+  is an individual position, one level down. This is why "role" is rejected as the tsk
+  name: it collides with doctrine's sense.
+- **Standing commitments** and **steady-state** (JDP 0-01) describe enduring work, not the
+  position that holds it. This is the standing-mission conversation recorded under mission
+  categories in `mission-model.md`: adjacent, not the same thing.
+- The **mission essential task list**, held per unit and derived from anticipated
+  missions, is the nearest cited term for what a position must be able to do.
+
+Not yet cited in the repo, and the terms that do fit:
+
+- **Post** (UK), or **billet** (US): an authorised position in a unit's structure. It
+  exists whether filled or vacant, and a person is appointed to it. This is the seat
+  itself.
+- **Command** (DoD Dictionary): "the authority that a commander lawfully exercises over
+  subordinates by virtue of rank or assignment". Authority is vested by assignment to the
+  position, not held by the person. This is the property the essay is built on: the trust
+  lookup is a lookup because the position holds the authority.
+- **Standing orders** and **standing operating procedures**: instructions attached to a
+  position that persist across whoever fills it. Wheelhouse's own phrase for its role
+  agents is "role agents with standing orders", so the essay already draws on this
+  vocabulary.
+- The **table of organisation**: the authorised set of posts, the structure they sit in.
+- The **duty log**, or unit journal: the running record kept at a position and handed over
+  between incumbents.
+
+Set against Jim's hypothesis, doctrine gives a five-way split:
+
+| Doctrine | Seat component | tsk today |
+|---|---|---|
+| Post | the standing position | none |
+| Authority by assignment | scope of authority | none |
+| Standing orders | persistent instructions | partly: a briefing's Constraints, and ksobr |
+| Incumbent | who fills it now | Actor |
+| Duty log | history, handed over | Thread continuation |
+
+Actor plus Thread continuation is the incumbent plus the duty log. What "seat" bundles in,
+and tsk has no term for, is the post with its vested authority and standing orders. "I am
+sitting in all the seats" reads exactly on this split: every post has the same incumbent,
+so nothing has yet forced the post and the person apart.
+
+Name: **post**, the UK term. Rejected: billet (the US term for the same thing), seat
+(Wheelhouse's term, which did not read intuitively in tsk's context), role (the JP 1
+collision above).
 
 ## Related
 
