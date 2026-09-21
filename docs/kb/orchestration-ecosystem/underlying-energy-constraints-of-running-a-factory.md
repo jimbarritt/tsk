@@ -81,6 +81,39 @@ tsk's model of collaboration with humans means that humans could fill
 what the post is and when they should escalate, and there is a comms medium, Slack for
 example. Given those, tsk provides a solution to this constraint.
 
+### Posts as an escalation and permission target
+
+A post is the same shape as an approval workflow in an organisation: a budget spend
+above a set line needs a manager's sign-off, above another line a director's. The
+authority sits on the position in the org chart, not on whoever currently holds it, the
+same "authority by assignment" property already recorded for Post in
+`tsk-market-position-analysis.md`.
+
+Jim's read, in his terms: the post, together with the role in the sense of permission,
+identifies a position people can escalate to and that can make a decision. The
+permissions are commensurate with the post. Holding the post gives the permissions.
+
+Two points follow from this, neither designed yet:
+
+- An agent needs to know, for a given decision, which post it can act on directly and
+  which post it must escalate to. That is the "when they should escalate" condition
+  named above.
+- The post an agent escalates to can be filled by a human or by another agent, without
+  the escalating agent needing to know which. It addresses the post, over whatever comms
+  medium is connected to it, and whoever or whatever holds the post answers.
+
+### Token spend as a budget decision
+
+The numbers in "What Yegge reports" above put a further decision in the same shape:
+whether a task is worth spending tokens on. At an account burned in 2 to 4 hours, and
+$12,000 a month to sustain 55 accounts, that is a budget decision, on Jim's read a
+critical one, not a default yes.
+
+Read against the escalation point above: a spend decision above some threshold is a
+decision a given post is not permitted to make alone, the same way a budget line above a
+manager's authority needs their director's sign-off. The threshold, and which post holds
+authority over it, are not designed yet.
+
 ## Related
 
 - [tsk-market-position-analysis.md](tsk-market-position-analysis.md), under Seats: the
