@@ -94,6 +94,38 @@ Named "thread continuation" rather than "continuation" alone because the record 
 lives inside the thread's own directory, so the qualifier keeps the term consistent with
 its location rather than adding one only some readers would need.
 
+## Post
+
+Placeholder. Named on 2026-09-21, not yet modelled: the design has not called for it,
+and the term is recorded now so it is not renamed later.
+
+A standing position that exists whether or not anyone fills it, holding a scope of
+authority and standing instructions that persist across whoever is appointed to it. An
+[actor](#actor) is appointed to a post; the post is not the actor. The UK doctrine term,
+chosen over the US "billet".
+
+What it is for: a post caches a trust decision. An actor in a post acts within the post's
+authority without re-deriving, each time, whether the action is allowed. Today tsk has no
+place that stores that: [Actor](#actor) answers who holds a thread, and
+[Thread continuation](#thread-continuation) answers what happened on it, and neither holds
+a scope of authority. The bootstrap runs in supervised mode with Jim appointed to every
+post, so the post and the person have not yet had a reason to be separated. The concept
+comes out in the design when agents run autonomously and manage each other.
+
+Source: Wheelhouse's "seat", from Steve Yegge's essay
+["Seats and Sunsets"](https://yegge.ai/essays/seats-and-sunsets/). A seat there is a
+role-based position with persistent context, a defined scope of authority, a history, and
+accountability. Doctrine splits that bundle five ways, post, authority by assignment,
+standing orders, incumbent, and duty log, of which tsk already has the last two as Actor
+and Thread continuation. The full mapping, and the doctrine sources, are in
+[docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md](../kb/orchestration-ecosystem/tsk-market-position-analysis.md)
+under Seats.
+
+Rejected: seat (Wheelhouse's term; does not read intuitively in tsk's context), billet
+(the US term for the same position), role (JP 1's sense is organisation-level, "the broad
+and enduring purposes for which the Services and the combatant commands were
+established", one level above an individual position).
+
 ## Ledger
 
 The store of a repo's own mission and task data: missions and their briefings, threads,
