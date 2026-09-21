@@ -427,6 +427,11 @@ own site. Jim is signing up to its waitlist.
 
 Jim, 2026-09-20: this one needs research.
 
+Research done, 2026-09-20: `docs/kb/typesafe-jev-classifier.md`, with a section in
+`tsk-market-position-analysis.md` on its intersection with `/goal`'s evaluator mechanism.
+
+Jim, 2026-09-21: into the preview, signing up now.
+
 Same Jev classifier already noted in `docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`
 from LangChain's harness piece, now applied to evals specifically.
 
