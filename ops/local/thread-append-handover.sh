@@ -32,8 +32,21 @@ if [ ! -f "$STORE" ]; then
   exit 1
 fi
 
+# COMMIT_ON_BOOTSTRAP needs no reachability check: thread_refresh_wt just reset
+# $WT to origin's own fetched tip, so its HEAD is already on origin by
+# construction. COMMIT_ON_MAIN has no such guarantee: it is this checkout's
+# local HEAD, which can be unpushed or ahead of origin/main. A different actor
+# resuming this thread elsewhere clones fresh and cannot see a commit that
+# never reached origin, so refuse to record one.
 COMMIT_ON_BOOTSTRAP="$(git -C "$WT" rev-parse HEAD)"
 COMMIT_ON_MAIN="$(git rev-parse HEAD)"
+git fetch origin main
+if ! git merge-base --is-ancestor "$COMMIT_ON_MAIN" origin/main; then
+  echo "error: HEAD ($COMMIT_ON_MAIN) is not reachable on origin/main." >&2
+  echo "       A different actor resuming this thread elsewhere would not be able" >&2
+  echo "       to see this commit. Push to main before pausing." >&2
+  exit 1
+fi
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 WRITTEN_BY="$(thread_actor_urn)"
 
