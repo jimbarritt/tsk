@@ -285,6 +285,24 @@ shown; use is free with a JetBrains AI subscription or an agent provider's own A
 Third-party reports of a $5 to $10 per user per month tier are not confirmed against
 JetBrains' own site and are not repeated here as fact.
 
+### Why an IDE vendor built this
+
+Raised by Jim, 2026-09-22. An agent workflow that writes, reviews, and verifies code
+without a human working in an editor reduces what an IDE licence buys. Building an agent
+product is a rational hedge for a company whose revenue rests on IDE licences,
+independent of how the move is read.
+
+Two predictions follow from that incentive, neither confirmed by what M-JBAIR-01 read
+directly:
+
+- **Pricing.** Free today, in alpha, with no published tier (recorded above). A
+  licence-revenue business has reason to price this once it is the product rather than a
+  preview feature.
+- **A state backend outside git.** The open question recorded above, whether a task's
+  brief and role history persist in git beyond ordinary commits, is also the seam a
+  vendor would use to hold a user to its own product: state that does not travel in the
+  git history does not travel to a competitor's tool either.
+
 ### Where JetBrains Air has converged, and where it hasn't
 
 - **Converged, on the same unit as Claude Code Projects**: a coordinator dispatching to
