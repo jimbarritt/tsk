@@ -231,39 +231,75 @@ rather than against one.
 ## JetBrains Air
 
 Raised by Jim, 2026-09-22, from
-[blog.jetbrains.com/blog/2026/09/22/introducing-jetbrains-air](https://blog.jetbrains.com/blog/2026/09/22/introducing-jetbrains-air/),
-blocked by this sandbox's egress proxy and not read directly. Everything below is
-sourced from JetBrains' own product documentation and blog posts (`jetbrains.com/help/air/`,
-`blog.jetbrains.com/air/`) as surfaced through search, and cross-checked independent
-coverage, not from the specific article Jim linked. What that article adds beyond the
-product record below is unconfirmed.
+[blog.jetbrains.com/blog/2026/09/22/introducing-jetbrains-air](https://blog.jetbrains.com/blog/2026/09/22/introducing-jetbrains-air/).
+Read directly, 2026-09-22, by mission M-JBAIR-01, which also checked most of the claims
+below against JetBrains' own documentation directly, rather than through search. Where a
+claim rests on a search-engine snippet rather than a page opened directly, that is
+flagged in place.
+
+The article Jim linked is broader than a single product: it announces "Air", "an open,
+coherent system of products", of three parts, "available today alongside others that
+will be introduced as the system develops": **Air in JetBrains IDEs**, "a complete
+agentic development experience for directing and orchestrating agents and verifying
+their work inside JetBrains IDEs"; **Air Teams**, coordinating software-delivery
+workflows across developers and agents; and **Air Governance** (formerly JetBrains
+Central), organisational policy, cost, and accountability for agent-driven development.
+Everything else in this section describes Air in JetBrains IDEs only, the product
+launched as a public preview in March 2026, the one the rest of this market position
+analysis's argument depends on. Air Teams and Air Governance are not assessed here.
 
 An agentic development environment, built on the codebase of Fleet, JetBrains' earlier,
-abandoned lightweight editor. Launched as a public preview in March 2026, macOS first,
-Windows and Linux following by mid-2026. A coordinator dispatches a task to a worker,
-each running in its own isolated git worktree, a Docker container, or both, so several
-tasks run in parallel without one touching another's files.
+abandoned lightweight editor (independent coverage only: The Register and DevClass both
+report this; JetBrains' own pages read here do not mention Fleet). Launched as a public
+preview in March 2026, macOS first. Windows and Linux are available via JetBrains
+Toolbox as of this reading, September 2026; the date that stopped being "coming soon"
+is not confirmed. A coordinator dispatches a task to a worker, run in one of four
+execution environments: Local Workspace, the default, applies changes directly to the
+working copy with no isolation; Git Worktree, Docker, and Cloud each isolate the task
+instead, on its own branch, named `air/<task>` in every case. Several tasks run in
+parallel without one touching another's files only in the three isolated modes, not in
+the default.
 
-A task's work is split into agent roles: Implementer changes code on a branch or pull
-request against a task brief, Reviewer checks the result against scope and repository
-rules, QA proves the change works through verification and tests. One agent can carry
-all three roles in sequence, or a separate agent can hold each, run in parallel. Agents
+A task's work is split into agent roles: Planner turns an incoming task into an
+implementation-ready task brief, decomposing it if needed; Implementer changes code on a
+branch or pull request against that brief; Reviewer checks the result against scope and
+repository rules; QA proves the change works through verification and tests. One agent
+can hold all four roles in sequence, or a separate agent can hold each, run in parallel.
+This role list, Planner included, could not be opened directly from
+`jetbrains.com/help/air/agentization-cookbook.html`, which returns 404 in this session
+too, the same block M-JBAIR-01 was raised to fix; it depends on independent secondary
+coverage corroborating a search-engine snippet, not a page read directly, and the prior
+section's Implementer/Reviewer/QA list, without Planner, undercounted it. Agents
 coordinate through repository artefacts, files and the pull request, not through shared
 chat history.
+
+Unanswered after a direct check: whether a task's brief and role history
+persist in git beyond ordinary commits, or only in Air's own local state. The one
+relevant sentence found, on `jetbrains.com/help/air/history.html`, is "History combines
+Git commits with task-related snapshots", which distinguishes the two without saying
+where a snapshot is stored.
+
+Status as of this reading, from `jetbrains.com/air/` directly: the IDE plugin is
+labelled "Air Alpha", Air Teams offers "early access", and no pricing or tiers are
+shown; use is free with a JetBrains AI subscription or an agent provider's own API key.
+Third-party reports of a $5 to $10 per user per month tier are not confirmed against
+JetBrains' own site and are not repeated here as fact.
 
 ### Where JetBrains Air has converged, and where it hasn't
 
 - **Converged, on the same unit as Claude Code Projects**: a coordinator dispatching to
-  an isolated, persistent worker, the same
-  [Thread](../../domain/ubiquitous-language.md#thread)-shaped unit found there. A third
-  independent design reaching it strengthens the same conclusion drawn from Claude Code
-  Projects: two designs converging could be coincidence, three is a pattern.
-- **Converged, a new data point**: role specialisation, Implementer, Reviewer, QA, over
-  one task is a concrete instance of splitting a thread's work by function rather than
-  by size. Coordination through repository artefacts instead of shared chat history is
-  the same instinct behind an idea already in this ledger's future missions, "Agents
-  interrupting each other": "whether this is needed at all, given that agents can
-  already communicate through git."
+  a persistent worker, the same [Thread](../../domain/ubiquitous-language.md#thread)-shaped
+  unit found there. Isolated when the task runs in Git Worktree, Docker, or Cloud mode;
+  the default, Local Workspace, applies changes to the working copy directly, with no
+  isolation. A third independent design reaching the Thread-shaped unit strengthens the
+  same conclusion drawn from Claude Code Projects: two designs converging could be
+  coincidence, three is a pattern.
+- **Converged, a new data point**: role specialisation, Planner, Implementer, Reviewer,
+  QA, over one task is a concrete instance of splitting a thread's work by function
+  rather than by size. Coordination through repository artefacts instead of shared chat
+  history is the same instinct behind an idea already in this ledger's future missions,
+  "Agents interrupting each other": "whether this is needed at all, given that agents
+  can already communicate through git."
 - **Not converged, the same dimensional limit as beads and Claude Code Projects**: Air
   models no [Product](../../domain/ubiquitous-language.md#product), no first-class
   [Delta](../../domain/ubiquitous-language.md#delta), and no continuous
@@ -281,10 +317,12 @@ vendor's private interface: a new agent is added by pointing Air at it through a
 This is the exception recorded above, under "Locked to a substrate, four of five." Any
 ACP-speaking agent can be a worker, so the worker layer is not locked to one vendor's
 runtime the way a Claude Code Projects thread is locked to Claude Code. The coordinator
-layer is a different question: Air is a JetBrains desktop application, adopted as a
-product, the same kind of dependency Claude Code Projects is for tsk's own harness, just
-without the "the platform tsk already runs inside" relationship that makes Claude Code
-Projects the sharper case.
+layer is a different question: Air runs as a JetBrains IDE, a web application
+(`air.jetbrains.cloud`), and a CLI, not only a desktop application, but each of those is
+still JetBrains-built and JetBrains-run. Adopted as a product, it is
+the same kind of dependency Claude Code Projects is for tsk's own harness, just without
+the "the platform tsk already runs inside" relationship that makes Claude Code Projects
+the sharper case.
 
 ## Three-part viability verdict
 
