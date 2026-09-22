@@ -9,3 +9,4 @@
 - [7. Event log as source of truth; markdown and the TUI as read-only projections](0007-event-log-as-source-of-truth.md)
 - [8. Bootstrap data lives on a detached branch, not a custom git ref](0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md)
 - [9. The bootstrap worktree is checked out outside the git directory](0009-bootstrap-worktree-outside-the-git-directory.md)
+- [10. The ledger stays a branch, not a directory on `main`](0010-ledger-stays-a-branch-not-a-directory-on-main.md)
