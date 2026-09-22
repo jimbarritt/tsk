@@ -135,7 +135,9 @@ data rather than a line of development, which is why it is kept apart from the
 
 Today the ledger is the `tsk/bootstrap` branch, checked out at a fixed path outside the
 repository (`docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`,
-`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md`). That is the mechanism
+`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md`). A separate branch, not
+a directory committed on `main`, is itself a decision:
+`docs/adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md`. That is the mechanism
 in use, not the definition. M-BOOT-04 and M-BOOT-05 move it, and the term survives the
 move.
 
