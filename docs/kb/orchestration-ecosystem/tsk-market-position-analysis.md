@@ -1,7 +1,7 @@
 # tsk market position analysis
 
 Date: 2026-07-01 (beads re-examination), distilled 2026-09-14, widened to cover Claude
-Code Projects 2026-09-18.
+Code Projects 2026-09-18, and JetBrains Air 2026-09-22.
 
 ## Status
 
@@ -15,8 +15,9 @@ One section per system assessed, then a single verdict over all of them. It is w
 as new systems appear rather than split, so tsk's position is stated in one place and
 cannot drift between documents.
 
-Two systems are assessed: beads, an independent tool, and Claude Code Projects, a
-feature of the platform tsk's own harness runs on.
+Three systems are assessed: beads, an independent tool; Claude Code Projects, a feature
+of the platform tsk's own harness runs on; and JetBrains Air, an independent tool that
+coordinates several vendors' agents at once.
 
 ## Beads
 
@@ -118,11 +119,12 @@ first-class Delta, and no continuous Scale. It is agent orchestration, which is 
 collaboration between humans and agents, and between humans and humans, not agent
 orchestration alone."
 
-### Locked to a substrate, all four of them: tsk's real premise
+### Locked to a substrate, four of five: tsk's real premise
 
-Claude Code Projects is not the only coordinator-and-threads system, and every one found
-so far shares a property Claude Code Projects has on its own: none of them is portable
-away from the vendor that built it.
+Claude Code Projects is not the only coordinator-and-threads system, and most of the
+ones found so far share a property Claude Code Projects has on its own: none of them is
+portable away from the vendor that built it. JetBrains Air, covered in full below, is
+the one exception found, and only at the worker layer, not the coordinator layer.
 
 - **Claude Code Projects** (Anthropic): every thread is a Claude Code cloud session.
 - **Gas Town** (Steve Yegge, independent of Anthropic): runs 20 to 30 Claude Code
@@ -135,11 +137,17 @@ away from the vendor that built it.
   model a task runs on. This looks like portability, but the choice is which vendor's
   model GitHub's own orchestration layer calls, not the coordinator-and-threads
   abstraction itself running on a substrate its own vendor didn't build.
+- **JetBrains Air**, the exception, covered in full below: a worker thread can run
+  Claude, Codex, Gemini CLI, Junie, or any other agent speaking the Agent Client
+  Protocol, an open protocol, not one vendor's own. The coordinator itself is still a
+  single vendor's product.
 
-Four independent teams reached the same shape, coordinator plus dispatched threads, and
-every one bolted it to one vendor's execution layer. That is not carelessness on any of
-their parts; a coordinator has to actually run the threads it creates, and the fastest
-way to build one is against the runtime already in front of you.
+Four of the five bolted the coordinator-and-threads shape to one vendor's execution
+layer, and that is not carelessness on any of their parts; a coordinator has to actually
+run the threads it creates, and the fastest way to build one is against the runtime
+already in front of you. JetBrains Air shows a fifth way was available: decouple the
+worker layer from any single vendor by building against an open protocol instead of one
+runtime.
 
 This is the premise tsk is built on, stated plainly because Jim named it directly: the
 domain, mission, thread, actor, ledger, is defined without reference to which substrate
@@ -157,6 +165,13 @@ independence in practice. The real test is running a tsk thread with a Copilot C
 session, or some other substrate, as its actor, and confirming nothing in the domain
 model quietly assumed Claude Code underneath. Untested, and worth tracking as its own
 question rather than asserting the premise holds because it was designed to.
+
+JetBrains Air narrows what that test still has to prove. It shows a worker being
+vendor-independent is buildable and already shipping, at the protocol layer. What it
+does not show is a coordinator, missions, threads, actors, a ledger, defined without
+reference to any vendor's product at all: Air's own coordinator is a JetBrains
+application, not a portable abstraction. That second half remains tsk's own,
+untested claim.
 
 ### The context boundary: the sharpest difference
 
@@ -213,26 +228,86 @@ cannot fit in one context and watch what it does.
 wall, tsk's continuation mechanism is what it needs. That is tsk sitting inside a thread
 rather than against one.
 
+## JetBrains Air
+
+Raised by Jim, 2026-09-22, from
+[blog.jetbrains.com/blog/2026/09/22/introducing-jetbrains-air](https://blog.jetbrains.com/blog/2026/09/22/introducing-jetbrains-air/),
+blocked by this sandbox's egress proxy and not read directly. Everything below is
+sourced from JetBrains' own product documentation and blog posts (`jetbrains.com/help/air/`,
+`blog.jetbrains.com/air/`) as surfaced through search, and cross-checked independent
+coverage, not from the specific article Jim linked. What that article adds beyond the
+product record below is unconfirmed.
+
+An agentic development environment, built on the codebase of Fleet, JetBrains' earlier,
+abandoned lightweight editor. Launched as a public preview in March 2026, macOS first,
+Windows and Linux following by mid-2026. A coordinator dispatches a task to a worker,
+each running in its own isolated git worktree, a Docker container, or both, so several
+tasks run in parallel without one touching another's files.
+
+A task's work is split into agent roles: Implementer changes code on a branch or pull
+request against a task brief, Reviewer checks the result against scope and repository
+rules, QA proves the change works through verification and tests. One agent can carry
+all three roles in sequence, or a separate agent can hold each, run in parallel. Agents
+coordinate through repository artefacts, files and the pull request, not through shared
+chat history.
+
+### Where JetBrains Air has converged, and where it hasn't
+
+- **Converged, on the same unit as Claude Code Projects**: a coordinator dispatching to
+  an isolated, persistent worker, the same
+  [Thread](../../domain/ubiquitous-language.md#thread)-shaped unit found there. A third
+  independent design reaching it strengthens the same conclusion drawn from Claude Code
+  Projects: two designs converging could be coincidence, three is a pattern.
+- **Converged, a new data point**: role specialisation, Implementer, Reviewer, QA, over
+  one task is a concrete instance of splitting a thread's work by function rather than
+  by size. Coordination through repository artefacts instead of shared chat history is
+  the same instinct behind an idea already in this ledger's future missions, "Agents
+  interrupting each other": "whether this is needed at all, given that agents can
+  already communicate through git."
+- **Not converged, the same dimensional limit as beads and Claude Code Projects**: Air
+  models no [Product](../../domain/ubiquitous-language.md#product), no first-class
+  [Delta](../../domain/ubiquitous-language.md#delta), and no continuous
+  [Scale](../../domain/ubiquitous-language.md#scale). It is agent orchestration inside
+  an IDE, the same Navigation-only axis every other system assessed here occupies.
+
+### Not locked to one execution vendor, at the worker layer
+
+Air bundles Claude, Codex, Gemini CLI and Junie as built-in agents, and reaches roughly
+twenty more, including GitHub Copilot, OpenCode, Pi and Cline, through the Agent Client
+Protocol (ACP). ACP is co-developed by JetBrains and Zed, an open protocol, not one
+vendor's private interface: a new agent is added by pointing Air at it through an
+`acp.json` file, needing no integration purpose-built for that agent by JetBrains.
+
+This is the exception recorded above, under "Locked to a substrate, four of five." Any
+ACP-speaking agent can be a worker, so the worker layer is not locked to one vendor's
+runtime the way a Claude Code Projects thread is locked to Claude Code. The coordinator
+layer is a different question: Air is a JetBrains desktop application, adopted as a
+product, the same kind of dependency Claude Code Projects is for tsk's own harness, just
+without the "the platform tsk already runs inside" relationship that makes Claude Code
+Projects the sharper case.
+
 ## Three-part viability verdict
 
-1. **tsk as a research programme: yes.** Two independent designs have now converged on
+1. **tsk as a research programme: yes.** Three independent designs have now converged on
    parts of tsk's model: beads on the architecture and the plan-replacement positioning,
-   Claude Code Projects on Thread as the unit that holds context and persists. Both
-   validate parts of tsk's underlying claim. Neither says anything about whether adding
-   Product, Delta, and continuous Scale produces further measurable value. Both are
-   credible baselines to measure the other three dimensions against, and this track
-   continues regardless of the product outcome.
+   Claude Code Projects and JetBrains Air both on Thread as the unit that holds context
+   and persists. All three validate parts of tsk's underlying claim. None says anything
+   about whether adding Product, Delta, and continuous Scale produces further measurable
+   value. All three are credible baselines to measure the other three dimensions
+   against, and this track continues regardless of the product outcome.
 2. **tsk as a head-to-head agent issue tracker or orchestrator: no.** Against beads that
    category has an incumbent with distribution, maturity, an evangelist, and most of
    tsk's architecture. Against Claude Code Projects it is worse: the incumbent is the
-   platform tsk runs on, shipping orchestration as a native feature. Entering either
-   race confines tsk to Navigation, the one dimension both already occupy.
+   platform tsk runs on, shipping orchestration as a native feature. JetBrains Air adds
+   a third incumbent with its own distribution, a JetBrains product line, and reach
+   across whichever agent a team already uses. Entering any of these races confines tsk
+   to Navigation, the one dimension all three already occupy.
 3. **tsk as a product differentiated by the full four-dimension model: open.** This is
    the central bet, and what the (separately scoped, not yet run) token-saving experiment
    exists to test. Whether Product, Delta, and Scale add value an agent or buyer will
-   reward is unproven. Neither system models them, so both sharpen the experiment rather
-   than settling it. The product decision waits on that experiment rather than being made
-   now.
+   reward is unproven. None of the three systems models them, so all three sharpen the
+   experiment rather than settling it. The product decision waits on that experiment
+   rather than being made now.
 
 Caveat in tsk's favour: beads' star count likely overstates independent, load-bearing
 adoption, since Gas Town/City is largely beads' own primary consumer. "Beads has won"
@@ -254,8 +329,16 @@ platform is not a layer tsk chooses. What the platform ships natively reduces wh
 needs to build, and also reduces what tsk can differentiate on within Navigation. Assume
 it keeps expanding along that axis.
 
+**JetBrains Air: a dependency only if adopted, unlike Claude Code Projects.** tsk's
+harness does not run inside Air the way it runs inside Claude Code, so Air is closer to
+beads' position than to Claude Code Projects': a product tsk could measure against, not
+one tsk is built on top of. Its open worker layer, ACP, is worth tracking regardless of
+whether tsk ever adopts Air itself: if ACP becomes a common way to address an agent
+across products, it is a candidate answer to the untested half of tsk's own substrate
+question, what a tsk thread's actor looks like when it isn't a Claude Code session.
+
 tsk's thesis is the unification of all four dimensions, not any single one, so it does
-not collapse if either system later absorbs another dimension.
+not collapse if any of these systems later absorbs another dimension.
 
 ## Net position
 
