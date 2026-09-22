@@ -73,6 +73,12 @@ ready-made inter-instance protocol exists to reuse from either Gas Town or Wheel
 messaging layer for the tsk nexus would be new design work, not an adoption of something
 already built elsewhere.
 
+Jim, 2026-09-22, alongside writing a mission briefing for the swe agent on implementing
+Jev in the linter: this is a good example of how we would use the nexus, sending missions
+or intel to other parts of the territory. The briefing was written in one session, for a
+different repo's agent, and handed over by copy and paste. That hand-off is the case the
+messaging layer above would carry.
+
 ## Switch tsk's CLAUDE.md to also load as AGENTS.md
 
 Raised by Jim, 2026-09-20, alongside `docs/kb/claude-code-mods.md`.
