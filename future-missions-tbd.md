@@ -249,6 +249,12 @@ Open: namespace design, whether a single nexus branch per target repo is enough 
 whether finer granularity is needed, whether this changes the mission model or
 thread continuity story.
 
+Jim, 2026-09-22, alongside deciding against a `.tsk/` directory on `main`
+(`docs/adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md` in the tsk repo): this
+option, pulling the ledger fully outside the repo, is still valuable. ADR 0010 decided
+only branch versus directory, both inside the repo, and left this one open rather than
+deciding it either way.
+
 ## Agents interrupting each other
 
 Raised by Jim, 2026-09-15.
