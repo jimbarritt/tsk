@@ -57,6 +57,8 @@ a delegated mission. M-BOOT-04 decides the official ledger layout.
 
 - Only features needed for self hosting are in scope. Anything else becomes a task
   recorded in tsk after self hosting.
+- The exception is tooling Jim uses to run the bootstrap work itself. It is in scope
+  as a sub-mission. The case is M-BOOT-06, Mission Control. Amended 2026-09-25.
 - Stay within Claude Pro subscription limits. See Doctrine.
 
 ## Out of scope
@@ -75,6 +77,7 @@ a delegated mission. M-BOOT-04 decides the official ledger layout.
 | [M-BOOT-03](M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | none | M-BOOT-02 | TODO |
 | M-BOOT-04 | The official ledger | Ref name, tree layout, manifest format, and push and pull protocol exist and are proven by tests | Cloud agents | M-BOOT-03 | TODO |
 | M-BOOT-05 | Migration off the bootstrap ref | Queue held in tsk's own ledger, agents execute from it, bootstrap ref deleted or tagged | Cloud agents | M-BOOT-04 | TODO |
+| [M-BOOT-06](M-BOOT-06-mission-control.md) | Mission Control | A single command sets up a tmux session with a list of Claude sessions, the selected session, and a terminal | none | none | TODO |
 
 **Essential task**: M-BOOT-05. Its objective and this mission's objective are the same
 state.

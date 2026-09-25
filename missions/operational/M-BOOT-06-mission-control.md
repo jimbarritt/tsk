@@ -1,0 +1,131 @@
+# Mission: Mission Control
+
+| Field | Value |
+|---|---|
+| ID | M-BOOT-06 |
+| Territory | agentic research |
+| Assignee | Jim |
+| Blocked by | none |
+
+## Objective
+
+- One command, typed in a new tmux session, sets up this layout in that session:
+  - Left: a list of Claude sessions. This list is the control list.
+  - Right: the currently selected Claude session.
+  - Bottom, across the full width: a terminal for anything else.
+- The command starts a new Claude session. Each Claude session runs in its own tmux
+  pane.
+- Each Claude session takes a name. The default name is a good one, for example the
+  name of the current git repo.
+- The control list shows a status indicator per session, so Jim can see when a session
+  needs attention.
+- The control list shows token consumption per session.
+- A shortcut key on the control list launches nvim in the root directory, zoomed in. A
+  zoom out, or a custom shortcut, hides nvim, keeps it running, and returns to the
+  three panel layout.
+- Jim uses it at work.
+
+The control list is called "Mission Control" or "mission command". Jim has not settled
+which.
+
+## Purpose
+
+Parent: M-BOOT. Jim's aim: replicate the Claude app experience, native in the terminal,
+using tmux. Jim needs this at work as soon as possible.
+
+It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
+2026-09-25: tooling Jim uses to run the bootstrap work itself.
+
+## Decisions
+
+- **Standalone first.** The tmux layout, the pane handling, and the Claude Code hooks
+  that report status and tokens are a separate set of scripts, with a small Python list
+  view. It follows the bootstrap ethos: build what is needed now, outside tsk, and move
+  it into tsk once tsk has a place for it. It also lets Jim use it at work without tsk.
+  Decided 2026-09-25.
+- **Later, a view in the tsk TUI.** The list view moves into the tsk TUI once the tsk
+  model has a place for a Claude session. The tmux layout and the hooks carry over
+  unchanged.
+
+## Open questions
+
+1. Which states count as "needs attention": a permission prompt, waiting for input, a
+   finished turn, an error.
+2. What the token figure shows: a session total, context window use, cost.
+3. Session lifetime: whether sessions survive a tmux detach, a tmux server restart, or
+   a machine restart.
+4. Local only, or also cloud sessions.
+5. How a Claude session relates to a tsk thread.
+6. nvim: one instance, or one per session.
+7. Where the scripts are kept: the tsk repo, `jimbarritt/dotfiles`, or a new repo. The
+   work machine needs to install them.
+
+## Intelligence
+
+- Jim's original statement of the idea, 2026-09-25, verbatim:
+
+  > Ok so I have this idea. I want to create a tmux setup where I have the following
+  > layout. On the left I want a list of Claude sessions , each running in its own tmux
+  > pane. On the right will show the currently selected session. Stretched across the
+  > bottom is a terminal window where I can just type whatever.
+  >
+  > This should all be within a single session.
+  >
+  > I want a command that launches this setup so my workflow is:
+  >
+  > Start a new tmux session.
+  >
+  > Type "Claude-session" or similar
+  >
+  > My tmux session configures itself, starts a new Claude session.
+  >
+  > I should be able to name each Claude session but it should come up with a good
+  > default name, like the name of the current git repo.
+  >
+  > Each session will create its own worktree but I can do that manually.
+  >
+  > Ideally the index on the right will have some kind of status indicator so I know
+  > when a session needs attention.
+  >
+  > Basically I want to replicate the Claude app experience but native in the terminal
+  > using tmux.
+  >
+  > Also - there should be a shortcut key on the list that launches nvim in the root
+  > directory and makes it zoomed in. Somehow when I zoom back out or I have a custome
+  > keyboard shortcut that hides nvim but keeps it running and goes back to the three
+  > panel layout.
+  >
+  > Ideally also I can see token consumption in the left panel the list.
+  >
+  > Maybe we need a special TUI for the control list.
+  >
+  > Maybe this is a view in the tsk TUI? I'm not sire how we would filter or represent
+  > this in our model but it needs to be there.
+  >
+  > We could call the control list "Mission Control" or "mission command"
+
+  The statement says "the index on the right" for the status indicator. The layout puts
+  the list on the left. The objective reads it as the list.
+- `docs/adr/0004-unified-tsk-binary.md` (in the tsk repo): the tsk TUI, the later home
+  for the list view.
+- `docs/kb/claude-code-mods.md` (in the tsk repo): Claude Code hooks, the source for
+  status and token data.
+
+## Decision authority
+
+Jim decides the open questions, the name of the control list, and the command name.
+
+## Constraints
+
+- Standalone. No dependency on the tsk binary or the tsk daemon.
+- Python for scripting.
+- Worktree creation per session is manual. Jim does it.
+
+## Out of scope
+
+- The tsk TUI view. It follows once the tsk model has a place for a Claude session.
+- Creating a worktree per session.
+
+## Plan
+
+To be drafted once the open questions are answered.
