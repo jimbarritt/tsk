@@ -49,6 +49,8 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
   The little hand icon in the Claude app is the reference. "Doing work" as a pulsing
   circle is a later layer: tsk had that idea before, and getting it to work reliably
   was tricky. Decided 2026-09-25.
+- **Token figure.** The control list shows the session's total tokens. Decided
+  2026-09-25.
 - **Later, a view in the tsk TUI.** The list view moves into the tsk TUI once the tsk
   model has a place for a Claude session. The tmux layout and the hooks carry over
   unchanged.
@@ -56,7 +58,7 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 ## Open questions
 
 1. Answered 2026-09-25, see Decisions: status indicator.
-2. What the token figure shows: a session total, context window use, cost.
+2. Answered 2026-09-25, see Decisions: token figure.
 3. Session lifetime: whether sessions survive a tmux detach, a tmux server restart, or
    a machine restart.
 4. Local only, or also cloud sessions.
