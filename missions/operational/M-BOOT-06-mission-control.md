@@ -55,6 +55,8 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
   standard tmux behaviour. Phase two: recovery after a tmux server restart or a machine
   restart. Mission Control rebuilds the layout and resumes each Claude session with
   `claude --resume`. Decided 2026-09-25.
+- **Local only.** Phase one lists local Claude sessions only. Later: list cloud
+  sessions too, and trigger a cloud session from Mission Control. Decided 2026-09-25.
 - **Later, a view in the tsk TUI.** The list view moves into the tsk TUI once the tsk
   model has a place for a Claude session. The tmux layout and the hooks carry over
   unchanged.
@@ -64,7 +66,7 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 1. Answered 2026-09-25, see Decisions: status indicator.
 2. Answered 2026-09-25, see Decisions: token figure.
 3. Answered 2026-09-25, see Decisions: session lifetime.
-4. Local only, or also cloud sessions.
+4. Answered 2026-09-25, see Decisions: local only.
 5. How a Claude session relates to a tsk thread.
 6. nvim: one instance, or one per session.
 7. Where the scripts are kept: the tsk repo, `jimbarritt/dotfiles`, or a new repo. The
@@ -133,6 +135,7 @@ Jim decides the open questions, the name of the control list, and the command na
 
 ## Out of scope
 
+- Cloud sessions, listed or triggered. A later phase.
 - Recovery after a tmux server restart or a machine restart, in phase one. It is phase
   two.
 - The tsk TUI view. It follows once the tsk model has a place for a Claude session.
