@@ -73,6 +73,8 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
   The repo is public, so Jim can clone it outside his GitHub user. Jim created it on
   2026-09-25, empty. A cloud session attaches it with `add_repo`, access `push`:
   confirmed working 2026-09-25.
+- **Command.** The command that sets up the layout is `tsk-mission-control`. Once the
+  list moves into tsk, it becomes a flag: `tsk --mission-control`. Decided 2026-09-25.
 - **Later, a view in the tsk TUI.** The list view moves into the tsk TUI once the tsk
   model has a place for a Claude session. The tmux layout and the hooks carry over
   unchanged.
@@ -140,7 +142,8 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 
 ## Decision authority
 
-Jim decides the open questions, the name of the control list, and the command name.
+Jim decides the open questions, the name of the control list, and the command name. All
+three are settled, see Decisions.
 
 ## Constraints
 
