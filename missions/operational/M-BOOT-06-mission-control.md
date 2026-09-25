@@ -33,8 +33,11 @@ accepts that.
 
 ## Purpose
 
-Parent: M-BOOT. The user's aim: replicate the Claude app experience, native in the terminal,
-using tmux. The user needs this at work as soon as possible.
+Parent: M-BOOT. The aim: replicate the Claude app experience, native in the terminal,
+using tmux.
+
+This is a reconnaissance mission. It is built standalone from tsk, to explore what a
+control list for Claude sessions needs. Later it folds back into tsk.
 
 It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 2026-09-25: tooling the user uses to run the bootstrap work itself.
@@ -44,7 +47,7 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 - **Standalone first.** The tmux layout, the pane handling, and the Claude Code hooks
   that report status and tokens are a separate set of scripts, with a small Python list
   view. It follows the bootstrap ethos: build what is needed now, outside tsk, and move
-  it into tsk once tsk has a place for it. It also lets the user use it at work without tsk.
+  it into tsk once tsk has a place for it.
   Decided 2026-09-25.
 - **Status indicator.** A permission prompt, waiting for input, a finished turn and an
   error all count as "needs attention", with one indicator for all of them. An empty
@@ -69,8 +72,7 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
   Phase one needs no tsk knowledge: it uses tmux, Claude Code hooks and Claude Code's
   transcript files. When tsk shows these sessions later, tsk reads the scripts' status
   files, so the dependency goes from tsk to the scripts. Decided 2026-09-25.
-  The repo is public, so the user can clone it outside their GitHub user. The user created it on
-  2026-09-25, empty. A cloud session attaches it with `add_repo`, access `push`:
+  The repo is public. The user created it on 2026-09-25, empty. A cloud session attaches it with `add_repo`, access `push`:
   confirmed working 2026-09-25.
 - **Command.** The command that sets up the layout is `tsk-mission-control`. Once the
   list moves into tsk, it becomes a flag: `tsk --mission-control`. Decided 2026-09-25.
@@ -155,8 +157,7 @@ are installed. The mission report records each choice and the reason for it.
 
 - Standalone. No dependency on the tsk binary or the tsk daemon.
 - Python for scripting.
-- macOS only, for now. The user's work machine runs macOS. A cloud agent runs on Linux, so
-  it tests there, and avoids anything that differs on macOS: GNU-only flags on `sed`,
+- macOS only, for now. A cloud agent runs on Linux, so it tests there, and avoids anything that differs on macOS: GNU-only flags on `sed`,
   `date`, `stat` and `find`, and `inotify` for file watching. The user confirms
   macOS behaviour in T-09.
 - Worktree creation per session is manual. The user does it.
@@ -188,9 +189,9 @@ Draft, 2026-09-25. The user reviews it before any task starts. Phase one only.
 | T-06 | Status hooks | Claude Code hooks write each session's status to its state file. A permission prompt, waiting for input, a finished turn and an error set "needs attention". Submitting a prompt clears it. The list shows an empty or a full circle. The hooks apply to Mission Control sessions only and leave the user's global Claude Code settings unchanged | T-04 | TODO |
 | T-07 | Token totals | The list shows each session's total tokens, summed from the usage records in its Claude Code transcript file | T-06 | TODO |
 | T-08 | nvim per session | One key on the list opens nvim in the selected session's worktree, zoomed. A second shortcut hides nvim, leaves it running, and returns to the three pane layout. Opening it again for the same session shows the same nvim | T-05 | TODO |
-| T-09 | Use at work | The user installs it on their work machine from the public repo, uses it for one working day, and the mission report records what broke | T-01 to T-08 | TODO |
+| T-09 | Use for a day | The user installs it on macOS from the public repo, uses it for one full day, and the mission report records what broke | T-01 to T-08 | TODO |
 
-**Essential task:** T-09. Its objective and this mission's objective are the same state.
+**Essential task:** T-09. It confirms the objective holds in real use.
 
 Notes for the actor:
 
