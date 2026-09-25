@@ -4,7 +4,7 @@
 |---|---|
 | ID | M-BOOT-06 |
 | Territory | agentic research |
-| Assignee | Jim |
+| Assignee | the user |
 | Blocked by | none |
 
 ## Objective
@@ -17,35 +17,34 @@
   pane.
 - Each Claude session takes a name. The default name is a good one, for example the
   name of the current git repo.
-- The control list shows a status indicator per session, so Jim can see when a session
-  needs attention.
+- The control list shows a status indicator per session, so the user can see when a
+  session needs attention.
 - The control list shows token consumption per session.
 - A shortcut key on the control list launches nvim in the root directory, zoomed in. A
   zoom out, or a custom shortcut, hides nvim, keeps it running, and returns to the
   three panel layout.
-- Jim uses it at work.
 
-The control list is called Mission Control. Settled by Jim 2026-09-25. "Mission
+The control list is called Mission Control. Settled by the user 2026-09-25. "Mission
 command" was the alternative, rejected because `docs/domain/mission-model.md` in the
 tsk repo uses it for the doctrine from *Auftragstaktik*. "Mission control" was rejected
 for Nexus in `docs/domain/ubiquitous-language.md` for its operational-control sense,
-which fits this list. In phase one a session is not tied to a mission. Jim accepts
-that.
+which fits this list. In phase one a session is not tied to a mission. The user
+accepts that.
 
 ## Purpose
 
-Parent: M-BOOT. Jim's aim: replicate the Claude app experience, native in the terminal,
-using tmux. Jim needs this at work as soon as possible.
+Parent: M-BOOT. The user's aim: replicate the Claude app experience, native in the terminal,
+using tmux. The user needs this at work as soon as possible.
 
 It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
-2026-09-25: tooling Jim uses to run the bootstrap work itself.
+2026-09-25: tooling the user uses to run the bootstrap work itself.
 
 ## Decisions
 
 - **Standalone first.** The tmux layout, the pane handling, and the Claude Code hooks
   that report status and tokens are a separate set of scripts, with a small Python list
   view. It follows the bootstrap ethos: build what is needed now, outside tsk, and move
-  it into tsk once tsk has a place for it. It also lets Jim use it at work without tsk.
+  it into tsk once tsk has a place for it. It also lets the user use it at work without tsk.
   Decided 2026-09-25.
 - **Status indicator.** A permission prompt, waiting for input, a finished turn and an
   error all count as "needs attention", with one indicator for all of them. An empty
@@ -70,7 +69,7 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
   Phase one needs no tsk knowledge: it uses tmux, Claude Code hooks and Claude Code's
   transcript files. When tsk shows these sessions later, tsk reads the scripts' status
   files, so the dependency goes from tsk to the scripts. Decided 2026-09-25.
-  The repo is public, so Jim can clone it outside his GitHub user. Jim created it on
+  The repo is public, so the user can clone it outside their GitHub user. The user created it on
   2026-09-25, empty. A cloud session attaches it with `add_repo`, access `push`:
   confirmed working 2026-09-25.
 - **Command.** The command that sets up the layout is `tsk-mission-control`. Once the
@@ -91,7 +90,7 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 
 ## Intelligence
 
-- Jim's original statement of the idea, 2026-09-25, verbatim:
+- The user's original statement of the idea, 2026-09-25, verbatim:
 
   > Ok so I have this idea. I want to create a tmux setup where I have the following
   > layout. On the left I want a list of Claude sessions , each running in its own tmux
@@ -142,10 +141,10 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 
 ## Decision authority
 
-Jim decides the open questions, the name of the control list, and the command name. All
+The user decides the open questions, the name of the control list, and the command name. All
 three are settled, see Decisions.
 
-Jim approves the key bindings before T-05 and T-08 are built. The actor proposes
+The user approves the key bindings before T-05 and T-08 are built. The actor proposes
 them.
 
 The actor decides the rest of the implementation: the TUI library, the state file
@@ -156,11 +155,11 @@ are installed. The mission report records each choice and the reason for it.
 
 - Standalone. No dependency on the tsk binary or the tsk daemon.
 - Python for scripting.
-- macOS only, for now. Jim's work machine runs macOS. A cloud agent runs on Linux, so
+- macOS only, for now. The user's work machine runs macOS. A cloud agent runs on Linux, so
   it tests there, and avoids anything that differs on macOS: GNU-only flags on `sed`,
-  `date`, `stat` and `find`, and `inotify` for file watching. Jim confirms macOS
-  behaviour in T-09.
-- Worktree creation per session is manual. Jim does it.
+  `date`, `stat` and `find`, and `inotify` for file watching. The user confirms
+  macOS behaviour in T-09.
+- Worktree creation per session is manual. The user does it.
 - The agent that does the work runs in a session whose primary repo is
   `jimbarritt/tsk`, so it reads the missions and this plan from the ledger. It attaches
   `jimbarritt/tsk-mission-control` with `add_repo`, access `push`, and writes the
@@ -177,7 +176,7 @@ are installed. The mission report records each choice and the reason for it.
 
 ## Plan
 
-Draft, 2026-09-25. Jim reviews it before any task starts. Phase one only.
+Draft, 2026-09-25. The user reviews it before any task starts. Phase one only.
 
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|
@@ -186,10 +185,10 @@ Draft, 2026-09-25. Jim reviews it before any task starts. Phase one only.
 | T-03 | Layout command | `tsk-mission-control`, run in a new tmux session, builds the three panes (list left, session right, terminal across the bottom) and starts the first Claude session, named after the current git repo unless a name is given | T-02 | TODO |
 | T-04 | Mission Control list view | The left pane shows every Claude session in this tmux session by name. The list refreshes when a state file changes | T-02 | TODO |
 | T-05 | New session and switching | From the list, one key starts a new Claude session with a name prompt that defaults to the git repo name. Selecting a session shows it in the right pane. Every other session keeps running in a pane out of view | T-03, T-04 | TODO |
-| T-06 | Status hooks | Claude Code hooks write each session's status to its state file. A permission prompt, waiting for input, a finished turn and an error set "needs attention". Submitting a prompt clears it. The list shows an empty or a full circle. The hooks apply to Mission Control sessions only and leave Jim's global Claude Code settings unchanged | T-04 | TODO |
+| T-06 | Status hooks | Claude Code hooks write each session's status to its state file. A permission prompt, waiting for input, a finished turn and an error set "needs attention". Submitting a prompt clears it. The list shows an empty or a full circle. The hooks apply to Mission Control sessions only and leave the user's global Claude Code settings unchanged | T-04 | TODO |
 | T-07 | Token totals | The list shows each session's total tokens, summed from the usage records in its Claude Code transcript file | T-06 | TODO |
 | T-08 | nvim per session | One key on the list opens nvim in the selected session's worktree, zoomed. A second shortcut hides nvim, leaves it running, and returns to the three pane layout. Opening it again for the same session shows the same nvim | T-05 | TODO |
-| T-09 | Use at work | Jim installs it on his work machine from the public repo, uses it for one working day, and the mission report records what broke | T-01 to T-08 | TODO |
+| T-09 | Use at work | The user installs it on their work machine from the public repo, uses it for one working day, and the mission report records what broke | T-01 to T-08 | TODO |
 
 **Essential task:** T-09. Its objective and this mission's objective are the same state.
 
