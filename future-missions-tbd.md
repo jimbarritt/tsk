@@ -4,6 +4,19 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## A session's context reset while its thread binding survived
+
+Raised by Jim, 2026-09-25, in thread `3376badb` (M-ADMIN-01).
+
+What happened: the cloud session's context reset without Jim running `/clear`. The
+agent's context held no record of drafting the M-BOOT-06 briefing in the same session.
+The thread binding survived: `threads/lookup-by-cloud-session.json` still mapped the
+session to `3376badb`. The conversation context did not.
+
+Jim's read: maybe the cloud sessions time out if left with no input. So we need some
+way to detect this and restore context from the thread. It also means it's important
+for the agent to push frequently, which it already does.
+
 ## Humans filling posts, as an answer to the fuel crisis
 
 Raised by Jim, 2026-09-21, from the fuel-crisis and Fable sections of Yegge's "Seats and
