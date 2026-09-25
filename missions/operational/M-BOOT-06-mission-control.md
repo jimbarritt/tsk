@@ -60,6 +60,8 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 - **Threads.** Phase one ignores tsk threads. Later, the list shows each session's
   thread. That depends on completing the bootstrap and moving the whole model into tsk
   itself, so that any repo can use tsk. Decided 2026-09-25.
+- **nvim.** One nvim per Claude session, opened in that session's worktree. Decided
+  2026-09-25.
 - **Later, a view in the tsk TUI.** The list view moves into the tsk TUI once the tsk
   model has a place for a Claude session. The tmux layout and the hooks carry over
   unchanged.
@@ -71,7 +73,7 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 3. Answered 2026-09-25, see Decisions: session lifetime.
 4. Answered 2026-09-25, see Decisions: local only.
 5. Answered 2026-09-25, see Decisions: threads.
-6. nvim: one instance, or one per session.
+6. Answered 2026-09-25, see Decisions: nvim.
 7. Where the scripts are kept: the tsk repo, `jimbarritt/dotfiles`, or a new repo. The
    work machine needs to install them.
 
