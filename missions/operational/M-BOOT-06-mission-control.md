@@ -189,7 +189,7 @@ Draft, 2026-09-25. The user reviews it before any task starts. Phase one only.
 | T-06 | Status hooks | Claude Code hooks write each session's status to its state file. A permission prompt, waiting for input, a finished turn and an error set "needs attention". Submitting a prompt clears it. The list shows an empty or a full circle. The hooks apply to Mission Control sessions only and leave the user's global Claude Code settings unchanged | T-04 | TODO |
 | T-07 | Token totals | The list shows each session's total tokens, summed from the usage records in its Claude Code transcript file | T-06 | TODO |
 | T-08 | nvim per session | One key on the list opens nvim in the selected session's worktree, zoomed. A second shortcut hides nvim, leaves it running, and returns to the three pane layout. Opening it again for the same session shows the same nvim | T-05 | TODO |
-| T-09 | Use for a day | The user installs it on macOS from the public repo, uses it for one full day, and the mission report records what broke | T-01 to T-08 | TODO |
+| T-09 | Ongoing use | The user installs it on macOS from the public repo and uses it with no end date. The mission report records what breaks, with an addendum each time something new does | T-01 to T-08 | TODO |
 
 **Essential task:** T-09. It confirms the objective holds in real use.
 
