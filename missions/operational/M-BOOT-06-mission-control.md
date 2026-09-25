@@ -145,6 +145,13 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 Jim decides the open questions, the name of the control list, and the command name. All
 three are settled, see Decisions.
 
+Jim approves the key bindings before T-05 and T-08 are built. The actor proposes
+them.
+
+The actor decides the rest of the implementation: the TUI library, the state file
+format, the tmux mechanism for showing a session in the right pane, and how the hooks
+are installed. The mission report records each choice and the reason for it.
+
 ## Constraints
 
 - Standalone. No dependency on the tsk binary or the tsk daemon.
@@ -166,4 +173,26 @@ three are settled, see Decisions.
 
 ## Plan
 
-To be drafted once the open questions are answered.
+Draft, 2026-09-25. Jim reviews it before any task starts. Phase one only.
+
+| ID | Task | Objective | Blocked by | Status |
+|---|---|---|---|---|
+| T-01 | Repo skeleton and install | `jimbarritt/tsk-mission-control` has a README, a Python project layout, and one install step that puts `tsk-mission-control` on `PATH`. The README lists the tmux, Python and Claude Code versions it needs | none | TODO |
+| T-02 | Session state store | Each Claude session has one state file under an XDG state directory: name, tmux pane ID, worktree path, Claude session ID, status, total tokens. A module reads and writes it | T-01 | TODO |
+| T-03 | Layout command | `tsk-mission-control`, run in a new tmux session, builds the three panes (list left, session right, terminal across the bottom) and starts the first Claude session, named after the current git repo unless a name is given | T-02 | TODO |
+| T-04 | Mission Control list view | The left pane shows every Claude session in this tmux session by name. The list refreshes when a state file changes | T-02 | TODO |
+| T-05 | New session and switching | From the list, one key starts a new Claude session with a name prompt that defaults to the git repo name. Selecting a session shows it in the right pane. Every other session keeps running in a pane out of view | T-03, T-04 | TODO |
+| T-06 | Status hooks | Claude Code hooks write each session's status to its state file. A permission prompt, waiting for input, a finished turn and an error set "needs attention". Submitting a prompt clears it. The list shows an empty or a full circle. The hooks apply to Mission Control sessions only and leave Jim's global Claude Code settings unchanged | T-04 | TODO |
+| T-07 | Token totals | The list shows each session's total tokens, summed from the usage records in its Claude Code transcript file | T-06 | TODO |
+| T-08 | nvim per session | One key on the list opens nvim in the selected session's worktree, zoomed. A second shortcut hides nvim, leaves it running, and returns to the three pane layout. Opening it again for the same session shows the same nvim | T-05 | TODO |
+| T-09 | Use at work | Jim installs it on his work machine from the public repo, uses it for one working day, and the mission report records what broke | T-01 to T-08 | TODO |
+
+**Essential task:** T-09. Its objective and this mission's objective are the same state.
+
+Notes for the actor:
+
+- T-06: confirm which Claude Code hook event, if any, fires on an error before building
+  the "needs attention" rule for it. If none does, record that in the mission report and
+  continue with the other three states.
+- T-06: the hook input carries `transcript_path`. Store it in the state file for T-07.
+- Model: Sonnet 5 for execution, per M-BOOT's doctrine.
