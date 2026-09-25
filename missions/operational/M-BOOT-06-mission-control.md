@@ -25,8 +25,12 @@
   three panel layout.
 - Jim uses it at work.
 
-The control list is called "Mission Control" or "mission command". Jim has not settled
-which.
+The control list is called Mission Control. Settled by Jim 2026-09-25. "Mission
+command" was the alternative, rejected because `docs/domain/mission-model.md` in the
+tsk repo uses it for the doctrine from *Auftragstaktik*. "Mission control" was rejected
+for Nexus in `docs/domain/ubiquitous-language.md` for its operational-control sense,
+which fits this list. In phase one a session is not tied to a mission. Jim accepts
+that.
 
 ## Purpose
 
