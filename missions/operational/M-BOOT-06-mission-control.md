@@ -43,14 +43,19 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
   view. It follows the bootstrap ethos: build what is needed now, outside tsk, and move
   it into tsk once tsk has a place for it. It also lets Jim use it at work without tsk.
   Decided 2026-09-25.
+- **Status indicator.** A permission prompt, waiting for input, a finished turn and an
+  error all count as "needs attention", with one indicator for all of them. An empty
+  circle means no attention needed. A full circle means the session needs attention.
+  The little hand icon in the Claude app is the reference. "Doing work" as a pulsing
+  circle is a later layer: tsk had that idea before, and getting it to work reliably
+  was tricky. Decided 2026-09-25.
 - **Later, a view in the tsk TUI.** The list view moves into the tsk TUI once the tsk
   model has a place for a Claude session. The tmux layout and the hooks carry over
   unchanged.
 
 ## Open questions
 
-1. Which states count as "needs attention": a permission prompt, waiting for input, a
-   finished turn, an error.
+1. Answered 2026-09-25, see Decisions: status indicator.
 2. What the token figure shows: a session total, context window use, cost.
 3. Session lifetime: whether sessions survive a tmux detach, a tmux server restart, or
    a machine restart.
