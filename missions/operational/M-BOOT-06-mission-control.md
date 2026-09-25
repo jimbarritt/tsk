@@ -156,6 +156,10 @@ are installed. The mission report records each choice and the reason for it.
 
 - Standalone. No dependency on the tsk binary or the tsk daemon.
 - Python for scripting.
+- macOS only, for now. Jim's work machine runs macOS. A cloud agent runs on Linux, so
+  it tests there, and avoids anything that differs on macOS: GNU-only flags on `sed`,
+  `date`, `stat` and `find`, and `inotify` for file watching. Jim confirms macOS
+  behaviour in T-09.
 - Worktree creation per session is manual. Jim does it.
 - The agent that does the work runs in a session whose primary repo is
   `jimbarritt/tsk`, so it reads the missions and this plan from the ledger. It attaches
