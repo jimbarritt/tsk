@@ -177,7 +177,7 @@ are installed. The mission report records each choice and the reason for it.
 
 ## Plan
 
-Draft, 2026-09-25. The user reviews it before any task starts. Phase one only.
+Approved by the user 2026-09-25. Phase one only.
 
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|
