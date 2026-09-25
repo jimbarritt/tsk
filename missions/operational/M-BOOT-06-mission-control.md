@@ -57,6 +57,9 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
   `claude --resume`. Decided 2026-09-25.
 - **Local only.** Phase one lists local Claude sessions only. Later: list cloud
   sessions too, and trigger a cloud session from Mission Control. Decided 2026-09-25.
+- **Threads.** Phase one ignores tsk threads. Later, the list shows each session's
+  thread. That depends on completing the bootstrap and moving the whole model into tsk
+  itself, so that any repo can use tsk. Decided 2026-09-25.
 - **Later, a view in the tsk TUI.** The list view moves into the tsk TUI once the tsk
   model has a place for a Claude session. The tmux layout and the hooks carry over
   unchanged.
@@ -67,7 +70,7 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 2. Answered 2026-09-25, see Decisions: token figure.
 3. Answered 2026-09-25, see Decisions: session lifetime.
 4. Answered 2026-09-25, see Decisions: local only.
-5. How a Claude session relates to a tsk thread.
+5. Answered 2026-09-25, see Decisions: threads.
 6. nvim: one instance, or one per session.
 7. Where the scripts are kept: the tsk repo, `jimbarritt/dotfiles`, or a new repo. The
    work machine needs to install them.
@@ -135,6 +138,7 @@ Jim decides the open questions, the name of the control list, and the command na
 
 ## Out of scope
 
+- tsk threads. Shown once the bootstrap completes and any repo can use tsk.
 - Cloud sessions, listed or triggered. A later phase.
 - Recovery after a tmux server restart or a machine restart, in phase one. It is phase
   two.
