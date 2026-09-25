@@ -143,6 +143,10 @@ Jim decides the open questions, the name of the control list, and the command na
 - Standalone. No dependency on the tsk binary or the tsk daemon.
 - Python for scripting.
 - Worktree creation per session is manual. Jim does it.
+- The agent that does the work runs in a session whose primary repo is
+  `jimbarritt/tsk`, so it reads the missions and this plan from the ledger. It attaches
+  `jimbarritt/tsk-mission-control` with `add_repo`, access `push`, and writes the
+  product there.
 
 ## Out of scope
 
