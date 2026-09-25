@@ -51,6 +51,10 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
   was tricky. Decided 2026-09-25.
 - **Token figure.** The control list shows the session's total tokens. Decided
   2026-09-25.
+- **Session lifetime.** Phase one: sessions survive a tmux detach, which is
+  standard tmux behaviour. Phase two: recovery after a tmux server restart or a machine
+  restart. Mission Control rebuilds the layout and resumes each Claude session with
+  `claude --resume`. Decided 2026-09-25.
 - **Later, a view in the tsk TUI.** The list view moves into the tsk TUI once the tsk
   model has a place for a Claude session. The tmux layout and the hooks carry over
   unchanged.
@@ -59,8 +63,7 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 
 1. Answered 2026-09-25, see Decisions: status indicator.
 2. Answered 2026-09-25, see Decisions: token figure.
-3. Session lifetime: whether sessions survive a tmux detach, a tmux server restart, or
-   a machine restart.
+3. Answered 2026-09-25, see Decisions: session lifetime.
 4. Local only, or also cloud sessions.
 5. How a Claude session relates to a tsk thread.
 6. nvim: one instance, or one per session.
@@ -130,6 +133,8 @@ Jim decides the open questions, the name of the control list, and the command na
 
 ## Out of scope
 
+- Recovery after a tmux server restart or a machine restart, in phase one. It is phase
+  two.
 - The tsk TUI view. It follows once the tsk model has a place for a Claude session.
 - Creating a worktree per session.
 
