@@ -181,9 +181,9 @@ Approved by the user 2026-09-25. Phase one only.
 
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|
-| T-01 | Repo skeleton and install | `jimbarritt/tsk-mission-control` has a README, a Python project layout, and one install step that puts `tsk-mission-control` on `PATH`. The README lists the tmux, Python and Claude Code versions it needs | none | TODO |
-| T-02 | Session state store | Each Claude session has one state file under an XDG state directory: name, tmux pane ID, worktree path, Claude session ID, status, total tokens. A module reads and writes it | T-01 | TODO |
-| T-03 | Layout command | `tsk-mission-control`, run in a new tmux session, builds the three panes (list left, session right, terminal across the bottom) and starts the first Claude session, named after the current git repo unless a name is given | T-02 | TODO |
+| T-01 | Repo skeleton and install | `jimbarritt/tsk-mission-control` has a README, a Python project layout, and one install step that puts `tsk-mission-control` on `PATH`. The README lists the tmux, Python and Claude Code versions it needs | none | DONE |
+| T-02 | Session state store | Each Claude session has one state file under an XDG state directory: name, tmux pane ID, worktree path, Claude session ID, status, total tokens. A module reads and writes it | T-01 | DONE |
+| T-03 | Layout command | `tsk-mission-control`, run in a new tmux session, builds the three panes (list left, session right, terminal across the bottom) and starts the first Claude session, named after the current git repo unless a name is given | T-02 | DONE |
 | T-04 | Mission Control list view | The left pane shows every Claude session in this tmux session by name. The list refreshes when a state file changes | T-02 | TODO |
 | T-05 | New session and switching | From the list, one key starts a new Claude session with a name prompt that defaults to the git repo name. Selecting a session shows it in the right pane. Every other session keeps running in a pane out of view | T-03, T-04 | TODO |
 | T-06 | Status hooks | Claude Code hooks write each session's status to its state file. A permission prompt, waiting for input, a finished turn and an error set "needs attention". Submitting a prompt clears it. The list shows an empty or a full circle. The hooks apply to Mission Control sessions only and leave the user's global Claude Code settings unchanged | T-04 | TODO |
