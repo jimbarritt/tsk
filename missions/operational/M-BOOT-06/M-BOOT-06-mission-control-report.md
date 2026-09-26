@@ -194,3 +194,33 @@ Pointed a hand-written state file at this session's own transcript instead: the
 displayed total tracked the transcript's growth over several seconds, unprompted,
 confirming the poll loop and the incremental reader both work against a file actively
 being appended to, not only against a static fixture.
+
+**T-08, done.** `e` opens the selected session's nvim in a dedicated tmux window, not a
+pane and not a popup, named `nvim-<pane id>`, in that session's worktree. `select-window`
+switches the client to it, which is what makes it "zoomed": a different window fills
+the whole client, with no need for tmux's own pane-zoom. Pressing `e` again for the same
+session finds the same window by name rather than starting a second nvim.
+
+`prefix+v` returns to the three-pane layout. Registered in `layout.py`, not
+`list_view.py`: it is a tmux-server-wide key binding, not something a pane's own key
+handling can own, since by the time it fires the list pane may not even be the visible
+one. `layout.py` also renames the main window to a fixed name (`mission-control`) so the
+binding's target, an unqualified window name, resolves within whichever session the
+client is currently attached to: one binding covers every Mission Control tmux session's
+own main window, not just the first one's.
+
+The two candidates put to Jim and not chosen for this key: `prefix+z`, tmux's own
+pane-zoom, wrong tool once nvim runs in a dedicated window rather than a zoomed pane;
+and `prefix+r`, which clashes with stock tmux's `refresh-client`.
+
+**Verified against real tmux windows and a real nvim,** installed for this check since
+the base sandbox does not carry one. Opening, reusing, and returning all confirmed
+directly, including that the nvim window survives the return.
+
+**One piece could not be verified headlessly.** `tmux send-keys -t <pane> C-b v` sends
+keys straight into that pane, bypassing tmux's own prefix-key interception at the client
+level, so it does not exercise the real key path; checked directly, nvim received the
+raw `Ctrl-b` as its own page-up binding instead. Confirmed instead that the binding is
+registered correctly (`tmux list-keys -T prefix v`) and that its target command does the
+right thing when run directly. The real key press, from an actual attached client, is
+proven in T-09.
