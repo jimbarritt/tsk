@@ -90,3 +90,28 @@ do) redraws the marker within one poll interval.
 
 Also fixed, found while building T-04: `list_states`' sort was lexicographic on the
 filename, putting `%10` before `%2`. Pane IDs now sort on their numeric value.
+
+**T-05, done.** `j`/`k` move the list cursor, `n` starts a new Claude session (name
+prompt defaulting to the git repo name), `Enter` switches the right pane to the
+highlighted session. Switching uses `swap-pane` to trade the visible session's pane with
+the target's, so the one leaving view keeps running rather than being killed. A session
+not currently shown lives in a hidden window, `mc-stash`, created on first use. The
+visible session's pane is found by position each time (the pane sharing the list pane's
+top row), not tracked as a separate "current" ID, so it stays correct even if a pane is
+swapped from outside the app.
+
+`entrypoint.py` lets a newly spawned pane register its own state file after creation,
+reading its pane ID from `$TMUX_PANE`. This sidesteps an ordering problem T-02's own
+design would otherwise hit here: the state file's key is the pane ID, but the pane ID is
+only assigned once tmux creates the pane, so the code that spawns a new session's pane
+cannot compute that path before spawning it. The pane's own first action, once it
+exists, can.
+
+**Finding, in the same shape twice.** The first name-input implementation derived its
+input cap from the space left on the pane's row after the prompt, so a long default name
+(or a narrow list pane) silently truncated whatever the user typed. Fixing the cap
+uncovered a second, deeper version of the same fault: curses' own `getstr` does not
+scroll within a line, so it stops accepting input at the pane's right edge regardless of
+any cap passed to it. Both were found by typing a real, long name into a real tmux pane,
+not by reading the code. Replaced with a manual, scrolling line reader that keeps the
+full typed string regardless of what fits on screen.
