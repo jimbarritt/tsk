@@ -187,7 +187,7 @@ Approved by the user 2026-09-25. Phase one only.
 | T-04 | Mission Control list view | The left pane shows every Claude session in this tmux session by name. The list refreshes when a state file changes | T-02 | DONE |
 | T-05 | New session and switching | From the list, one key starts a new Claude session with a name prompt that defaults to the git repo name. Selecting a session shows it in the right pane. Every other session keeps running in a pane out of view | T-03, T-04 | DONE |
 | T-06 | Status hooks | Claude Code hooks write each session's status to its state file. A permission prompt, waiting for input, a finished turn and an error set "needs attention". Submitting a prompt clears it. The list shows an empty or a full circle. The hooks apply to Mission Control sessions only and leave the user's global Claude Code settings unchanged | T-04 | DONE |
-| T-07 | Token totals | The list shows each session's total tokens, summed from the usage records in its Claude Code transcript file | T-06 | TODO |
+| T-07 | Token totals | The list shows each session's total tokens, summed from the usage records in its Claude Code transcript file | T-06 | DONE |
 | T-08 | nvim per session | One key on the list opens nvim in the selected session's worktree, zoomed. A second shortcut hides nvim, leaves it running, and returns to the three pane layout. Opening it again for the same session shows the same nvim | T-05 | TODO |
 | T-09 | Confirm on macOS | The user installs it on macOS from the public repo and confirms each objective holds. What breaks is fixed and checked again. The mission report records what broke and each fix | T-01 to T-08 | TODO |
 

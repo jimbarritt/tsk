@@ -162,3 +162,35 @@ not in anything built here. T-07 through T-09 may need this resolved, or a worka
 (T-07 can likely test against this very session's own transcript file instead of
 spawning a fresh one); T-09 runs on Jim's own macOS machine regardless, where this
 sandbox's auth state does not apply.
+
+**T-07, done.** `tokens.py` sums the usage records in a session's transcript file.
+Confirmed directly against a real transcript, this session's own, not from
+documentation: a streamed response writes several JSONL lines for the same assistant
+message, each repeating that message's usage totals verbatim, so a message counts once,
+by its id. Total is `input + cache_creation_input + cache_read_input + output` tokens
+per unique message; thinking tokens are a breakdown within `output_tokens`, not
+additional on top.
+
+**Definition recorded, as the briefing's own note under T-06 asked for regarding
+`transcript_path`, and as this task's own token definition needs recording too.** The
+displayed number runs into the tens of millions for a long session, because a cache
+read is counted again on every turn: that is how the API itself bills it, not a bug in
+the sum. Numbers are formatted compactly (`1.5k`, `35.2M`) for this reason.
+
+**Checked and ruled out as a shortcut.** A transcript can carry a `cost-state` entry
+with running token totals. Checked directly: it is a one-off snapshot, not kept current
+to the end of the file (found at line 84 of 1101 in the transcript checked against, with
+332 assistant entries by the end). Summing the usage records directly is the only
+correct source.
+
+`TranscriptTokenCounter` reads incrementally from a saved byte offset rather than
+re-parsing the whole file every poll tick, and stops at the last complete line, so a
+transcript caught mid-write is picked up correctly on the next read rather than having
+its finishing bytes skipped over.
+
+**Verified against a live, growing transcript, working around the sandbox's auth
+problem.** A real `claude` session still cannot be launched here (T-06's finding).
+Pointed a hand-written state file at this session's own transcript instead: the
+displayed total tracked the transcript's growth over several seconds, unprompted,
+confirming the poll loop and the incremental reader both work against a file actively
+being appended to, not only against a static fixture.
