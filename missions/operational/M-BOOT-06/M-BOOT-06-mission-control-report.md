@@ -79,3 +79,14 @@ takes a percentage) works and was used instead. Not yet checked against macOS's 
 T-09 rechecks it there. If macOS's tmux accepts `-p` fine, the cause is this sandbox
 specifically and the code stays as `-l <N>%` regardless, since that argument works on
 both.
+
+**T-04, done.** A `curses` app in the list pane, showing every session by name with an
+attention marker (`○`/`●`), polling the state directory every 0.5s and redrawing only
+when a `(name, mtime_ns, size)` signature over its files changes. `curses.wrapper`
+handles terminal setup and teardown, including on an exception, closing the gap tsk's
+own TUI hit in the legacy backlog (BUG-1: terminal left broken on a panic). Verified
+against a real tmux pane: the list renders, and a state file flip (as T-06's hooks will
+do) redraws the marker within one poll interval.
+
+Also fixed, found while building T-04: `list_states`' sort was lexicographic on the
+filename, putting `%10` before `%2`. Pane IDs now sort on their numeric value.
