@@ -115,3 +115,50 @@ scroll within a line, so it stops accepting input at the pane's right edge regar
 any cap passed to it. Both were found by typing a real, long name into a real tmux pane,
 not by reading the code. Replaced with a manual, scrolling line reader that keeps the
 full typed string regardless of what fits on screen.
+
+**T-06, done.** `--settings <json>`, passed on the `claude` command line at launch
+(never a settings file, and never `~/.claude/settings.json`), registers one command for
+seven hook events, all pointing at `hooks.py`'s own module invocation. `--settings` is
+additive, so nothing here touches the user's global settings, and the hooks fire only
+for a `claude` process Mission Control itself launched.
+
+Event names and payload fields were confirmed directly against the installed CLI
+(`cli.js`, Claude Code 2.1.283), not from documentation, since no public reference lists
+them exhaustively: `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`,
+`PostToolUse`, `PostToolUseFailure`, `Notification`, `PermissionRequest`,
+`SubagentStart`, `SubagentStop`, `PreCompact` all exist as literal event names in this
+build. Every payload carries `hook_event_name`, `session_id`, `transcript_path`, `cwd`.
+`Notification` carries `notification_type` (`permission_prompt`, `idle_prompt`, among
+others). `SessionEnd` carries `reason`, one of `clear`, `logout`, `exit`, `other`,
+`prompt_input_exit`, `error`.
+
+**This settles the briefing's own open question on T-06: which event, if any, fires on
+an error.** There is no separate event for a mid-turn API error that leaves the session
+running; `PostToolUseFailure` exists but is scoped to one tool call failing, not the
+turn or the session, and firing "needs attention" on it would fire on routine,
+self-recovered tool errors too. What does fire, and cleanly matches "an error" at the
+session level the briefing asks for: `SessionEnd` with `reason="error"`, when the whole
+session ends abnormally. The other four `SessionEnd` reasons are clean ends and set
+nothing.
+
+Mapping: `Notification` and `PermissionRequest` set attention (a prompt needs a look);
+`Stop` sets it (a finished turn); `UserPromptSubmit` clears it (submitting is the
+natural acknowledgement). `PostToolUse` also clears it, beyond the briefing's four named
+states: nothing fires when a human approves a pending permission, checked directly
+against the same schema, so without this the indicator would stay lit through the rest
+of the turn even after Jim had already looked and approved. The next tool call
+completing is what actually signals that.
+
+Verified with unit tests covering every event and transition; the hook logic itself
+needs no live `claude` session. Also verified: `claude --settings '<generated json>'
+doctor` loads the settings with no hook-schema warnings.
+
+**Not verified end to end, and not this task's fault.** A live run, as done for T-03 and
+T-05, hit an unrelated environment problem: this sandbox's shared auth state now asks
+even a bare `claude`, no flags at all, to log in again, which it did not a few commits
+earlier in this same session. Checked directly: identical wizard from a plain `claude`
+with no `--settings` argument, so the change is in the shared container's auth state,
+not in anything built here. T-07 through T-09 may need this resolved, or a workaround
+(T-07 can likely test against this very session's own transcript file instead of
+spawning a fresh one); T-09 runs on Jim's own macOS machine regardless, where this
+sandbox's auth state does not apply.
