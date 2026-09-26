@@ -3,14 +3,17 @@
 | Field | Value |
 |---|---|
 | Mission | M-BOOT-06 |
-| Outcome | In progress |
+| Outcome | Blocked |
 | Actor | Cloud session, Sonnet 5 |
 | Date started | 2026-09-25 |
 
 ## Outcome
 
-In progress. This report is written as execution proceeds, per the mission model's rule
-that a report takes addenda rather than being written only at the end.
+Blocked on T-09, the essential task, which needs Jim's own macOS machine per the
+briefing's constraint. T-01 through T-08 are done and pushed to
+`jimbarritt/tsk-mission-control`'s `main`. A checklist for T-09 is at the foot of this
+report. This report is written as execution proceeds, per the mission model's rule that
+a report takes addenda rather than being written only at the end.
 
 ## Decisions made during execution
 
@@ -224,3 +227,47 @@ raw `Ctrl-b` as its own page-up binding instead. Confirmed instead that the bind
 registered correctly (`tmux list-keys -T prefix v`) and that its target command does the
 right thing when run directly. The real key press, from an actual attached client, is
 proven in T-09.
+
+## T-09 checklist, for Jim on macOS
+
+T-01 through T-08 are done and pushed to `jimbarritt/tsk-mission-control`'s `main`. T-09
+is the essential task: the mission is not done until this holds, and it needs Jim's own
+macOS machine, per the briefing's constraint. What follows is what to check, in order.
+
+**Setup.**
+1. `git clone https://github.com/jimbarritt/tsk-mission-control && cd tsk-mission-control`
+2. Confirm versions against the README: tmux 3.4+, Python 3.9+, Claude Code CLI, pipx.
+3. `pipx install --editable .` (no `--backend pip` override needed unless macOS's pipx
+   has the same `uv`-version mismatch this sandbox had).
+4. `tmux new -s mc-test` (or any name), then `tsk-mission-control` inside it.
+
+**Per objective.**
+- Three-pane layout appears: list left, session right (running `claude`, already past
+  its own login if already authenticated on that machine), terminal below, full width.
+- The session pane's name (window title or `tmux list-panes -F '#{pane_id}'` cross-check
+  against the state file) matches the current repo's name, or the name given on the
+  command line.
+- `j`/`k` move a highlighted row in the list; `n` prompts for a name (try one longer
+  than the list pane is wide, to recheck the T-05 finding); `Enter` swaps that session
+  into the right pane, with the previous one still running (check with
+  `tmux list-windows -a`, it should be in `mc-stash`).
+- Trigger a real permission prompt in the visible session (e.g. ask it to run a command
+  needing approval) and confirm the list shows `●` for that row; approve it and confirm
+  the marker clears once the next tool call completes.
+- Let a turn finish with no further input and confirm `●` appears (the `Stop` state);
+  submit a new prompt and confirm it clears.
+- Confirm the list shows a token figure per session, and that it increases as that
+  session works.
+- `e` on a session opens nvim, zoomed, in that session's worktree; `prefix+v` (`Ctrl-b v`
+  unless a different prefix is in use) returns to the three-pane layout with nvim still
+  running (`tmux list-windows -a` shows the `nvim-<pane id>` window still there);
+  pressing `e` again on the same session returns to that same nvim, not a fresh one.
+- Detach (`tmux detach`) and reattach (`tmux attach -t mc-test`): everything should
+  still be there and working, per the briefing's phase-one lifetime decision.
+
+**Specifically recheck, since both are sandbox findings that might not hold on macOS's
+own tmux build:** `split-window -l <N>%` (T-03) versus the `-p` form that failed here;
+and the `prefix+v` binding actually firing from a real keypress, not merely being
+registered (T-08).
+
+Fix what breaks, and re-check it, before calling T-09 done.
