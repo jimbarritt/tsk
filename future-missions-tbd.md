@@ -4,6 +4,17 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## Extend the product domain, with Cutler's piece as a basis
+
+Raised by Jim, 2026-09-27.
+
+Jim's read: Cutler's piece can be a basis for extending our product domain.
+
+Starting point: `docs/kb/ai-and-the-loss-of-positive-friction.md` in the tsk repo, which
+maps Cutler's stages and remedies against tsk's terms, and records what Jim's pitch of
+2026-07-05 says about signals. The gap it records: tsk has no object yet for signals,
+insights, or models.
+
 ## AI and the loss of positive friction (John Cutler)
 
 Raised by Jim, 2026-09-27, as relevant to tsk. Source: John Cutler,
