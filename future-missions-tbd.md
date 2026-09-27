@@ -9,6 +9,8 @@ it is a good idea.
 Raised by Jim, 2026-09-27, as relevant to tsk. Source: John Cutler,
 ["TBM 441: AI, the Loss of Positive Friction, and What to Do About It"](https://cutlefish.substack.com/p/tbm-441-ai-the-loss-of-positive-friction),
 The Beautiful Mess, 2026-09-24.
+Written up with the mapping to tsk in the tsk repo:
+`docs/kb/ai-and-the-loss-of-positive-friction.md`.
 
 The essence: product work used to move information through stages by hand, and each
 hand-off forced someone to "process, think about, discuss, reshape, restate" it. That
