@@ -37,7 +37,8 @@ temporal and ephemeral; the delta is what persists as a change to the product
 underneath them.
 
 **Product.** The dimension other tools leave floating: product maps, A/B tests,
-metrics, OKRs, all disconnected from the execution side. tsk's claim is that these
+metrics, OKRs, observability, and signals coming from customers, all disconnected
+from the execution side. tsk's claim is that these
 belong in the same queryable, well-defined structure as Navigation and Delta, linked
 and referenced between views rather than stitched together ad hoc.
 
