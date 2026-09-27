@@ -61,6 +61,34 @@ tsk models the last four stages closely. It has almost nothing for the first thr
 | 9 | Keep each issue bounded: "whose need it represents, why it matters, what problem we're addressing" | Present for missions: a briefing states Purpose, Objective, and Out of scope. `product-and-scale-theory.md` requires a story to trace to a user goal. |
 | 10 | Prefer depth over breadth | No rule. Waypoint and the always-fully-functional constraint govern how a change ships, not how many ship at once. |
 
+## Signals in Jim's pitch
+
+Source: "Tsk-pitch-transcript", 2026-07-05, in Jim's knowledge base. `vision.md` is
+distilled from it. Signals appear once, inside a passage on the Product dimension. In
+that passage, Jim said:
+
+- **Product is the missing bit.** People already do product work, such as product maps,
+  A/B testing and metrics, but not in a unified way. Nobody has a conceptual model that
+  connects it directly to the navigation, or execution, side. It is disjointed.
+- **The link wanted.** When working on a task, a direct referential link to the metrics
+  and the OKRs, rather than stitching tools together.
+- **Why there is a gap.** A keynote speaker said teams are bad at documenting the product
+  itself. They rely on humans to know it and stitch it back together, with Notion
+  documents.
+- **What it needs.** A product map, kept in a queryable, well-defined, rigorous
+  structure, not an ad hoc one. It is linked to the other pillars, and agents can
+  understand it.
+- **Signals.** Inside product there is observability, and signals coming from
+  customers. All of it is data.
+- **The point.** A conceptual model that maps all of this together, probably a graph
+  that zooms in and out: an index of every important part in one queryable place. That
+  makes the whole thing navigable and gives synergistic benefits.
+
+In the pitch, signals are one input to the Product dimension, beside observability and
+metrics: data that belongs in the same model as the work. The pitch gives them no
+structure of their own. Cutler's first two remedies supply one: atomic, traceable, and
+kept coherent.
+
 ## What this means for tsk's product side
 
 tsk closes the loop at the delivery end. The Delta Gate and System health check a
