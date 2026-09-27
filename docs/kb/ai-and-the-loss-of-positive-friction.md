@@ -36,7 +36,7 @@ accountability stay at the framing and commitment stages.
 
 | Stage | Nearest tsk term | Fit |
 |---|---|---|
-| Signals | Intelligence | Partial. Intelligence is "the general term for input context", with its subtypes "not yet defined". It has no atomic, traceable record of one observation. |
+| Signals | Product, Intelligence | Named, not modelled. `vision.md` places "signals coming from customers" and observability in the Product dimension, from Jim's pitch transcript of 2026-07-05. The domain model has no object for them. Intelligence is "the general term for input context", with its subtypes "not yet defined". |
 | Insights | none | No object. An inference can appear in a briefing's Intelligence section, as prose. |
 | Models | Product, Product capability | Partial. Product describes "what the product does or should do for its users". A belief about how users or a market behave has no object. |
 | Options | Navigation, Path | Close. Navigation holds parallel and abandoned routes, and an abandoned route "produces navigational knowledge". Path records the abandoned routes behind a delta. |
@@ -67,7 +67,9 @@ tsk closes the loop at the delivery end. The Delta Gate and System health check 
 capability against production, so tsk has a thread back to reality once a change ships.
 It also builds positive friction into delegation, through the briefing and the report.
 
-It has no object for the input end of the loop: signals, insights, and models.
+It has no object for the input end of the loop: signals, insights, and models. The
+vision names signals: `vision.md` places customer signals and observability in the
+Product dimension. The domain model has not caught up.
 `product-and-scale-theory.md` records the same gap from the other direction: "A
 separate document on the user domain model is referenced by the source material but not
 yet written." A story traces to a user goal, but nothing in tsk records the observations
