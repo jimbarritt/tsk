@@ -1,118 +1,77 @@
 # AI and the loss of positive friction
 
-Status: research note, 2026-09-27. Source: John Cutler,
+Source: John Cutler,
 ["TBM 441: AI, the Loss of Positive Friction, and What to Do About It"](https://cutlefish.substack.com/p/tbm-441-ai-the-loss-of-positive-friction),
-The Beautiful Mess, 2026-09-24. Raised by Jim as relevant to tsk, and to its Product
-dimension in particular.
+The Beautiful Mess, 2026-09-24.
 
-## The article
+## The argument
 
-Product work used to move information through stages by hand. Each hand-off made
-someone "process, think about, discuss, reshape, restate" it. Cutler calls that effort
-positive friction: it is where pruning, discretion and judgement happened.
+Positive friction is the effort a hand-off between stages of product work demands. At
+each stage, someone has to "process, think about, discuss, reshape, restate" the
+information. Pruning, discretion and judgement happen there.
 
-AI removes it. Feedback becomes an LLM summary, the summary becomes a spec, and the spec
-becomes code, with little human attention at any step. What goes with it: the distinction
-between stages, traceability back to the original customer context, and the
-focus that held feature sprawl back. His name for the anti-pattern: "AI flattening
+AI removes the hand-offs. Feedback becomes an LLM summary, the summary becomes a spec,
+and the spec becomes code, with little human attention at any step. The losses: the
+distinction between stages, traceability back to the original customer context, and
+the focus that limits feature sprawl. Cutler names the anti-pattern "AI flattening
 layered on AI flattening, with no thread back to reality."
 
-The stages he says get flattened, in order:
+Human judgement and accountability stay at the framing and commitment stages.
 
-| Stage | Cutler's definition |
+## Stages
+
+| Stage | Definition |
 |---|---|
 | Signals | What is observed, recorded, written, or measured |
-| Insights | What we infer from those signals |
-| Models | How we believe things work |
+| Insights | What is inferred from signals |
+| Models | How things are believed to work |
 | Options | Possible paths, configurations, or interventions |
 | Choice | The selected option and the resulting commitment |
-| Intent | The future state or direction being pursued |
+| Intent | The future state or direction pursued |
 | Actions | What actors do to advance the intent |
 
-His ten remedies are listed with the mapping below. In all of them, human judgement and
-accountability stay at the framing and commitment stages.
+## Stages mapped to tsk
 
-## Cutler's stages against tsk
-
-| Stage | Nearest tsk term | Fit |
+| Stage | tsk term | Fit |
 |---|---|---|
-| Signals | Product, Intelligence | Named, not modelled. `vision.md` places "signals coming from customers" and observability in the Product dimension, from Jim's pitch transcript of 2026-07-05. The domain model has no object for them. Intelligence is "the general term for input context", with its subtypes "not yet defined". |
-| Insights | none | No object. An inference can appear in a briefing's Intelligence section, as prose. |
-| Models | Product, Product capability | Partial. Product describes "what the product does or should do for its users". A belief about how users or a market behave has no object. |
-| Options | Navigation, Path | Close. Navigation holds parallel and abandoned routes, and an abandoned route "produces navigational knowledge". Path records the abandoned routes behind a delta. |
-| Choice | Mission, ADR | Close. A mission is the commitment made at delegation. An ADR records a choice and its reason. |
-| Intent | Objective | Close. An objective is a checkable state. `mission-model.md` grounds a briefing's Purpose and Objective in commander's intent, from mission command. |
+| Signals | Product | Named, not modelled. The Product dimension includes observability and signals from customers. No domain object represents a signal. |
+| Insights | none | No object. |
+| Models | Product capability | Partial. A product capability describes what the product does for its users. A belief about how users or a market behave has no object. |
+| Options | Navigation, Path | Close. Navigation holds parallel and abandoned routes. Path records the abandoned routes behind a delta. |
+| Choice | Mission | Close. A mission is the commitment made at delegation. |
+| Intent | Objective | Close. An objective is the checkable end state a mission pursues. |
 | Actions | Task, Thread, Delta | Close. A task is the unit of work, a thread its execution, and a delta the change it makes. |
 
-tsk models the last four stages closely. It has almost nothing for the first three.
+tsk models options, choice, intent and actions. It has no object for signals, insights,
+or models.
 
-## Cutler's remedies against tsk
+## Remedies mapped to tsk
 
-| # | Remedy | tsk today |
+| # | Remedy | tsk |
 |---|---|---|
-| 1 | Keep original feedback atomic, each item linked to its source | No feedback object. Path gives traceability downward, from a delta to its commits and decisions, not upward to a customer signal. |
-| 2 | Keep both atomicity and coherence | Present, for changes: atomic deltas cluster into a composite delta, the same entity at another zoom level. Not for signals, which have no object. |
-| 3 | At each transformation, "make it clear what is being carried forward, what changed, and why" | Present, at delegation. A briefing is written when a task becomes a mission, "because the receiving actor does not have the holder's context". A mission report records "what the briefing failed to give the actor". A thread continuation records what's next at each pause. |
-| 4 | Separate the underlying work from its framing for each audience | Present. "The same mission renders differently for a human and for a cloud agent": Mission and Mission briefing are separate terms. |
-| 5 | Label every AI-generated artefact by degree of AI contribution | Partial. A continuation's written-by field names the binding that wrote it, and commit attribution names the agent. No artefact has a degree-of-contribution label. |
-| 6 | Do not stack AI flattening on AI flattening | Present, at the delivery end. Under the Delta Gate, "done" follows from a verified production state, not a status set by hand. A closed card is never the evidence for a healthy capability. |
-| 7 | Do not put everything into a tool because the tool can process it | Partial. Ledger and Artefact are split by definition, and the tsk/ksobr boundary test places each line. No rule governs what enters the ledger. |
-| 8 | Treat code analysis as one source of evidence | Present. Product and Artefact are separate terms: "Naming the files 'the product' would complect the two." System health is measured in production, not read from the code. |
-| 9 | Keep each issue bounded: "whose need it represents, why it matters, what problem we're addressing" | Present for missions: a briefing states Purpose, Objective, and Out of scope. `product-and-scale-theory.md` requires a story to trace to a user goal. |
-| 10 | Prefer depth over breadth | No rule. Waypoint and the always-fully-functional constraint govern how a change ships, not how many ship at once. |
+| 1 | Keep original feedback atomic, each item linked to its source | Absent. Path traces a delta to its commits and decisions. Nothing traces work back to a customer signal. |
+| 2 | Keep both atomicity and coherence | Present for deltas: atomic deltas compose into a composite delta at a higher zoom level. Absent for signals. |
+| 3 | At each transformation, state what is carried forward, what changed, and why | Present at delegation. A mission briefing is written when a task passes to another actor. A mission report records what the briefing failed to give. A thread continuation records the next step at each pause. |
+| 4 | Separate the underlying work from its framing for each audience | Present. One mission renders as a different briefing for each actor. |
+| 5 | Label every AI-generated artefact by degree of AI contribution | Partial. A thread continuation names the actor that wrote it. No artefact records the degree of AI contribution. |
+| 6 | Do not stack AI flattening on AI flattening | Present at delivery. Under the Delta Gate, a capability is delivered only when its delta is deployed and the system is healthy. A closed story card is not evidence of delivery. |
+| 7 | Do not put everything into a tool because the tool can process it | Partial. The ledger and the artefacts are separate. No rule governs what enters the ledger. |
+| 8 | Treat code analysis as one source of evidence | Present. Product and Artefact are separate terms. System health is measured in production, not read from code. |
+| 9 | Keep each issue bounded: whose need, what it is for, what problem | Present. A mission briefing states purpose, objective, and out of scope. A story traces to a user goal. |
+| 10 | Prefer depth over breadth | Absent. No rule limits how many changes ship at once. |
 
-## Signals in Jim's pitch
+## Gaps
 
-Source: "Tsk-pitch-transcript", 2026-07-05, in Jim's knowledge base. `vision.md` is
-distilled from it. Signals appear once, inside a passage on the Product dimension. In
-that passage, Jim said:
-
-- **Product is the missing bit.** People already do product work, such as product maps,
-  A/B testing and metrics, but not in a unified way. Nobody has a conceptual model that
-  connects it directly to the navigation, or execution, side. It is disjointed.
-- **The link wanted.** When working on a task, a direct referential link to the metrics
-  and the OKRs, rather than stitching tools together.
-- **Why there is a gap.** A keynote speaker said teams are bad at documenting the product
-  itself. They rely on humans to know it and stitch it back together, with Notion
-  documents.
-- **What it needs.** A product map, kept in a queryable, well-defined, rigorous
-  structure, not an ad hoc one. It is linked to the other pillars, and agents can
-  understand it.
-- **Signals.** Inside product there is observability, and signals coming from
-  customers. All of it is data.
-- **The point.** A conceptual model that maps all of this together, probably a graph
-  that zooms in and out: an index of every important part in one queryable place. That
-  makes the whole thing navigable and gives synergistic benefits.
-
-In the pitch, signals are one input to the Product dimension, beside observability and
-metrics: data that belongs in the same model as the work. The pitch gives them no
-structure of their own. Cutler's first two remedies supply one: atomic, traceable, and
-kept coherent.
-
-## What this means for tsk's product side
-
-tsk closes the loop at the delivery end. The Delta Gate and System health check a
-capability against production, so tsk has a thread back to reality once a change ships.
-It also builds positive friction into delegation, through the briefing and the report.
-
-It has no object for the input end of the loop: signals, insights, and models. The
-vision names signals: `vision.md` places customer signals and observability in the
-Product dimension. The domain model has not caught up.
-`product-and-scale-theory.md` records the same gap from the other direction: "A
-separate document on the user domain model is referenced by the source material but not
-yet written." A story traces to a user goal, but nothing in tsk records the observations
-the user goal was inferred from. Cutler's first two remedies, atomic, traceable signals
-kept coherent, describe what that object needs.
-
-The second gap is remedy 5. tsk records which actor wrote a continuation entry, but not
-how much of an artefact an agent produced.
+- Signals, insights and models have no domain object. The Product dimension names
+  customer signals and observability, and the user domain model that grounds user goals
+  is not written. Remedies 1 and 2 give the requirements for a signal object: atomic,
+  linked to its source, and composable.
+- No artefact records the degree of AI contribution (remedy 5).
+- No rule limits breadth (remedy 10).
 
 ## Related
 
-- [product-and-scale-theory.md](product-and-scale-theory.md): Story card, Product
-  capability, Delta Gate and System health, and the unwritten user domain model.
-- [background-theory.md](background-theory.md): Navigation, Delta, and Path.
-- [docs/domain/ubiquitous-language.md](../domain/ubiquitous-language.md): every tsk term
-  in the tables above.
-- [docs/domain/mission-model.md](../domain/mission-model.md): mission command and
-  commander's intent.
+- [docs/domain/ubiquitous-language.md](../domain/ubiquitous-language.md): definitions of
+  the tsk terms above.
+- [product-and-scale-theory.md](product-and-scale-theory.md): Product capability, Delta
+  Gate, and System health.
