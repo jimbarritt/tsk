@@ -4,6 +4,43 @@ Ideas for missions that have not been shaped into briefings yet. Recorded so the
 not lost. Listing an idea here implies no commitment, no ordering and no decision that
 it is a good idea.
 
+## AI and the loss of positive friction (John Cutler)
+
+Raised by Jim, 2026-09-27, as relevant to tsk. Source: John Cutler,
+["TBM 441: AI, the Loss of Positive Friction, and What to Do About It"](https://cutlefish.substack.com/p/tbm-441-ai-the-loss-of-positive-friction),
+The Beautiful Mess, 2026-09-24.
+
+The essence: product work used to move information through stages by hand, and each
+hand-off forced someone to "process, think about, discuss, reshape, restate" it. That
+effort is the positive friction. It is where pruning, discretion and judgement happened.
+AI removes it: feedback becomes an LLM summary, the summary becomes a spec, the spec
+becomes code, with little human attention at any step. What is lost is the distinction
+between stages, traceability back to the original customer context, and the focus that
+stopped feature sprawl. The anti-pattern he names: "AI flattening layered on AI
+flattening, with no thread back to reality."
+
+The stages he says get flattened: signals (what is observed or measured), insights (what
+is inferred from them), models (how we believe things work), options, choice (the
+selected option and the commitment), intent (the future state pursued), and actions.
+
+His remedies, in short:
+
+1. Keep original feedback atomic, each item linked to its source.
+2. Keep both atomicity and coherence: fragments alone, or ideas mashed together, both fail.
+3. Add friction at each transformation: state what is carried forward, what changed, and
+   why.
+4. Separate the underlying work from its framing for each audience.
+5. Label every AI-generated artefact by how much AI contributed, for example "100%
+   AI-generated", "HITL curated", "AI used for editing".
+6. Never stack AI flattening on AI flattening.
+7. Do not dump everything into a tool because the tool can process it with AI.
+8. Treat code analysis as one source of evidence: seeing X in the code does not show
+   customers experience X.
+9. Keep each issue bounded: whose need, why it matters, what problem.
+10. Prefer depth over breadth, so customer feedback stays specific.
+
+Human judgement and accountability stay at the framing and commitment stages.
+
 ## A session's context reset while its thread binding survived
 
 Raised by Jim, 2026-09-25, in thread `3376badb` (M-ADMIN-01).
