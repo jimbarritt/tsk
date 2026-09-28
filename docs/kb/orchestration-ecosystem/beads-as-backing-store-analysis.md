@@ -1,7 +1,6 @@
 # Analysis: using beads as tsk's backing store
 
-Status: exploratory research, no decision made. Source: Jim's research question,
-2026-09-20.
+Status: exploratory research, no decision made. 2026-09-20.
 
 ## The question
 
