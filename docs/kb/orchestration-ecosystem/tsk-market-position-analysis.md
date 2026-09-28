@@ -149,7 +149,7 @@ already in front of you. JetBrains Air shows a fifth way was available: decouple
 worker layer from any single vendor by building against an open protocol instead of one
 runtime.
 
-This is the premise tsk is built on, stated plainly because Jim named it directly: the
+This is the premise tsk is built on: the
 domain, mission, thread, actor, ledger, is defined without reference to which substrate
 executes a thread, and that abstraction is more powerful than any one vendor's
 implementation precisely because it is not confined to that vendor. A tsk thread's actor
@@ -230,30 +230,24 @@ rather than against one.
 
 ## JetBrains Air
 
-Raised by Jim, 2026-09-22, from
-[blog.jetbrains.com/blog/2026/09/22/introducing-jetbrains-air](https://blog.jetbrains.com/blog/2026/09/22/introducing-jetbrains-air/).
-Read directly, 2026-09-22, by mission M-JBAIR-01, which also checked most of the claims
-below against JetBrains' own documentation directly, rather than through search. Where a
-claim rests on a search-engine snippet rather than a page opened directly, that is
-flagged in place.
+Source: [Introducing JetBrains Air](https://blog.jetbrains.com/blog/2026/09/22/introducing-jetbrains-air/),
+2026-09-22, and JetBrains' Air documentation, as of 2026-09-22. A claim with no
+JetBrains source is marked as such.
 
-The article Jim linked is broader than a single product: it announces "Air", "an open,
+The announcement covers "Air", "an open,
 coherent system of products", of three parts, "available today alongside others that
 will be introduced as the system develops": **Air in JetBrains IDEs**, "a complete
 agentic development experience for directing and orchestrating agents and verifying
 their work inside JetBrains IDEs"; **Air Teams**, coordinating software-delivery
 workflows across developers and agents; and **Air Governance** (formerly JetBrains
 Central), organisational policy, cost, and accountability for agent-driven development.
-Everything else in this section describes Air in JetBrains IDEs only, the product
-launched as a public preview in March 2026, the one the rest of this market position
-analysis's argument depends on. Air Teams and Air Governance are not assessed here.
+The rest of this section covers Air in JetBrains IDEs only, launched as a public preview
+in March 2026. Air Teams and Air Governance are not assessed.
 
 An agentic development environment, built on the codebase of Fleet, JetBrains' earlier,
-abandoned lightweight editor (independent coverage only: The Register and DevClass both
-report this; JetBrains' own pages read here do not mention Fleet). Launched as a public
-preview in March 2026, macOS first. Windows and Linux are available via JetBrains
-Toolbox as of this reading, September 2026; the date that stopped being "coming soon"
-is not confirmed. A coordinator dispatches a task to a worker, run in one of four
+abandoned lightweight editor (no JetBrains source; reported by The Register and
+DevClass). Launched as a public preview in March 2026, macOS first. Windows and Linux are
+available via JetBrains Toolbox as of September 2026. A coordinator dispatches a task to a worker, run in one of four
 execution environments: Local Workspace, the default, applies changes directly to the
 working copy with no isolation; Git Worktree, Docker, and Cloud each isolate the task
 instead, on its own branch, named `air/<task>` in every case. Several tasks run in
@@ -264,36 +258,30 @@ A task's work is split into agent roles: Planner turns an incoming task into an
 implementation-ready task brief, decomposing it if needed; Implementer changes code on a
 branch or pull request against that brief; Reviewer checks the result against scope and
 repository rules; QA proves the change works through verification and tests. One agent
-can hold all four roles in sequence, or a separate agent can hold each, run in parallel.
-This role list, Planner included, could not be opened directly from
-`jetbrains.com/help/air/agentization-cookbook.html`, which returns 404 in this session
-too, the same block M-JBAIR-01 was raised to fix; it depends on independent secondary
-coverage corroborating a search-engine snippet, not a page read directly, and the prior
-section's Implementer/Reviewer/QA list, without Planner, undercounted it. Agents
+can hold all four roles in sequence, or a separate agent can hold each, run in parallel
+(no JetBrains page confirmed; `agentization-cookbook.html` returns 404, and the list is
+from independent coverage). Agents
 coordinate through repository artefacts, files and the pull request, not through shared
 chat history.
 
-Unanswered after a direct check: whether a task's brief and role history
-persist in git beyond ordinary commits, or only in Air's own local state. The one
-relevant sentence found, on `jetbrains.com/help/air/history.html`, is "History combines
-Git commits with task-related snapshots", which distinguishes the two without saying
-where a snapshot is stored.
+Unknown: whether a task's brief and role history persist in git beyond ordinary
+commits, or only in Air's local state. The documentation states "History combines Git
+commits with task-related snapshots", without saying where a snapshot is stored.
 
-Status as of this reading, from `jetbrains.com/air/` directly: the IDE plugin is
+Status as of 2026-09-22, from `jetbrains.com/air/`: the IDE plugin is
 labelled "Air Alpha", Air Teams offers "early access", and no pricing or tiers are
 shown; use is free with a JetBrains AI subscription or an agent provider's own API key.
-Third-party reports of a $5 to $10 per user per month tier are not confirmed against
-JetBrains' own site and are not repeated here as fact.
+No JetBrains source confirms the $5 to $10 per user per month tier that third parties
+report.
 
 ### Why an IDE vendor built this
 
-Raised by Jim, 2026-09-22. An agent workflow that writes, reviews, and verifies code
+An agent workflow that writes, reviews, and verifies code
 without a human working in an editor reduces what an IDE licence buys. Building an agent
 product is a rational hedge for a company whose revenue rests on IDE licences,
 independent of how the move is read.
 
-Two predictions follow from that incentive, neither confirmed by what M-JBAIR-01 read
-directly:
+Two predictions follow from that incentive, neither confirmed by JetBrains:
 
 - **Pricing.** Free today, in alpha, with no published tier (recorded above). A
   licence-revenue business has reason to price this once it is the product rather than a
@@ -423,8 +411,7 @@ abstraction or only claims to.
 
 ## Jev: a related component, not a competing system
 
-Raised by Jim, 2026-09-20, researched in
-[typesafe-jev-classifier.md](../typesafe-jev-classifier.md).
+Research: [typesafe-jev-classifier.md](../typesafe-jev-classifier.md).
 
 Jev, from TypeSafe AI, is not a coordinator-and-threads system, so it does not belong
 in the systems-assessed list above. It intersects tsk on a narrower point: the
@@ -439,10 +426,6 @@ condition holds against a given state, through a typed classifier instead: `Choi
 `Score` or `Noul`, with a probability and confidence, not generated text. Same job,
 different mechanism.
 
-This document and `agent-context-self-regulation-and-unattended-handoff.md` did not
-reference Jev or TypeSafe before this section; this is the first link between them, not
-a citation of one already made.
-
 Not a component decision. `/goal`'s evaluator is Claude Code's own mechanism, not one
 tsk built or could swap independently. Where this becomes live for tsk is if tsk ever
 needs a verification-loop or condition-evaluation mechanism of its own, rather than
@@ -452,7 +435,7 @@ evaluator, worth weighing against a small LLM judge on the axes
 
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
-Raised by Jim, 2026-09-20, from Yegge's essay
+Source: Yegge's essay
 ["Seats and Sunsets"](https://yegge.ai/essays/seats-and-sunsets/), on Wheelhouse, his
 private harness for Wyvern.
 
@@ -462,15 +445,14 @@ action is safe each time it acts; a seat turns that derivation into a lookup. Th
 ties this to Wheelhouse's own cost problem: distrust forces a model into expensive
 re-verification, and a seat, by caching that trust, cuts the cost.
 
-Jim's read: [Actor](../../domain/ubiquitous-language.md#actor) plus
-[Thread continuation](../../domain/ubiquitous-language.md#thread-continuation) may be the
-breakdown of a seat into tsk's own terms, one object split into two.
+Hypothesis: [Actor](../../domain/ubiquitous-language.md#actor) plus
+[Thread continuation](../../domain/ubiquitous-language.md#thread-continuation) is the
+breakdown of a seat into tsk's terms, one object split into two.
 
-Decision, 2026-09-21: tsk does not need this yet. The bootstrap runs in supervised mode,
-with Jim filling every position himself, so the position and the person have had no reason
-to be separated. The concept waits and comes out in the design when agents run
-autonomously and manage each other. Its tsk name is settled ahead of that, as
-[Post](../../domain/ubiquitous-language.md#post), with a placeholder entry in the
+Decision, 2026-09-21: deferred. The bootstrap runs in supervised mode, with one human
+holding every position, so the position and the person are not yet separate. The concept
+enters the design when agents run autonomously and manage each other. Its tsk name is
+settled as [Post](../../domain/ubiquitous-language.md#post), a placeholder in the
 ubiquitous language; the doctrine mapping below is the reason for the name.
 
 ### What each side holds
@@ -544,7 +526,7 @@ Not yet cited in the repo, and the terms that do fit:
 - The **duty log**, or unit journal: the running record kept at a position and handed over
   between incumbents.
 
-Set against Jim's hypothesis, doctrine gives a five-way split:
+Set against that hypothesis, doctrine gives a five-way split:
 
 | Doctrine | Seat component | tsk today |
 |---|---|---|
@@ -555,12 +537,12 @@ Set against Jim's hypothesis, doctrine gives a five-way split:
 | Duty log | history, handed over | Thread continuation |
 
 Actor plus Thread continuation is the incumbent plus the duty log. What "seat" bundles in,
-and tsk has no term for, is the post with its vested authority and standing orders. "I am
-sitting in all the seats" reads exactly on this split: every post has the same incumbent,
-so nothing has yet forced the post and the person apart.
+and tsk has no term for, is the post with its vested authority and standing orders. In
+supervised mode every post has the same incumbent, so nothing yet separates the post from
+the person.
 
 Name: **post**, the UK term. Rejected: billet (the US term for the same thing), seat
-(Wheelhouse's term, which did not read intuitively in tsk's context), role (the JP 1
+(Wheelhouse's term), role (the JP 1
 collision above).
 
 ## Related

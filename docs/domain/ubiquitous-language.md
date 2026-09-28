@@ -108,9 +108,9 @@ What it is for: a post caches a trust decision. An actor in a post acts within t
 authority without re-deriving, each time, whether the action is allowed. Today tsk has no
 place that stores that: [Actor](#actor) answers who holds a thread, and
 [Thread continuation](#thread-continuation) answers what happened on it, and neither holds
-a scope of authority. The bootstrap runs in supervised mode with Jim appointed to every
-post, so the post and the person have not yet had a reason to be separated. The concept
-comes out in the design when agents run autonomously and manage each other.
+a scope of authority. The bootstrap runs in supervised mode with one human appointed to
+every post, so the post and the person are not yet separate. The concept enters the
+design when agents run autonomously and manage each other.
 
 Source: Wheelhouse's "seat", from Steve Yegge's essay
 ["Seats and Sunsets"](https://yegge.ai/essays/seats-and-sunsets/). A seat there is a
