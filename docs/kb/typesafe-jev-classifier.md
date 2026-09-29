@@ -5,8 +5,8 @@ LangChain's agent harness and evaluation tooling. Raised by Jim, 2026-09-20, fro
 agentic engineering news feed and
 [typesafe.ai](https://typesafe.ai/), where Jim is on the waitlist.
 
-`typesafe.ai`, `docs.typesafe.ai`, `www.langchain.com` and `docs.langchain.com` are
-reachable from this sandbox, checked 2026-09-29. Nothing below was read from those pages.
+`typesafe.ai`, `docs.typesafe.ai`, `www.langchain.com` and `docs.langchain.com` can be
+fetched from this sandbox, checked 2026-09-29. Nothing below was read from those pages.
 Everything comes from `WebSearch` result snippets over secondary and tertiary coverage,
 plus one primary source read directly: the merged LangChain pull request that ships the
 integration (`github.com/langchain-ai/langchain/pull/40542`).
