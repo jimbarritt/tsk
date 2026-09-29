@@ -1,9 +1,8 @@
 # TypeSafe AI's Jev classifier
 
 Research note on Jev, a non-generative "decision model" from TypeSafe AI, and its use in
-LangChain's agent harness and evaluation tooling. Raised by Jim, 2026-09-20, from the
-agentic engineering news feed and
-[typesafe.ai](https://typesafe.ai/), where Jim is on the waitlist.
+LangChain's agent harness and evaluation tooling. Source: [typesafe.ai](https://typesafe.ai/),
+2026-09-20.
 
 `typesafe.ai`, `docs.typesafe.ai`, `www.langchain.com` and `docs.langchain.com` can be
 fetched from this sandbox, checked 2026-09-29. Nothing below was read from those pages.
