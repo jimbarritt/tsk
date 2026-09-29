@@ -72,3 +72,4 @@ Background theory and research grounding for key domain concepts.
 Other systems building in tsk's space, and tsk's position against them.
 
 - [tsk-market-position-analysis.md](kb/orchestration-ecosystem/tsk-market-position-analysis.md): tsk's market position against beads and Claude Code Projects, with one verdict over both, and the context-boundary difference that separates tsk from a coordinator model.
+- [cursor-projects.md](kb/orchestration-ecosystem/cursor-projects.md): Cursor Projects, a coordinator that delegates to subagents and keeps synced project files, compared with tsk point by point, with what its documentation leaves out.

@@ -1,7 +1,7 @@
 # tsk market position analysis
 
 Date: 2026-07-01 (beads re-examination), distilled 2026-09-14, widened to cover Claude
-Code Projects 2026-09-18, and JetBrains Air 2026-09-22.
+Code Projects 2026-09-18, JetBrains Air 2026-09-22, and Cursor Projects 2026-09-29.
 
 ## Status
 
@@ -15,9 +15,10 @@ One section per system assessed, then a single verdict over all of them. It is w
 as new systems appear rather than split, so tsk's position is stated in one place and
 cannot drift between documents.
 
-Three systems are assessed: beads, an independent tool; Claude Code Projects, a feature
-of the platform tsk's own harness runs on; and JetBrains Air, an independent tool that
-coordinates several vendors' agents at once.
+Four systems are assessed: beads, an independent tool; Claude Code Projects, a feature
+of the platform tsk's own harness runs on; JetBrains Air, an independent tool that
+coordinates several vendors' agents at once; and Cursor Projects, a coordinator in
+Cursor's editor and cloud.
 
 ## Beads
 
@@ -330,26 +331,47 @@ the same kind of dependency Claude Code Projects is for tsk's own harness, just 
 the "the platform tsk already runs inside" relationship that makes Claude Code Projects
 the sharper case.
 
+## Cursor Projects
+
+Full reference: [cursor-projects.md](cursor-projects.md). Beta, announced 2026-09-10.
+
+A project is one outcome in one repository. A coordinator agent produces a plan and
+delegates the work to subagents, cloud or local. It does not write code. Project files sync
+across every machine the agents use and hold research, artefacts and learned preferences.
+Subscriptions start work from pull requests, Slack or a schedule.
+
+- **Converged**: a coordinator that delegates and never edits code, workers handed only
+  what they need, written state that outlives a session, and work started from an event.
+- **Not converged**: inputs, outputs and preferences share one set of files where tsk
+  separates the ledger from the artefacts. No pause, resume or continuation is
+  documented. No approval or escalation model is documented. Product, Delta and Scale
+  are not modelled. The same dimensional limit as beads, Claude Code Projects and Air.
+- **Substrate**: not added to "Locked to a substrate" above. Whether a project can run
+  another vendor's agents is not documented.
+- **Availability**: not offered on Enterprise plans or with Privacy Mode (Legacy).
+
 ## Three-part viability verdict
 
-1. **tsk as a research programme: yes.** Three independent designs have now converged on
+1. **tsk as a research programme: yes.** Four independent designs have now converged on
    parts of tsk's model: beads on the architecture and the plan-replacement positioning,
    Claude Code Projects and JetBrains Air both on Thread as the unit that holds context
-   and persists. All three validate parts of tsk's underlying claim. None says anything
+   and persists, and Cursor Projects on a coordinator that delegates and keeps written
+   state. All four validate parts of tsk's underlying claim. None says anything
    about whether adding Product, Delta, and continuous Scale produces further measurable
-   value. All three are credible baselines to measure the other three dimensions
+   value. All four are credible baselines to measure the other three dimensions
    against, and this track continues regardless of the product outcome.
 2. **tsk as a head-to-head agent issue tracker or orchestrator: no.** Against beads that
    category has an incumbent with distribution, maturity, an evangelist, and most of
    tsk's architecture. Against Claude Code Projects it is worse: the incumbent is the
    platform tsk runs on, shipping orchestration as a native feature. JetBrains Air adds
    a third incumbent with its own distribution, a JetBrains product line, and reach
-   across whichever agent a team already uses. Entering any of these races confines tsk
-   to Navigation, the one dimension all three already occupy.
+   across whichever agent a team already uses. Cursor Projects adds a fourth, shipped
+   inside an editor with its own user base. Entering any of these races confines tsk
+   to Navigation, the one dimension all four already occupy.
 3. **tsk as a product differentiated by the full four-dimension model: open.** This is
    the central bet, and what the (separately scoped, not yet run) token-saving experiment
    exists to test. Whether Product, Delta, and Scale add value an agent or buyer will
-   reward is unproven. None of the three systems models them, so all three sharpen the
+   reward is unproven. None of the four systems models them, so all four sharpen the
    experiment rather than settling it. The product decision waits on that experiment
    rather than being made now.
 
@@ -380,6 +402,12 @@ one tsk is built on top of. Its open worker layer, ACP, is worth tracking regard
 whether tsk ever adopts Air itself: if ACP becomes a common way to address an agent
 across products, it is a candidate answer to the untested half of tsk's own substrate
 question, what a tsk thread's actor looks like when it isn't a Claude Code session.
+
+**Cursor Projects: a dependency only if adopted, like Air.** The coordinator, the cloud
+machines and the file sync are Cursor's. tsk's harness does not run inside Cursor, so it
+is a product to measure against, not one tsk is built on. Its documentation does not say
+whether a project can run another vendor's agents, so it adds no evidence on the
+untested half of tsk's substrate question.
 
 tsk's thesis is the unification of all four dimensions, not any single one, so it does
 not collapse if any of these systems later absorbs another dimension.
@@ -556,6 +584,8 @@ collision above).
   the Jev section above for its intersection with `/goal`'s evaluator mechanism.
 - [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md): a schema-level
   sharpening of the Beads section above, on whether beads could be tsk's official ledger.
+- [cursor-projects.md](cursor-projects.md): the full reference for the Cursor Projects
+  section above, with a mechanic-by-mechanic comparison against tsk.
 - The token-saving experiment referenced above has not yet been designed or run as of
   this writing; it is not tracked in the M-BOOT mission tree, which is scoped to
   bootstrapping self-hosting rather than to this product decision.
