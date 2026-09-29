@@ -5,12 +5,11 @@ LangChain's agent harness and evaluation tooling. Raised by Jim, 2026-09-20, fro
 agentic engineering news feed and
 [typesafe.ai](https://typesafe.ai/), where Jim is on the waitlist.
 
-This sandbox's egress proxy blocks `typesafe.ai`, `docs.typesafe.ai`, `www.langchain.com`
-and `docs.langchain.com` directly, so nothing below is read from those pages themselves.
+`typesafe.ai`, `docs.typesafe.ai`, `www.langchain.com` and `docs.langchain.com` are
+reachable from this sandbox, checked 2026-09-29. Nothing below was read from those pages.
 Everything comes from `WebSearch` result snippets over secondary and tertiary coverage,
 plus one primary source read directly: the merged LangChain pull request that ships the
-integration (`github.com/langchain-ai/langchain/pull/40542`), not blocked because it is a
-different domain (`github.com`) from the two above.
+integration (`github.com/langchain-ai/langchain/pull/40542`).
 
 ## What Jev is
 
@@ -126,7 +125,7 @@ decided here. This is a research note, not a proposal.
   [langchain.com/blog/building-a-harness-with-jev](https://www.langchain.com/blog/building-a-harness-with-jev),
   [langchain.com/blog/jev-agent-evals-langsmith](https://www.langchain.com/blog/jev-agent-evals-langsmith),
   and [typesafe.ai/blog/introducing-system-one-models-and-jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev),
-  none read directly, blocked by this sandbox's egress proxy.
+  none read directly.
 - `WebSearch` snippet coverage over third-party write-ups, none read directly: Forkast,
   DataCamp, TrueFoundry, refix.ai, and others returned by search, cross-checked against
   each other for the `Noul` primitive name and the TypeSafe AI company background.
