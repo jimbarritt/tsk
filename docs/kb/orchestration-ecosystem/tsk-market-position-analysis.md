@@ -2,6 +2,7 @@
 
 Date: 2026-07-01 (beads re-examination), distilled 2026-09-14, widened to cover Claude
 Code Projects 2026-09-18, JetBrains Air 2026-09-22, and Cursor Projects 2026-09-29.
+LangSmith was added on 2026-09-29 as a related system, not a fifth system assessed.
 
 ## Status
 
@@ -461,6 +462,44 @@ depending on `/goal`, at which point a typed classifier is one candidate shape f
 evaluator, worth weighing against a small LLM judge on the axes
 `typesafe-jev-classifier.md` reports: consistency, cost, and latency.
 
+## LangSmith: a related layer, not a competing system
+
+Research: [langsmith.md](langsmith.md). Announced 2026-09-24.
+
+LangSmith is LangChain's platform for tracing, evaluating and improving agents. It is not
+a coordinator-and-threads system, so it sits beside Jev and not in the systems-assessed
+list. It observes agents that run elsewhere. Three items announced together intersect
+tsk:
+
+- **Trajectories**: a chronological view of an agent session, with each message once,
+  across the main agent and its subagents. It is "a projection over the traces in a
+  thread". Evaluators score it, experts annotate it in queues, and a good one is saved to
+  a dataset for fine-tuning.
+- **Engine v2**: reads production traces, groups them into an issue with a root cause,
+  proposes a prompt or code fix, reproduces the failure and tests the fix before a person
+  sees it, and opens a pull request on one click. It reopens an issue that recurs.
+- **Fine-Tuning**: supervised fine-tuning of an open model on curated trajectories.
+
+Three points of contact:
+
+1. **A trajectory and a thread continuation are different records.** A trajectory is
+   derived from traces after the fact, and serves scoring and training. A continuation is
+   written at a pause for the next actor, and serves resuming. Neither replaces the other.
+2. **Engine covers stages tsk does not model, for one kind of signal.** The
+   [positive-friction note](../ai-and-the-loss-of-positive-friction.md) records that tsk has
+   no object for signals or insights. An Engine issue is an insight object linked to the
+   traces behind it, which is the shape of that note's remedy 1. The signals are an
+   agent's production behaviour. Customer signals stay a gap in tsk.
+3. **The word "thread" collides.** In LangSmith a thread is linked traces from a
+   multi-turn session. In tsk a [Thread](../../domain/ubiquitous-language.md#thread) is the
+   execution sequence, with its own identity, pausable and resumable.
+
+Position: no change to the three-part verdict below. LangSmith models no mission, no
+coordination, no Product, no Delta and no Scale. It is not a substrate for tsk. Engine
+documents support for Deep Agents, LangChain and LangGraph agents only, so it adds no
+evidence on the untested half of tsk's substrate question. Whether tsk needs a
+per-session record of the kind a trajectory provides is not decided.
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Source: Yegge's essay
@@ -586,6 +625,8 @@ collision above).
   sharpening of the Beads section above, on whether beads could be tsk's official ledger.
 - [cursor-projects.md](cursor-projects.md): the full reference for the Cursor Projects
   section above, with a mechanic-by-mechanic comparison against tsk.
+- [langsmith.md](langsmith.md): the full reference for the LangSmith section above, with
+  a comparison against tsk.
 - The token-saving experiment referenced above has not yet been designed or run as of
   this writing; it is not tracked in the M-BOOT mission tree, which is scoped to
   bootstrapping self-hosting rather than to this product decision.
