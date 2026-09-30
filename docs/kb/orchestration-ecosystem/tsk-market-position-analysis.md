@@ -2,7 +2,8 @@
 
 Date: 2026-07-01 (beads re-examination), distilled 2026-09-14, widened to cover Claude
 Code Projects 2026-09-18, JetBrains Air 2026-09-22, and Cursor Projects 2026-09-29.
-LangSmith was added on 2026-09-29 as a related system, not a fifth system assessed.
+LangSmith was added on 2026-09-29 and OpenAI Dots on 2026-09-30, each as a related system,
+not a fifth system assessed.
 
 ## Status
 
@@ -500,6 +501,45 @@ documents support for Deep Agents, LangChain and LangGraph agents only, so it ad
 evidence on the untested half of tsk's substrate question. Whether tsk needs a
 per-session record of the kind a trajectory provides is not decided.
 
+## OpenAI Dots: a related system, not a competing one
+
+Research: [openai-dots.md](openai-dots.md). Announced 2026-09-29.
+
+A dot is an always-on agent in ChatGPT with its own cloud computer. The owner hands it a
+goal and it runs in the background. The owner can message it in ChatGPT, Slack and Teams,
+or call it. It is not a coordinator-and-threads system: it is one persistent agent per
+owner, so it is listed beside LangSmith, not among the systems assessed. It is closer to
+tsk's collaboration between humans and agents than the orchestrators are. Three items
+intersect tsk:
+
+- **Custom Rules and auto-review**: the owner sets which actions a dot takes alone, which
+  need approval, and which it must not take. A check runs before an action that could
+  touch an account or share information.
+- **Specialist dots**: previewed. An employer provisions each with its own identity,
+  credentials and tools for a single defined job.
+- **Context across channels**: context follows a dot between ChatGPT and Slack or Teams,
+  and questions and progress updates go back to the owner.
+
+Three points of contact:
+
+1. **Authority per action class is shipped.** The
+   [Post](../../domain/ubiquitous-language.md#post) placeholder holds authority and
+   standing instructions, and the
+   [energy-constraints reference](underlying-energy-constraints-of-running-a-factory.md)
+   lists escalation and a comms medium as conditions for humans to hold posts. Dots
+   ships the first of these as owner-set rules, and the third as Slack and Teams.
+2. **The authority is attached to the dot.** No source read describes a position that a
+   different dot could be appointed to, which is the separation Post makes between a
+   position and its holder.
+3. **No work model is documented.** No mission, objective, briefing, report or
+   continuation record is described. State is the dot's memory and its cloud computer, and
+   how either is stored is not described.
+
+Position: no change to the three-part verdict below. Dots models no mission, no
+coordination, no Product, no Delta and no Scale, and it runs on one vendor's model and
+cloud. It is a data point for Post and escalation, not for Navigation. OpenAI's own pages
+were not readable, so this section is based on press coverage.
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Source: Yegge's essay
@@ -627,6 +667,8 @@ collision above).
   section above, with a mechanic-by-mechanic comparison against tsk.
 - [langsmith.md](langsmith.md): the full reference for the LangSmith section above, with
   a comparison against tsk.
+- [openai-dots.md](openai-dots.md): the full reference for the OpenAI Dots section above,
+  with a comparison against tsk.
 - The token-saving experiment referenced above has not yet been designed or run as of
   this writing; it is not tracked in the M-BOOT mission tree, which is scoped to
   bootstrapping self-hosting rather than to this product decision.
