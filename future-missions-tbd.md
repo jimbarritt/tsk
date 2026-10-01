@@ -71,6 +71,18 @@ Jim's read: maybe the cloud sessions time out if left with no input. So we need 
 way to detect this and restore context from the thread. It also means it's important
 for the agent to push frequently, which it already does.
 
+## Permissions
+
+Raised by Jim, 2026-10-01: "New idea: permissions". Jim also asked for research on
+SpiceDB as a potential store for permissions. Written up as a reference doc in the tsk
+repo: `docs/kb/spicedb.md`.
+
+Related, from the same area: a post's permissions are commensurate with the post, and
+holding the post grants them (see "Humans filling posts" below, and the "Posts as an
+escalation target in tsk" section of
+`docs/kb/orchestration-ecosystem/underlying-energy-constraints-of-running-a-factory.md`).
+Captured as an idea only. Not designed.
+
 ## Humans filling posts, as an answer to the fuel crisis
 
 Raised by Jim, 2026-09-21, from the fuel-crisis and Fable sections of Yegge's "Seats and
