@@ -6,7 +6,10 @@ Privacy Mode (Legacy).
 Sources: Cursor's [changelog entry](https://cursor.com/changelog/projects),
 [documentation](https://cursor.com/docs/agent/projects) and
 [launch post](https://cursor.com/blog/projects), with independent coverage listed under
-Sources. A claim from independent coverage is marked as such.
+Sources. A claim from independent coverage is marked as such. All sources were read with
+`WebFetch`, which passes each page through a summarising model. Quoted phrases come from
+that output and are not checked against the page text. Figures and claims are Cursor's
+own, as reported, and were not run independently.
 
 ## What it is
 
