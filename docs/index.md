@@ -66,6 +66,7 @@ Background theory and research grounding for key domain concepts.
 - [yegge-eight-levels.md](kb/yegge-eight-levels.md): the same ladder, The Pragmatic Engineer's telling, standalone with no tsk-specific framing, for sharing on its own.
 - [claude-code-mods.md](kb/claude-code-mods.md): the mods hooks surface in Claude Code, confirmed live in this container via the `agents-md` mod, and why a harness-level hook attaching to engine events matters more to tsk than the `AGENTS.md` question that raised it.
 - [typesafe-jev-classifier.md](kb/typesafe-jev-classifier.md): research note on Jev, TypeSafe AI's non-generative decision model, its LangChain harness and evals integrations, and the classifier-in-the-loop pattern it is one data point for.
+- [spicedb.md](kb/spicedb.md): SpiceDB, an open source authorization database modelled on Google's Zanzibar, set against the permissions a post would hold in tsk, with what the pages read leave out.
 
 ### Orchestration ecosystem
 
