@@ -39,7 +39,7 @@ models, options, choice, intent, actions, mechanical change, effects, actors, ma
 and constraints. He describes it as a graph, and says "it is the edges where the work
 happens".
 
-His eleven principles, in short:
+His eleven principles:
 
 1. Keep original feedback atomic, and preserve its path back to the source.
 2. Preserve both atomicity and coherence: fragments alone, or ideas mashed together,
@@ -52,8 +52,8 @@ His eleven principles, in short:
 6. Avoid compounding AI flattening.
 7. Do not let AI capability turn a tool into a dumping ground.
 8. Treat code analysis as one source of evidence.
-9. Use the tracker for bounded team intent: whose need it represents, why it matters,
-   what problem we are addressing.
+9. Use the tracker for bounded team intent: "whose need it represents, why it matters,
+   what problem we're addressing".
 10. Go for depth over breadth in product improvements.
 11. The tracker has two jobs: team-visible intent, and personal planning and
     decomposition.
