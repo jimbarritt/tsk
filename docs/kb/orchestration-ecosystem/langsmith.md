@@ -159,7 +159,7 @@ LangSmith and tsk agree on four points:
 - Human judgement stays at review: an annotation queue, a pull request.
 - A fix is proven against the failing case before a person is asked to accept it.
 - Work is traceable to its source: an Engine issue links to the traces behind it.
-  [Remedy 1](../ai-and-the-loss-of-positive-friction.md#remedies-mapped-to-tsk) in the
+  [Principle 1](../ai-and-the-loss-of-positive-friction.md#principles) in the
   positive-friction note asks for this, and tsk has no counterpart for it.
 
 They differ on four:

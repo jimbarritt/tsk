@@ -59,8 +59,9 @@ Verified against beads' own documentation and issue tracker, not restated from m
   documentation states it explicitly, "not the source of truth or a backup." The Dolt
   database is authoritative, and sync happens through Dolt's own remotes, not raw git.
 - **Persistent memory**: `bd remember`, `bd prime`, layered on top of the same store.
-- **Worktree redirect**: `BEADS_DIR`, or a `.beads/redirect` file, points a worktree at
-  a canonical database elsewhere, so linked worktrees share one store.
+- **Worktree sharing**: linked worktrees share one `.beads` workspace. The
+  documentation also lists an external `BEADS_DIR` setup and database redirects. The
+  redirect mechanism's file format was not read.
 - Already established in `tsk-market-position-analysis.md` and not re-verified here: a
   daemon in single-writer mode over Unix sockets, and an MCP package.
 
@@ -101,8 +102,8 @@ this analysis.
 - **Mission vs epic.** Beads' `epic` sits in a fixed three-tier taxonomy
   (epic-task-subtask) reached through dotted IDs. tsk's Mission is defined by
   delegation, the point a task is handed to a different actor, not by depth in a
-  hierarchy, and Scale explicitly rejects "artificial tier boundaries such as epic,
-  story, or sub-task," treating nesting as continuous. Storing Mission as beads' `epic`
+  hierarchy, and Scale rejects "artificial boundaries such as epic, story, or
+  sub-task," treating nesting as continuous. Storing Mission as beads' `epic`
   type would reintroduce the fixed tiers tsk's Scale dimension was built to dissolve.
 - **Objective vs status.** A beads issue's `status` is a state on an enum; closing it
   is a judgement call, not a check against a stated condition. tsk's Objective requires
@@ -181,8 +182,8 @@ would mean beads takes the Navigation-and-claiming layer cleanly, and everything
 tsk models is built beside it or on top of it, not inside it.
 
 This sharpens, rather than changes, the existing conclusion in
-`tsk-market-position-analysis.md`: "beads stays inside Navigation... treat beads as a
-swappable substrate and a research baseline, not an ally."
+`tsk-market-position-analysis.md`: "Treat beads as a swappable substrate and a research
+baseline, not an ally."
 
 ## Related
 
