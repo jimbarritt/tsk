@@ -1,11 +1,12 @@
 # Underlying energy constraints of running a factory
 
 Source: Steve Yegge, ["Seats and Sunsets"](https://yegge.ai/essays/seats-and-sunsets/).
-"Fuel" is Yegge's word for tokens; it is kept inside quotations only.
+"Fuel" is Yegge's word for tokens; it is kept inside quotations only. Quoted phrases were
+matched against the essay's raw text.
 
 ## Token cost
 
-Figures from Wheelhouse, Yegge's private harness for his game Wyvern, run on Claude Max
+Figures from Wheelhouse, Yegge's harness for his game Wyvern, run on Claude Max
 accounts:
 
 - "Today, I burn through an entire week of Fable, one whole account, in 2 to 4 hours."

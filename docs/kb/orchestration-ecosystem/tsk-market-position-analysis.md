@@ -491,7 +491,7 @@ Three points of contact:
 2. **Engine covers stages tsk does not model, for one kind of signal.** The
    [positive-friction note](../ai-and-the-loss-of-positive-friction.md) records that tsk has
    no object for signals or insights. An Engine issue is an insight object linked to the
-   traces behind it, which is the shape of that note's remedy 1. The signals are an
+   traces behind it, which is the shape of that note's principle 1. The signals are an
    agent's production behaviour. Customer signals stay a gap in tsk.
 3. **The word "thread" collides.** In LangSmith a thread is linked traces from a
    multi-turn session. In tsk a [Thread](../../domain/ubiquitous-language.md#thread) is the
@@ -544,9 +544,11 @@ were not readable, so this section is based on press coverage.
 
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
-Source: Yegge's essay
+Sources: Yegge's essay
 ["Seats and Sunsets"](https://yegge.ai/essays/seats-and-sunsets/), on Wheelhouse, his
-private harness for Wyvern.
+harness for the game Wyvern, and his essay
+["The Shape of Things to Come, Part 1: The Continuous Thunderdome"](https://yegge.ai/essays/the-shape-of-things-to-come/),
+which describes Wheelhouse's crew and agent categories.
 
 A seat is a role-based position with persistent context, a defined scope of authority, a
 history, and accountability. Yegge's framing: a plain session has to derive whether an
@@ -585,8 +587,8 @@ its identity component maps to Actor. Both systems separate who does the work fr
 record of what was done, even though tsk splits it into two named parts and Wheelhouse
 holds it in one.
 
-Doesn't hold: a seat is tied to a named, standing role, such as the Marshal or the
-Seneschal in Wheelhouse's own crew, that persists across many threads and missions. tsk's
+Doesn't hold: a seat is tied to a named, standing role, such as the marshal or the
+seneschal in Wheelhouse's crew (described in "The Shape of Things to Come"), that persists across many threads and missions. tsk's
 Actor is thread-scoped by definition: an agent session is bound to one thread, and picking
 up a different thread makes it, by the model's own cardinality rule, a different actor
 holding that thread, not the same actor changing seats. tsk has no concept of a role that
@@ -628,9 +630,9 @@ Not yet cited in the repo, and the terms that do fit:
   position, not held by the person. This is the property the essay is built on: the trust
   lookup is a lookup because the position holds the authority.
 - **Standing orders** and **standing operating procedures**: instructions attached to a
-  position that persist across whoever fills it. Wheelhouse's own phrase for its role
-  agents is "role agents with standing orders", so the essay already draws on this
-  vocabulary.
+  position that persist across whoever fills it. "The Shape of Things to Come"
+  describes Wheelhouse's third category of coding agent as "role agents with standing
+  orders", so Yegge's writing already uses this vocabulary.
 - The **table of organisation**: the authorised set of posts, the structure they sit in.
 - The **duty log**, or unit journal: the running record kept at a position and handed over
   between incumbents.
