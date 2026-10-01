@@ -8,7 +8,9 @@ LangChain's agent harness and evaluation tooling. Source: [typesafe.ai](https://
 fetched from this sandbox, checked 2026-09-29. Nothing below was read from those pages.
 Everything comes from `WebSearch` result snippets over secondary and tertiary coverage,
 plus one primary source read directly: the merged LangChain pull request that ships the
-integration (`github.com/langchain-ai/langchain/pull/40542`).
+integration (`github.com/langchain-ai/langchain/pull/40542`). A search result is a
+model-written summary, not page text. A quoted phrase or figure below is tool output and
+is not checked against the page text.
 
 ## What Jev is
 

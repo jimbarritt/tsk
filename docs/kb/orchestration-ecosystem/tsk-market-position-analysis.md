@@ -235,7 +235,9 @@ rather than against one.
 
 Source: [Introducing JetBrains Air](https://blog.jetbrains.com/blog/2026/09/22/introducing-jetbrains-air/),
 2026-09-22, and JetBrains' Air documentation, as of 2026-09-22. A claim with no
-JetBrains source is marked as such.
+JetBrains source is marked as such. Pages were read with `WebFetch`, which passes each
+page through a summarising model. Quoted phrases come from that output and are not
+checked against the page text.
 
 The announcement covers "Air", "an open,
 coherent system of products", of three parts, "available today alongside others that
