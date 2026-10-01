@@ -23,36 +23,40 @@ The Beautiful Mess, 2026-09-24.
 Written up with the mapping to tsk in the tsk repo:
 `docs/kb/ai-and-the-loss-of-positive-friction.md`.
 
-The essence: product work used to move information through stages by hand, and each
-hand-off forced someone to "process, think about, discuss, reshape, restate" it. That
-effort is the positive friction. It is where pruning, discretion and judgement happened.
-AI removes it: feedback becomes an LLM summary, the summary becomes a spec, the spec
-becomes code, with little human attention at any step. What is lost is the distinction
-between stages, traceability back to the original customer context, and the focus that
-stopped feature sprawl. The anti-pattern he names: "AI flattening layered on AI
-flattening, with no thread back to reality."
+The essence: product work used to move information through six steps by hand: a customer
+call, synthesising insights, deciding what to do, doing it, shipping it, and measuring
+impact. Each hand-off forced someone to "process, think about, discuss, reshape,
+restate" the information. Cutler calls that effort positive friction, and each hand-off
+a chance to apply a forcing function. AI removes it: a transcript becomes an LLM
+summary, the summary becomes a spec, the spec becomes code, with little human attention
+at any step. What is lost is the chance for thinking, pruning, shaping and judgement, and
+material that is original, atomic and written by a human. Breadth also grows: five calls
+become 80 opportunities, 80 tickets and 400 tasks. The anti-pattern he names: "AI
+flattening layered on AI flattening, with no thread back to reality."
 
-The stages he says get flattened: signals (what is observed or measured), insights (what
-is inferred from them), models (how we believe things work), options, choice (the
-selected option and the commitment), intent (the future state pursued), and actions.
+He lists a twelve-element ontology that artefacts mix together: signals, insights,
+models, options, choice, intent, actions, mechanical change, effects, actors, materials
+and constraints. He describes it as a graph, and says "it is the edges where the work
+happens".
 
-His remedies, in short:
+His eleven principles, in short:
 
-1. Keep original feedback atomic, each item linked to its source.
-2. Keep both atomicity and coherence: fragments alone, or ideas mashed together, both fail.
-3. Add friction at each transformation: state what is carried forward, what changed, and
-   why.
-4. Separate the underlying work from its framing for each audience.
-5. Label every AI-generated artefact by how much AI contributed, for example "100%
-   AI-generated", "HITL curated", "AI used for editing".
-6. Never stack AI flattening on AI flattening.
-7. Do not dump everything into a tool because the tool can process it with AI.
-8. Treat code analysis as one source of evidence: seeing X in the code does not show
-   customers experience X.
-9. Keep each issue bounded: whose need, why it matters, what problem.
-10. Prefer depth over breadth, so customer feedback stays specific.
-
-Human judgement and accountability stay at the framing and commitment stages.
+1. Keep original feedback atomic, and preserve its path back to the source.
+2. Preserve both atomicity and coherence: fragments alone, or ideas mashed together,
+   both fail.
+3. Add positive friction when content is copied and recontextualised: state what is
+   carried forward, what changed, and why.
+4. Separate the underlying job from its presentation to different audiences.
+5. Label AI-generated content by degree of AI contribution, for example "100%
+   AI-generated", "HITL curated", "AI used for editing/grammar".
+6. Avoid compounding AI flattening.
+7. Do not let AI capability turn a tool into a dumping ground.
+8. Treat code analysis as one source of evidence.
+9. Use the tracker for bounded team intent: whose need it represents, why it matters,
+   what problem we are addressing.
+10. Go for depth over breadth in product improvements.
+11. The tracker has two jobs: team-visible intent, and personal planning and
+    decomposition.
 
 ## A session's context reset while its thread binding survived
 
