@@ -542,6 +542,28 @@ coordination, no Product, no Delta and no Scale, and it runs on one vendor's mod
 cloud. It is a data point for Post and escalation, not for Navigation. OpenAI's own pages
 were not readable, so this section is based on press coverage.
 
+## OpenAI's software factory: a reported internal system
+
+Research: [openai-software-factory.md](openai-software-factory.md). Reported 2026-09-15.
+
+The Pragmatic Engineer describes an internal OpenAI pipeline built on Codex. A human
+states an outcome. Agents gather context, write code, open pull requests, review them
+with domain-specialist agents, deploy, watch production and start new work from
+regressions. It is not a product, so it is listed beside Dots and LangSmith, not among the
+systems assessed. Three items intersect tsk:
+
+- **Risk-based review**: a risk class selects the review path. Opted-in areas auto-approve
+  low-risk pull requests. A human approves before deploy.
+- **A deploy agent that watches production**: it sets the signals that mean success or
+  failure and builds its own dashboard. This is the shape of tsk's Delta Gate.
+- **Production signals start work**: Perf Factory feeds latency regressions back as new
+  work. tsk has no object for a signal.
+
+Position: no change to the three-part verdict below. The article describes no work
+record, handover or continuation entry, and the pipeline runs on one company's harness.
+It is a data point for Post and escalation, and for the signals tsk does not model.
+Sections 4 to 7 of the article are paid and were not read.
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Sources: Yegge's essay
@@ -673,6 +695,8 @@ collision above).
   a comparison against tsk.
 - [openai-dots.md](openai-dots.md): the full reference for the OpenAI Dots section above,
   with a comparison against tsk.
+- [openai-software-factory.md](openai-software-factory.md): the full reference for the
+  OpenAI software factory section above, with a comparison against tsk.
 - The token-saving experiment referenced above has not yet been designed or run as of
   this writing; it is not tracked in the M-BOOT mission tree, which is scoped to
   bootstrapping self-hosting rather than to this product decision.
