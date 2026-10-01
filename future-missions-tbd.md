@@ -536,8 +536,9 @@ monitoring with little human intervention, using specialised agents for differen
 of the infrastructure. Pull requests have grown roughly tenfold in six months, forcing
 OpenAI to rethink CI/CD, code review and how it uses pull requests at all.
 [newsletter.pragmaticengineer.com/p/openai-software-factory](https://newsletter.pragmaticengineer.com/p/openai-software-factory)
-(this sandbox's egress proxy blocks the domain directly; not read from the page, only
-the feed's own summary, confirmed by Jim as matching the article).
+The article was later read (sections 1 to 3; the rest is paid) and written up as a
+reference doc in the tsk repo: `docs/kb/orchestration-ecosystem/openai-software-factory.md`.
+The earlier note that the proxy blocks the domain was out of date.
 
 ## Telemetry for a factory-wide view across agents
 
