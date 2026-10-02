@@ -140,6 +140,9 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
   for the list view.
 - `docs/kb/claude-code-mods.md` (in the tsk repo): Claude Code hooks, the source for
   status and token data.
+- `docs/kb/orchestration-ecosystem/orca.md` (in the tsk repo): Orca, an agent IDE with
+  the same objectives as this list, compared objective by objective. Its agent state
+  detection, usage tracking and session resume are designs to read before later phases.
 
 ## Decision authority
 
