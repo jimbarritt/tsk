@@ -385,6 +385,11 @@ worktree holds each agent's status.
   protocol required. The coordinator and the app are one vendor's product.
 - **Permissions**: each agent launches with its skip-permissions flag by default, and the
   documentation treats the worktree as the sandbox. No authority model is described.
+- **Process layout**: the window is Chromium (Electron, React) and the terminals are
+  xterm.js with WebGL. A separate terminal daemon hosts the PTYs behind a socket and keeps
+  terminal state outside the window, so scrollback survives an app restart. A relay serves
+  remote work. Each worktree has a Chromium browser pane that agents can control, which
+  the same engine makes part of the app.
 - **Mission Control**: Orca ships the objectives of the Mission Control task: a control
   list, the selected session, a terminal, a status indicator and resume. Mission Control is
   standalone reconnaissance, so the overlap is a product to read before its later phases.
