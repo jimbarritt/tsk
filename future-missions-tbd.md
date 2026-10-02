@@ -71,6 +71,13 @@ Jim's read: maybe the cloud sessions time out if left with no input. So we need 
 way to detect this and restore context from the thread. It also means it's important
 for the agent to push frequently, which it already does.
 
+## Claude mods for the swe plugin or the tsk plugin
+
+Raised by Jim, 2026-10-02, from the Claude Code 2.1.287 release: "seems we can now extend
+the harness itself. Could be something for swe plugin or for the tsk plugin". Researched
+and written up as a reference doc in the tsk repo: `docs/kb/claude-code-mods.md`, which
+ends with a table of mechanisms that could apply to each plugin. Not designed.
+
 ## Permissions
 
 Raised by Jim, 2026-10-01: "New idea: permissions". Jim also asked for research on
