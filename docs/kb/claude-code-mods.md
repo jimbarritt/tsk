@@ -5,6 +5,7 @@ modify deeper behavior". The API is early access and "may change between release
 without notice".
 
 Sources: the Claude Code [changelog](https://code.claude.com/docs/en/changelog), the
+[mods documentation](https://code.claude.com/docs/en/plugins/mods/overview), the
 [`mods` folder](https://github.com/anthropics/claude-code/tree/main/mods) of the
 `anthropics/claude-code` repository, and two files that Claude Code 2.1.287 wrote into
 this container when its `plugin-authoring` skill loaded: `reference.md` (the long form)
@@ -15,7 +16,10 @@ test plugin, and `claude plugin details`. Nothing was loaded into a live session
 
 ## What a mod is
 
-A mod is a Claude Code plugin whose behaviour is a hooks module. The module exports
+A mod is a plugin. The documentation says: "A mod installs as a plugin, from a
+marketplace." Packaging and distribution are in
+[claude-code-plugin-packaging.md](claude-code-plugin-packaging.md). A mod is a Claude Code
+plugin whose behaviour is a hooks module. The module exports
 `register(on, options)`. `on(event, matcher?, hook)` adds a hook. Every hook is a function
 `($, e, next)`:
 
@@ -101,19 +105,56 @@ A mod that keeps values in `$.state` adds `types/index.d.ts`, its type contract,
 `plugin.json`. A mod that adds a noun to `$` in `engine.create` ships that noun's types the
 same way. Another plugin lists it under `dependencies`.
 
+Mods require Claude Code 2.1.287 or later and are on by default. The setting
+`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`, used during early access, is ignored from 2.1.287.
+
 Ways to load one:
 
 | Way | Behaviour |
 |---|---|
-| Hot reload | The `plugin-authoring` skill watches a `dev-mods` folder under `~/.claude`. The first file written there makes Claude Code ask the person "Enable hot reloading for this session?" Only the person can answer. On yes, the mod loads when the turn ends. Each later edit reloads it when its turn ends. The result can also be off, because nobody could be asked (as under `claude -p`), because of organisation policy, or because the workspace is untrusted. |
+| Marketplace | `/plugin install <plugin>@<marketplace>` or `claude plugin install`. Run `/reload-plugins` to load one installed while a session is open. |
+| Hot reload | The `plugin-authoring` skill watches a `dev-mods` folder under `~/.claude`. The first file written there makes Claude Code ask the person "Enable hot reloading for this session?" Only the person can answer. On yes, the mod loads when the turn ends. Each later edit reloads it when its turn ends. The result can also be off. Causes: nobody could be asked (as under `claude -p`), organisation policy, or an untrusted workspace. |
 | `claude --plugin-dir <folder>` | Loads for that session. The folder is watched in an interactive session. |
 | `CLAUDE_CODE_PLUGIN_DIRS` | The same folders, for a host that cannot pass a flag. |
 | Skills folder | `~/.claude/skills/<name>` and the project's `.claude/skills/<name>` are watched and reloaded the same way. |
 
 A reload runs `register` again and fires `session.start` again. `$.state` and `$.store`
 values stay. The module's own variables start over. Options come from `pluginConfigs` in
-settings, keyed by plugin name. The mods README adds: "hooks modules load only where
-function hooks are enabled".
+settings, keyed by plugin name.
+
+Ways to turn mods off:
+
+| Scope | How |
+|---|---|
+| One mod | Disable or uninstall its plugin in `/plugin`. |
+| Every installed mod, one session | `claude --safe-mode`, which also disables other customisations. |
+| Every installed mod, every session | `"disableAllHooks": true` in `~/.claude/settings.json`. Settings hooks and a custom status line stop too. |
+| Organisation | `allowManagedModsOnly` in managed settings. |
+
+These stop a mod and leave the rest of its plugin in place. Built-in mods are not stopped
+by `disableAllHooks`, `--bare` or `--safe-mode`.
+
+## Where mods run
+
+| Where | Hooks run | Drawing appears |
+|---|---|---|
+| `claude` in a terminal, including an editor's integrated terminal and the JetBrains plugin | Yes | Yes |
+| Code tab of the desktop app, except a WSL session | Yes | Yes, except elements marked terminal-only |
+| VS Code extension chat panel | Yes | No |
+| `claude -p` and the Agent SDK | Yes | No |
+| Remote Control | Yes, in the session on the person's machine | In the terminal on that machine |
+| Cloud session | "Yes, for a plugin that reaches the cloud session" | No |
+
+## Trust
+
+The documentation states that a mod "is code that runs with your permissions". A mod can
+read and write files, start processes, make network requests, read environment variables
+and settings files, see every prompt and tool call, rewrite a prompt or a tool call, submit
+a prompt as if the person typed it, approve a tool call before the person is asked, and
+call a model on the person's plan or key. Mods are not sandboxed. A process a mod starts
+runs outside the Bash sandbox. A mod cannot change what the permission prompt shows.
+`claude plugin validate <folder>` lists the events a mod hooks and the calls it makes,
+without running it.
 
 Commands:
 
@@ -134,16 +175,24 @@ Commands:
 
 | Mod | What it does |
 |---|---|
-| `sec-default` | Keeps managed policy beyond the control of installed plugins. Outermost, on a machine with managed settings or for a Team or Enterprise organisation. |
+| `sec-default` (`cc-plugin-sec-default`) | Keeps managed policy beyond the control of installed plugins. Outermost, on a machine with managed settings or for a Team or Enterprise organisation. |
 | `diff` | `/diff`: uncommitted changes in a pane beside the transcript, refreshed as Claude edits files. |
 | `telemetry` | Adds `$.telemetry` so a built-in plugin can record a first-party analytics row. Rejects installed plugins. Sends nothing where analytics are off. |
 | `agents-md` | `AGENTS.md` as project instructions, set by the `instructionFiles` option: `claude-md`, `claude-md-or-agents-md` (default), `claude-md-and-agents-md` or `managed-only`. |
 | You should know | Added in 2.1.287. A side agent watches the session and flags what the person or Claude might miss, above the prompt. Enabled with `/plugin enable cc-plugin-you-should-know@builtin`, for first-party sessions with telemetry on. |
 
-The first four are published as source in the `mods` folder. In this container, on
-2.1.287, `claude plugin details` reports "Hooks (0)" for You should know. It also reports
-`agents-md` and `diff` as "not found" by that name. Function hooks are probably not
-counted in the component inventory, but no source says so.
+`/plugin` lists built-in mods on the Installed tab under their `cc-plugin-` names:
+`cc-plugin-agents-md`, `cc-plugin-diff`, `cc-plugin-plugin-authoring` (a skill and no mod
+code), `cc-plugin-sec-default`, `cc-plugin-telemetry` and `cc-plugin-you-should-know`.
+The documentation says You should know is disabled by default. A built-in mod cannot be
+updated or uninstalled. The first four mods above are published as source in the `mods`
+folder. Anthropic also shares sample mods (`token-weather`, `blast-radius`,
+`replay-theater`) in the `claude-code-playground` repository.
+
+In this container, `claude plugin details cc-plugin-you-should-know@builtin` reports
+"Hooks (0)", and `claude plugin details diff` reports "not found". The short names in the
+mods README are not the plugin names. The inventory probably does not count function
+hooks, but no source says so.
 
 ## Comparison with settings.json hooks
 
@@ -186,25 +235,25 @@ requirement it touches.
 
 ## Not documented or not tested
 
-- Whether a mod installed from a marketplace loads function hooks in an ordinary session.
-  Provenance `<name>@<marketplace>` and the statement that `*` "does not select" a telemetry
-  event "for an installed plugin" imply it can. It was not tested.
-- Whether a Claude Code cloud session can enable function hooks. Hot reloading needs a
-  person to answer a prompt. The `plugin-authoring` skill loaded in this cloud session,
-  and the answer was not requested.
-- The meaning of "where function hooks are enabled" in the mods README. No setting by
-  that name was found in the files read.
-- How a mod is published to others. The mods README says its four mods "are not listed in
-  this repository's marketplace".
+- Which plugins "reach the cloud session". The packaging note records how this repository's
+  session-start script installs a plugin there.
 - Whether `claude plugin details` counts function hooks.
 - Whether the API stays stable. The files call it early access.
 - Any cost of a mod in tokens or latency, apart from `claude plugin details` showing a
   projected token cost for plugins.
+- The administrator controls beyond `allowManagedModsOnly`. The
+  [mods administration page](https://code.claude.com/docs/en/plugins/mods/admin) was
+  fetched and not read in full.
+- The mods API reference and creation guide pages
+  ([reference](https://code.claude.com/docs/en/plugins/mods/reference),
+  [create](https://code.claude.com/docs/en/plugins/mods/create)) were fetched and not read
+  in full. The API declaration file is the source for this note's event list.
 
 ## Sources
 
 - [Claude Code changelog](https://code.claude.com/docs/en/changelog), version 2.1.287,
   2026-10-01
+- [Mods overview](https://code.claude.com/docs/en/plugins/mods/overview), read in full
 - [anthropics/claude-code, `mods`](https://github.com/anthropics/claude-code/tree/main/mods)
   and its [README](https://github.com/anthropics/claude-code/blob/main/mods/README.md)
 - `SKILL.md`, `reference.md` and `types/claude-code.d.ts` of the `plugin-authoring`
