@@ -71,6 +71,15 @@ Jim's read: maybe the cloud sessions time out if left with no input. So we need 
 way to detect this and restore context from the thread. It also means it's important
 for the agent to push frequently, which it already does.
 
+## A symbiotic mechanism for success criteria and rules of engagement (OpenAPPA)
+
+Raised by Jim, 2026-10-02, after reading `archestra-ai/OpenAPPA`: "Maybe also a symbiotic
+mechanism for determining objective success criteria and providing 'rules of engagement'
+behavioural constraints". Researched in `docs/kb/orchestration-ecosystem/openappa.md`,
+which records that the product enforces behavioural constraints and states no success
+criterion, and that its benchmark scores observable side effects. Captured as an idea
+only. Not designed.
+
 ## A plugin or connector to Unblocked, used during mission definition
 
 Raised by Jim, 2026-10-02, after the Unblocked research
