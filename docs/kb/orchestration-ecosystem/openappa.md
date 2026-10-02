@@ -124,6 +124,51 @@ Archestra reports:
   it fell to 35.0%. The documentation says the features interact.
 - The paper abstract reports 64.2 to 91% utility across 6,600 controlled episodes.
 
+## Deterministic and inference-based checks
+
+OpenAPPA's engine is deterministic. Three of its components can be inference-based, and
+the engine checks what they return.
+
+| Component | Inference-based forms |
+|---|---|
+| Annotator | `claude-code`, `llm` (providers `anthropic`, `openai`, `gemini` and `ollama`) and `jev`, TypeSafe AI's classifier. |
+| Authority | The same model forms, or a person (`hitl`), or a service. |
+| Sanitizer | The same model forms, or a script or a stock `redact-secrets` builtin. |
+
+Rules from the documentation:
+
+- A model request holds the component's fixed instructions and its declaration in the
+  system prompt. The data goes in as the user message, "to be processed as data".
+- Each `claude-code` request starts a new `claude -p` process that cannot use tools, load
+  project settings or reuse a conversation.
+- Secrets in the arguments are redacted before a request leaves for a model provider. The
+  documentation calls this "best effort".
+- "OpenAPPA checks authority and annotator answers against their permits." The model "is
+  responsible for making the correct judgment or removing the required content".
+- A model component "operates strictly within its declared mandate and permits", and
+  once data is labelled it cannot legally go to an unauthorised destination "regardless of
+  what any downstream model concludes".
+
+The `jev` annotator is the use of Jev that
+[typesafe-jev-classifier.md](../typesafe-jev-classifier.md) describes as a
+classifier in the decision loop. It sends the tool's name, description and arguments to
+TypeSafe's API and returns label probabilities.
+
+The swe plugin has the same two kinds of check. Its README (cached copy 0.10.1) says the
+deterministic tier covers "banned words, vocabulary, tense, and similar", and that Claude
+Code blocks the action when it finds a violation. The inference tier is Claude itself, run
+as a subagent. The hook "only advises Claude that a fresh pass is worth doing", because
+running a model inside the hook "can stall a tool call". The action has gone through when
+the report comes back. A commit can be amended afterwards. A sent message stays sent.
+
+| | OpenAPPA | swe |
+|---|---|---|
+| Deterministic check | Contracts over labels and effects, before the call. | Pattern rules, before the action. |
+| Inference check | A model component inside the contract's permits. | A subagent pass after the action. |
+| Can inference block the action | Yes, through an annotator or authority, within its permits. | No. It advises, and the agent fixes afterwards. |
+| If the model misjudges | The engine's label invariants still hold, per Archestra. | The text may already be published. |
+| Cost control | A request limit, a timeout and a concurrency cap per component. | A throttle: a fresh pass only after the artefact grows enough. |
+
 ## Stated limits and comparisons
 
 - OpenAPPA checks where data can flow. It does not label actions as destructive,

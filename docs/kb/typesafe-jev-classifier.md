@@ -98,6 +98,9 @@ same shape as Claude Code's own auto mode classifier
 (`docs/kb/claude-code-mods.md` covers a related but different Claude Code mechanism, the
 hooks surface, not this classifier-in-the-loop pattern).
 
+OpenAPPA ships a `jev` annotator, which uses Jev as a classifier inside a deterministic
+policy engine. See `docs/kb/orchestration-ecosystem/openappa.md`.
+
 It also intersects `/goal`'s evaluator mechanism directly, covered in
 `docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md` under "Jev: a related
 component, not a competing system": `/goal` uses a small LLM as judge, Jev-as-a-Judge is
