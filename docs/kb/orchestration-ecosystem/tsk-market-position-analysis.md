@@ -3,7 +3,7 @@
 Date: 2026-07-01 (beads re-examination), distilled 2026-09-14, widened to cover Claude
 Code Projects 2026-09-18, JetBrains Air 2026-09-22, and Cursor Projects 2026-09-29.
 LangSmith was added on 2026-09-29 and OpenAI Dots on 2026-09-30, each as a related system,
-not a fifth system assessed.
+not a system assessed. Orca was added on 2026-10-02 as a fifth system assessed.
 
 ## Status
 
@@ -17,10 +17,11 @@ One section per system assessed, then a single verdict over all of them. It is w
 as new systems appear rather than split, so tsk's position is stated in one place and
 cannot drift between documents.
 
-Four systems are assessed: beads, an independent tool; Claude Code Projects, a feature
+Five systems are assessed: beads, an independent tool; Claude Code Projects, a feature
 of the platform tsk's own harness runs on; JetBrains Air, an independent tool that
-coordinates several vendors' agents at once; and Cursor Projects, a coordinator in
-Cursor's editor and cloud.
+coordinates several vendors' agents at once; Cursor Projects, a coordinator in Cursor's
+editor and cloud; and Orca, an independent desktop app that runs any command-line agent
+in parallel worktrees.
 
 ## Beads
 
@@ -175,6 +176,11 @@ does not show is a coordinator, missions, threads, actors, a ledger, defined wit
 reference to any vendor's product at all: Air's own coordinator is a JetBrains
 application, not a portable abstraction. That second half remains tsk's own,
 untested claim.
+
+Orca widens the same point. It runs any agent that works in a terminal, with no protocol
+involved, so worker independence ships in a second product. Its coordinator, its
+orchestration layer and its state are Orca's own, so the coordinator half of the claim
+is still untested.
 
 ### The context boundary: the sharpest difference
 
@@ -354,15 +360,47 @@ Subscriptions start work from pull requests, Slack or a schedule.
   another vendor's agents is not documented.
 - **Availability**: not offered on Enterprise plans or with Privacy Mode (Legacy).
 
+## Orca
+
+Full reference: [orca.md](orca.md). Version 1.4.214, 2026-10-02. Open source (MIT).
+
+Orca is a desktop app for macOS, Windows and Linux, with iOS and Android companions. It
+runs any command-line agent in parallel, each in its own git worktree, with terminals, an
+editor, a browser and a diff viewer in one window. It shows five agent states from
+terminal titles and agent hooks, and notifies when an agent finishes. An experimental
+orchestration layer adds Runs, Tasks with dependencies and statuses, Dispatches, supervised
+workers that report `worker_done`, and decision gates. A free-text checkpoint comment per
+worktree holds each agent's status.
+
+- **Converged**: a delegated worker reports an outcome with evidence and an unresolved
+  blocker, which is close to tsk's mission report. A person gets a view of every agent's
+  state, with "needs attention" as the main signal. Work is isolated per task, and a task
+  can link to an issue tracker.
+- **Not converged**: no objective that is a checkable state, no briefing format, no
+  ledger and no append-only continuation. The checkpoint is one mutable comment. A
+  worker may ask the coordinator a blocking question, where a tsk report has none. Product,
+  Delta and Scale are not modelled. The same dimensional limit as the four systems above.
+- **Substrate**: not locked. Any agent that runs in a terminal runs in Orca, and the site
+  claims 27 supported agents. This is a second exception to "Locked to a substrate", with no
+  protocol required. The coordinator and the app are one vendor's product.
+- **Permissions**: each agent launches with its skip-permissions flag by default, and the
+  documentation treats the worktree as the sandbox. No authority model is described.
+- **Mission Control**: Orca ships the objectives of the Mission Control task: a control
+  list, the selected session, a terminal, a status indicator and resume. Mission Control is
+  standalone reconnaissance, so the overlap is a product to read before its later phases.
+
+Most of Orca's source was not read, and its claims are its own.
+
 ## Three-part viability verdict
 
-1. **tsk as a research programme: yes.** Four independent designs have now converged on
+1. **tsk as a research programme: yes.** Five independent designs have now converged on
    parts of tsk's model: beads on the architecture and the plan-replacement positioning,
    Claude Code Projects and JetBrains Air both on Thread as the unit that holds context
-   and persists, and Cursor Projects on a coordinator that delegates and keeps written
-   state. All four validate parts of tsk's underlying claim. None says anything
+   and persists, Cursor Projects on a coordinator that delegates and keeps written
+   state, and Orca on a supervised worker that reports an outcome and an unresolved
+   blocker. All five validate parts of tsk's underlying claim. None says anything
    about whether adding Product, Delta, and continuous Scale produces further measurable
-   value. All four are credible baselines to measure the other three dimensions
+   value. All five are credible baselines to measure the other three dimensions
    against, and this track continues regardless of the product outcome.
 2. **tsk as a head-to-head agent issue tracker or orchestrator: no.** Against beads that
    category has an incumbent with distribution, maturity, an evangelist, and most of
@@ -370,12 +408,13 @@ Subscriptions start work from pull requests, Slack or a schedule.
    platform tsk runs on, shipping orchestration as a native feature. JetBrains Air adds
    a third incumbent with its own distribution, a JetBrains product line, and reach
    across whichever agent a team already uses. Cursor Projects adds a fourth, shipped
-   inside an editor with its own user base. Entering any of these races confines tsk
-   to Navigation, the one dimension all four already occupy.
+   inside an editor with its own user base. Orca adds a fifth, an open-source desktop
+   app for parallel agents, whose site shows 83.5k beside its GitHub link. Entering any of
+   these races confines tsk to Navigation, the one dimension all five already occupy.
 3. **tsk as a product differentiated by the full four-dimension model: open.** This is
    the central bet, and what the (separately scoped, not yet run) token-saving experiment
    exists to test. Whether Product, Delta, and Scale add value an agent or buyer will
-   reward is unproven. None of the four systems models them, so all four sharpen the
+   reward is unproven. None of the five systems models them, so all five sharpen the
    experiment rather than settling it. The product decision waits on that experiment
    rather than being made now.
 
@@ -429,8 +468,7 @@ harnesses. See [unblocked.md](unblocked.md).
 **Orca: a dependency only if adopted, and an alternative to Mission Control.** tsk's
 harness does not run inside Orca, so Orca is like Air and Cursor Projects: a product to
 measure against. It differs in one respect. The Mission Control task builds, in tmux and
-Python, what Orca ships. Orca is an alternative to that task. It is not a layer tsk
-needs. The two are not in conflict, because Mission Control is reconnaissance, built to
+Python, what Orca ships. Orca is an alternative to that task, not a layer tsk needs. The two are not in conflict, because Mission Control is reconnaissance, built to
 learn what a control list needs. Orca's state detection, its worker outcome message and
 its checkpoint comment are designs to read before Mission Control's later phases. See
 [orca.md](orca.md).
@@ -668,36 +706,6 @@ items intersect tsk:
 Position: no change to the three-part verdict below. OpenAPPA governs data flow per tool
 call, and it has no work record, no handover and no success criterion in the product.
 Archestra's benchmark figures are its own. The full paper and the website were not read.
-
-## Orca: an agent IDE that overlaps Mission Control
-
-Research: [orca.md](orca.md). Version 1.4.214, 2026-10-02.
-
-Orca is an open-source (MIT) desktop app for macOS, Windows and Linux, with iOS and Android
-companions. It runs any CLI agent in parallel, each in its own git worktree, with
-terminals, a code editor, a browser and a diff viewer in one window. It shows five agent
-states from terminal titles and agent hooks, and notifies on completion. An experimental
-orchestration layer adds Runs, Tasks with dependencies and statuses, Dispatches, supervised
-workers that report `worker_done`, and decision gates. It models no mission, ledger or
-product. It is in the same category as Cursor Projects and JetBrains Air, a product to
-measure against, and it is not added to the systems the verdict counts. Four items
-intersect tsk:
-
-- **The control list**: Mission Control's objectives (a list of sessions, the selected
-  session, a terminal, a status indicator, token use, resume) are Orca features, shipped.
-  Orca's agent status needs no tmux. It uses hooks and the terminal title.
-- **Supervised workers**: a worker reports an outcome with evidence and an unresolved
-  blocker. This is close to a mission report.
-- **A checkpoint per worktree**: a free-text comment that agents update. tsk keeps an
-  append-only continuation entry instead.
-- **Full autonomy by default**: Orca launches each agent with its skip-permissions flag and
-  treats the worktree as the sandbox. This is the posture that tsk's Post and OpenAPPA
-  would constrain.
-
-Position: no change to the three-part verdict below. Orca competes with the Mission Control
-task, which is standalone tooling, and not with the mission model. It has no objective
-that is a checkable state, no briefing and no ledger. Most of its source was not read, and
-its claims are its own.
 
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
