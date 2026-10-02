@@ -53,6 +53,31 @@ stepping stone in realising the tsk vision.
 Jim decides everything within this objective, except where a task defers a decision to
 a delegated mission. M-BOOT-04 decides the official ledger layout.
 
+## Decisions
+
+**2026-10-02: the binary comes before the plugin.** The order is M-BOOT-03, M-BOOT-04,
+then M-BOOT-05, then a Claude Code plugin built on the binary. A plugin of skills over
+the bash scripts is not written first. Work on the binary starts the weekend of
+2026-10-03.
+
+Reason: the plugin exists to run tsk in other repos, including repos Jim does not
+control, such as a work repo. The bootstrap scripts push a `tsk/bootstrap` branch to the
+origin of the repo they manage. That needs push permission on that repo. A plugin built
+on those scripts fails in a repo where the operator cannot push a branch.
+
+Consequences:
+
+- The official ledger needs a home outside the managed repo. A nexus tracking repo,
+  namespaced by managed repo, is a requirement, not an option. See "tsk metadata in the
+  nexus, not the repo" in `future-missions-tbd.md`. M-BOOT-04 decides the ledger's
+  location as well as its layout.
+- The plugin installs the binary separately and does not bundle it, because tsk also
+  runs standalone. A Homebrew recipe is part of that. At session start the plugin checks
+  that the binary is installed and tells the user how to install it. A binary-backed
+  skill stops and reports the problem when the binary is absent or too old. This is
+  settled for now. Jim will review it later.
+- Packaging facts are in `docs/kb/claude-code-plugin-packaging.md` in the tsk repo.
+
 ## Constraints
 
 - Only features needed for self hosting are in scope. Anything else becomes a task
@@ -67,6 +92,7 @@ a delegated mission. M-BOOT-04 decides the official ledger layout.
 - The territory filter command line interface.
 - The nexus link direction question.
 - Building ksobr beyond the harness this bootstrap needs.
+- The Claude Code plugin, until the binary exists. See Decisions.
 
 ## Plan
 
@@ -86,6 +112,7 @@ M-BOOT-04 will decompose into at least these candidate tasks:
 
 - Ledger tree layout.
 - Manifest format.
+- Ledger location: a nexus repo outside the managed repo, namespaced by managed repo.
 - Push and pull protocol, including the compare and swap retry loop.
 - Rust git library selection: `git2`, `gitoxide`, or the `git` binary.
 
