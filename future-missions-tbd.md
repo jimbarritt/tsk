@@ -80,6 +80,12 @@ which records that the product enforces behavioural constraints and states no su
 criterion, and that its benchmark scores observable side effects. Captured as an idea
 only. Not designed.
 
+Jim, later the same day: OpenAPPA "can also be relevant to swe and has this common pattern
+of deterministic vs inference based verification". Recorded in `openappa.md`: its model
+backed annotators, authorities and sanitizers run inside a deterministic engine that
+checks their answers against declared permits, while swe's inference tier is advisory and
+runs after the action.
+
 ## A plugin or connector to Unblocked, used during mission definition
 
 Raised by Jim, 2026-10-02, after the Unblocked research
