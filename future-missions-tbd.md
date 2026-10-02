@@ -71,6 +71,17 @@ Jim's read: maybe the cloud sessions time out if left with no input. So we need 
 way to detect this and restore context from the thread. It also means it's important
 for the agent to push frequently, which it already does.
 
+## A tsk plugin: skills first, the tsk binary later
+
+Raised by Jim, 2026-10-02: write a tsk plugin, host it in the jimbarritt marketplace (he
+wonders whether it is time to move to ubiqtek.ai), and start it with a bunch of skills,
+extending it later to use the tsk binary. Jim's thought on the source of truth: keep the
+source in the tsk repo and publish it to the marketplace, as Homebrew does. Researched in
+`docs/kb/claude-code-plugin-packaging.md`: a marketplace entry can reference another
+repository (`github` or `git-subdir`, with `ref` and `sha`), and a plugin can get a binary
+through `bin/` or a download into `${CLAUDE_PLUGIN_DATA}`. Not designed. The ubiqtek.ai
+question is open and was not researched.
+
 ## Claude mods for the swe plugin or the tsk plugin
 
 Raised by Jim, 2026-10-02, from the Claude Code 2.1.287 release: "seems we can now extend
