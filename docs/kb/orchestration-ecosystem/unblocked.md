@@ -136,6 +136,8 @@ infrastructure. Enterprise offers on-premises deployment options.
 
 ## Comparison with tsk
 
+The table compares what each product does. The next table maps tsk's own terms.
+
 | Aspect | Unblocked | tsk |
 |---|---|---|
 | Layer | A context layer, a remote coding agent and a reviewer. | Mission, Thread and ledger. Navigation, Delta, Product and Scale. |
@@ -151,6 +153,48 @@ infrastructure. Enterprise offers on-premises deployment options.
 | Substrate | Unblocked-managed cloud. The model is not stated. | The domain model names no substrate. Independence is untested. |
 | Measuring the effect | An open-source simulator and a harness run each task with and without context. | The token-saving experiment is scoped and not run. |
 | Product, Delta, Scale | Not modelled. | Four dimensions. Not built. |
+
+## Comparison by tsk dimension and term
+
+Each row sets what the Unblocked pages describe against the tsk term. A blank mechanism
+means the pages describe none.
+
+| tsk term | tsk definition | Unblocked |
+|---|---|---|
+| Navigation | A route walked. It can split into parallel routes and be abandoned. An abandoned route produces navigational knowledge. | No route is recorded as work happens. The Q&A product answers "Has anyone tried this migration before?" from past pull requests and chat, so abandoned routes are recovered afterwards by retrieval. |
+| Path | The story of how a delta came to exist: commits, pull requests, decisions, abandoned routes. | The Context Engine indexes the same material: pull requests, review discussion and decisions in chat. It reads what people wrote. tsk defines what is recorded. |
+| Delta | A change to the state of the system. A delta is valid only if the system stays functional before and after. | The output is a draft pull request, with build and test results and a verifier agent's confirmation. Deployment is not part of the described task. |
+| Delta Gate | A capability is delivered when its delta deploys and the system is healthy against acceptance criteria. | Not described. Production systems (Datadog, Sentry) are sources of context. No step checks a deployed change against them. |
+| Product | What the product does for users, and the state it is in. | PostHog, Snowflake and Zendesk are data sources. Product capabilities with acceptance criteria are not described. |
+| System health | Healthy or unhealthy, queryable at any zoom level. | Not described. |
+| Scale | One entity viewed at different zoom levels. | A task is sized to "a few hours" of model work. Memory is scoped to teams and repositories. Nesting of tasks is not described. |
+| Intelligence | Input context for a mission. | This is Unblocked's product. It assembles, reconciles and ranks input context for an agent. |
+| Mission and Objective | A mission is delegated with a checkable end state. | A task is free text. The scope is confirmed before the task starts. The end state is a passing build, passing tests and a verifier's confirmation. |
+| Mission briefing | The document handed to an actor, rendering a mission for that actor. | The task and the context the engine assembles for it. The pages do not describe a briefing format. |
+| Mission report | Feedback on what the briefing failed to give. | Verification results attached to the pull request. Feedback on missing context is not described. |
+| Actor | A human holds many threads. An agent session is bound to one. | The requester's identity is reconciled across GitHub, Slack, Jira and SSO. An Unblocked Code task is a hosted agent. Its identity model is not described. |
+| Thread continuation | An append-only entry at each pause. | Not described. A task has status and cancel. |
+| Territory | A bounding area where isolation is defined. | The boundary is the source systems' access controls, enforced per requester. The pricing page lists Role-Based Access Control. |
+| Nexus | An index of the repos in an area and links to other nexuses. | The knowledge graph indexes repositories and the sources around them, and links tickets, pull requests, chat and code. It is a hosted service, not a routing index kept in the user's own repositories. |
+| Ledger | A repo's own mission and task data, held in git. | Not described. Task history sits in the Unblocked service. |
+| Post | A standing position that holds authority. | Not described. Authority follows the requesting user. |
+
+## The sharpest difference
+
+Unblocked reads what people already wrote. tsk defines what gets written.
+
+Unblocked's input is the trace that work leaves in other tools: pull request comments,
+chat threads, tickets, incident records. It reconciles them after the fact. It states
+that "some knowledge, such as unwritten conventions and who actually knows a service,
+exists only as patterns across systems over time", and it mines pull request feedback for
+conventions. tsk's records are produced as the work runs: a briefing at delegation, a
+report at the end, a continuation entry at each pause, and a Path of abandoned routes.
+
+The two do not use the same material. tsk's records are structured and small. Unblocked's
+sources are unstructured and large, and the engine does the structuring. A tsk mission
+that needs organisational history has an Intelligence section. Unblocked is a source for
+one, and its MCP server connects to Claude Code, which tsk runs on. Nothing in the pages
+describes a link between the two.
 
 ## Convergence and difference
 
