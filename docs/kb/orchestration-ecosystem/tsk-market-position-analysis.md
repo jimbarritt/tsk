@@ -426,6 +426,15 @@ of repositories, chat and tickets overlaps the nexus that tsk keeps in its own r
 Treat it as a source of Intelligence, and measure the effect with its own open-source
 harnesses. See [unblocked.md](unblocked.md).
 
+**Orca: a dependency only if adopted, and an alternative to Mission Control.** tsk's
+harness does not run inside Orca, so Orca is like Air and Cursor Projects: a product to
+measure against. It differs in one respect. The Mission Control task builds, in tmux and
+Python, what Orca ships. Orca is an alternative to that task. It is not a layer tsk
+needs. The two are not in conflict, because Mission Control is reconnaissance, built to
+learn what a control list needs. Orca's state detection, its worker outcome message and
+its checkpoint comment are designs to read before Mission Control's later phases. See
+[orca.md](orca.md).
+
 **OpenAPPA: a symbiotic mechanism for rules of engagement.** The two cover different
 layers. tsk delegates a mission with an objective and a briefing, and its Execution
 constraints section names the behavioural limits as text. OpenAPPA turns limits of that
@@ -660,6 +669,36 @@ Position: no change to the three-part verdict below. OpenAPPA governs data flow 
 call, and it has no work record, no handover and no success criterion in the product.
 Archestra's benchmark figures are its own. The full paper and the website were not read.
 
+## Orca: an agent IDE that overlaps Mission Control
+
+Research: [orca.md](orca.md). Version 1.4.214, 2026-10-02.
+
+Orca is an open-source (MIT) desktop app for macOS, Windows and Linux, with iOS and Android
+companions. It runs any CLI agent in parallel, each in its own git worktree, with
+terminals, a code editor, a browser and a diff viewer in one window. It shows five agent
+states from terminal titles and agent hooks, and notifies on completion. An experimental
+orchestration layer adds Runs, Tasks with dependencies and statuses, Dispatches, supervised
+workers that report `worker_done`, and decision gates. It models no mission, ledger or
+product. It is in the same category as Cursor Projects and JetBrains Air, a product to
+measure against, and it is not added to the systems the verdict counts. Four items
+intersect tsk:
+
+- **The control list**: Mission Control's objectives (a list of sessions, the selected
+  session, a terminal, a status indicator, token use, resume) are Orca features, shipped.
+  Orca's agent status needs no tmux. It uses hooks and the terminal title.
+- **Supervised workers**: a worker reports an outcome with evidence and an unresolved
+  blocker. This is close to a mission report.
+- **A checkpoint per worktree**: a free-text comment that agents update. tsk keeps an
+  append-only continuation entry instead.
+- **Full autonomy by default**: Orca launches each agent with its skip-permissions flag and
+  treats the worktree as the sandbox. This is the posture that tsk's Post and OpenAPPA
+  would constrain.
+
+Position: no change to the three-part verdict below. Orca competes with the Mission Control
+task, which is standalone tooling, and not with the mission model. It has no objective
+that is a checkable state, no briefing and no ledger. Most of its source was not read, and
+its claims are its own.
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Sources: Yegge's essay
@@ -797,6 +836,8 @@ collision above).
   comparison against tsk.
 - [openappa.md](openappa.md): the full reference for the OpenAPPA section above, with a
   comparison against tsk.
+- [orca.md](orca.md): the full reference for the Orca section above, with a comparison
+  against tsk and against the Mission Control task.
 - The token-saving experiment referenced above has not yet been designed or run as of
   this writing; it is not tracked in the M-BOOT mission tree, which is scoped to
   bootstrapping self-hosting rather than to this product decision.
