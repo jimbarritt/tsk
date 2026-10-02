@@ -564,6 +564,36 @@ record, handover or continuation entry, and the pipeline runs on one company's h
 It is a data point for Post and escalation, and for the signals tsk does not model.
 Sections 4 to 7 of the article are paid and were not read.
 
+## Unblocked: a related layer that also ships a coding agent
+
+Research: [unblocked.md](unblocked.md). Read 2026-10-02.
+
+Unblocked is a commercial context layer for agentic software development. Its Context
+Engine reads code, Slack and Teams threads, issues, documents, CI, and production and
+product systems (Datadog, Sentry, PostHog, Snowflake) into one knowledge graph. It
+resolves conflicts between sources, enforces the requester's permissions and returns ranked,
+cited context through MCP, a CLI, an API, Slack and Teams. It also ships Unblocked Code,
+a remote coding agent that returns a draft pull request, and AI Code Review. It is listed
+beside LangSmith and Dots, not among the systems assessed, because it models no mission,
+thread or ledger. Four items intersect tsk:
+
+- **Signals into the agent's context**: it ingests the production and product systems that
+  tsk's Product dimension names and does not model.
+- **Permissions at query time**: Data Shield enforces the requesting user's access and
+  reconciles identities across systems. This is the permission question that tsk's Post and
+  the SpiceDB research raise.
+- **Conventions mined from review feedback**: recurring pull request comments become
+  per-repository rules. tsk writes standing instructions by hand.
+- **Measuring the effect of context**: open-source harnesses run one task with and without
+  context and score both. The token-saving experiment of this analysis uses the same method.
+
+Position: no change to the three-part verdict below. Unblocked occupies the context
+layer upstream of an agent and, with Unblocked Code, the remote-coding-agent category that
+Claude Code and Cursor also occupy. Its MCP server connects to Claude Code, Cursor,
+Copilot, Windsurf and Codex, so it works beside them. The pages describe no mission,
+objective, handover record or continuation entry. Its figures are its own and one task
+backs the headline comparison.
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Sources: Yegge's essay
@@ -697,6 +727,8 @@ collision above).
   with a comparison against tsk.
 - [openai-software-factory.md](openai-software-factory.md): the full reference for the
   OpenAI software factory section above, with a comparison against tsk.
+- [unblocked.md](unblocked.md): the full reference for the Unblocked section above, with a
+  comparison against tsk.
 - The token-saving experiment referenced above has not yet been designed or run as of
   this writing; it is not tracked in the M-BOOT mission tree, which is scoped to
   bootstrapping self-hosting rather than to this product decision.
