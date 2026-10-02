@@ -21,10 +21,35 @@ Orca calls itself an "ADE", an agent development environment, and "The AI Orches
 desktop app. The README says: "Run Codex, ClaudeCode, OpenCode or Pi side-by-side — each in
 its own worktree, tracked in one place."
 
-It is an Electron application (React, TypeScript, `node-pty` terminals, xterm). It is not a
-terminal UI. It embeds terminals, a code editor, a Chromium browser and a diff viewer in
+It is an Electron application. It is not a terminal UI. It embeds terminals, a code editor, a Chromium browser and a diff viewer in
 one window. It does not depend on tmux. The documentation mentions tmux only in a clipboard setting for
 programs that run inside an Orca terminal.
+
+## Process layout
+
+Read from `package.json` and the daemon's design notes. The renderer code was not read.
+
+| Part | What it is |
+|---|---|
+| Window | Electron 43 with Chromium. The interface is a React app. |
+| Terminal display | xterm.js with the WebGL, fit, search, image, ligature, unicode and web-links add-ons. The README says "WebGL rendering". |
+| Terminal processes | A separate terminal daemon, in `src/main/daemon/`, which hosts the PTYs behind a socket path. The app talks to it through a client that speaks newline-delimited JSON. `node-pty` is a dependency. |
+| Terminal state | Headless xterm (`@xterm/headless`) and a serialize add-on keep terminal state outside the window. The daemon has a cold-restore payload cache, a replay writer and checkpoint files. Scrollback survives a restart. |
+| Remote | A relay (`src/relay`), `ssh2` and `ws` serve remote worktrees and mobile pairing. |
+| Agent state | Terminal-title sequences and agent hooks report to the running app. |
+| Native code | A `native/` directory holds platform code: computer use for Linux, macOS and Windows, a macOS keyboard layout module, notification status, and a Windows CLI launcher and registry module. |
+
+The daemon's notes describe a failure its authors fixed. A departing daemon deleted the
+socket of a live replacement, which left terminals "that accept keystrokes and never run
+them". The notes state two rules for the socket path: only a daemon that publishes
+itself may change the entry, and "no actor removes a name it did not create".
+
+The browser is part of the same Chromium engine. Every worktree has its own browser, "a
+real Chromium window — address bar, history, devtools — embedded in a pane", with tabs
+scoped to the worktree. Design Mode sends a clicked element's HTML, computed CSS and a
+cropped screenshot into the active agent terminal. Agents control the same browser with
+`orca snapshot`, `orca click` and `orca fill`. For a remote workspace, a page renders on
+the local desktop by default while its network traffic goes through the remote host.
 
 ## Model
 
