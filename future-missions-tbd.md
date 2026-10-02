@@ -79,7 +79,15 @@ extending it later to use the tsk binary. Jim's thought on the source of truth: 
 source in the tsk repo and publish it to the marketplace, as Homebrew does. Researched in
 `docs/kb/claude-code-plugin-packaging.md`: a marketplace entry can reference another
 repository (`github` or `git-subdir`, with `ref` and `sha`), and a plugin can get a binary
-through `bin/` or a download into `${CLAUDE_PLUGIN_DATA}`. Not designed. The ubiqtek.ai
+through `bin/` or a download into `${CLAUDE_PLUGIN_DATA}`. Not designed.
+
+Jim's later decisions, 2026-10-02: the tsk binary installs separately from the plugin,
+because tsk also runs standalone, and a Homebrew recipe is to be added. The plugin checks
+at session start whether the binary is installed and tells the user how to install it.
+When the installed binary is missing or too old, binary-backed skills refuse to run
+"because it will just fail". Jim wants to come back to that later. Open: whether to get
+the bootstrap working in the binary first and then write the plugin, or to write the
+plugin from skills first. The ubiqtek.ai
 question is open and was not researched.
 
 ## Claude mods for the swe plugin or the tsk plugin
