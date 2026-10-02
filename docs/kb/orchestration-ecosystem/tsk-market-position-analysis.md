@@ -426,6 +426,21 @@ of repositories, chat and tickets overlaps the nexus that tsk keeps in its own r
 Treat it as a source of Intelligence, and measure the effect with its own open-source
 harnesses. See [unblocked.md](unblocked.md).
 
+**OpenAPPA: a symbiotic mechanism for rules of engagement.** The two cover different
+layers. tsk delegates a mission with an objective and a briefing, and its Execution
+constraints section names the behavioural limits as text. OpenAPPA turns limits of that
+kind into contracts that an engine enforces before each tool call, with human approval
+through an authority and a deterministic decision. An authority's permitted marks
+resemble the scope of authority that a post would hold. OpenAPPA does not determine
+success criteria. Its benchmark shows one method for an objective check: score the
+observable side effects against a list of expected and forbidden ones. Three limits apply.
+No link between the two exists and none was tested. OpenAPPA governs data flow, and its
+documentation says it does not label actions as destructive, irreversible or out of scope,
+so it covers part of what Execution constraints name. The project is a preview and an RFC
+whose interfaces "may break without shims". Treat it as a candidate enforcement component
+beneath tsk's constraints, and as a source of the checkable-objective method. See
+[openappa.md](openappa.md).
+
 tsk's thesis is the unification of all four dimensions, not any single one, so it does
 not collapse if any of these systems later absorbs another dimension.
 
@@ -614,6 +629,37 @@ Copilot, Windsurf and Codex, so it works beside them. The pages describe no miss
 objective, handover record or continuation entry. Its figures are its own and one task
 backs the headline comparison.
 
+## OpenAPPA: an enforcement layer for an agent's tool calls
+
+Research: [openappa.md](openappa.md). Version 0.30.0, 2026-09-30.
+
+OpenAPPA is an open-source (MIT) information-flow policy engine from Archestra. Before
+each tool call it checks the data the agent has read against the destination, using
+declarative TOML contracts, and the decision is deterministic. A blocked call returns
+remedy plans: clean the data, get approval from an authority (a person, a service or an
+LLM), or isolate the read in a subagent. It plugs into Claude Code through hooks, into
+agents through an SDK, and into Archestra's LLM proxy. It models no mission, thread or
+ledger, so it is listed beside Unblocked and Dots, not among the systems assessed. Four
+items intersect tsk:
+
+- **Behavioural constraints, enforced**: tsk's briefing names Constraints and Execution
+  constraints ("Permitted files. Attempt limit. Budget.") as text. No component enforces
+  them. OpenAPPA enforces a contract per tool before the call runs.
+- **Approval with scoped permissions**: an authority approves one blocked call within the
+  marks it may give. A battery example approves payments of USD 100 or less. This is the
+  threshold decision that tsk's Post and the energy-constraints note describe, and it is
+  built.
+- **Success checked from side effects**: Bench-Corp scores each run from observable tool
+  side effects, with no LLM judge. Each scenario lists `utility` checks and `security`
+  checks. This is the form of tsk's Objective, a checkable end state, applied to a test.
+- **Feedback on the rules**: an agent reports a confusing block, a maintenance agent
+  proposes a policy change, and a person reviews it. tsk's mission report records what the
+  briefing failed to give.
+
+Position: no change to the three-part verdict below. OpenAPPA governs data flow per tool
+call, and it has no work record, no handover and no success criterion in the product.
+Archestra's benchmark figures are its own. The full paper and the website were not read.
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Sources: Yegge's essay
@@ -748,6 +794,8 @@ collision above).
 - [openai-software-factory.md](openai-software-factory.md): the full reference for the
   OpenAI software factory section above, with a comparison against tsk.
 - [unblocked.md](unblocked.md): the full reference for the Unblocked section above, with a
+  comparison against tsk.
+- [openappa.md](openappa.md): the full reference for the OpenAPPA section above, with a
   comparison against tsk.
 - The token-saving experiment referenced above has not yet been designed or run as of
   this writing; it is not tracked in the M-BOOT mission tree, which is scoped to
