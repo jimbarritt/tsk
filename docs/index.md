@@ -64,7 +64,7 @@ Background theory and research grounding for key domain concepts.
 - [military-doctrine-sources.md](kb/military-doctrine-sources.md): the primary doctrine sources the mission model draws on, with links, and which citations in the repo are unverified.
 - [yegges-levels.md](kb/yegges-levels.md): Steve Yegge's maturity ladder from manual coding to running an orchestrator over many agents, as framing for tsk's own ambition rather than a feature description of his tools.
 - [yegge-eight-levels.md](kb/yegge-eight-levels.md): the same ladder, The Pragmatic Engineer's telling, standalone with no tsk-specific framing, for sharing on its own.
-- [claude-code-mods.md](kb/claude-code-mods.md): the mods hooks surface in Claude Code, confirmed live in this container via the `agents-md` mod, and why a harness-level hook attaching to engine events matters more to tsk than the `AGENTS.md` question that raised it.
+- [claude-code-mods.md](kb/claude-code-mods.md): Claude Code mods, announced in 2.1.287: plugins of function hooks that rewrite prompts, tool calls and conversation rows and draw interface elements. Events, tiers, loading, built-in mods, and mechanisms that could apply to swe and tsk.
 - [typesafe-jev-classifier.md](kb/typesafe-jev-classifier.md): research note on Jev, TypeSafe AI's non-generative decision model, its LangChain harness and evals integrations, and the classifier-in-the-loop pattern it is one data point for.
 - [spicedb.md](kb/spicedb.md): SpiceDB, an open source authorization database modelled on Google's Zanzibar, set against the permissions a post would hold in tsk, with what the pages read leave out.
 
