@@ -587,6 +587,13 @@ thread or ledger. Four items intersect tsk:
 - **Measuring the effect of context**: open-source harnesses run one task with and without
   context and score both. The token-saving experiment of this analysis uses the same method.
 
+The sharpest difference: Unblocked reads what people already wrote, and tsk defines what
+gets written. Unblocked reconstructs organisational knowledge afterwards from pull
+requests, chat, tickets and incident records. tsk produces structured records as the work
+runs: a briefing, a report, a continuation entry and a Path. Unblocked can supply the
+Intelligence section of a tsk mission. The term-by-term mapping is in
+[unblocked.md](unblocked.md#comparison-by-tsk-dimension-and-term).
+
 Position: no change to the three-part verdict below. Unblocked occupies the context
 layer upstream of an agent and, with Unblocked Code, the remote-coding-agent category that
 Claude Code and Cursor also occupy. Its MCP server connects to Claude Code, Cursor,
