@@ -71,6 +71,14 @@ Jim's read: maybe the cloud sessions time out if left with no input. So we need 
 way to detect this and restore context from the thread. It also means it's important
 for the agent to push frequently, which it already does.
 
+## A terminal inside a browser, not a browser inside a terminal
+
+Raised by Jim, 2026-10-02, after the Orca research (`docs/kb/orchestration-ecosystem/orca.md`):
+"One of the advantages of being chromium is that web browsing is part of the native product
+so they kind of inverted the problem. It's very tricky to get a web browser running inside
+a terminal but much more practical to run a terminal in a web browser." Relevant to the
+Task TUI and Mission Control in tmux. Captured as an idea only. Not designed.
+
 ## A symbiotic mechanism for success criteria and rules of engagement (OpenAPPA)
 
 Raised by Jim, 2026-10-02, after reading `archestra-ai/OpenAPPA`: "Maybe also a symbiotic
