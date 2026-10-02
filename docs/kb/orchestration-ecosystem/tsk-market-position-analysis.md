@@ -413,6 +413,19 @@ is a product to measure against, not one tsk is built on. Its documentation does
 whether a project can run another vendor's agents, so it adds no evidence on the
 untested half of tsk's substrate question.
 
+**Unblocked: a symbiotic intelligence unit.** The two cover what the other leaves out.
+Unblocked assembles input context from code, chat, tickets and production systems, which
+is the work of tsk's Intelligence term. tsk structures the mission, the briefing and the
+ledger, which Unblocked does not describe. It is not a dependency like Claude Code
+Projects, and it does not overlap Navigation as beads does. A mission's Intelligence
+section can draw on it, and its MCP server connects to Claude Code, which tsk runs on.
+Three limits apply. No link between the two exists and none was tested, so the verdict
+reads the designs, not a result. It ships a coding agent and a reviewer beside the
+context layer, so it also competes in the remote-coding-agent category. Its hosted index
+of repositories, chat and tickets overlaps the nexus that tsk keeps in its own repos.
+Treat it as a source of Intelligence, and measure the effect with its own open-source
+harnesses. See [unblocked.md](unblocked.md).
+
 tsk's thesis is the unification of all four dimensions, not any single one, so it does
 not collapse if any of these systems later absorbs another dimension.
 
