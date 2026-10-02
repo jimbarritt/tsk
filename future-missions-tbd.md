@@ -71,6 +71,13 @@ Jim's read: maybe the cloud sessions time out if left with no input. So we need 
 way to detect this and restore context from the thread. It also means it's important
 for the agent to push frequently, which it already does.
 
+## A plugin or connector to Unblocked, used during mission definition
+
+Raised by Jim, 2026-10-02, after the Unblocked research
+(`docs/kb/orchestration-ecosystem/unblocked.md`): "I could imagine a plugin or connector
+to unblocked so that during mission definition we talk to unblocked for info or even fire
+up research missions to query it". Captured as an idea only. Not designed.
+
 ## A tsk plugin: skills first, the tsk binary later
 
 Raised by Jim, 2026-10-02: write a tsk plugin, host it in the jimbarritt marketplace (he
