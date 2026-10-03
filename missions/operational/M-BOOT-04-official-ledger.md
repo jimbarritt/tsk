@@ -81,7 +81,7 @@ the command names.
 | T-02 | Decide the ledger location and layout | Location (nexus repo, namespaced by managed repo), branch name, tree layout and manifest format documented | none | DONE |
 | T-03 | Add `tsk ledger fetch` | Fetches the missions and materialises them at a fixed worktree path, refreshing in place. Prints the path. Replaces `fetch-bootstrap-ref.sh` and `bootstrap-wt-path.sh` | T-01 | TODO |
 | T-04 | Add `tsk ledger push` | Commits the worktree changes, fetches the latest state, and pushes, with a bounded compare and swap retry. Replaces `push-bootstrap-ref.sh` | T-03 | TODO |
-| T-05 | Move the thread commands into the binary | Start, pause with handover, resume, detach, stop, switch, list and binding resolution run through `tsk`. Replaces `thread-*.sh` and `mint-token-lib.sh` | T-04 | TODO |
+| T-05 | Move the thread commands into the binary | Start, pause with handover, resume, detach, stop, switch, list and binding resolution run through `tsk`. Replaces `thread-*.sh` and `mint-token-lib.sh`. The older daemon-backed `thread`, `task`, `context` and `where` commands are removed | T-04 | TODO |
 | T-06 | Move the external event queue into the binary | Append, read new events, and advance the watermark run through `tsk`. Replaces the external event scripts | T-04 | TODO |
 | T-07 | Cut over to the binary and the ledger | `tsk/ledger` created from the `tsk/bootstrap` tip with `.tsk-ledger.toml` added, so history carries over. Hooks, skills, `CLAUDE.md` and the justfile call `tsk`. The `SessionStart` hook ensures tsk is installed. The replaced scripts are removed | T-02, T-05, T-06 | TODO |
 | T-08 | Migrate to the ledger | Merged into T-07 on 2026-10-03 | n/a | MERGED |
@@ -130,10 +130,14 @@ the command names.
   start, resolved through the T-02 rules. Their e2e tests run against temporary bare
   repos. The harness stays on the scripts and `tsk/bootstrap` until the cut-over, so
   T-08 is merged into T-07: the harness cannot switch before `tsk/ledger` exists.
+- 2026-10-03: the new commands run in the `tsk` client alone, with no `tskd`. The
+  harness thread model takes the name `tsk thread`. T-05 removes the older daemon-backed
+  `thread`, `task`, `context` and `where` commands and their tests. `tskd` stays in the
+  workspace, unused. It existed for cross-project references, which a later mission
+  revisits. Jim has a small number of live usages of the old commands in other
+  projects. They are migrated after this mission, by hand.
 
 ## Open decisions
 
-- Whether `tsk` commands go through `tskd` or run in the client alone. The daemon owns
-  all state today.
 - Whether encoding the mission briefing and its format in the binary (an M-BOOT
   objective line) is part of this mission or a later one.
