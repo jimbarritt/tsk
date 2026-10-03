@@ -109,5 +109,8 @@ plugin to apply.
 
    > Subagents and teammates too, they choose their own yes why not
 
-5. Whether a name includes the class prefix (GSV, GCU, ROU) or only the name.
+5. Class prefix. Decided 2026-10-03: only the name, no prefix. To revisit later. Jim:
+
+   > Only the name, no prefix we can think bout that later
+
 6. Where the plugin lives, given the plugin and binary order recorded under M-BOOT.
