@@ -86,6 +86,7 @@ the command names.
 | T-07 | Switch the harness to the binary | Hooks, skills, `CLAUDE.md` and the justfile call `tsk`. The `SessionStart` hook ensures tsk is installed. The replaced scripts are removed | T-05, T-06 | TODO |
 | T-08 | Migrate to the ledger | Missions, threads and external events held in the ledger at the T-02 location, with history preserved or deliberately dropped | T-02, T-07 | TODO |
 | T-09 | Retire `tsk/bootstrap` | The branch is tagged, `CLAUDE.md` points at the ledger, and no bootstrap scaffolding remains | T-08 | TODO |
+| T-10 | Hold a ledger in the nexus | `tsk config attach-nexus <url>` records the nexus in the user config. A managed repo can be set to hold its ledger on a namespaced branch in the nexus, and `tsk ledger fetch` and `tsk ledger push` work against it. The tsk-nexus README and `docs/domain/territory-and-nexus.md` say the nexus holds ledgers as an option | T-09 | TODO |
 
 **Essential task**: T-09. Its end state and M-BOOT's objective are the same.
 
@@ -103,6 +104,13 @@ the command names.
   text.
 - 2026-10-03: the fetch and push commands are named `tsk ledger fetch` and
   `tsk ledger push`.
+- 2026-10-03, T-02: the ledger location is set per managed repo. The default is a
+  branch in the managed repo itself. The option is a namespaced branch in the nexus,
+  for a repo the operator cannot push to. tsk's own ledger stays in the tsk repo. The
+  nexus is `https://github.com/jimbarritt/tsk-nexus`, attached with
+  `tsk config attach-nexus <url>`, which writes the user config. The nexus option is
+  T-10, the last task of this mission, so tsk runs in a work repo from Monday
+  2026-10-05.
 
 ## Open decisions
 
