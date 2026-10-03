@@ -136,8 +136,8 @@ the command names.
   workspace, unused. It existed for cross-project references, which a later mission
   revisits. Jim has a small number of live usages of the old commands in other
   projects. They are migrated after this mission, by hand.
+- 2026-10-03: encoding the mission briefing and its format in the binary is a later
+  mission. The binary moves mission files without parsing them.
 
 ## Open decisions
 
-- Whether encoding the mission briefing and its format in the binary (an M-BOOT
-  objective line) is part of this mission or a later one.
