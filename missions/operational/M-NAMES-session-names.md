@@ -93,8 +93,10 @@ plugin to apply.
    The objective lines above name a session, and are not yet revised for this decision.
    The definition of an actor is open: see "Actor definition" in
    [future-missions-tbd.md](../../future-missions-tbd.md).
-2. How a name is chosen: random from a list, drawn from a hash of something stable, or
-   chosen by the session.
+2. How a name is chosen. Decided 2026-10-03: the actor chooses its own name. Jim:
+
+   > Oh nice the actor can choose its own name.
+
 3. Which ships and Minds the list holds: all names, or a subset by class or tone.
 4. Whether the plugin names only the main session, or also subagents and teammates.
 5. Whether a name includes the class prefix (GSV, GCU, ROU) or only the name.
