@@ -77,7 +77,7 @@ the command names.
 
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|
-| T-01 | Select the Rust git library | `git2`, `gitoxide` or the `git` binary chosen, with the reason recorded | none | TODO |
+| T-01 | Select the Rust git library | `git2`, `gitoxide` or the `git` binary chosen, with the reason recorded | none | DONE |
 | T-02 | Decide the ledger location and layout | Location (nexus repo, namespaced by managed repo), branch name, tree layout and manifest format documented | none | TODO |
 | T-03 | Add `tsk ledger fetch` | Fetches the missions and materialises them at a fixed worktree path, refreshing in place. Prints the path. Replaces `fetch-bootstrap-ref.sh` and `bootstrap-wt-path.sh` | T-01 | TODO |
 | T-04 | Add `tsk ledger push` | Commits the worktree changes, fetches the latest state, and pushes, with a bounded compare and swap retry. Replaces `push-bootstrap-ref.sh` | T-03 | TODO |
@@ -88,6 +88,21 @@ the command names.
 | T-09 | Retire `tsk/bootstrap` | The branch is tagged, `CLAUDE.md` points at the ledger, and no bootstrap scaffolding remains | T-08 | TODO |
 
 **Essential task**: T-09. Its end state and M-BOOT's objective are the same.
+
+## Decisions
+
+- 2026-10-03, T-01: the binary calls the `git` executable through
+  `std::process::Command`. No git library. `gitoxide` has no push. `git2` adds a C build
+  dependency and needs its own credential handling, which does not reuse the user's
+  credential helpers or the cloud sandbox proxy configuration. The `git` binary is
+  already required wherever the harness runs, and each script step maps to one call.
+  The code parses machine-readable forms only: plumbing commands (`rev-parse`,
+  `for-each-ref`) and porcelain modes (`worktree list --porcelain -z`,
+  `status --porcelain=v2 -z`, `push --porcelain`, `log --format=... -z`). T-04 detects a
+  rejected compare and swap from the `push --porcelain` status flag, not from error
+  text.
+- 2026-10-03: the fetch and push commands are named `tsk ledger fetch` and
+  `tsk ledger push`.
 
 ## Open decisions
 
