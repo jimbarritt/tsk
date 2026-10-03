@@ -97,7 +97,13 @@ plugin to apply.
 
    > Oh nice the actor can choose its own name.
 
-3. Which ships and Minds the list holds: all names, or a subset by class or tone.
+3. Which names the actor chooses from. Decided 2026-10-03: all of them, and the actor
+   chooses. Jim:
+
+   > All of them, the actor chooses - maybe they can also make their own up?
+
+   Open: whether an actor can also make up its own name.
+
 4. Whether the plugin names only the main session, or also subagents and teammates.
 5. Whether a name includes the class prefix (GSV, GCU, ROU) or only the name.
 6. Where the plugin lives, given the plugin and binary order recorded under M-BOOT.
