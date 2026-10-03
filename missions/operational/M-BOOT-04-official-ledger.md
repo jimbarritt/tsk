@@ -122,7 +122,7 @@ the command names.
   entry is added to `nexus.json` by hand, with no registration command.
 - 2026-10-03, T-02: the ledger tree is the `tsk/bootstrap` tree unchanged (`index.md`,
   `future-missions-tbd.md`, `missions/`, `threads/`, `external-events/`), the same in
-  both locations, plus `tsk-ledger.json` at the root holding `{"version": 1}`. A binary
+  both locations, plus `.tsk-ledger.toml` at the root holding `version = 1`. A binary
   that reads a version it does not support stops and reports it. T-08 starts
   `tsk/ledger` from the current `tsk/bootstrap` commit, so history carries over. The
   ADR 0007 event log is not part of this layout.
