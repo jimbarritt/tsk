@@ -657,3 +657,5 @@ Raised by Jim, 2026-10-03:
 > other they have identities.
 
 Captured as an idea only. Nothing is decided.
+
+Mission brief: [M-NAMES](missions/operational/M-NAMES-session-names.md).
