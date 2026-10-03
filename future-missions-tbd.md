@@ -647,3 +647,13 @@ mission categories, for the rest of that cross-check.
 
 Open: whether an actor definition is a first-class object in tsk, and how it relates to
 Actor, which the ubiquitous language already defines, and to the administrative mission.
+
+## Session names from Iain M. Banks ship Minds
+
+Raised by Jim, 2026-10-03:
+
+> I have a new idea: I want us to write a plugin that can give our sessions or web
+> sessions names based on the ai / ship names from Ian m banks so when they talk to each
+> other they have identities.
+
+Captured as an idea only. Nothing is decided.
