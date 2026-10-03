@@ -648,6 +648,20 @@ mission categories, for the rest of that cross-check.
 Open: whether an actor definition is a first-class object in tsk, and how it relates to
 Actor, which the ubiquitous language already defines, and to the administrative mission.
 
+Added by Jim, 2026-10-03, while deciding what a Culture ship name belongs to (see
+[M-NAMES](missions/operational/M-NAMES-session-names.md)):
+
+> I think it's the actor but maybe we don't have a clean enough definition of what an
+> actor is.
+>
+> It's not a session because these are ephemeral.
+>
+> And like you say I don't think it's a thread because multiple actors can be working on
+> the same thread or picking up work.
+> So actor is a concept of something that runs either in iOS like here or in a terminal,
+> can span multiple sessions and has a position and possible certain skills and memory
+> if its own.
+
 ## Session names from Iain M. Banks ship Minds
 
 Raised by Jim, 2026-10-03:

@@ -73,9 +73,22 @@ plugin to apply.
 
 ## Open decisions
 
-1. What the name belongs to: the session, the thread, or the actor. The ubiquitous
-   language says an actor is not the same as a session, and that a different agent
-   session picking up a thread is a different actor.
+1. What the name belongs to. Decided 2026-10-03: the actor. Jim:
+
+   > I think it's the actor but maybe we don't have a clean enough definition of what an
+   > actor is.
+   >
+   > It's not a session because these are ephemeral.
+   >
+   > And like you say I don't think it's a thread because multiple actors can be working
+   > on the same thread or picking up work.
+   > So actor is a concept of something that runs either in iOS like here or in a terminal,
+   > can span multiple sessions and has a position and possible certain skills and memory
+   > if its own.
+
+   The objective lines above name a session, and are not yet revised for this decision.
+   The definition of an actor is open: see "Actor definition" in
+   [future-missions-tbd.md](../../future-missions-tbd.md).
 2. How a name is chosen: random from a list, drawn from a hash of something stable, or
    chosen by the session.
 3. Which ships and Minds the list holds: all names, or a subset by class or tone.
