@@ -66,6 +66,7 @@ Background theory and research grounding for key domain concepts.
 - [yegge-eight-levels.md](kb/yegge-eight-levels.md): the same ladder, The Pragmatic Engineer's telling, standalone with no tsk-specific framing, for sharing on its own.
 - [claude-code-mods.md](kb/claude-code-mods.md): Claude Code mods, announced in 2.1.287: plugins of function hooks that rewrite prompts, tool calls and conversation rows and draw interface elements. Events, tiers, loading, built-in mods, and mechanisms that could apply to swe and tsk.
 - [claude-code-plugin-packaging.md](kb/claude-code-plugin-packaging.md): how a Claude Code plugin is packaged and hosted: components, binaries, marketplace entries and source types, versions and updates, and how plugins load in cloud sessions.
+- [claude-code-mastering-in-30-minutes.md](kb/claude-code-mastering-in-30-minutes.md): Anthropic talk by Boris Cherny, May 2025: the order he recommends for adopting Claude Code, the `CLAUDE.md` and configuration hierarchy, key bindings, `claude -p`, parallel sessions, and what the talk leaves out. Built from a machine transcript.
 - [typesafe-jev-classifier.md](kb/typesafe-jev-classifier.md): research note on Jev, TypeSafe AI's non-generative decision model, its LangChain harness and evals integrations, and the classifier-in-the-loop pattern it is one data point for.
 - [spicedb.md](kb/spicedb.md): SpiceDB, an open source authorization database modelled on Google's Zanzibar, set against the permissions a post would hold in tsk, with what the pages read leave out.
 
