@@ -79,7 +79,7 @@ the command names.
 |---|---|---|---|---|
 | T-01 | Select the Rust git library | `git2`, `gitoxide` or the `git` binary chosen, with the reason recorded | none | DONE |
 | T-02 | Decide the ledger location and layout | Location (nexus repo, namespaced by managed repo), branch name, tree layout and manifest format documented | none | DONE |
-| T-03 | Add `tsk ledger fetch` | Fetches the missions and materialises them at a fixed worktree path, refreshing in place. Prints the path. Replaces `fetch-bootstrap-ref.sh` and `bootstrap-wt-path.sh` | T-01 | TODO |
+| T-03 | Add `tsk ledger fetch` | First, `docs/domain/ledger-layout.md` on `main` documents every ledger file, its format and its JSON fields, taken from the scripts. T-04 to T-07 build against it. Then: fetches the missions and materialises them at a fixed worktree path, refreshing in place. Prints the path. Replaces `fetch-bootstrap-ref.sh` and `bootstrap-wt-path.sh` | T-01 | TODO |
 | T-04 | Add `tsk ledger push` | Commits the worktree changes, fetches the latest state, and pushes, with a bounded compare and swap retry. Replaces `push-bootstrap-ref.sh` | T-03 | TODO |
 | T-05 | Move the thread commands into the binary | Start, pause with handover, resume, detach, stop, switch, list and binding resolution run through `tsk`. Replaces `thread-*.sh` and `mint-token-lib.sh`. The older daemon-backed `thread`, `task`, `context` and `where` commands are removed | T-04 | TODO |
 | T-06 | Move the external event queue into the binary | Append, read new events, and advance the watermark run through `tsk`. Replaces the external event scripts | T-04 | TODO |
@@ -137,6 +137,12 @@ the command names.
   workspace, unused. It existed for cross-project references, which a later mission
   revisits. Jim has a small number of live usages of the old commands in other
   projects. They are migrated after this mission, by hand.
+- 2026-10-03: the scripts are the only definition of the ledger file formats today.
+  T-03 writes them down first in `docs/domain/ledger-layout.md`. The
+  `continuation-state.jsonl` field `commit_on_bootstrap` becomes `commit_on_ledger`.
+  Existing entries are not rewritten: the binary reads either name and writes
+  `commit_on_ledger`. `.git/tsk-clone-id` and `.git/tsk-thread-id` stay local to the
+  clone in both ledger locations.
 - 2026-10-03: encoding the mission briefing and its format in the binary is a later
   mission. The binary moves mission files without parsing them.
 
