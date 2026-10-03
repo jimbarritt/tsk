@@ -24,7 +24,7 @@ Everything after this point is tracked by tsk.
 
 What is temporary is `tsk/bootstrap` itself, the markdown briefings on it, and the
 harness reading them by hand. That arrangement is scaffolding and an exploration of the
-design space, removed at M-BOOT-05.
+design space, removed at M-BOOT-04.
 
 What persists is the official ledger under its own name, which M-BOOT-04 decides.
 `docs/domain/persistence-and-sync.md` records `refs/tsk/data` as the name from the
@@ -78,6 +78,14 @@ Consequences:
   settled for now. Jim will review it later.
 - Packaging facts are in `docs/kb/claude-code-plugin-packaging.md` in the tsk repo.
 
+**2026-10-03: close M-BOOT-02, defer M-BOOT-03, merge M-BOOT-05 into M-BOOT-04.**
+M-BOOT-02 closes with what is done, and every unfinished task is deferred. M-BOOT-03,
+unattended cloud runs, is deferred until after the binary. M-BOOT-04 is about getting
+the `tsk` binary up and running in place of the bootstrap scripts, and it absorbs
+M-BOOT-05's migration and retirement of `tsk/bootstrap`. Sessions run as automated as
+possible but are started by Jim. This replaces the order in the 2026-10-02 decision:
+the order is now M-BOOT-04, then the plugin, with M-BOOT-03 later.
+
 ## Constraints
 
 - Only features needed for self hosting are in scope. Anything else becomes a task
@@ -93,19 +101,19 @@ Consequences:
 - The nexus link direction question.
 - Building ksobr beyond the harness this bootstrap needs.
 - The Claude Code plugin, until the binary exists. See Decisions.
+- Cloud agent orchestration, until M-BOOT-03 is picked up again.
 
 ## Plan
 
 | ID | Task | Objective | Delegated to | Blocked by | Status |
 |---|---|---|---|---|---|
-| [M-BOOT-01](M-BOOT-01-substrate.md) | Substrate | Every place exists and holds its first content; `docs/` is sufficient for an agent with only the repo clone | none | none | TODO |
-| [M-BOOT-02](M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local session and a test cloud session both load the harness and read a briefing | none | M-BOOT-01 | TODO |
-| [M-BOOT-03](M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | none | M-BOOT-02 | TODO |
-| M-BOOT-04 | The official ledger | Ref name, tree layout, manifest format, and push and pull protocol exist and are proven by tests | Cloud agents | M-BOOT-03 | TODO |
-| M-BOOT-05 | Migration off the bootstrap ref | Queue held in tsk's own ledger, agents execute from it, bootstrap ref deleted or tagged | Cloud agents | M-BOOT-04 | TODO |
+| [M-BOOT-01](M-BOOT-01-substrate.md) | Substrate | Every place exists and holds its first content; `docs/` is sufficient for an agent with only the repo clone | none | none | DONE |
+| [M-BOOT-02](M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local session and a test cloud session both load the harness and read a briefing | none | M-BOOT-01 | DONE |
+| [M-BOOT-03](M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | none | M-BOOT-02 | DEFERRED |
+| [M-BOOT-04](M-BOOT-04-official-ledger.md) | The official ledger | The `tsk` binary replaces the bootstrap scripts, the missions move into the ledger, and `tsk/bootstrap` is tagged | none | M-BOOT-02 | TODO |
 | [M-BOOT-06](M-BOOT-06-mission-control.md) | Mission Control | A single command sets up a tmux session with a list of Claude sessions, the selected session, and a terminal | none | none | TODO |
 
-**Essential task**: M-BOOT-05. Its objective and this mission's objective are the same
+**Essential task**: M-BOOT-04. Its objective and this mission's objective are the same
 state.
 
 M-BOOT-04 will decompose into at least these candidate tasks:

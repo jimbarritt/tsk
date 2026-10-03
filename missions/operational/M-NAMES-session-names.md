@@ -5,7 +5,7 @@
 | ID | M-NAMES |
 | Territory | agentic research |
 | Assignee | unassigned |
-| Blocked by | M-BOOT-05 |
+| Blocked by | M-BOOT-04 |
 
 Skeleton. The objective lines follow the decisions below. The definition of an actor is
 still open.
@@ -32,7 +32,7 @@ Raised by Jim, 2026-10-03:
 ## Purpose
 
 Parent mission: TBD. Part of the tsk Claude Code plugin, which M-BOOT's decision of
-2026-10-02 places after M-BOOT-05. Related to M-BOOT-06, Mission Control, which names
+2026-10-02 places after M-BOOT-05 (merged into M-BOOT-04 on 2026-10-03). Related to M-BOOT-06, Mission Control, which names
 each Claude session, and to cross-session messaging between sessions.
 
 ## Intelligence

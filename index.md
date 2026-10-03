@@ -10,10 +10,10 @@ mission status at the level of scale you mean.
 
 ## Current mission
 
-**M-BOOT-02: harness.** Full briefing:
-[missions/operational/M-BOOT-02/M-BOOT-02-briefing.md](missions/operational/M-BOOT-02/M-BOOT-02-briefing.md).
-Its intelligence is gathered in
-[missions/operational/M-BOOT-02/intel-index.md](missions/operational/M-BOOT-02/intel-index.md).
+**M-BOOT-04: the official ledger.** Full briefing:
+[missions/operational/M-BOOT-04-official-ledger.md](missions/operational/M-BOOT-04-official-ledger.md).
+The `tsk` binary replaces the bootstrap scripts, and the missions move into the ledger.
+M-BOOT-02 closed on 2026-10-03 and M-BOOT-03 is deferred. See M-BOOT, Decisions.
 
 Parent mission: **M-BOOT, bootstrap tsk self hosting.** Reached when the missions and
 tasks for building tsk are held in tsk's own ledger and agents execute them from there,
@@ -27,18 +27,18 @@ briefing: [missions/operational/M-BOOT.md](missions/operational/M-BOOT.md).
 |---|---|---|---|---|
 | [M-BOOT](missions/operational/M-BOOT.md) | Bootstrap tsk self hosting | tsk hosts its own development, no bootstrap scaffolding left | TODO | none |
 | [M-BOOT-01](missions/operational/M-BOOT-01-substrate.md) | Substrate | Every place the bootstrap needs exists and holds its first content | ✓ DONE | none |
-| [M-BOOT-02](missions/operational/M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local and a cloud session both load the harness and read a briefing | IN PROGRESS | M-BOOT-01 |
+| [M-BOOT-02](missions/operational/M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local and a cloud session both load the harness and read a briefing | ✓ DONE | M-BOOT-01 |
 | [M-BOOT-02-01](missions/operational/M-BOOT-02-01-continuation-harness.md) | Continuation harness | `/start-thread`, `/pause-thread`, `/resume-thread` work end to end | ✓ DONE | M-BOOT-02 |
 | [M-BOOT-02-02](missions/operational/M-BOOT-02-02-thread-binding-resilience.md) | Thread binding resilience | A session never ends up unbound after `SessionStart` fires, even when distracted first | ✓ DONE | M-BOOT-02 |
-| [M-BOOT-03](missions/operational/M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | TODO | M-BOOT-02 |
-| M-BOOT-04 | The official ledger | No breakout briefing yet | TODO | M-BOOT-03 |
-| M-BOOT-05 | Migration off the bootstrap ref | No breakout briefing yet | TODO | M-BOOT-04 |
+| [M-BOOT-03](missions/operational/M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | DEFERRED | M-BOOT-02 |
+| [M-BOOT-04](missions/operational/M-BOOT-04-official-ledger.md) | The official ledger | The `tsk` binary replaces the bootstrap scripts, the missions move into the ledger, and `tsk/bootstrap` is tagged | TODO | M-BOOT-02 |
+| [M-KSOBR](missions/operational/M-KSOBR-integration.md) | ksobr integration | Transcripts hook and run record format, deferred out of M-BOOT-02, skeleton | TODO | none |
 | [M-BOOT-06](missions/operational/M-BOOT-06-mission-control.md) | Mission Control | A single command sets up a tmux session with a list of Claude sessions, the selected session, and a terminal | TODO | none |
 | [M-LAB](missions/operational/M-LAB-ai-lab-notes.md) | AI lab notes (journalling plugin) | Skeleton, most fields TBD | TODO | none |
 | [M-STORY](missions/operational/M-STORY-tsk-story-deck.md) | tsk story deck | A Marp deck in `docs/slide-decks/overview-for-engineers/` tells tsk's domain and features as a product, for other engineers | TODO | none |
-| [M-NAMES](missions/operational/M-NAMES-session-names.md) | Session names from Culture ship Minds | Each tsk actor has a Culture ship name it chose, stored in the ledger and used as the title of every session it runs in, skeleton | TODO | M-BOOT-05 |
+| [M-NAMES](missions/operational/M-NAMES-session-names.md) | Session names from Culture ship Minds | Each tsk actor has a Culture ship name it chose, stored in the ledger and used as the title of every session it runs in, skeleton | TODO | M-BOOT-04 |
 
-Essential mission: M-BOOT-05. Its objective and M-BOOT's objective are the same state.
+Essential mission: M-BOOT-04. Its objective and M-BOOT's objective are the same state.
 
 ## Administrative missions
 
@@ -69,7 +69,7 @@ Ideas for missions that are not shaped into briefings yet are kept in
 
 Full task breakdowns are in each mission's own briefing under `missions/`. All tsk
 development is tracked through this mission tree. The backlog that predates it is kept
-at the foot of this file and becomes tsk's own once M-BOOT-05 completes.
+at the foot of this file and becomes tsk's own once M-BOOT-04 completes.
 
 ## Domain design reference
 
@@ -102,7 +102,7 @@ home directory a cloud session cannot read.
 ## Legacy backlog (pre-bootstrap)
 
 Out of scope until self hosting completes, per M-BOOT's constraints. Carried over
-unchanged from the previous plan format so nothing is lost. Once M-BOOT-05 completes,
+unchanged from the previous plan format so nothing is lost. Once M-BOOT-04 completes,
 these become tasks recorded in tsk itself rather than in this file.
 
 ### Done
