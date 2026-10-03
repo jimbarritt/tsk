@@ -78,7 +78,7 @@ the command names.
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|
 | T-01 | Select the Rust git library | `git2`, `gitoxide` or the `git` binary chosen, with the reason recorded | none | DONE |
-| T-02 | Decide the ledger location and layout | Location (nexus repo, namespaced by managed repo), branch name, tree layout and manifest format documented | none | TODO |
+| T-02 | Decide the ledger location and layout | Location (nexus repo, namespaced by managed repo), branch name, tree layout and manifest format documented | none | DONE |
 | T-03 | Add `tsk ledger fetch` | Fetches the missions and materialises them at a fixed worktree path, refreshing in place. Prints the path. Replaces `fetch-bootstrap-ref.sh` and `bootstrap-wt-path.sh` | T-01 | TODO |
 | T-04 | Add `tsk ledger push` | Commits the worktree changes, fetches the latest state, and pushes, with a bounded compare and swap retry. Replaces `push-bootstrap-ref.sh` | T-03 | TODO |
 | T-05 | Move the thread commands into the binary | Start, pause with handover, resume, detach, stop, switch, list and binding resolution run through `tsk`. Replaces `thread-*.sh` and `mint-token-lib.sh` | T-04 | TODO |
@@ -86,7 +86,7 @@ the command names.
 | T-07 | Switch the harness to the binary | Hooks, skills, `CLAUDE.md` and the justfile call `tsk`. The `SessionStart` hook ensures tsk is installed. The replaced scripts are removed | T-05, T-06 | TODO |
 | T-08 | Migrate to the ledger | Missions, threads and external events held in the ledger at the T-02 location, with history preserved or deliberately dropped | T-02, T-07 | TODO |
 | T-09 | Retire `tsk/bootstrap` | The branch is tagged, `CLAUDE.md` points at the ledger, and no bootstrap scaffolding remains | T-08 | TODO |
-| T-10 | Hold a ledger in the nexus | `tsk config attach-nexus <url>` records the nexus in the user config. A managed repo can be set to hold its ledger on a namespaced branch in the nexus, and `tsk ledger fetch` and `tsk ledger push` work against it. The tsk-nexus README and `docs/domain/territory-and-nexus.md` say the nexus holds ledgers as an option | T-09 | TODO |
+| T-10 | Hold a ledger in the nexus | `tsk config attach-nexus <url>` records the nexus in the user config. A managed repo's entry in `nexus.json` with `"ledger": "nexus"` holds its ledger on a namespaced branch in the nexus, and `tsk ledger fetch` and `tsk ledger push` work against it. The tsk-nexus README and `docs/domain/territory-and-nexus.md` say the nexus holds ledgers as an option | T-09 | TODO |
 
 **Essential task**: T-09. Its end state and M-BOOT's objective are the same.
 
@@ -111,6 +111,21 @@ the command names.
   `tsk config attach-nexus <url>`, which writes the user config. The nexus option is
   T-10, the last task of this mission, so tsk runs in a work repo from Monday
   2026-10-05.
+- 2026-10-03, T-02: the in-repo ledger is `refs/heads/tsk/ledger`. A nexus ledger is
+  `refs/heads/ledgers/<host>/<owner>/<repo>`, with the identity derived from the managed
+  repo's `origin` URL, normalised so HTTPS and SSH map to the same name. The choice per
+  repo is in the nexus: the repo's entry in `nexus.json` carries `"ledger": "nexus"` or
+  `"ledger": "repo"`. tsk finds the entry by matching the normalised `origin` URL
+  against each entry's `url`. No attached nexus, no entry, or no `ledger` field means
+  in-repo. The binary always passes full ref names to git. Tried first, not final: Jim
+  expects a repo may need an entry in `nexus.json` before tsk works with it. For T-10 the
+  entry is added to `nexus.json` by hand, with no registration command.
+- 2026-10-03, T-02: the ledger tree is the `tsk/bootstrap` tree unchanged (`index.md`,
+  `future-missions-tbd.md`, `missions/`, `threads/`, `external-events/`), the same in
+  both locations, plus `tsk-ledger.json` at the root holding `{"version": 1}`. A binary
+  that reads a version it does not support stops and reports it. T-08 starts
+  `tsk/ledger` from the current `tsk/bootstrap` commit, so history carries over. The
+  ADR 0007 event log is not part of this layout.
 
 ## Open decisions
 
