@@ -79,8 +79,8 @@ the command names.
 |---|---|---|---|---|
 | T-01 | Select the Rust git library | `git2`, `gitoxide` or the `git` binary chosen, with the reason recorded | none | TODO |
 | T-02 | Decide the ledger location and layout | Location (nexus repo, namespaced by managed repo), branch name, tree layout and manifest format documented | none | TODO |
-| T-03 | Add `tsk meta fetch` | Fetches the missions and materialises them at a fixed worktree path, refreshing in place. Prints the path. Replaces `fetch-bootstrap-ref.sh` and `bootstrap-wt-path.sh` | T-01 | TODO |
-| T-04 | Add `tsk meta push` | Commits the worktree changes, fetches the latest state, and pushes, with a bounded compare and swap retry. Replaces `push-bootstrap-ref.sh` | T-03 | TODO |
+| T-03 | Add `tsk ledger fetch` | Fetches the missions and materialises them at a fixed worktree path, refreshing in place. Prints the path. Replaces `fetch-bootstrap-ref.sh` and `bootstrap-wt-path.sh` | T-01 | TODO |
+| T-04 | Add `tsk ledger push` | Commits the worktree changes, fetches the latest state, and pushes, with a bounded compare and swap retry. Replaces `push-bootstrap-ref.sh` | T-03 | TODO |
 | T-05 | Move the thread commands into the binary | Start, pause with handover, resume, detach, stop, switch, list and binding resolution run through `tsk`. Replaces `thread-*.sh` and `mint-token-lib.sh` | T-04 | TODO |
 | T-06 | Move the external event queue into the binary | Append, read new events, and advance the watermark run through `tsk`. Replaces the external event scripts | T-04 | TODO |
 | T-07 | Switch the harness to the binary | Hooks, skills, `CLAUDE.md` and the justfile call `tsk`. The `SessionStart` hook ensures tsk is installed. The replaced scripts are removed | T-05, T-06 | TODO |
