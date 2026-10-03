@@ -87,6 +87,7 @@ the command names.
 | T-08 | Migrate to the ledger | Merged into T-07 on 2026-10-03 | n/a | MERGED |
 | T-09 | Retire `tsk/bootstrap` | The branch is tagged, `CLAUDE.md` points at the ledger, and no bootstrap scaffolding remains | T-07 | TODO |
 | T-10 | Hold a ledger in the nexus | `tsk config attach-nexus <url>` records the nexus in the user config. A managed repo's entry in `nexus.json` with `"ledger": "nexus"` holds its ledger on a namespaced branch in the nexus, and `tsk ledger fetch` and `tsk ledger push` work against it. The tsk-nexus README and `docs/domain/territory-and-nexus.md` say the nexus holds ledgers as an option | T-09 | TODO |
+| T-11 | Install the harness outside this repo | The hooks and skills have no dependency on the tsk repo and call only `tsk`. A `just` recipe installs them into `~/.claude/`, so a session in another repo, such as a work repo, runs the harness. Optional: if it is not done by Monday 2026-10-05, the hooks and skills are copied by hand | T-10 | TODO |
 
 **Essential task**: T-09. Its end state and M-BOOT's objective are the same.
 
