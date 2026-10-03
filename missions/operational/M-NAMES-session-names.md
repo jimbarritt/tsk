@@ -104,6 +104,10 @@ plugin to apply.
 
    Open: whether an actor can also make up its own name.
 
-4. Whether the plugin names only the main session, or also subagents and teammates.
+4. Who gets a name. Decided 2026-10-03: the main actor, its subagents and its
+   teammates. Each chooses its own. Jim:
+
+   > Subagents and teammates too, they choose their own yes why not
+
 5. Whether a name includes the class prefix (GSV, GCU, ROU) or only the name.
 6. Where the plugin lives, given the plugin and binary order recorded under M-BOOT.
