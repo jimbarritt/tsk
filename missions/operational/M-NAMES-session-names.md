@@ -113,4 +113,12 @@ plugin to apply.
 
    > Only the name, no prefix we can think bout that later
 
-6. Where the plugin lives, given the plugin and binary order recorded under M-BOOT.
+6. Where the plugin lives. Leaning, 2026-10-03, not yet confirmed: part of the tsk
+   plugin. Jim:
+
+   > I think it's part of tsk actually so maybe it's part of the tsk plugin. I was
+   > thinking it might be more general purpose but actually I think it's quite embedded
+   > within tsk. What do you think?
+   >
+   > It would be nice if a random session could assign itself a banks name but the most
+   > important part is to build it into tsk and the actor model
