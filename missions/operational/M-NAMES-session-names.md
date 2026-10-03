@@ -86,6 +86,10 @@ plugin to apply.
    > can span multiple sessions and has a position and possible certain skills and memory
    > if its own.
 
+   Jim, 2026-10-03, on what the name is:
+
+   > Which then has an identity and the identity is the banks naming
+
    The objective lines above name a session, and are not yet revised for this decision.
    The definition of an actor is open: see "Actor definition" in
    [future-missions-tbd.md](../../future-missions-tbd.md).
