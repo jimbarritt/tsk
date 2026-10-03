@@ -5,10 +5,10 @@
 | ID | M-NAMES |
 | Territory | agentic research |
 | Assignee | unassigned |
-| Blocked by | none |
+| Blocked by | M-BOOT-05 |
 
-Skeleton. The objective lines are drafted from the captured idea and wait on the open
-decisions below.
+Skeleton. The objective lines follow the decisions below. The definition of an actor is
+still open.
 
 ## Idea, as captured
 
@@ -20,18 +20,20 @@ Raised by Jim, 2026-10-03:
 
 ## Objective
 
-- A Claude Code session started with the plugin installed has a custom title that is a
-  Culture ship name.
-- A second session on the same machine sends a message to the first by that name, and the
-  first receives it.
-- A cloud session started with the plugin installed has a custom title that is a Culture
-  ship name.
-- Two live sessions do not hold the same ship name.
+- Each tsk actor has a name that it chose itself from the Culture ship names.
+- The actor's name is stored in the tsk ledger with the actor.
+- Every session the actor runs in has the actor's name as its session title, in a
+  terminal and in a cloud session started from iOS or the web.
+- Another session sends a message to the actor by that name, and the actor receives it.
+- Each subagent and teammate of an actor has a Culture ship name that it chose itself.
+- Two live actors do not hold the same name.
+- A session with no tsk actor can give itself a Culture ship name.
 
 ## Purpose
 
-Parent mission: TBD. Related to M-BOOT-06, Mission Control, which names each Claude
-session, and to cross-session messaging between sessions.
+Parent mission: TBD. Part of the tsk Claude Code plugin, which M-BOOT's decision of
+2026-10-02 places after M-BOOT-05. Related to M-BOOT-06, Mission Control, which names
+each Claude session, and to cross-session messaging between sessions.
 
 ## Intelligence
 
@@ -54,7 +56,8 @@ Jim.
 
 ## Out of scope
 
-- TBD.
+- A separate, general-purpose naming plugin.
+- A class prefix (GSV, GCU, ROU) on a name, for now.
 
 ## Plan
 
@@ -66,10 +69,12 @@ Jim.
 | T-04 | Hook names under Remote Control | A test shows whether a hook-set name is listed while a session is connected to Remote Control | none | none | TODO |
 | T-05 | Quoting | A test shows whether `SendMessage` accepts a name with spaces, commas and an ellipsis | none | none | TODO |
 | T-06 | Full name list | A complete list of ship names exists with a source for each | none | none | TODO |
-| T-07 | Choice of name | How a session gets its name is decided | none | Open decisions | TODO |
+| T-07 | Choice of name | How an actor gets its name is decided | none | none | DONE |
+| T-08 | Actor definition | The definition of an actor is settled in the ubiquitous language | none | none | TODO |
+| T-09 | Made-up names | Whether an actor can make up its own name is decided | none | none | TODO |
 
-**Essential task**: T-07. Without a rule for choosing a name there is nothing for the
-plugin to apply.
+**Essential task**: T-08. The name belongs to the actor, so the plugin has nothing to
+attach a name to until an actor is defined.
 
 ## Open decisions
 
@@ -90,7 +95,6 @@ plugin to apply.
 
    > Which then has an identity and the identity is the banks naming
 
-   The objective lines above name a session, and are not yet revised for this decision.
    The definition of an actor is open: see "Actor definition" in
    [future-missions-tbd.md](../../future-missions-tbd.md).
 2. How a name is chosen. Decided 2026-10-03: the actor chooses its own name. Jim:
@@ -113,8 +117,9 @@ plugin to apply.
 
    > Only the name, no prefix we can think bout that later
 
-6. Where the plugin lives. Leaning, 2026-10-03, not yet confirmed: part of the tsk
-   plugin. Jim:
+6. Where the plugin lives. Decided 2026-10-03: part of the tsk plugin, so after the tsk
+   binary. A session with no tsk actor naming itself is a small case of the same hook,
+   not a separate plugin. Jim:
 
    > I think it's part of tsk actually so maybe it's part of the tsk plugin. I was
    > thinking it might be more general purpose but actually I think it's quite embedded
@@ -122,3 +127,8 @@ plugin to apply.
    >
    > It would be nice if a random session could assign itself a banks name but the most
    > important part is to build it into tsk and the actor model
+
+   Jim, on the reasoning that the name needs a store that spans sessions, which is the
+   ledger:
+
+   > Yes agree to all the above

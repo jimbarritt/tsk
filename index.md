@@ -36,7 +36,7 @@ briefing: [missions/operational/M-BOOT.md](missions/operational/M-BOOT.md).
 | [M-BOOT-06](missions/operational/M-BOOT-06-mission-control.md) | Mission Control | A single command sets up a tmux session with a list of Claude sessions, the selected session, and a terminal | TODO | none |
 | [M-LAB](missions/operational/M-LAB-ai-lab-notes.md) | AI lab notes (journalling plugin) | Skeleton, most fields TBD | TODO | none |
 | [M-STORY](missions/operational/M-STORY-tsk-story-deck.md) | tsk story deck | A Marp deck in `docs/slide-decks/overview-for-engineers/` tells tsk's domain and features as a product, for other engineers | TODO | none |
-| [M-NAMES](missions/operational/M-NAMES-session-names.md) | Session names from Culture ship Minds | A plugin gives a session a Culture ship name that other sessions use to address it, skeleton | TODO | none |
+| [M-NAMES](missions/operational/M-NAMES-session-names.md) | Session names from Culture ship Minds | Each tsk actor has a Culture ship name it chose, stored in the ledger and used as the title of every session it runs in, skeleton | TODO | M-BOOT-05 |
 
 Essential mission: M-BOOT-05. Its objective and M-BOOT's objective are the same state.
 
