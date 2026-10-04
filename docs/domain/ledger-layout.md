@@ -39,7 +39,7 @@ working copy.
 | Location | Remote | Ref |
 |---|---|---|
 | In-repo (default) | the managed repo's `origin` | `refs/heads/tsk/ledger` |
-| Nexus (option) | the nexus repo | `refs/heads/ledgers/<host>/<owner>/<repo>` |
+| Nexus (option) | the nexus repo | `refs/heads/ledgers/<repo-id>` |
 
 The binary passes the full ref name to every git command. It never passes `tsk/ledger`
 or any other unqualified name. On the tsk repo's `origin`, an orphaned custom ref
@@ -47,26 +47,104 @@ or any other unqualified name. On the tsk repo's `origin`, an orphaned custom re
 fetch returns that ref's content with exit status 0 (ADR 0008, amended 2026-09-16). The
 full name makes the same trap impossible for `tsk/ledger`.
 
+The nexus location is for a managed repo the operator cannot push a ledger branch to,
+such as a work repo. The ledger objects live in the nexus repo. The managed repo's clone
+fetches and pushes them against the nexus URL as the remote, so the ledger worktree stays
+a linked worktree of the managed repo's clone (see
+[Ledger worktree location](#ledger-worktree-location)).
+
+### User config
+
+`tsk config attach-nexus <url>` records the nexus repo URL in the user config:
+
+```
+${XDG_CONFIG_HOME:-$HOME/.config}/tsk/config.toml
+```
+
+```toml
+[nexus]
+url = "https://github.com/jimbarritt/tsk-nexus"
+```
+
+- `XDG_CONFIG_HOME` set to an empty string counts as unset.
+- The command creates the file and its directory when they are absent and keeps any
+  other key in the file.
+- Attaching the URL already recorded changes nothing and prints
+  `nexus already attached: <url>`. Attaching a different URL replaces it and prints
+  `replaced nexus <old> with <new>`. A first attach prints `attached nexus <url>`.
+- `tsk config show` prints the config path and the attached URL.
+
 ### Choosing the location
 
 The choice is per managed repo:
 
 1. With no nexus attached, the ledger is in-repo.
-2. With a nexus attached (`tsk config attach-nexus <url>`, written to the user config),
-   tsk reads the nexus's `nexus.json` and finds the entry whose `url`, normalised, equals
-   the managed repo's normalised `origin` URL.
-3. No entry, or an entry with no `ledger` field, means in-repo. `"ledger": "repo"` means
-   in-repo. `"ledger": "nexus"` means the nexus ref above.
+2. With a nexus attached, tsk reads the nexus's `nexus.json` (see
+   [Reading the nexus](#reading-the-nexus)) and finds the managed repo's entry:
+   1. If `$(git-common-dir)/tsk-repo-id` holds an ID (see
+      [Local-only files](#local-only-files)) and a visible entry has that `id`, that is
+      the entry.
+   2. Otherwise the entry is the first visible entry whose `url`, normalised, equals the
+      normalised value of the managed repo's raw `remote.origin.url`. The raw value is
+      read with `git config --get remote.origin.url`, not `git remote get-url`, because
+      the latter applies `url.<base>.insteadOf` rewrites.
+   3. A visible entry is one with no `local` field, or with `local` equal to this
+      machine's name. The machine name is the value of `TSK_MACHINE_NAME` when set,
+      otherwise the output of `hostname`. An entry whose `local` names another machine
+      is skipped in both steps.
+3. No entry means in-repo. An entry with no `ledger` field, or `"ledger": "repo"`, means
+   in-repo. `"ledger": "nexus"` means the ref `refs/heads/ledgers/<repo-id>` in the nexus,
+   where `<repo-id>` is the entry's `id`. Any other `ledger` value stops with an error.
+4. When an entry is found and `tsk-repo-id` does not already hold its `id`, tsk writes the
+   `id` to `tsk-repo-id`.
 
-For T-10, the entry is added to `nexus.json` by hand. No command registers a repo.
+A managed repo whose `origin` is a local path or a `file://` URL has no normalised form.
+It keeps an in-repo ledger unless `tsk-repo-id` names an entry.
 
-T-03 implements the in-repo location only. The nexus location is T-10.
+Every command that uses the ledger (`tsk ledger fetch` and `push`, `tsk thread`,
+`tsk events`, the session start) resolves the location this way. `tsk ledger path` does
+not: it needs only the clone ID.
+
+### The nexus entry
+
+`nexus.json` lists repos under territories:
+
+```json
+{
+  "version": 1,
+  "territories": [
+    {
+      "id": "agentic-engineering",
+      "name": "Agentic Engineering",
+      "repos": [
+        { "id": "tsk", "url": "https://github.com/jimbarritt/tsk" },
+        {
+          "id": "work-api",
+          "url": "https://github.com/acme/work-api",
+          "ledger": "nexus"
+        },
+        { "id": "scratch", "local": "laptop", "ledger": "nexus" }
+      ]
+    }
+  ]
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `id` | yes | The repo ID. It names the ledger branch, `ledgers/<id>`, and is stored in the ledger's manifest. `[a-z0-9][a-z0-9-]*`. |
+| `url` | no | The repo's clone URL, in any form that normalises to the same name (see below). Absent for a repo with no remote yet. |
+| `local` | no | A machine name. The entry is visible only on that machine, and is found only through the cached repo ID. Used with no `url`. |
+| `ledger` | no | `"repo"` or `"nexus"`. Absent means `"repo"`. |
+
+Entries are added to `nexus.json` by hand. No command registers a repo. Automatic
+transition of an entry from `local` to `url` on the first push is not implemented.
 
 ### Origin URL normalisation
 
-A nexus ref name derives from the managed repo's `origin` URL
-(`git remote get-url origin`). Normalisation maps the HTTPS and SSH forms of one repo to
-the same `<host>/<owner>/<repo>`:
+Normalisation maps the HTTPS and SSH forms of one repo to the same
+`<host>/<owner>/<repo>`. tsk uses it to match the managed repo's `origin` against the
+`url` of nexus entries. It does not name a ref.
 
 | Form | Example |
 |---|---|
@@ -76,8 +154,7 @@ the same `<host>/<owner>/<repo>`:
 | SSH URL with port | `ssh://git@github.com:22/jimbarritt/tsk.git` |
 | scp-like SSH | `git@github.com:jimbarritt/tsk.git` |
 
-Each maps to `github.com/jimbarritt/tsk`, so the ref is
-`refs/heads/ledgers/github.com/jimbarritt/tsk`.
+Each maps to `github.com/jimbarritt/tsk`.
 
 Rules, applied in order:
 
@@ -89,9 +166,53 @@ Rules, applied in order:
 5. Join host and path segments with `/`. A path with more than two segments (a GitLab
    subgroup, for example) keeps every segment in order.
 
-A `file://` URL or a local path has no host and does not normalise. A nexus ledger is
-not available for such a repo. The result must pass `git check-ref-format` once
-prefixed with `refs/heads/ledgers/`.
+A `file://` URL, a local path, or a URL with fewer than two path segments has no
+normalised form and matches no entry.
+
+### Reading the nexus
+
+tsk keeps a bare clone of the nexus under the state root, at
+`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/nexus/`. Each resolution runs
+`git fetch <url> +HEAD:refs/heads/nexus` there, then reads the file with
+`git show refs/heads/nexus:nexus.json`. No working copy of the nexus exists. When the
+fetch fails and an earlier fetch left `refs/heads/nexus`, tsk prints a note to stderr
+and reads that copy. When the fetch fails and no copy exists, the command stops with an
+error.
+
+The clone is replaced by fetching from the attached URL each time, so attaching a
+different URL needs no clean-up.
+
+### Fetching and pushing a nexus ledger
+
+The ledger worktree is a linked worktree of the managed repo's clone in both locations.
+For a nexus ledger the managed repo's clone runs
+`git fetch <nexus-url> refs/heads/ledgers/<repo-id>` and
+`git push <nexus-url> HEAD:refs/heads/ledgers/<repo-id>`, with the nexus URL as the
+remote argument. Fetching into the managed clone puts the ledger objects in its object
+database, which `git worktree add` needs. The nexus repo is not an `origin` or any
+named remote of the managed clone, and no `.git/config` entry is written.
+
+### A ledger that does not exist yet
+
+When the ledger ref is absent on its remote, `tsk ledger fetch` creates a new ledger. It
+detects absence with `git ls-remote --exit-code`, which exits 2 for a missing ref,
+after a failed `git fetch`. Any other failure is an error.
+
+1. tsk writes an orphan commit with git plumbing (`hash-object`, `mktree`,
+   `commit-tree`). Its tree holds `.tsk-ledger.toml` (`version = 1`, plus
+   `repo_id = "<id>"` for a nexus ledger) and an `index.md` holding `# Ledger index`.
+   `missions/`, `threads/` and `external-events/` are not in the tree: git does not hold
+   an empty directory, and the commands create them on first write.
+2. tsk creates the ledger worktree on that commit, detached.
+3. tsk prints a note to stderr that the branch does not exist yet, and the path to
+   stdout.
+
+The branch is created by the first `tsk ledger push`. Its push lease is create-only
+(`--force-with-lease=<ref>:` with an empty expected value), so the push is rejected if
+another writer created the branch first. A later `tsk ledger fetch` while the branch is
+still absent leaves the ledger worktree as it is and prints the note again.
+
+This applies to both locations.
 
 ## Ledger worktree location
 
@@ -113,8 +234,9 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger
   checkout and does not lock `tsk/ledger` against a checkout elsewhere. Its metadata is
   in the managed repo's `.git/worktrees/`, which only git edits.
 
-The path is the same for both ledger locations. How a nexus ledger's objects reach the
-managed repo's clone is decided in T-10.
+The path is the same for both ledger locations. For a nexus ledger, the objects reach the
+managed repo's clone by a fetch against the nexus URL (see
+[Fetching and pushing a nexus ledger](#fetching-and-pushing-a-nexus-ledger)).
 
 ## Tree
 
@@ -158,12 +280,16 @@ version = 1
 | Key | Type | Required | Meaning |
 |---|---|---|---|
 | `version` | integer | yes | Layout version. This document describes version `1`. |
+| `repo_id` | string | no | The repo ID of a nexus ledger, the `id` of its nexus entry. In-repo ledgers may omit it. |
 
 - A ledger with no `.tsk-ledger.toml` is not a tsk ledger. The binary stops and reports
   it.
 - A `version` the binary does not support stops the binary with an error naming the
   version found and the versions it supports. The binary writes nothing to the ledger or
   the ledger worktree before this check.
+- When the ledger is a nexus ledger and the manifest holds `repo_id`, the value must equal
+  the entry's `id`. A different value stops the binary with an error before anything is
+  written.
 - Unknown keys are ignored.
 - T-07 adds this file in the first commit on `tsk/ledger`, made on top of the
   `tsk/bootstrap` tip so history carries over.
@@ -371,7 +497,7 @@ How far a consumer has processed the queue. Pretty-printed JSON object:
 
 ## Local-only files
 
-Two files belong to one clone and are never committed to the ledger, in either ledger
+Three files belong to one clone and are never committed to the ledger, in either ledger
 location.
 
 ### `.git/tsk-clone-id`
@@ -391,6 +517,19 @@ file absent or empty, and read unchanged forever after. It survives a rename or 
 the clone directory, which a hash of the path would not. A failure to mint writes
 nothing. The `tsk/bootstrap` scripts and the binary share this file, so the ledger
 worktrees for `tsk/bootstrap` and `tsk/ledger` sit under the same `<clone-id>` directory.
+
+### `tsk-repo-id`
+
+Path: `$(git rev-parse --path-format=absolute --git-common-dir)/tsk-repo-id`. One per
+clone.
+
+Content: the repo ID of the clone's nexus entry and a trailing newline. Readers strip all
+whitespace. An absent or empty file means no cached ID.
+
+Written by the location resolution when it finds an entry, and by hand for a repo with
+no `url` (an entry that carries `local`), whose entry is found only through this file. It
+is read first on every later run, so a change of the repo's remote URL does not lose the
+entry. Never pushed.
 
 ### `tsk-thread-id`
 
@@ -431,14 +570,16 @@ which mints it.
 
 ### `tsk ledger fetch`
 
-1. Resolve the ledger location: today, `origin` and `refs/heads/tsk/ledger`.
+1. Resolve the ledger location (see [Choosing the location](#choosing-the-location)).
 2. Read `.git/tsk-clone-id`, minting it if absent or empty, and compute the ledger
    worktree path.
 3. `git fetch <remote> <ref>` with the full ref name, then read the fetched commit from
-   `FETCH_HEAD`.
+   `FETCH_HEAD`. If the ref is absent on the remote, create a new ledger instead (see
+   [A ledger that does not exist yet](#a-ledger-that-does-not-exist-yet)).
 4. Read `.tsk-ledger.toml` from the fetched commit (`git cat-file blob <sha>:.tsk-ledger.toml`)
-   and check its version. A missing manifest or an unsupported version stops here, before
-   the ledger worktree changes.
+   and check its version and, for a nexus ledger, its `repo_id`. A missing manifest, an
+   unsupported version or a mismatched `repo_id` stops here, before the ledger worktree
+   changes.
 5. If the ledger worktree directory does not exist: remove a stale registration of that path
    (`git worktree prune`, only when `git worktree list --porcelain -z` lists the path),
    create the parent directories, and run `git worktree add --detach <path> <sha>`.
@@ -473,7 +614,8 @@ any working tree of the managed repo.
    id. The ledger worktree must be a linked worktree of this clone.
 2. Fetch the ledger ref by its full name in the ledger worktree and check the fetched
    commit's `.tsk-ledger.toml`, as `tsk ledger fetch` does. A missing manifest or an
-   unsupported version stops here, before anything is staged or committed.
+   unsupported version stops here, before anything is staged or committed. If the ref is
+   absent on the remote, the manifest of the ledger worktree's `HEAD` is checked instead.
 3. `git add -A` in the ledger worktree.
 4. If `git diff --cached --quiet` exits 1, commit the staged changes with the caller's
    message. If it exits 0, nothing is staged: print a note to stderr and continue, since
@@ -487,7 +629,8 @@ any working tree of the managed repo.
       conflict, `git rebase --abort` and stop with exit 1. The ledger worktree keeps its
       local commit, and the remote is not written.
    3. `git push --porcelain --force-with-lease=<ref>:<sha> <remote> HEAD:<ref>`, with
-      `<ref>` the full ref name and `<sha>` the fetched commit. The lease is a compare and
+      `<ref>` the full ref name and `<sha>` the fetched commit. When the ref is absent on
+      the remote, `<sha>` is empty and the lease requires the ref to stay absent. The lease is a compare and
       swap: the remote updates the ref only if it still holds `<sha>`, so a commit a
       concurrent writer pushed after the fetch is never overwritten.
    4. Read the status line for `<ref>` from the porcelain output. Flag `!` is a rejected
@@ -670,7 +813,7 @@ what the harness expects until then.
 
 | | `tsk/bootstrap` | Ledger |
 |---|---|---|
-| Ref | `refs/heads/tsk/bootstrap` | `refs/heads/tsk/ledger`, or `refs/heads/ledgers/<host>/<owner>/<repo>` in the nexus |
+| Ref | `refs/heads/tsk/bootstrap` | `refs/heads/tsk/ledger`, or `refs/heads/ledgers/<repo-id>` in the nexus |
 | Ledger worktree | `.../repos/<clone-id>/bootstrap` | `.../repos/<clone-id>/ledger` |
 | Manifest | none | `.tsk-ledger.toml`, `version = 1` |
 | Continuation commit fields | flat `commit_on_bootstrap`, `commit_on_main` | nested `git.ledger.commit`, `git.code.ref`, `git.code.commit`; the flat names are not read |

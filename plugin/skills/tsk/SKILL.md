@@ -7,8 +7,9 @@ description: Reference for the tsk command line: the ledger, threads and binding
 
 tsk tracks missions and the threads that work them. The missions, threads and their
 continuation state live in a **ledger**: a git branch, `refs/heads/tsk/ledger` on the
-managed repo's `origin`, checked out in a detached ledger worktree outside the
-repository. The `ledger`, `thread` and `events` commands run in the `tsk` binary alone, with no
+managed repo's `origin` by default, checked out in a detached ledger worktree outside the
+repository. For a repo that cannot hold a ledger branch, the ledger is
+`refs/heads/ledgers/<repo-id>` in the nexus repo (see Nexus ledgers below). The `ledger`, `thread` and `events` commands run in the `tsk` binary alone, with no
 daemon, from inside any working tree of the managed repo.
 
 Design references in the tsk repository: every ledger file and format is in
@@ -32,10 +33,29 @@ A **binding** ties the current session or code worktree to a thread:
 More than one session or code worktree can bind to the same thread. Resuming a thread that
 another actor wrote to binds anyway, and prints a warning.
 
+## Nexus ledgers
+
+`tsk config attach-nexus <url>` writes the nexus URL to
+`${XDG_CONFIG_HOME:-~/.config}/tsk/config.toml`. A repo's entry in the nexus's `nexus.json`
+with `"ledger": "nexus"` holds its ledger on `refs/heads/ledgers/<repo-id>` in the nexus,
+where `<repo-id>` is the entry's `id`. With no attached nexus, no matching entry or no
+`ledger` field, the ledger is in-repo. tsk finds the entry through the repo ID cached in
+`.git/tsk-repo-id`, otherwise by matching the repo's raw `remote.origin.url` against each
+entry's `url`. An entry with `"local": "<machine name>"` and no `url` is found only through
+the cached ID, on that machine. Entries are added to `nexus.json` by hand. Every ledger,
+thread and events command works the same in both locations. The details are in
+`docs/domain/ledger-layout.md`.
+
+When the ledger branch does not exist yet, `tsk ledger fetch` creates a new ledger in the
+ledger worktree, and the first `tsk ledger push` creates the branch.
+
 ## Commands
 
 ```
-tsk ledger fetch                         fetch refs/heads/tsk/ledger from origin, refresh the ledger worktree, print the path
+tsk config attach-nexus <url>            record the nexus repo URL in the user config; idempotent, reports a replacement
+tsk config show                          print the user config path and the attached nexus URL
+
+tsk ledger fetch                         fetch the ledger branch (creating a new ledger when it does not exist), refresh the ledger worktree, print the path
 tsk ledger path                          print the ledger worktree path; no fetch, no writes
 tsk ledger push "<message>"              commit every ledger worktree change, rebase onto the latest ledger, push; prints the ledger commit
 
