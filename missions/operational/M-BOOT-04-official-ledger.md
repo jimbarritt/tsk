@@ -69,7 +69,7 @@ the command names.
 ## Out of scope
 
 - Cloud agents and unattended runs (M-BOOT-03, deferred).
-- The Claude Code plugin. It follows the binary.
+- Publishing the Claude Code plugin to a marketplace. The plugin's source tree, `plugin/` on `main`, is in scope from 2026-10-04.
 - The run record format and the transcripts hook (M-KSOBR).
 - The latency harness (`run-latency-harness.py`), which is not scaffolding.
 
@@ -79,15 +79,15 @@ the command names.
 |---|---|---|---|---|
 | T-01 | Select the Rust git library | `git2`, `gitoxide` or the `git` binary chosen, with the reason recorded | none | DONE |
 | T-02 | Decide the ledger location and layout | Location (nexus repo, namespaced by managed repo), branch name, tree layout and manifest format documented | none | DONE |
-| T-03 | Add `tsk ledger fetch` | First, `docs/domain/ledger-layout.md` on `main` documents every ledger file, its format and its JSON fields, taken from the scripts. T-04 to T-07 build against it. Then: fetches the missions and materialises them at a fixed worktree path, refreshing in place. Prints the path. Replaces `fetch-bootstrap-ref.sh` and `bootstrap-wt-path.sh` | T-01 | TODO |
-| T-04 | Add `tsk ledger push` | Commits the worktree changes, fetches the latest state, and pushes, with a bounded compare and swap retry. Replaces `push-bootstrap-ref.sh` | T-03 | TODO |
-| T-05 | Move the thread commands into the binary | Start, pause with handover, resume, detach, stop, switch, list and binding resolution run through `tsk`. Replaces `thread-*.sh` and `mint-token-lib.sh`. The older daemon-backed `thread`, `task`, `context` and `where` commands are removed | T-04 | TODO |
-| T-06 | Move the external event queue into the binary | Append, read new events, and advance the watermark run through `tsk`. Replaces the external event scripts | T-04 | TODO |
-| T-07 | Cut over to the binary and the ledger | `tsk/ledger` created from the `tsk/bootstrap` tip with `.tsk-ledger.toml` added, so history carries over. Hooks, skills, `CLAUDE.md` and the justfile call `tsk`. The `SessionStart` hook ensures tsk is installed. The replaced scripts are removed | T-02, T-05, T-06 | TODO |
+| T-03 | Add `tsk ledger fetch` | First, `docs/domain/ledger-layout.md` on `main` documents every ledger file, its format and its JSON fields, taken from the scripts. T-04 to T-07 build against it. Then: fetches the missions and materialises them at a fixed worktree path, refreshing in place. Prints the path. Replaces `fetch-bootstrap-ref.sh` and `bootstrap-wt-path.sh` | T-01 | DONE, uncommitted on `main`, in review |
+| T-04 | Add `tsk ledger push` | Commits the worktree changes, fetches the latest state, and pushes, with a bounded compare and swap retry. Replaces `push-bootstrap-ref.sh` | T-03 | DONE, uncommitted on `main`, in review |
+| T-05 | Move the thread commands into the binary | Start, pause with handover, resume, detach, stop, switch, list and binding resolution run through `tsk`. Replaces `thread-*.sh` and `mint-token-lib.sh`. The older daemon-backed `thread`, `task`, `context` and `where` commands are removed | T-04 | DONE, uncommitted on `main`, in review |
+| T-06 | Move the external event queue into the binary | Append, read new events, and advance the watermark run through `tsk`. Replaces the external event scripts | T-04 | DONE, uncommitted on `main`, in review |
+| T-07 | Cut over to the binary and the ledger | `tsk/ledger` created from the `tsk/bootstrap` tip with `.tsk-ledger.toml` added, so history carries over. Hooks, skills, `CLAUDE.md` and the justfile call `tsk`. The thread skills and the `SessionStart` and `Stop` hooks move from `.claude/` into `plugin/`, and this repo loads them from there. `ops/local/poll-security-alerts.sh` pipes its events to `tsk events append` in batch form. Prose uses "ledger worktree" and "code worktree", never "worktree" alone. The `SessionStart` hook ensures tsk is installed. The replaced scripts are removed | T-02, T-05, T-06 | TODO |
 | T-08 | Migrate to the ledger | Merged into T-07 on 2026-10-03 | n/a | MERGED |
 | T-09 | Retire `tsk/bootstrap` | The branch is tagged, `CLAUDE.md` points at the ledger, and no bootstrap scaffolding remains | T-07 | TODO |
 | T-10 | Hold a ledger in the nexus | `tsk config attach-nexus <url>` records the nexus in the user config. A managed repo's entry in `nexus.json` with `"ledger": "nexus"` holds its ledger on a namespaced branch in the nexus, and `tsk ledger fetch` and `tsk ledger push` work against it. The tsk-nexus README and `docs/domain/territory-and-nexus.md` say the nexus holds ledgers as an option | T-09 | TODO |
-| T-11 | Install the harness outside this repo | The hooks and skills have no dependency on the tsk repo and call only `tsk`. A `just` recipe installs them into `~/.claude/`, so a session in another repo, such as a work repo, runs the harness. Optional: if it is not done by Monday 2026-10-05, the hooks and skills are copied by hand | T-10 | TODO |
+| T-11 | Install the harness outside this repo | The hooks and skills have no dependency on the tsk repo and call only `tsk`. The plugin at `plugin/` installs them through a marketplace entry of the `git-subdir` form, so a session in another repo, such as a work repo, runs the harness. Optional: if it is not done by Monday 2026-10-05, the hooks and skills are copied by hand | T-10 | TODO |
 
 **Essential task**: T-09. Its end state and M-BOOT's objective are the same.
 
@@ -145,6 +145,24 @@ the command names.
   clone in both ledger locations.
 - 2026-10-03: encoding the mission briefing and its format in the binary is a later
   mission. The binary moves mission files without parsing them.
+- 2026-10-04: command names accepted: `tsk ledger fetch | path | push`,
+  `tsk thread start | pause | resume | detach | stop | list | binding | guard`,
+  `tsk events append | read-new | advance-watermark`. Scaffolding a thread directory and
+  minting a thread ID are internal to `tsk thread start`, not commands.
+- 2026-10-04: the security alert poller is this repo's own extension of the external
+  event queue, not part of tsk. It stays in `ops/local/`, which holds scripts local to
+  this repo and is not distributed. It calls `tsk events append` and never writes the
+  queue file. `tsk events append` takes a batch of events on stdin as NDJSON, with one
+  fetch and one push per batch.
+- 2026-10-04: "ledger worktree" names the per-clone linked worktree that holds the
+  ledger branch. "Code worktree" names a worktree of the managed repo's code. Prose
+  never uses "worktree" unqualified. Recorded in `docs/domain/ubiquitous-language.md`.
+  ADR bodies are not rewritten.
+- 2026-10-04: the Claude Code plugin's source tree is `plugin/` in the tsk repo:
+  `.claude-plugin/plugin.json` (name `tsk`, no `version`, so each commit is a version),
+  `skills/`, `hooks/hooks.json`. Anything in `ops/local/` that tsk distributes moves out
+  to a source directory. The concurrency gap on the shared ledger worktree is recorded in
+  `future-missions-tbd.md`.
 
 ## Open decisions
 
