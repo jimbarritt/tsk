@@ -54,8 +54,11 @@ directory. A script you write that needs the ledger calls `tsk` from inside itse
 does not inline its own `git add` / `git commit` / `git fetch` / `git push` sequence.
 The binary holds that logic once, with tests.
 
-Two refs share the name `tsk/bootstrap` on `origin`, and the earlier branch is still
-there: the live branch `refs/heads/tsk/bootstrap`, and an orphaned custom ref
+`tsk/bootstrap` is retired. Its final commit, the one `tsk/ledger` starts from, is
+tagged `archive/tsk-bootstrap`, and nothing writes to the branch.
+
+Two refs share the name `tsk/bootstrap` on `origin`: the retired branch
+`refs/heads/tsk/bootstrap`, and an orphaned custom ref
 `refs/tsk/bootstrap` left behind by the original design (ADR 0008). Git resolves an
 unqualified `tsk/bootstrap` against `refs/tsk/bootstrap` first, so
 `git fetch origin tsk/bootstrap` exits 0, prints a plausible success line, and returns
