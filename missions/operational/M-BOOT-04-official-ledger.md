@@ -200,6 +200,27 @@ the command names.
   `local` is removed; the ID and the branch stay. A rename changes only `url`. Matching
   the normalised `origin` URL against entries stays, to find the entry for a clone with
   no local record of its ID. Local-only repos can be in the nexus.
+- 2026-10-04, T-07: a continuation state entry holds its commits in a nested `git`
+  object: `git.ledger.commit`, `git.code.ref` and `git.code.commit`. The flat fields
+  `commit_on_bootstrap`, `commit_on_ledger` and `commit_on_main` are removed, with no
+  read fallback in the binary. Existing entries are migrated once, on `tsk/ledger`, in
+  a commit after the one that creates it. A migrated entry gets
+  `git.code.ref = "refs/heads/main"`, because the old rule required its commit to be on
+  origin's default branch.
+- 2026-10-04, T-07: this repo holds a marketplace, `.claude-plugin/marketplace.json` at
+  the repo root, with one entry, `tsk`, source `./plugin`. The repo's `SessionStart`
+  script adds the marketplace and installs and updates `tsk@tsk` at project scope, as it
+  does for `swe`. A change to `plugin/` takes effect after a `version` bump in
+  `plugin.json`.
+- 2026-10-04, T-07: the plugin installs the binary. Its `SessionStart` hook runs
+  `cargo install --path "$TSK_SOURCE"` when `tsk` is not on `PATH` and `TSK_SOURCE` is
+  set, otherwise `cargo install tsk-bin`. This repo sets `env.TSK_SOURCE` to its `cli/`
+  in `.claude/settings.json`, and `just build-install` updates the binary. When the
+  install fails or `tsk` is still not found, the hook exits with the install command and
+  the command that runs the session start again.
 
 ## Open decisions
+
+- Whether the `tsk` marketplace moves from this repo to `jimbarritt/claude-plugins`.
+  Decided later.
 
