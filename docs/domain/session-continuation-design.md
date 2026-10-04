@@ -261,8 +261,8 @@ plain boolean fact, checkable by a deterministic script with no judgement involv
 verification work might later want, and `/goal` is documented as built for the
 unsupervised context, not this design's supervised-interactive scope.
 
-**Why the check does not fetch.** `thread_resolve_binding_local` (`thread-lib.sh`)
-performs the same lookup as `thread_resolve_binding` but never calls
+**Why the check does not fetch.** `tsk thread guard` resolves the binding
+from the existing ledger worktree and the code worktree's marker, and never runs
 `tsk ledger fetch`. Refreshing over the network on every turn would be slow and
 liable to fail transiently, and it is unnecessary here: a binding this session itself
 wrote is already reflected in its own ledger worktree checkout without being fetched again.
