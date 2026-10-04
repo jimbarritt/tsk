@@ -1,6 +1,6 @@
-# tsk bootstrap ref index
+# tsk ledger index
 
-This branch is the data store for tsk's own missions and tasks. This file is the entry
+This branch, `tsk/ledger`, is the data store for tsk's own missions and tasks. This file is the entry
 point: read it first, then the briefing for the mission you are working.
 
 There is no `plan.md`. "Plan" is a domain term attached to the execution of a single
@@ -13,7 +13,9 @@ mission status at the level of scale you mean.
 **M-BOOT-04: the official ledger.** Full briefing:
 [missions/operational/M-BOOT-04-official-ledger.md](missions/operational/M-BOOT-04-official-ledger.md).
 The `tsk` binary replaces the bootstrap scripts, and the missions move into the ledger.
-M-BOOT-02 closed on 2026-10-03 and M-BOOT-03 is deferred. See M-BOOT, Decisions.
+Since T-07 (2026-10-04) the missions, threads and external events are held on
+`tsk/ledger`. `tsk/bootstrap` is retired: its final commit is tagged
+`archive/tsk-bootstrap`, and nothing writes to it. M-BOOT-02 closed on 2026-10-03 and M-BOOT-03 is deferred. See M-BOOT, Decisions.
 
 Parent mission: **M-BOOT, bootstrap tsk self hosting.** Reached when the missions and
 tasks for building tsk are held in tsk's own ledger and agents execute them from there,
