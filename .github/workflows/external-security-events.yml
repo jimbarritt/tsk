@@ -1,7 +1,7 @@
 name: External security events
 
 # Polls GitHub's Dependabot, code scanning and secret scanning alert APIs and queues
-# each open alert onto tsk/bootstrap's external event queue (M-BOOT-02 T-19), for the
+# each open alert onto the ledger's external event queue (M-BOOT-02 T-19), for the
 # M-ADMIN-03 mission to process. See T-19's ledger entry for the history: an earlier
 # version tried to trigger on dependabot_alert/code_scanning_alert/secret_scanning_alert
 # directly, but those are webhook event types, not valid GitHub Actions `on:` triggers.
@@ -33,6 +33,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install tsk
+        run: |
+          rustup toolchain install stable --profile minimal
+          cargo install --path cli --locked
 
       - name: Poll security alerts and queue them
         env:

@@ -1,0 +1,16 @@
+{
+  "name": "tsk",
+  "owner": {
+    "name": "Jim Barritt"
+  },
+  "plugins": [
+    {
+      "name": "tsk",
+      "source": "./plugin",
+      "description": "Missions, threads and the ledger for Claude Code sessions, backed by the tsk binary"
+    }
+  ],
+  "metadata": {
+    "description": "Claude Code plugins for tsk, the mission and thread tracker"
+  }
+}

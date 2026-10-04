@@ -5,7 +5,7 @@ use super::clock::utc_now;
 use super::lookup::{lookup_path, CloudBinding, Lookup};
 use super::session::Session;
 
-pub const UNBOUND_PROMPT: &str = "No thread binding was found for this session or worktree. Use the AskUserQuestion tool to ask which mission to work: offer your best-inferred candidate (from index.md, the mission tree, or anything already said this session) as one selectable option, one or two other unblocked missions as alternatives, and leave free text open for anything else. Once answered, run /start-thread for it, or /resume-thread <thread-id> if an existing thread is named instead.";
+pub const UNBOUND_PROMPT: &str = "No thread binding was found for this session or worktree. Use the AskUserQuestion tool to ask which mission to work: offer your best-inferred candidate (from index.md, the mission tree, or anything already said this session) as one selectable option, one or two other unblocked missions as alternatives, and leave free text open for anything else. Once answered, run /tsk:start-thread for it, or /tsk:resume-thread <thread-id> if an existing thread is named instead.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Binding {

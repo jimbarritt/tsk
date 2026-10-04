@@ -8,7 +8,7 @@ use crate::ledger::location::mint_token;
 
 use super::binding::{bind_cloud, bind_current, remove_marker, resolve_at, Binding};
 use super::clock::utc_now;
-use super::entry::{self, read_store, NewEntry, STORE_FILE};
+use super::entry::{self, read_store, CodeState, GitState, LedgerState, NewEntry, STORE_FILE};
 use super::lookup::{lookup_path, Lookup};
 use super::session::Session;
 
@@ -149,12 +149,11 @@ pub fn pause(
             store.display()
         ));
     }
-    let commit_on_ledger = Git::new(&wt).run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
-    let commit_on_main = session
-        .repo
-        .git
-        .run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
-    ensure_on_origin_default_branch(session, &commit_on_main)?;
+    let ledger_commit = Git::new(&wt).run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
+    let code_git = &session.repo.git;
+    let code_ref = current_branch_ref(code_git)?;
+    let code_commit = code_git.run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
+    ensure_on_an_origin_branch(code_git, &code_ref, &code_commit)?;
     let timestamp = utc_now();
     let written_by = session.actor_urn();
     entry::append(
@@ -163,8 +162,15 @@ pub fn pause(
             mission_link,
             task_id,
             whats_next,
-            commit_on_ledger: &commit_on_ledger,
-            commit_on_main: &commit_on_main,
+            git: GitState {
+                ledger: LedgerState {
+                    commit: &ledger_commit,
+                },
+                code: CodeState {
+                    r#ref: &code_ref,
+                    commit: &code_commit,
+                },
+            },
             timestamp: &timestamp,
             written_by: &written_by,
         },
@@ -172,61 +178,76 @@ pub fn pause(
     session.push(&format!("Pause thread {}: {}", id, task_id))
 }
 
-fn ensure_on_origin_default_branch(session: &Session, commit: &str) -> Result<(), String> {
-    let git = &session.repo.git;
-    let default_ref = origin_default_branch(git)?;
-    git.run(["fetch", "--quiet", "origin", default_ref.as_str()])?;
-    let origin_tip = git.run_line(["rev-parse", "--verify", "FETCH_HEAD^{commit}"])?;
-    let (args, output) =
-        git.output(["merge-base", "--is-ancestor", commit, origin_tip.as_str()])?;
-    match output.status.code() {
-        Some(0) => Ok(()),
-        Some(1) => Err(format!(
-            "error: HEAD ({}) is not reachable on origin's default branch ({}).\n       \
-             A different actor resuming this thread elsewhere would not be able\n       \
-             to see this commit. Push to {} before pausing.",
-            commit,
-            default_ref,
-            default_ref.strip_prefix(BRANCH_PREFIX).unwrap_or(&default_ref)
-        )),
-        _ => Err(crate::ledger::git::failure_message(&args, &output)),
-    }
-}
-
 const BRANCH_PREFIX: &str = "refs/heads/";
-const REMOTE_HEAD: &str = "refs/remotes/origin/HEAD";
-const REMOTE_PREFIX: &str = "refs/remotes/origin/";
+const ORIGIN_HEADS_REFSPEC: &str = "+refs/heads/*:refs/remotes/origin/*";
+const ORIGIN_REMOTE_PREFIX: &str = "refs/remotes/origin/";
+const ORIGIN_REMOTE_HEAD: &str = "refs/remotes/origin/HEAD";
 
-fn origin_default_branch(git: &Git) -> Result<String, String> {
-    let listing = git.run(["ls-remote", "--symref", "origin", "HEAD"])?;
-    if let Some(name) = parse_symref_head(&listing) {
-        return Ok(name);
-    }
-    let (_, output) = git.output(["symbolic-ref", "--quiet", REMOTE_HEAD])?;
-    if output.status.success() {
-        if let Some(name) = remote_head_to_branch(&String::from_utf8_lossy(&output.stdout)) {
-            return Ok(name);
+fn current_branch_ref(git: &Git) -> Result<String, String> {
+    let (_, output) = git.output(["symbolic-ref", "--quiet", "HEAD"])?;
+    match output.status.code() {
+        Some(0) => {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let name = text.trim_end_matches(['\n', '\r']);
+            if is_branch_ref(name) {
+                Ok(name.to_string())
+            } else {
+                Err(format!(
+                    "error: HEAD points at '{}', which is not a branch.\n       \
+                     Check out a branch before pausing.",
+                    name
+                ))
+            }
         }
+        Some(1) => Err(
+            "error: HEAD is detached, so the branch the work is on cannot be recorded.\n       \
+             Check out a branch, and push it to origin, before pausing."
+                .to_string(),
+        ),
+        _ => Err(crate::ledger::git::failure_message(
+            &[
+                "symbolic-ref".to_string(),
+                "--quiet".to_string(),
+                "HEAD".to_string(),
+            ],
+            &output,
+        )),
     }
-    Err(format!(
-        "error: could not resolve origin's default branch.\n       \
-         `git ls-remote --symref origin HEAD` reported no symbolic HEAD, and\n       \
-         {} is not set. Run `git remote set-head origin <branch>` to set it.",
-        REMOTE_HEAD
-    ))
 }
 
-fn parse_symref_head(listing: &str) -> Option<String> {
-    listing.lines().find_map(|line| {
-        let (target, name) = line.strip_prefix("ref: ")?.split_once('\t')?;
-        (name == "HEAD" && is_branch_ref(target)).then(|| target.to_string())
-    })
+fn ensure_on_an_origin_branch(git: &Git, code_ref: &str, commit: &str) -> Result<(), String> {
+    git.run([
+        "fetch",
+        "--quiet",
+        "--prune",
+        "origin",
+        ORIGIN_HEADS_REFSPEC,
+    ])?;
+    let listing = git.run([
+        "for-each-ref",
+        "--contains",
+        commit,
+        "--format=%(refname)",
+        ORIGIN_REMOTE_PREFIX,
+    ])?;
+    if origin_branches(&listing).is_empty() {
+        return Err(format!(
+            "error: HEAD ({}) is not reachable from any branch on origin.\n       \
+             A different actor resuming this thread elsewhere would not be able\n       \
+             to see this commit. Push {} before pausing.",
+            commit,
+            code_ref.strip_prefix(BRANCH_PREFIX).unwrap_or(code_ref)
+        ));
+    }
+    Ok(())
 }
 
-fn remote_head_to_branch(text: &str) -> Option<String> {
-    let name = text.trim_end_matches(['\n', '\r']).strip_prefix(REMOTE_PREFIX)?;
-    let target = format!("{}{}", BRANCH_PREFIX, name);
-    (name != "HEAD" && is_branch_ref(&target)).then_some(target)
+fn origin_branches(listing: &str) -> Vec<String> {
+    listing
+        .lines()
+        .filter(|line| line.starts_with(ORIGIN_REMOTE_PREFIX) && *line != ORIGIN_REMOTE_HEAD)
+        .map(str::to_string)
+        .collect()
 }
 
 fn is_branch_ref(target: &str) -> bool {
@@ -439,127 +460,27 @@ mod tests {
     }
 
     #[test]
-    fn parse_symref_head_reads_the_full_branch_ref() {
-        let listing = "ref: refs/heads/trunk\tHEAD\n\
-                       1111111111111111111111111111111111111111\tHEAD\n";
-        assert_eq!(
-            parse_symref_head(listing),
-            Some("refs/heads/trunk".to_string())
-        );
-        assert_eq!(
-            parse_symref_head("ref: refs/heads/feature/x\tHEAD\n"),
-            Some("refs/heads/feature/x".to_string())
-        );
+    fn is_branch_ref_accepts_only_named_branch_refs() {
+        assert!(is_branch_ref("refs/heads/main"));
+        assert!(is_branch_ref("refs/heads/feature/x"));
+        assert!(!is_branch_ref("refs/heads/"));
+        assert!(!is_branch_ref("refs/tags/v1"));
+        assert!(!is_branch_ref("refs/heads/a b"));
+        assert!(!is_branch_ref(""));
     }
 
     #[test]
-    fn parse_symref_head_ignores_detached_and_non_branch_heads() {
+    fn origin_branches_skips_the_symbolic_head_and_other_refs() {
+        let listing = "refs/remotes/origin/HEAD\nrefs/remotes/origin/main\nrefs/remotes/origin/feature/x\nrefs/remotes/upstream/main\n";
         assert_eq!(
-            parse_symref_head("1111111111111111111111111111111111111111\tHEAD\n"),
-            None
+            origin_branches(listing),
+            vec![
+                "refs/remotes/origin/main".to_string(),
+                "refs/remotes/origin/feature/x".to_string()
+            ]
         );
-        assert_eq!(parse_symref_head(""), None);
-        assert_eq!(parse_symref_head("ref: refs/tags/v1\tHEAD\n"), None);
-        assert_eq!(parse_symref_head("ref: refs/heads/\tHEAD\n"), None);
-        assert_eq!(
-            parse_symref_head("ref: refs/heads/main\trefs/remotes/x\n"),
-            None
-        );
-    }
-
-    #[test]
-    fn remote_head_maps_to_the_origin_branch_ref() {
-        assert_eq!(
-            remote_head_to_branch("refs/remotes/origin/master\n"),
-            Some("refs/heads/master".to_string())
-        );
-        assert_eq!(remote_head_to_branch("refs/remotes/upstream/main\n"), None);
-        assert_eq!(remote_head_to_branch("refs/remotes/origin/HEAD\n"), None);
-        assert_eq!(remote_head_to_branch(""), None);
-    }
-
-    fn git_in(dir: &Path, args: &[&str]) {
-        let output = std::process::Command::new("git")
-            .args(args)
-            .current_dir(dir)
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{:?}: {}",
-            args,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    fn clone_with_default(branch: &str) -> (tempfile::TempDir, PathBuf) {
-        let root = tempfile::tempdir().unwrap();
-        git_in(
-            root.path(),
-            &["init", "--quiet", "--bare", "-b", branch, "origin.git"],
-        );
-        let work = root.path().join("work");
-        git_in(root.path(), &["init", "--quiet", "-b", branch, "work"]);
-        git_in(&work, &["remote", "add", "origin", "../origin.git"]);
-        git_in(
-            &work,
-            &[
-                "-c",
-                "user.name=Test",
-                "-c",
-                "user.email=test@example.com",
-                "commit",
-                "--quiet",
-                "--allow-empty",
-                "-m",
-                "Seed",
-            ],
-        );
-        git_in(
-            &work,
-            &[
-                "push",
-                "--quiet",
-                "origin",
-                &format!("HEAD:refs/heads/{}", branch),
-            ],
-        );
-        (root, work)
-    }
-
-    #[test]
-    fn origin_default_branch_follows_the_remote_symbolic_head() {
-        for branch in ["main", "master", "trunk"] {
-            let (_root, work) = clone_with_default(branch);
-            assert_eq!(
-                origin_default_branch(&Git::new(&work)).unwrap(),
-                format!("refs/heads/{}", branch)
-            );
-        }
-    }
-
-    #[test]
-    fn origin_default_branch_falls_back_to_the_local_remote_head() {
-        let (root, work) = clone_with_default("trunk");
-        git_in(
-            &root.path().join("origin.git"),
-            &["update-ref", "--no-deref", "HEAD", "HEAD"],
-        );
-        assert!(origin_default_branch(&Git::new(&work)).is_err());
-        git_in(
-            &work,
-            &[
-                "symbolic-ref",
-                "refs/remotes/origin/HEAD",
-                "refs/remotes/origin/develop",
-            ],
-        );
-        assert_eq!(
-            origin_default_branch(&Git::new(&work)).unwrap(),
-            "refs/heads/develop"
-        );
+        assert!(origin_branches("refs/remotes/origin/HEAD\n").is_empty());
+        assert!(origin_branches("").is_empty());
     }
 
     #[test]
@@ -634,12 +555,12 @@ mod tests {
     fn render_resume_passes_the_latest_entry_through_as_stored() {
         let outcome = ResumeOutcome {
             thread_id: "1234abcd".to_string(),
-            latest: "{\"whats_next\":\"x\",\"commit_on_bootstrap\":\"b\"}".to_string(),
+            latest: "{\"whats_next\":\"x\",\"git\":{\"ledger\":{\"commit\":\"b\"}}}".to_string(),
             warning: String::new(),
         };
         assert_eq!(
             render_resume(&outcome),
-            "{\"thread_id\":\"1234abcd\",\"latest\":{\"whats_next\":\"x\",\"commit_on_bootstrap\":\"b\"},\"warning\":\"\"}"
+            "{\"thread_id\":\"1234abcd\",\"latest\":{\"whats_next\":\"x\",\"git\":{\"ledger\":{\"commit\":\"b\"}}},\"warning\":\"\"}"
         );
     }
 

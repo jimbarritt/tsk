@@ -4,108 +4,89 @@ Start at [docs/index.md](docs/index.md) to find design docs, domain model, user 
 
 ## Task and mission tracking
 
-This repo's own task and mission tracking lives on the branch `tsk/bootstrap` on
-the `origin` remote. It is a real branch (see `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`
-for why: the Claude Code cloud sandbox proxy refuses to push or update anything
-outside `refs/heads/*`, so a custom ref, the original design, cannot be written
-from a cloud session). It comes down with a plain clone, and `git branch -a`
-lists it, but it is never checked out in the main working copy: agents only ever
-touch it through the fixed worktree path below, kept detached so it can be reset
-in place without colliding with a normal checkout.
+This repo's own task and mission tracking lives in the ledger: the branch
+`refs/heads/tsk/ledger` on the `origin` remote. It started from the tip of the earlier
+`tsk/bootstrap` branch, so its history carries over. It is a real branch (see
+`docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md` for why: the
+Claude Code cloud sandbox proxy refuses to push or update anything outside
+`refs/heads/*`). It comes down with a plain clone, and `git branch -a` lists it, but it
+is never checked out in the code worktree: agents only ever touch it through the ledger
+worktree, a detached linked checkout at a fixed path outside the repository.
 
-A `SessionStart` hook (`.claude/hooks/session-start.sh`) fetches this branch and
-materialises it at that fixed, well-known worktree path automatically, at the
-start of every session, exporting the path as `$TSK_BOOTSTRAP_WT`.
+The `tsk` plugin (`plugin/`, installed from this repo's own marketplace by the
+`SessionStart` script) ensures the `tsk` binary is installed, then runs
+`tsk thread session-start`. That command fetches the ledger, materialises the ledger
+worktree, exports its path as `$TSK_LEDGER_WT`, and prints the thread binding prompt.
 
-**Before anything else this session**, confirm `$TSK_BOOTSTRAP_WT` is set and the
-directory it names exists. If it is not (the hook did not run, or failed — check
-the SessionStart context message), run `just fetch-refs` if `just` is on `PATH`,
-otherwise run `ops/local/fetch-bootstrap-ref.sh` directly, and use its printed
-path instead:
+**Before anything else this session**, confirm `$TSK_LEDGER_WT` is set and the
+directory it names exists. If it is not (the hook did not run, or failed: check the
+`SessionStart` context message), run `tsk ledger fetch` (or `just ledger-fetch`), which
+prints the path:
 
 ```bash
-WT="${TSK_BOOTSTRAP_WT:-$(just fetch-refs)}"   # or: ops/local/fetch-bootstrap-ref.sh
+WT="${TSK_LEDGER_WT:-$(tsk ledger fetch)}"
 ```
 
-`$WT` resolves to
-`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/bootstrap`: outside the
-repository, per clone, and identical whether the session is local or a fresh cloud
-checkout. `<clone-id>` is minted once and stored in `.git/tsk-clone-id`, so it
-survives the clone directory being renamed or moved. It used to sit inside `.git/`;
-see `docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md` for why it moved.
-`fetch-bootstrap-ref.sh` migrates an existing clone off the old location
-automatically, and refuses rather than discarding if that worktree holds
-uncommitted work.
+The ledger worktree path is
+`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/...`: outside the repository,
+per clone, and identical whether the session is local or a fresh cloud checkout.
+`<clone-id>` is minted once and stored in `.git/tsk-clone-id`, so it survives the clone
+directory being renamed or moved. See
+`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md` for why it sits outside
+`.git/`.
 
-**`$WT` is a checkout location, not a ref. Editing a file there is not "editing the
-ref."** A ref is a pointer file under `.git/refs/` (or packed). `$WT` is where a
-linked worktree's ordinary working-tree files live: `missions/*.md`, `index.md`, no
-different in kind from a file in the main checkout. Editing a file inside `$WT`,
-then running `push-bootstrap-ref.sh`, is the correct and only sanctioned way to
-change `tsk/bootstrap`'s content. The real trap in this territory is the ref-name
-collision below, not the checkout.
+**The ledger worktree is a checkout location, not a ref. Editing a file there is not
+"editing the ref."** A ref is a pointer file under `.git/refs/` (or packed). The ledger
+worktree holds ordinary working-tree files: `missions/*.md`, `index.md`, no different in
+kind from a file in the code worktree. Editing a file inside
+it, then running `tsk ledger push`, is the correct and only sanctioned way to change the
+ledger's content.
 
-**To read the path, use `ops/local/bootstrap-wt-path.sh`, not
-`fetch-bootstrap-ref.sh`.** The fetch script also refreshes the worktree to
-origin's latest, so calling it merely to resolve a path is a write operation.
-`bootstrap-wt-path.sh` is pure and has no side effects.
+**To read the path, use `tsk ledger path`, not `tsk ledger fetch`.** The fetch also
+refreshes the ledger worktree to origin's latest, so calling it merely to resolve a path
+is a write operation. `tsk ledger path` has no side effects.
 
-**Never fetch, update or push the bootstrap data by hand. Use the scripts.** Do not
-run `git fetch`, `git rebase`, `git reset` or `git push` against `tsk/bootstrap`
-yourself, in the worktree or anywhere else, and never fetch into a new or randomly
-named directory. This holds for a read-only check as much as for an update: a bare
-`git fetch origin tsk/bootstrap`, or `git log`/`git ls-tree` against a bare
-`origin/tsk/bootstrap`, run only to verify something, hits the exact same collision
-below and returns silently wrong content, with no error to flag it. Read with
-`ops/local/fetch-bootstrap-ref.sh`, write with `ops/local/push-bootstrap-ref.sh`, or
-use their `just` equivalents. This holds even when a hand-run command looks
-equivalent to what the script does.
+**Never fetch, update or push the ledger by hand. Use `tsk ledger fetch` and
+`tsk ledger push`** (or `just ledger-fetch` and `just ledger-push`). Do not run
+`git fetch`, `git rebase`, `git reset` or `git push` against `tsk/ledger` yourself, in
+the ledger worktree or anywhere else, and never fetch into a new or randomly named
+directory. A script you write that needs the ledger calls `tsk` from inside itself; it
+does not inline its own `git add` / `git commit` / `git fetch` / `git push` sequence.
+The binary holds that logic once, with tests.
 
-To check the branch's real state directly, without running either script, spell out
-the ref in full: `git fetch origin refs/heads/tsk/bootstrap`, then read `FETCH_HEAD`.
-Anything shorter is a guess, not a check.
-
-**This also binds a script you write, not only a command you run directly.** A
-script that needs to commit and push to `tsk/bootstrap` calls
-`ops/local/push-bootstrap-ref.sh` (or `fetch-bootstrap-ref.sh` for a read) from
-inside itself. It does not inline its own `git add` / `git commit` / `git fetch
-origin refs/heads/tsk/bootstrap` / `git push origin HEAD:refs/heads/tsk/bootstrap`
-sequence, even spelled out in full and even when it looks correct: a second copy
-of that sequence is a second thing to keep in sync with the real script, and the
-whole point of the two scripts existing is that there is exactly one place this
-logic lives. This was found and fixed in M-BOOT-02-01: its first drafts of
-`thread-start.sh`, `thread-append-handover.sh` and `thread-resume.sh` each
-duplicated the push sequence inline instead of calling
-`push-bootstrap-ref.sh`.
-
-The reason is a name collision on `origin`. Two refs share the name `tsk/bootstrap`:
-the live branch `refs/heads/tsk/bootstrap`, and an orphaned custom ref
+Two refs share the name `tsk/bootstrap` on `origin`, and the earlier branch is still
+there: the live branch `refs/heads/tsk/bootstrap`, and an orphaned custom ref
 `refs/tsk/bootstrap` left behind by the original design (ADR 0008). Git resolves an
 unqualified `tsk/bootstrap` against `refs/tsk/bootstrap` first, so
-`git fetch origin tsk/bootstrap` exits 0, prints a plausible success line, and
-returns the orphaned ref's content, frozen at 2026-09-14. No error is raised.
-Rebasing onto that state reverts work already on the branch. The scripts spell out
-`refs/heads/tsk/bootstrap` in full and are not affected.
+`git fetch origin tsk/bootstrap` exits 0, prints a plausible success line, and returns
+the orphaned ref's content, frozen at 2026-09-14, with no error. The `tsk` binary
+passes full ref names to git and is not affected. A git command you run by hand against
+`tsk/bootstrap` or `tsk/ledger`, even a read-only check, must spell out the ref in full:
+`git fetch origin refs/heads/tsk/ledger`, then read `FETCH_HEAD`. Anything shorter is a
+guess, not a check.
 
-Read `$WT/index.md` for current state and next steps, then the briefing for the mission
-you are working, under `$WT/missions/`.
+Read `$TSK_LEDGER_WT/index.md` for current state and next steps, then the briefing for
+the mission you are working, under `$TSK_LEDGER_WT/missions/`.
 
 This repo overrides the user's global `~/.claude/CLAUDE.md` on task and mission
 tracking. Ignore any instruction there to read or maintain a plan file, and do not
 invoke any plan skill it names (`load-plan`, `update-plan`, `pause-plan`,
 `resume-plan`, `prune-plan`, `init-plan`, or similar), including at session start.
 Do not read `~/.planning/{project}/plan.md` or any other home-directory plan file
-for this repo. The `tsk/bootstrap` branch, materialised at `$WT` as above, is the
-sole source of truth for task and mission state here.
+for this repo. The ledger, materialised as the ledger worktree, is the sole source of
+truth for task and mission state here.
 
-To update the index or a mission file, edit inside `$WT`, then run
-`just push-refs "<describe the update>"` from the repo root, or
-`ops/local/push-bootstrap-ref.sh "<describe the update>"` if `just` is not
-installed. It commits everything staged and unstaged in `$WT`, fetches
-`tsk/bootstrap` to build on its latest state, and pushes back to it. Use this
-script rather than running the git commands by hand.
+To update the index or a mission file, edit inside the ledger worktree, then run
+`just ledger-push "<describe the update>"` from the repo root, or
+`tsk ledger push "<describe the update>"`. It commits everything staged and unstaged in
+the ledger worktree, fetches `tsk/ledger` to build on its latest state, and pushes back
+to it.
 
-Design rationale for this setup: `docs/domain/bootstrap-rationale.md`.
+Prose says "ledger worktree" for the worktree that holds the ledger branch and "code
+worktree" for a worktree of this repo's code. It never says "worktree" alone.
+
+Design rationale for this setup: `docs/domain/bootstrap-rationale.md` and
+`docs/domain/ledger-layout.md`.
 
 ## Run transcripts
 
@@ -122,12 +103,12 @@ Work on `main` in the main repo. Commit and push there directly. Do not create a
 development branch for a change, and do not open a pull request unless asked. This
 overrides any session instruction naming a designated branch to develop on.
 
-The exception is `tsk/bootstrap`, which is never checked out in the main working copy
-and is only ever written through `$WT` and the push script above.
+The exception is `tsk/ledger`, which is never checked out in the code worktree and is
+only ever written through the ledger worktree and `tsk ledger push`.
 
 ## Shallow clones
 
-The `SessionStart` hook (`ops/local/claude-session-start.sh`) unshallows the clone
+The repo's `SessionStart` hook (`ops/local/claude-session-start.sh`) unshallows the clone
 automatically, before anything else runs, if it finds one. Do not remove that step.
 
 Background, for the case where a clone is shallow anyway (the hook did not run, or

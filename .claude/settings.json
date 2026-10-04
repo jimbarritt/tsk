@@ -7,6 +7,9 @@
     "resume-plan": "off",
     "init-plan": "off"
   },
+  "env": {
+    "TSK_SOURCE": "cli"
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -17,20 +20,11 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/thread-binding-guard.sh"
-          }
-        ]
-      }
     ]
   },
   "enabledPlugins": {
-    "swe@jimbarritt-claude-plugins": true
+    "swe@jimbarritt-claude-plugins": true,
+    "tsk@tsk": true
   },
   "extraKnownMarketplaces": {
     "jimbarritt-claude-plugins": {

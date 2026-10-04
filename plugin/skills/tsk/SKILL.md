@@ -1,13 +1,19 @@
+---
+name: tsk
+description: Reference for the tsk command line: the ledger, threads and bindings, continuation state, and the external event queue. Load when working with tsk missions, threads or the ledger, or when a tsk command is needed.
+---
+
 # tsk: agent context
 
 tsk tracks missions and the threads that work them. The missions, threads and their
 continuation state live in a **ledger**: a git branch, `refs/heads/tsk/ledger` on the
 managed repo's `origin`, checked out in a detached ledger worktree outside the
-repository. The `ledger` and `thread` commands run in the `tsk` client alone, with no
+repository. The `ledger`, `thread` and `events` commands run in the `tsk` binary alone, with no
 daemon, from inside any working tree of the managed repo.
 
-Every ledger file and format is in `docs/domain/ledger-layout.md`. Threads, bindings and
-continuation state are in `docs/domain/session-continuation-design.md`.
+Design references in the tsk repository: every ledger file and format is in
+`docs/domain/ledger-layout.md`. Threads, bindings and continuation state are in
+`docs/domain/session-continuation-design.md`.
 
 ## Core concepts
 
@@ -41,12 +47,12 @@ tsk thread stop [<thread-id>]                                         delete a t
 tsk thread list                                                       list threads, most recently paused first
 tsk thread binding [--no-fetch]                                       print the current binding
 tsk thread guard                                                      Stop hook check for a binding; never fetches
+tsk thread session-start                                              SessionStart hook: fetch the ledger, export TSK_LEDGER_WT, print the hook output JSON
 
 tsk events append <source> <event-type> <action> <repo> <payload-file>   queue one event envelope, push
 tsk events append-batch [--source <s>] [--action <a>]                    queue every NDJSON event line on stdin, push once
 tsk events read-new                                                       print the events past the watermark; no writes
 tsk events advance-watermark <count>                                      set the watermark to <count>, push
-tsk                                                                   launch the TUI (reads threads from tskd)
 ```
 
 `<briefing-path>` and `<mission-link>` are paths relative to the ledger root, for example
@@ -74,7 +80,7 @@ stderr.
 | Command | Stdout on success | Other exits |
 |---|---|---|
 | `thread start` | `started:<thread-id>` | `resume-required:<thread-id>` and exit status 2 when a binding exists |
-| `thread pause` | `paused:<thread-id>` | exit 1 when the managed repo's `HEAD` is not on origin's default branch |
+| `thread pause` | `paused:<thread-id>` | exit 1 when the managed repo's `HEAD` is not on any branch on origin |
 | `thread resume` | `{"thread_id":"...","latest":{...},"warning":"..."}` | |
 | `thread detach` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding |
 | `thread stop` | `stopped:<thread-id>` | exit 1 with no binding and no thread ID given |
@@ -86,15 +92,13 @@ In `thread resume`, `latest` is the thread's last continuation state entry as st
 `{}` with no entry. `warning` is empty unless the thread's entries name a `written_by`
 actor and none of them is the current actor.
 
-A continuation state entry holds `mission_link`, `task_id`, `whats_next`,
-`commit_on_ledger`, `commit_on_main`, `timestamp` and `written_by`. Entries written by the
-`tsk/bootstrap` scripts hold `commit_on_bootstrap` in place of `commit_on_ledger`. tsk
-reads both and writes `commit_on_ledger` only.
+A continuation state entry holds `mission_link`, `task_id`, `whats_next`, a nested `git`
+object, `timestamp` and `written_by`. The `git` object holds `ledger.commit`, `code.ref`
+and `code.commit`.
 
 `thread pause` records the commit the ledger worktree is at before the entry is appended,
-and the managed repo's `HEAD`. It refuses a `HEAD` that origin's default branch does not hold,
-because an actor resuming from another clone cannot see it. `commit_on_main` holds
-that commit whatever the default branch is called.
+and the managed repo's branch and `HEAD` commit. It refuses a `HEAD` that no branch on
+origin holds, because an actor resuming from another clone cannot see it.
 
 ### External events
 
@@ -120,30 +124,14 @@ and one push.
 event up to it is processed, so an interrupted run reads those events again rather than
 skipping them.
 
+### Thread skills
+
+The plugin provides `/tsk:start-thread`, `/tsk:pause-thread`, `/tsk:resume-thread`,
+`/tsk:detach-thread`, `/tsk:stop-thread` and `/tsk:switch-thread`. Each wraps the
+`tsk thread` commands above.
+
 ### Switching threads
 
 No single command switches threads. To switch: `tsk thread binding` to find the current
 thread, `tsk thread detach`, optionally `tsk thread stop <old-thread-id>`, then
 `tsk thread resume <new-thread-id>`. `tsk thread list` gives the candidates.
-
-## TUI
-
-`tsk` with no arguments launches the TUI. It reads threads and tasks from the `tskd`
-daemon over its Unix socket, `~/.tsk/tskd.sock`, so `tskd` must be running. The daemon
-and its thread model are separate from the ledger threads above.
-
-The TUI has two panes:
-
-**Threads pane** (default): shows all threads grouped by state and priority. Navigate
-with `j`/`k` to move a selection cursor. Press `Enter` to view tasks for the selected
-thread. Type `gt` (two-key sequence) to view tasks for the active thread.
-
-**Tasks pane**: shows tasks for a specific thread. At the top is a thread summary box
-(id, slug, priority). Below is the task list sorted by state priority:
-1. `▶` in-progress
-2. `⏳` blocked
-3. `○` not-started
-4. `✓` done (greyed out)
-5. `✗` cancelled (greyed out)
-
-Press `Esc` or `Ctrl-O` to return to the threads pane. Press `q` to quit.

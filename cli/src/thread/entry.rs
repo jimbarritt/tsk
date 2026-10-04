@@ -9,10 +9,26 @@ pub struct NewEntry<'a> {
     pub mission_link: &'a str,
     pub task_id: &'a str,
     pub whats_next: &'a str,
-    pub commit_on_ledger: &'a str,
-    pub commit_on_main: &'a str,
+    pub git: GitState<'a>,
     pub timestamp: &'a str,
     pub written_by: &'a str,
+}
+
+#[derive(Serialize)]
+pub struct GitState<'a> {
+    pub ledger: LedgerState<'a>,
+    pub code: CodeState<'a>,
+}
+
+#[derive(Serialize)]
+pub struct LedgerState<'a> {
+    pub commit: &'a str,
+}
+
+#[derive(Serialize)]
+pub struct CodeState<'a> {
+    pub r#ref: &'a str,
+    pub commit: &'a str,
 }
 
 impl NewEntry<'_> {
@@ -87,8 +103,15 @@ mod tests {
             mission_link: "missions/operational/M-X.md",
             task_id: "T-05",
             whats_next: "Write the \"thread\" commands",
-            commit_on_ledger: "1111111111111111111111111111111111111111",
-            commit_on_main: "2222222222222222222222222222222222222222",
+            git: GitState {
+                ledger: LedgerState {
+                    commit: "1111111111111111111111111111111111111111",
+                },
+                code: CodeState {
+                    r#ref: "refs/heads/feature/x",
+                    commit: "2222222222222222222222222222222222222222",
+                },
+            },
             timestamp: "2026-10-03T10:00:00Z",
             written_by: "urn:tsk:worktree:.git",
         }
@@ -100,27 +123,28 @@ mod tests {
             new_entry().to_line(),
             "{\"mission_link\":\"missions/operational/M-X.md\",\"task_id\":\"T-05\",\
              \"whats_next\":\"Write the \\\"thread\\\" commands\",\
-             \"commit_on_ledger\":\"1111111111111111111111111111111111111111\",\
-             \"commit_on_main\":\"2222222222222222222222222222222222222222\",\
+             \"git\":{\"ledger\":{\"commit\":\"1111111111111111111111111111111111111111\"},\
+             \"code\":{\"ref\":\"refs/heads/feature/x\",\"commit\":\"2222222222222222222222222222222222222222\"}},\
              \"timestamp\":\"2026-10-03T10:00:00Z\",\"written_by\":\"urn:tsk:worktree:.git\"}\n"
         );
     }
 
     #[test]
-    fn new_entry_never_writes_commit_on_bootstrap() {
-        assert!(!new_entry().to_line().contains("commit_on_bootstrap"));
+    fn new_entry_writes_no_flat_commit_fields() {
+        let line = new_entry().to_line();
+        for old in ["commit_on_bootstrap", "commit_on_ledger", "commit_on_main"] {
+            assert!(!line.contains(old), "{}", old);
+        }
     }
 
     #[test]
-    fn reads_entries_with_either_commit_field_and_keeps_them_as_stored() {
-        let legacy =
-            "{\"whats_next\":\"a\",\"commit_on_bootstrap\":\"bbb\",\"written_by\":\"urn:x\"}";
-        let current =
-            "{\"whats_next\":\"b\",\"commit_on_ledger\":\"aaa\",\"written_by\":\"urn:y\"}";
-        let entries = parse_store(&format!("{}\n{}\n", legacy, current), Path::new("s")).unwrap();
-        assert_eq!(entries[0].raw, legacy);
+    fn keeps_entries_as_stored() {
+        let first = "{\"whats_next\":\"a\",\"git\":{\"ledger\":{\"commit\":\"bbb\"}},\"written_by\":\"urn:x\"}";
+        let second = "{\"whats_next\":\"b\",\"written_by\":\"urn:y\"}";
+        let entries = parse_store(&format!("{}\n{}\n", first, second), Path::new("s")).unwrap();
+        assert_eq!(entries[0].raw, first);
         assert_eq!(entries[0].entry.written_by.as_deref(), Some("urn:x"));
-        assert_eq!(entries[1].raw, current);
+        assert_eq!(entries[1].raw, second);
         assert_eq!(entries[1].entry.whats_next.as_deref(), Some("b"));
     }
 

@@ -211,7 +211,7 @@ hooks, but no source says so.
 | Plugin | What it uses today |
 |---|---|
 | `swe` 0.10.1 (cached copy read here) | Three `PreToolUse` command hooks: on `Bash`, on `Artifact` and on the outbound-message MCP tools of Gmail, Google Drive and Slack. An output style. A lint script with options named `--transcript`, `--reply-file` and `--stop-hook-active`. |
-| tsk (`.claude/settings.json`) | A `SessionStart` command hook that fetches `tsk/bootstrap`. A `Stop` command hook, `thread-binding-guard.sh`. |
+| tsk (plugin) | The tsk plugin (`plugin/`): a `SessionStart` command hook, `plugin/hooks/session-start.sh`, that ensures the `tsk` binary is installed and runs `tsk thread session-start`. A `Stop` command hook, `plugin/hooks/stop.sh`, that runs `tsk thread guard`. |
 
 ## Mechanisms that could apply to swe and tsk
 
@@ -225,8 +225,8 @@ requirement it touches.
 | `session.append` rewrites a row before it is stored | swe: change the text of a row. The model, the transcript file and the next request all read the row as rewritten. |
 | `model.classify(text, labels)` | swe: the inference tier of the linter, with no subprocess. |
 | `ui.render` on `AbovePrompt` returns a tree | swe or tsk: a persistent band for lint state or thread state. |
-| `tool.call` with `{ tool: "Bash" }` returns `{ deny }` | tsk: refuse a hand-run `git fetch origin tsk/bootstrap` that `CLAUDE.md` forbids. The `swe` Bash hook does the same for its own rules in shell. |
-| `session.start` runs awaited before the first prompt | tsk: the bootstrap fetch and thread binding now in the `SessionStart` shell hook. |
+| `tool.call` with `{ tool: "Bash" }` returns `{ deny }` | tsk: refuse a hand-run `git fetch origin tsk/ledger` that `CLAUDE.md` forbids. The `swe` Bash hook does the same for its own rules in shell. |
+| `session.start` runs awaited before the first prompt | tsk: the ledger fetch and thread binding now run by `tsk thread session-start` from the `SessionStart` shell hook. |
 | `session.end` fires on exit and `/clear`, under a short time bound | tsk: record a continuation entry. The bound limits what can run. |
 | `$.store` and `$.state` | tsk: thread binding that survives a context reset. |
 | `$.clock.every` plus `$.session.messages()` | tsk: detect a session that went idle and reset. |

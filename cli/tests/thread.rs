@@ -380,7 +380,7 @@ fn start_in_a_cloud_session_binds_through_the_lookup() {
 }
 
 #[test]
-fn pause_appends_an_entry_with_commit_on_ledger_and_pushes() {
+fn pause_appends_an_entry_with_the_nested_git_state_and_pushes() {
     let fx = Fixture::new();
     let id = fx.start();
     let ledger_before = fx.origin_ledger_sha();
@@ -404,23 +404,53 @@ fn pause_appends_an_entry_with_commit_on_ledger_and_pushes() {
     assert!(store.ends_with('\n'));
     let line = store.lines().next().unwrap();
     let keys: Vec<_> = json(line).as_object().unwrap().keys().cloned().collect();
-    assert_eq!(keys.len(), 7);
-    assert!(line.starts_with("{\"mission_link\":"));
-    assert!(!line.contains("commit_on_bootstrap"));
+    assert_eq!(keys.len(), 6);
+    let positions: Vec<_> = [
+        "\"mission_link\"",
+        "\"task_id\"",
+        "\"whats_next\"",
+        "\"git\"",
+        "\"timestamp\"",
+        "\"written_by\"",
+    ]
+    .iter()
+    .map(|key| line.find(key).unwrap())
+    .collect();
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "{}",
+        line
+    );
+    for old in ["commit_on_bootstrap", "commit_on_ledger", "commit_on_main"] {
+        assert!(!line.contains(old), "{}", old);
+    }
     let entry = json(line);
     assert_eq!(entry["mission_link"], BRIEFING);
     assert_eq!(entry["task_id"], "T-05");
     assert_eq!(entry["whats_next"], "Write the \"thread\" tests");
-    assert_eq!(entry["commit_on_ledger"], ledger_before.as_str());
-    assert_eq!(entry["commit_on_main"], main_head.as_str());
+    assert_eq!(entry["git"]["ledger"]["commit"], ledger_before.as_str());
+    assert_eq!(entry["git"]["code"]["ref"], "refs/heads/main");
+    assert_eq!(entry["git"]["code"]["commit"], main_head.as_str());
+    assert_eq!(entry["git"]["ledger"].as_object().unwrap().len(), 1);
+    assert_eq!(entry["git"]["code"].as_object().unwrap().len(), 2);
     assert_eq!(entry["written_by"], "urn:tsk:worktree:.git");
     assert_eq!(entry["timestamp"].as_str().unwrap().len(), 20);
     let subject = git_line(&fx.origin(), &["log", "-1", "--format=%s", LEDGER_REF]);
     assert_eq!(subject, format!("Pause thread {}: T-05", id));
 }
 
+fn assert_pause_not_recorded(fx: &Fixture, id: &str, before: &str) {
+    assert_eq!(fx.origin_ledger_sha(), before);
+    let wt = fx.ledger_path();
+    assert_eq!(
+        std::fs::read_to_string(wt.join(format!("threads/{}/continuation-state.jsonl", id)))
+            .unwrap(),
+        ""
+    );
+}
+
 #[test]
-fn pause_refuses_a_main_commit_that_is_not_on_origin() {
+fn pause_refuses_a_commit_that_is_on_no_origin_branch() {
     let fx = Fixture::new();
     let id = fx.start();
     write(&fx.work().join("local.md"), "unpushed\n");
@@ -431,30 +461,25 @@ fn pause_refuses_a_main_commit_that_is_not_on_origin() {
 
     assert_exit(&output, 1);
     assert_eq!(stdout(&output), "");
-    assert!(stderr(&output)
-        .contains("is not reachable on origin's default branch (refs/heads/main)"));
-    assert_eq!(fx.origin_ledger_sha(), before);
-    let wt = fx.ledger_path();
-    assert_eq!(
-        std::fs::read_to_string(wt.join(format!("threads/{}/continuation-state.jsonl", id)))
-            .unwrap(),
-        ""
+    assert!(
+        stderr(&output).contains("is not reachable from any branch on origin"),
+        "{}",
+        stderr(&output)
     );
+    assert!(stderr(&output).contains("Push main before pausing"));
+    assert_pause_not_recorded(&fx, &id, &before);
 }
 
-fn assert_pause_records_head_on(branch: &str) {
-    let fx = Fixture::with_default_branch(branch);
+#[test]
+fn pause_accepts_a_commit_pushed_only_to_a_feature_branch() {
+    let fx = Fixture::new();
     let id = fx.start();
-    write(&fx.work().join("pushed.md"), "pushed\n");
-    commit_all(&fx.work(), "Pushed commit");
+    git(&fx.work(), &["switch", "--quiet", "-c", "feature/x"]);
+    write(&fx.work().join("feature.md"), "feature\n");
+    commit_all(&fx.work(), "Feature commit");
     git(
         &fx.work(),
-        &[
-            "push",
-            "--quiet",
-            "origin",
-            &format!("HEAD:refs/heads/{}", branch),
-        ],
+        &["push", "--quiet", "origin", "HEAD:refs/heads/feature/x"],
     );
     let head = git_line(&fx.work(), &["rev-parse", "HEAD"]);
 
@@ -465,64 +490,101 @@ fn assert_pause_records_head_on(branch: &str) {
         .origin_file(&format!("threads/{}/continuation-state.jsonl", id))
         .unwrap();
     let entry = json(store.lines().next().unwrap());
-    assert_eq!(entry["commit_on_main"], head.as_str());
+    assert_eq!(entry["git"]["code"]["ref"], "refs/heads/feature/x");
+    assert_eq!(entry["git"]["code"]["commit"], head.as_str());
 }
 
-fn assert_pause_refuses_an_unpushed_head_on(branch: &str) {
-    let fx = Fixture::with_default_branch(branch);
+#[test]
+fn pause_records_the_local_branch_even_when_origin_holds_the_commit_on_another() {
+    let fx = Fixture::new();
     let id = fx.start();
-    write(&fx.work().join("local.md"), "unpushed\n");
-    commit_all(&fx.work(), "Local only");
+    git(&fx.work(), &["switch", "--quiet", "-c", "local-name"]);
+    let head = git_line(&fx.work(), &["rev-parse", "HEAD"]);
+
+    let output = fx.tsk(&["thread", "pause", &id, BRIEFING, "T-05", "next"]);
+
+    assert_success(&output);
+    let store = fx
+        .origin_file(&format!("threads/{}/continuation-state.jsonl", id))
+        .unwrap();
+    let entry = json(store.lines().next().unwrap());
+    assert_eq!(entry["git"]["code"]["ref"], "refs/heads/local-name");
+    assert_eq!(entry["git"]["code"]["commit"], head.as_str());
+}
+
+#[test]
+fn pause_sees_a_branch_pushed_by_another_clone_without_a_prior_fetch() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    write(&fx.work().join("later.md"), "later\n");
+    commit_all(&fx.work(), "Pushed from elsewhere");
+    git(
+        &fx.work(),
+        &["push", "--quiet", "origin", "HEAD:refs/heads/elsewhere"],
+    );
+    git(
+        &fx.work(),
+        &["update-ref", "-d", "refs/remotes/origin/elsewhere"],
+    );
+
+    let output = fx.tsk(&["thread", "pause", &id, BRIEFING, "T-05", "next"]);
+
+    assert_success(&output);
+}
+
+#[test]
+fn pause_does_not_count_a_deleted_origin_branch() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    git(&fx.work(), &["switch", "--quiet", "-c", "gone"]);
+    write(&fx.work().join("gone.md"), "gone\n");
+    commit_all(&fx.work(), "On a branch that is then deleted");
+    git(
+        &fx.work(),
+        &["push", "--quiet", "origin", "HEAD:refs/heads/gone"],
+    );
+    git(&fx.origin(), &["update-ref", "-d", "refs/heads/gone"]);
     let before = fx.origin_ledger_sha();
 
     let output = fx.tsk(&["thread", "pause", &id, BRIEFING, "T-05", "next"]);
 
     assert_exit(&output, 1);
-    assert!(
-        stderr(&output).contains(&format!(
-            "is not reachable on origin's default branch (refs/heads/{})",
-            branch
-        )),
-        "{}",
-        stderr(&output)
-    );
-    assert!(stderr(&output).contains(&format!("Push to {} before pausing", branch)));
-    assert_eq!(fx.origin_ledger_sha(), before);
+    assert!(stderr(&output).contains("is not reachable from any branch on origin"));
+    assert_pause_not_recorded(&fx, &id, &before);
 }
 
 #[test]
-fn pause_checks_against_a_master_default_branch() {
-    assert_pause_records_head_on("master");
-    assert_pause_refuses_an_unpushed_head_on("master");
-}
-
-#[test]
-fn pause_checks_against_a_trunk_default_branch() {
-    assert_pause_records_head_on("trunk");
-    assert_pause_refuses_an_unpushed_head_on("trunk");
-}
-
-#[test]
-fn pause_checks_against_a_main_default_branch() {
-    assert_pause_records_head_on("main");
-    assert_pause_refuses_an_unpushed_head_on("main");
-}
-
-#[test]
-fn pause_ignores_a_main_branch_that_is_not_the_default() {
+fn pause_works_with_a_non_main_default_branch() {
     let fx = Fixture::with_default_branch("trunk");
     let id = fx.start();
-    write(&fx.work().join("side.md"), "side\n");
-    commit_all(&fx.work(), "Only on main");
-    git(
-        &fx.work(),
-        &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
-    );
+
+    let output = fx.tsk(&["thread", "pause", &id, BRIEFING, "T-05", "next"]);
+
+    assert_success(&output);
+    let store = fx
+        .origin_file(&format!("threads/{}/continuation-state.jsonl", id))
+        .unwrap();
+    let entry = json(store.lines().next().unwrap());
+    assert_eq!(entry["git"]["code"]["ref"], "refs/heads/trunk");
+}
+
+#[test]
+fn pause_refuses_a_detached_head() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    git(&fx.work(), &["checkout", "--quiet", "--detach"]);
+    let before = fx.origin_ledger_sha();
 
     let output = fx.tsk(&["thread", "pause", &id, BRIEFING, "T-05", "next"]);
 
     assert_exit(&output, 1);
-    assert!(stderr(&output).contains("(refs/heads/trunk)"));
+    assert_eq!(stdout(&output), "");
+    assert!(
+        stderr(&output).contains("HEAD is detached"),
+        "{}",
+        stderr(&output)
+    );
+    assert_pause_not_recorded(&fx, &id, &before);
 }
 
 #[test]
@@ -577,8 +639,8 @@ fn resume_warns_and_still_binds_when_another_actor_wrote_to_the_thread() {
     let fx = Fixture::new();
     fx.seed_thread(
         "2222bbbb",
-        "{\"mission_link\":\"m\",\"task_id\":\"T-01\",\"whats_next\":\"a\",\"commit_on_ledger\":\"c\",\"commit_on_main\":\"d\",\"timestamp\":\"2026-10-01T00:00:00Z\",\"written_by\":\"urn:tsk:cloudsession:cse_other\"}\n\
-         {\"mission_link\":\"m\",\"task_id\":\"T-01\",\"whats_next\":\"b\",\"commit_on_ledger\":\"c\",\"commit_on_main\":\"d\",\"timestamp\":\"2026-10-02T00:00:00Z\",\"written_by\":\"urn:tsk:worktree:feature\"}\n",
+        "{\"mission_link\":\"m\",\"task_id\":\"T-01\",\"whats_next\":\"a\",\"git\":{\"ledger\":{\"commit\":\"c\"},\"code\":{\"ref\":\"refs/heads/main\",\"commit\":\"d\"}},\"timestamp\":\"2026-10-01T00:00:00Z\",\"written_by\":\"urn:tsk:cloudsession:cse_other\"}\n\
+         {\"mission_link\":\"m\",\"task_id\":\"T-01\",\"whats_next\":\"b\",\"git\":{\"ledger\":{\"commit\":\"c\"},\"code\":{\"ref\":\"refs/heads/main\",\"commit\":\"d\"}},\"timestamp\":\"2026-10-02T00:00:00Z\",\"written_by\":\"urn:tsk:worktree:feature\"}\n",
     );
 
     let output = fx.tsk(&["thread", "resume", "2222bbbb"]);
@@ -609,10 +671,10 @@ fn resume_does_not_warn_when_the_current_actor_wrote_to_the_thread() {
 }
 
 #[test]
-fn resume_and_list_read_a_legacy_commit_on_bootstrap_entry() {
+fn resume_list_and_pause_keep_entries_as_stored() {
     let fx = Fixture::new();
-    let legacy = "{\"mission_link\":\"missions/operational/M-TEST-01-example.md\",\"task_id\":\"T-03\",\"whats_next\":\"legacy entry\",\"commit_on_bootstrap\":\"1111111111111111111111111111111111111111\",\"commit_on_main\":\"2222222222222222222222222222222222222222\",\"timestamp\":\"2026-09-20T09:00:00Z\",\"written_by\":\"urn:tsk:worktree:.git\"}";
-    fx.seed_thread("4onylfsg", &format!("{}\n", legacy));
+    let stored = "{\"mission_link\":\"missions/operational/M-TEST-01-example.md\",\"task_id\":\"T-03\",\"whats_next\":\"stored entry\",\"git\":{\"ledger\":{\"commit\":\"1111111111111111111111111111111111111111\"},\"code\":{\"ref\":\"refs/heads/main\",\"commit\":\"2222222222222222222222222222222222222222\"}},\"timestamp\":\"2026-09-20T09:00:00Z\",\"written_by\":\"urn:tsk:worktree:.git\"}";
+    fx.seed_thread("4onylfsg", &format!("{}\n", stored));
 
     let output = fx.tsk(&["thread", "resume", "4onylfsg"]);
     assert_success(&output);
@@ -620,7 +682,7 @@ fn resume_and_list_read_a_legacy_commit_on_bootstrap_entry() {
         stdout(&output),
         format!(
             "{{\"thread_id\":\"4onylfsg\",\"latest\":{},\"warning\":\"\"}}\n",
-            legacy
+            stored
         )
     );
 
@@ -628,7 +690,7 @@ fn resume_and_list_read_a_legacy_commit_on_bootstrap_entry() {
     assert_success(&list);
     let row = json(stdout(&list).lines().next().unwrap());
     assert_eq!(row["id"], "4onylfsg");
-    assert_eq!(row["latest_whats_next"], "legacy entry");
+    assert_eq!(row["latest_whats_next"], "stored entry");
     assert_eq!(row["latest_timestamp"], "2026-09-20T09:00:00Z");
 
     assert_success(&fx.tsk(&["thread", "pause", "4onylfsg", BRIEFING, "T-04", "new entry"]));
@@ -636,9 +698,8 @@ fn resume_and_list_read_a_legacy_commit_on_bootstrap_entry() {
         .origin_file("threads/4onylfsg/continuation-state.jsonl")
         .unwrap();
     let lines: Vec<_> = store.lines().collect();
-    assert_eq!(lines[0], legacy);
-    assert!(lines[1].contains("\"commit_on_ledger\":"));
-    assert!(!lines[1].contains("commit_on_bootstrap"));
+    assert_eq!(lines[0], stored);
+    assert!(lines[1].contains("\"git\":{\"ledger\":{\"commit\":"));
 }
 
 #[test]
@@ -890,4 +951,197 @@ fn thread_commands_refuse_an_invalid_thread_id() {
     let output = fx.tsk(&["thread", "stop", "../.."]);
     assert_exit(&output, 1);
     assert!(stderr(&output).contains("invalid thread id"));
+}
+
+fn session_start(fx: &Fixture, input: &str, env_file: Option<&Path>) -> Output {
+    let mut command = fx.command(&["thread", "session-start"], None);
+    if let Some(file) = env_file {
+        command.env("CLAUDE_ENV_FILE", file);
+    } else {
+        command.env_remove("CLAUDE_ENV_FILE");
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to run tsk");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+fn session_context(output: &Output) -> String {
+    let value = json(&stdout(output));
+    assert_eq!(stdout(output).lines().count(), 1);
+    assert_eq!(value.as_object().unwrap().len(), 1);
+    assert_eq!(value["hookSpecificOutput"]["hookEventName"], "SessionStart");
+    value["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn session_start_fetches_exports_the_path_and_prints_the_unbound_prompt() {
+    let fx = Fixture::new();
+    let env_file = fx.root.path().join("claude-env");
+
+    let output = session_start(&fx, "{\"source\":\"startup\"}", Some(&env_file));
+
+    assert_success(&output);
+    let wt = fx.ledger_path();
+    assert!(wt.join("index.md").is_file());
+    let context = session_context(&output);
+    assert!(context.starts_with(&format!(
+        "The ledger was fetched and materialised at {} (also exported as $TSK_LEDGER_WT). Read {}/index.md next.",
+        wt.display(),
+        wt.display()
+    )));
+    assert!(context.ends_with("if an existing thread is named instead."));
+    assert!(context.contains("No thread binding was found for this session or worktree."));
+    assert!(!context.contains("WARNING"));
+    assert_eq!(
+        std::fs::read_to_string(&env_file).unwrap(),
+        format!("export TSK_LEDGER_WT=\"{}\"\n", wt.display())
+    );
+}
+
+#[test]
+fn session_start_accepts_empty_input_and_needs_no_env_file() {
+    let fx = Fixture::new();
+
+    let output = session_start(&fx, "", None);
+
+    assert_success(&output);
+    assert!(session_context(&output).contains("was fetched and materialised at"));
+}
+
+#[test]
+fn session_start_appends_to_an_existing_env_file() {
+    let fx = Fixture::new();
+    let env_file = fx.root.path().join("claude-env");
+    write(&env_file, "export OTHER=\"1\"\n");
+
+    assert_success(&session_start(&fx, "{}", Some(&env_file)));
+
+    let text = std::fs::read_to_string(&env_file).unwrap();
+    assert!(text.starts_with("export OTHER=\"1\"\n"));
+    assert_eq!(text.lines().count(), 2);
+}
+
+#[test]
+fn session_start_names_an_existing_binding_and_the_resume_command() {
+    let fx = Fixture::new();
+    let id = fx.start();
+
+    let output = session_start(&fx, "{\"source\":\"resume\"}", None);
+
+    assert_success(&output);
+    let context = session_context(&output);
+    assert!(context.ends_with(&format!(
+        "An existing thread binding was found: worktree:{}. Run /tsk:resume-thread {} next.",
+        id, id
+    )));
+    assert!(!context.contains("No thread binding was found"));
+}
+
+#[test]
+fn session_start_names_a_cloud_binding() {
+    let fx = Fixture::new();
+    fx.seed_thread("5555eeee", "");
+    assert_success(&fx.tsk_cloud("cse_two", &["thread", "resume", "5555eeee"]));
+
+    let mut command = fx.command(&["thread", "session-start"], Some("cse_two"));
+    let output = command
+        .stdin(Stdio::null())
+        .output()
+        .expect("failed to run tsk");
+
+    assert_success(&output);
+    assert!(session_context(&output).ends_with(
+        "An existing thread binding was found: cloud:5555eeee. Run /tsk:resume-thread 5555eeee next."
+    ));
+}
+
+#[test]
+fn session_start_warns_about_a_ledger_commit_that_is_not_on_origin() {
+    let fx = Fixture::new();
+    assert_success(&session_start(&fx, "{}", None));
+    let wt = fx.ledger_path();
+    write(&wt.join("local.md"), "local\n");
+    commit_all(&wt, "Unpushed ledger commit");
+    let local_head = git_line(&wt, &["rev-parse", "HEAD"]);
+    let origin_tip = fx.origin_ledger_sha();
+
+    let output = session_start(&fx, "{}", None);
+
+    assert_success(&output);
+    let context = session_context(&output);
+    assert!(context.contains(
+        "WARNING: the ledger worktree holds a commit that is not on origin's refs/heads/tsk/ledger"
+    ));
+    assert!(context.contains("Unpushed ledger commit"));
+    assert!(context.contains(&format!("log -p {}..HEAD", origin_tip)));
+    assert!(context.contains("push it with tsk ledger push"));
+    assert!(context.contains("No thread binding was found"));
+    assert_eq!(git_line(&wt, &["rev-parse", "HEAD"]), local_head);
+}
+
+#[test]
+fn session_start_exits_0_with_a_warning_when_the_fetch_fails() {
+    let fx = Fixture::new();
+    git(
+        &fx.work(),
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            fx.root.path().join("missing.git").to_str().unwrap(),
+        ],
+    );
+    let env_file = fx.root.path().join("claude-env");
+
+    let output = session_start(&fx, "{}", Some(&env_file));
+
+    assert_exit(&output, 0);
+    let context = session_context(&output);
+    assert!(context
+        .starts_with("Warning: the ledger could not be fetched automatically at session start ("));
+    assert!(context.ends_with("Run `tsk ledger fetch` manually before reading index.md."));
+    assert!(!env_file.exists());
+}
+
+#[test]
+fn session_start_exits_0_with_a_warning_outside_a_repository() {
+    let fx = Fixture::new();
+    let outside = fx.root.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    let mut command = fx.command(&["thread", "session-start"], None);
+    let output = command
+        .current_dir(&outside)
+        .stdin(Stdio::null())
+        .output()
+        .expect("failed to run tsk");
+
+    assert_exit(&output, 0);
+    assert!(session_context(&output).contains("Run `tsk ledger fetch` manually"));
+}
+
+#[test]
+fn version_prints_the_workspace_version() {
+    let fx = Fixture::new();
+    for flag in ["--version", "-V"] {
+        let output = fx.tsk(&[flag]);
+        assert_success(&output);
+        assert_eq!(
+            stdout(&output),
+            format!("tsk {}\n", env!("CARGO_PKG_VERSION"))
+        );
+    }
+    assert!(!env!("CARGO_PKG_VERSION").is_empty());
 }

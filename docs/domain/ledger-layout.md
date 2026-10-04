@@ -26,6 +26,7 @@ continuation state), `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-cu
 - [Fetching and printing the path](#fetching-and-printing-the-path)
 - [Writing to the ledger](#writing-to-the-ledger)
 - [External event commands](#external-event-commands)
+- [Session start command](#session-start-command)
 - [Script outputs](#script-outputs)
 - [Differences from `tsk/bootstrap`](#differences-from-tskbootstrap)
 
@@ -228,56 +229,56 @@ whitespace between tokens), terminated by `\n`. Each line is one continuation st
 entry, written by `thread pause` (today `thread-append-handover.sh`). Lines are never
 rewritten or removed, except that `thread stop` deletes the whole file with the thread.
 
-Fields, in the order written:
+Fields, in the order written. `git` holds `ledger` then `code`; `ledger` holds `commit`;
+`code` holds `ref` then `commit`:
 
 | Field | Type | Source | Meaning |
 |---|---|---|---|
 | `mission_link` | string | caller | The mission briefing the thread works on, as a path relative to the ledger root. |
 | `task_id` | string | caller | The task in progress at pause time, for example `T-03`. Can be empty. |
 | `whats_next` | string | caller | A short account of where things stand. |
-| `commit_on_ledger` | string | command | Full 40-character SHA of the ledger worktree's `HEAD` after it is refreshed from the remote and before this entry is appended. |
-| `commit_on_main` | string | command | Full SHA of the managed repo's `HEAD` at pause time, checked against origin's default branch. The name keeps `main` for compatibility; the branch is not always `main`. |
+| `git` | object | command | The commits the entry records, in two nested objects: `ledger` and `code`. |
+| `git.ledger.commit` | string | command | Full 40-character SHA of the ledger worktree's `HEAD` after it is refreshed from the remote and before this entry is appended. |
+| `git.code.ref` | string | command | Full ref of the branch the code worktree's `HEAD` is on at pause time, for example `refs/heads/feature/x`. |
+| `git.code.commit` | string | command | Full SHA of the code worktree's `HEAD` at pause time. |
 | `timestamp` | string | command | UTC time the entry is appended. |
 | `written_by` | string | command | URN of the binding that wrote the entry. |
 
-`commit_on_ledger` cannot be the commit the push creates: that commit holds this entry,
+`git.ledger.commit` cannot be the commit the push creates: that commit holds this entry,
 so its hash is unknown when the entry is written.
 
-`commit_on_main` must be reachable from the tip of origin's default branch. The field
-name stays `commit_on_main` because existing entries and the skills read it, but the
-commit it holds is checked against the default branch, which can be `main`, `master`,
-`trunk` or any other name. If the commit is not reachable, the pause stops with an error
-and writes nothing: an actor resuming the thread from another clone cannot see an
-unpushed commit.
+The flat fields `commit_on_bootstrap`, `commit_on_ledger` and `commit_on_main` of earlier
+entries are not read or written by the binary, and there is no fallback for them. A
+reader that passes an entry through unchanged (for example `thread resume`, which prints
+the latest entry) prints it as stored. Entries written before the nested `git` object
+exist on `tsk/ledger` only after a one-off migration commit, which sets
+`git.code.ref` to `refs/heads/main` because the earlier rule required the commit to be on
+origin's default branch.
 
-The binary resolves the default branch as a full ref name, `refs/heads/<name>`:
+#### Pause rule for the code worktree
 
-1. `git ls-remote --symref origin HEAD`. The line `ref: refs/heads/<name>\tHEAD` names
-   origin's current default branch.
-2. If origin reports no symbolic `HEAD` (a detached `HEAD`, or a server that does not
-   advertise symrefs), `git symbolic-ref --quiet refs/remotes/origin/HEAD` in the
-   managed repo. A target `refs/remotes/origin/<name>` maps to `refs/heads/<name>`.
-3. If neither resolves, the pause stops with an error that names
-   `git remote set-head origin <branch>` as the fix. It does not assume `main`.
+`thread pause` runs in the directory it is given: the code worktree that contains the
+current directory supplies `git.code.ref` and `git.code.commit`. The command checks, in
+this order:
 
-The query to origin comes first because `refs/remotes/origin/HEAD` is a local copy: a
-clone sets it once and never updates it when origin changes its default branch, and a
-repository set up with `git remote add` and `git fetch` does not have it at all. The
-cost is one extra network round trip per pause. The binary then runs
-`git fetch origin refs/heads/<name>` and checks reachability against `FETCH_HEAD`.
+1. `git symbolic-ref --quiet HEAD` names a branch. A detached `HEAD` stops the pause with
+   `error: HEAD is detached, so the branch the work is on cannot be recorded.` and exit
+   status 1. A `HEAD` that points outside `refs/heads/` stops it with
+   `error: HEAD points at '<ref>', which is not a branch.` and exit status 1.
+2. `HEAD` is reachable from some branch on origin. The binary runs
+   `git fetch --quiet --prune origin '+refs/heads/*:refs/remotes/origin/*'`, then
+   `git for-each-ref --contains <commit> --format=%(refname) refs/remotes/origin/`. Any
+   listed ref other than `refs/remotes/origin/HEAD` satisfies the rule. The explicit
+   refspec makes the check independent of the clone's configured fetch refspec, and
+   `--prune` drops remote-tracking refs of branches deleted on origin. If no ref is
+   listed, the pause stops with
+   `error: HEAD (<sha>) is not reachable from any branch on origin.` and exit status 1,
+   and writes nothing: an actor resuming the thread from another clone cannot see an
+   unpushed commit.
 
-#### `commit_on_bootstrap` and `commit_on_ledger`
-
-Entries written by the scripts carry `commit_on_bootstrap` in place of
-`commit_on_ledger`, with the same meaning and position. Existing entries are not
-rewritten. The binary:
-
-- reads `commit_on_ledger`, and falls back to `commit_on_bootstrap` when
-  `commit_on_ledger` is absent;
-- writes `commit_on_ledger` only, never both.
-
-A reader that passes an entry through unchanged (for example `thread resume`, which
-prints the latest entry) prints the field name as stored.
+`git.code.ref` is the local branch name, not the origin branch that holds the commit. The
+default branch of origin plays no part in the rule. Each entry is a snapshot at pause, so
+a branch switch between pauses needs no tracking.
 
 #### Reading the latest entry
 
@@ -596,6 +597,49 @@ of writing envelopes to the queue file and calling `fetch-bootstrap-ref.sh` and
 alert would push once per alert. The GitHub Actions workflow that runs it
 (`.github/workflows/external-security-events.yml`) then needs `tsk` installed.
 
+## Session start command
+
+`tsk thread session-start` is the binary side of the Claude Code `SessionStart` hook. It
+runs the same fetch as `tsk ledger fetch`, so it materialises or refreshes the ledger
+worktree, and it holds the one copy of the unbound prompt text that `tsk thread guard`
+also prints.
+
+Steps, in order:
+
+1. Read standard input to the end and discard it. The hook input can be empty.
+2. Fetch the ledger. A fetch failure, or a directory outside a git repository, skips to
+   the failure output below.
+3. When the environment variable `CLAUDE_ENV_FILE` is set and not empty, append
+   `export TSK_LEDGER_WT="<path>"` and a newline to that file. A write failure adds a
+   warning to the context and does not stop the command.
+4. Resolve the binding of the session, as `tsk thread binding` does, from the fetched
+   ledger worktree.
+5. Print one JSON object on one line and exit with status 0.
+
+Standard output on success:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}
+```
+
+`additionalContext` is these parts, joined by single spaces:
+
+1. `The ledger was fetched and materialised at <path> (also exported as $TSK_LEDGER_WT). Read <path>/index.md next.`
+2. When the ledger worktree holds commits that are not on the remote ledger branch, a
+   warning that starts `WARNING: the ledger worktree holds a commit that is not on
+   <remote>'s <ref>, so it was left as it is rather than reset:`, lists the commits
+   separated by `;`, and gives the `git log -p <remote-tip>..HEAD` command to read them and
+   `tsk ledger push` to push them.
+3. With a binding, `An existing thread binding was found: <binding>. Run /tsk:resume-thread
+   <thread-id> next.` Without one, the unbound prompt text.
+
+On failure the output is the same object with the context
+`Warning: the ledger could not be fetched automatically at session start (<error>). Run
+`tsk ledger fetch` manually before reading index.md.` and the exit status is 0.
+
+The command does not unshallow the clone, install plugins, or stash, check out or pull
+the code worktree. Those steps stay in the repo's own hook script.
+
 ## Script outputs
 
 The skills and hooks parse these outputs today. The binary commands that replace the
@@ -614,6 +658,7 @@ what the harness expects until then.
 | `thread-list.sh` | one compact JSON object per line: `id`, `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry) | | `tsk thread list` |
 | `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger worktree |
 | `thread-binding-guard.sh` | nothing when bound; `{"decision":"block","reason":"..."}` when not | | `tsk thread guard` |
+| `claude-session-start.sh` (the tsk parts) | one JSON object, `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}` | exit 0 in every case, including a failed fetch, which prints a warning context | `tsk thread session-start` (see [Session start command](#session-start-command)) |
 | `thread-scaffold.sh` | nothing | exit 1 when `threads/<thread-id>` exists | internal to `tsk thread start` |
 | `thread-mint-id.sh` | `<thread-id>` | | internal to `tsk thread start` |
 | `append-external-event.sh` | `queued` | | `tsk events append <source> <event-type> <action> <repo> <payload-file>` |
@@ -628,7 +673,7 @@ what the harness expects until then.
 | Ref | `refs/heads/tsk/bootstrap` | `refs/heads/tsk/ledger`, or `refs/heads/ledgers/<host>/<owner>/<repo>` in the nexus |
 | Ledger worktree | `.../repos/<clone-id>/bootstrap` | `.../repos/<clone-id>/ledger` |
 | Manifest | none | `.tsk-ledger.toml`, `version = 1` |
-| Continuation commit field | `commit_on_bootstrap` | `commit_on_ledger`; `commit_on_bootstrap` still read |
+| Continuation commit fields | flat `commit_on_bootstrap`, `commit_on_main` | nested `git.ledger.commit`, `git.code.ref`, `git.code.commit`; the flat names are not read |
 | Fetch and path | `fetch-bootstrap-ref.sh`, `bootstrap-wt-path.sh` | `tsk ledger fetch`, `tsk ledger path` |
 | Thread commands | `thread-*.sh`, `mint-token-lib.sh` | `tsk thread` subcommands |
 | Push | `push-bootstrap-ref.sh`, plain push, retried on any failure | `tsk ledger push`, explicit lease, retried on a rejected update only |
