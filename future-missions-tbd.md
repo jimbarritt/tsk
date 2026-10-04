@@ -762,9 +762,10 @@ Three things had no place in the briefing format and were added by hand:
 - **A command that renders a delegation prompt from the ledger.** For example
   `tsk mission brief M-BOOT-04 T-10`, which prints the task row, the decisions that name
   the task, the constraints, the out-of-scope list and a report template.
-- **A child thread per subagent.** The subagent's report becomes a pause entry on its
-  own thread, linked to the lead's thread. A stopped subagent can then be resumed by
-  another session.
+- **A child thread per subagent: open.** The subagent's report becomes a pause entry on
+  its own thread, linked to the lead's thread, so another session can resume a stopped
+  subagent. Jim, 2026-10-04: not sure each subagent needs its own thread. The pattern
+  is to be discussed further as it recurs.
 - **Decision authority per run, not per mission.** The same mission ran in "ask" mode
   for T-07 and in "decide and record" mode for T-10.
 - **File ownership as data.** A run declares the paths it owns, and a check refuses an
