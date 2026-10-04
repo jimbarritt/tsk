@@ -55,6 +55,11 @@ enum Commands {
         #[command(subcommand)]
         action: ledger::LedgerCommands,
     },
+    #[command(about = "Read and write the user config: attach the nexus")]
+    Config {
+        #[command(subcommand)]
+        action: config::ConfigCommands,
+    },
     #[command(
         about = "Append to, read and advance the ledger's external event queue (runs without tskd)"
     )]
@@ -98,6 +103,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
         Some(Commands::Thread { action }) => thread::run(action),
         Some(Commands::Ledger { action }) => ledger::run(action).map(|()| 0),
         Some(Commands::Events { action }) => events::run(action),
+        Some(Commands::Config { action }) => config::run(action).map(|()| 0),
         None => Ok(0),
     }
 }
@@ -107,6 +113,8 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
 // ---------------------------------------------------------------------------
 
 mod tui;
+
+mod config;
 
 mod ledger;
 

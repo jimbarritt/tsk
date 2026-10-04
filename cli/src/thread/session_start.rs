@@ -61,7 +61,7 @@ impl PendingNote {
         PendingNote {
             remote_ref: format!(
                 "{}'s {}",
-                outcome.location.remote(),
+                outcome.location.label(),
                 outcome.location.ref_name()
             ),
             origin_commit: outcome.commit.clone(),

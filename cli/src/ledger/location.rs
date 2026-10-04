@@ -11,21 +11,50 @@ pub const WORKTREE_DIR_NAME: &str = "ledger";
 pub const CLONE_ID_FILE: &str = "tsk-clone-id";
 const CLONE_ID_SUFFIX_LEN: usize = 8;
 
+pub const NEXUS_REF_PREFIX: &str = "refs/heads/ledgers/";
+pub const REPO_ID_FILE: &str = "tsk-repo-id";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LedgerLocation {
-    InRepo,
+pub struct LedgerLocation {
+    remote: String,
+    ref_name: String,
+    repo_id: Option<String>,
 }
 
 impl LedgerLocation {
-    pub fn remote(&self) -> &str {
-        match self {
-            LedgerLocation::InRepo => IN_REPO_REMOTE,
+    pub fn in_repo() -> LedgerLocation {
+        LedgerLocation {
+            remote: IN_REPO_REMOTE.to_string(),
+            ref_name: IN_REPO_REF.to_string(),
+            repo_id: None,
         }
     }
 
+    pub fn nexus(nexus_url: &str, repo_id: &str) -> LedgerLocation {
+        LedgerLocation {
+            remote: nexus_url.to_string(),
+            ref_name: format!("{}{}", NEXUS_REF_PREFIX, repo_id),
+            repo_id: Some(repo_id.to_string()),
+        }
+    }
+
+    pub fn remote(&self) -> &str {
+        &self.remote
+    }
+
     pub fn ref_name(&self) -> &str {
-        match self {
-            LedgerLocation::InRepo => IN_REPO_REF,
+        &self.ref_name
+    }
+
+    pub fn repo_id(&self) -> Option<&str> {
+        self.repo_id.as_deref()
+    }
+
+    pub fn label(&self) -> &str {
+        if self.repo_id.is_some() {
+            "the nexus"
+        } else {
+            &self.remote
         }
     }
 }
@@ -52,8 +81,42 @@ impl Repo {
         })
     }
 
-    pub fn location(&self) -> LedgerLocation {
-        LedgerLocation::InRepo
+    pub fn location(&self, state_root: &Path) -> Result<LedgerLocation, String> {
+        super::nexus::resolve(
+            self,
+            state_root,
+            crate::config::config_file_from_env().as_deref(),
+        )
+    }
+
+    pub fn repo_id_file(&self) -> PathBuf {
+        self.common_dir.join(REPO_ID_FILE)
+    }
+
+    pub fn read_repo_id(&self) -> Result<Option<String>, String> {
+        read_clone_id(&self.repo_id_file())
+    }
+
+    pub fn write_repo_id(&self, id: &str) -> Result<(), String> {
+        std::fs::write(self.repo_id_file(), format!("{}\n", id)).map_err(|e| {
+            format!(
+                "error: could not write the repo id to {}: {}",
+                self.repo_id_file().display(),
+                e
+            )
+        })
+    }
+
+    pub fn raw_origin_url(&self) -> Result<Option<String>, String> {
+        let (args, output) = self.git.output(["config", "--get", "remote.origin.url"])?;
+        match output.status.code() {
+            Some(0) => {
+                let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                Ok(if url.is_empty() { None } else { Some(url) })
+            }
+            Some(1) => Ok(None),
+            _ => Err(super::git::failure_message(&args, &output)),
+        }
     }
 
     pub fn clone_id_file(&self) -> PathBuf {
@@ -165,10 +228,21 @@ mod tests {
 
     #[test]
     fn in_repo_location_uses_full_ref_name_on_origin() {
-        let location = LedgerLocation::InRepo;
+        let location = LedgerLocation::in_repo();
         assert_eq!(location.remote(), "origin");
         assert_eq!(location.ref_name(), "refs/heads/tsk/ledger");
+        assert_eq!(location.label(), "origin");
+        assert_eq!(location.repo_id(), None);
         assert!(location.ref_name().starts_with("refs/heads/"));
+    }
+
+    #[test]
+    fn nexus_location_uses_the_repo_id_branch_on_the_nexus_url() {
+        let location = LedgerLocation::nexus("https://example.test/o/nexus", "work-api");
+        assert_eq!(location.remote(), "https://example.test/o/nexus");
+        assert_eq!(location.ref_name(), "refs/heads/ledgers/work-api");
+        assert_eq!(location.label(), "the nexus");
+        assert_eq!(location.repo_id(), Some("work-api"));
     }
 
     #[test]

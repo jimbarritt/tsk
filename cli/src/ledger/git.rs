@@ -1,6 +1,7 @@
 use std::ffi::OsStr;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 pub struct Git {
     dir: PathBuf,
@@ -47,6 +48,39 @@ impl Git {
                 args.join(" ")
             )
         })
+    }
+
+    pub fn run_stdin<I, S>(&self, args: I, input: &str) -> Result<String, String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let args: Vec<String> = args
+            .into_iter()
+            .map(|a| a.as_ref().to_string_lossy().into_owned())
+            .collect();
+        let mut child = Command::new("git")
+            .args(&args)
+            .current_dir(&self.dir)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("error: could not run git: {}", e))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(input.as_bytes())
+                .map_err(|e| format!("error: could not write to git {}: {}", args.join(" "), e))?;
+        }
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("error: could not run git: {}", e))?;
+        if !output.status.success() {
+            return Err(failure_message(&args, &output));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .trim_end_matches(['\n', '\r'])
+            .to_string())
     }
 
     pub fn run_line<I, S>(&self, args: I) -> Result<String, String>
