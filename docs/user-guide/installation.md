@@ -29,18 +29,27 @@ cargo --version
 ## Installation
 
 ```bash
-cargo install tsk-bin tskd
+cargo install --git https://github.com/jimbarritt/tsk tsk-bin --tag v0.2.0 --locked
 ```
 
-This installs two binaries: `tsk` (CLI + TUI) and `tskd` (daemon).
+This installs the `tsk` binary. 0.2.0 is not on crates.io yet. `tskd` is retired
+(ADR 0012) and is not needed.
+
+The Claude Code plugin installs from the marketplace in the tsk repo:
+
+```bash
+claude plugin marketplace add jimbarritt/tsk
+claude plugin install tsk@tsk
+```
+
+The plugin's `SessionStart` hook installs the `tsk` version the plugin requires when
+`tsk` is missing or at another version. With `TSK_SOURCE` set to a path, it installs
+from that source tree with `cargo install --path`.
 
 ## Upgrading
 
-Same command: `cargo install` replaces the existing binaries.
-
-```bash
-cargo install tsk-bin tskd
-```
+Run the install command again with the new tag: `cargo install` replaces the existing
+binary.
 
 ## CI
 
