@@ -173,6 +173,16 @@ the command names.
   are the only shared state. Its 43 tests move to `daemon/tests/`, so the later removal
   of the crate is clean. Rebuilding the TUI on the ledgers is a later mission. A local
   cache index is recorded in the ADR as a deferred extension.
+- 2026-10-04: the T-03 to T-06 output details are accepted: `tsk ledger push` prints the
+  resulting SHA, `tsk ledger path` does not mint a clone ID, event payloads keep their
+  bytes, and the T-10 URL normalisation rules in `ledger-layout.md` stand. A managed
+  repo whose `origin` is a local path or `file://` URL uses an in-repo ledger only.
+  `commit_on_main` holds the commit of origin's default branch, not of a branch named
+  `main`. The field name stays.
+- 2026-10-04, note for T-10: the nexus e2e tests need an `origin` URL with a host. Set
+  `origin` to a URL such as `https://example.test/owner/repo` and a git
+  `url.<bare-repo-path>.insteadOf` rule. tsk reads the raw `remote.origin.url` from
+  config, not `git remote get-url`, which applies the rewrite.
 
 ## Open decisions
 
