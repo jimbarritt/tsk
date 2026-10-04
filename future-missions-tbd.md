@@ -703,3 +703,72 @@ Under ADR 0012 the TUI is rebuilt as a global view over every ledger, located th
 the nexus, so it has no single working directory. A long running TUI instance can hold a
 focus that narrows the view to one repo or one code worktree, moved with a `/cd` style
 command. This belongs to the mission that rebuilds the TUI on the ledgers.
+
+## Delegating a task to subagents: feedback from real use
+
+Raised by Jim, 2026-10-04, after M-BOOT-04 T-07 and T-10.
+
+### What happened
+
+In thread `ab9cd219`, the lead session ran M-BOOT-04 T-07 and T-10 through Claude Code
+subagents (the `Agent` tool), not inline. No subagent had a mission, a task row or a
+thread in the ledger. Each was one tool call with a written prompt, and each returned
+one report as a message to the lead.
+
+- T-07 ran two subagents at once in the same code worktree: `t07-binary` (the binary
+  changes, `cli/` and two domain docs) and `t07-plugin` (plugin hooks and skills,
+  marketplace, poller, workflow, justfile, `CLAUDE.md`). A third, `t07-sweep`, ran the
+  terminology sweep after both finished, and committed and pushed itself.
+- T-10 ran as one subagent, `t10-nexus`, in autonomous mode while Jim was away from his
+  machine.
+
+### The prompt took the shape of a mission briefing
+
+| Briefing section | What the prompt held |
+|---|---|
+| Objective | The task and its done state, for example "`cargo test --workspace` passes, committed and pushed" |
+| Intelligence | The files to read first: the briefing, ADRs, domain docs and code paths |
+| Decision authority | T-07: report open questions back. T-10: decide, record each decision as a dated entry in the briefing, continue |
+| Constraints | Software English, no code comments, the commands the user's hooks block, no hand-run git against the ledger |
+| Out of scope | The files another subagent owns at the same time |
+| Plan | Numbered work items |
+
+Three things had no place in the briefing format and were added by hand:
+
+1. **File ownership between concurrent subagents.** Each prompt named the files that
+   subagent owns and the files the other owns. Two subagents ran in one code worktree
+   with no conflict.
+2. **A fixed contract between subagents.** The plugin subagent's prompt gave the exact
+   stdin, stdout and exit code of `tsk thread session-start` before the binary subagent
+   had written it. Both sides built against the contract at once.
+3. **A report shape.** Each prompt ended with the report wanted back: files changed,
+   decisions, test count, open items. That shape is the same as a continuation state
+   entry's: where things stand, and what is next.
+
+### Gaps against tsk's own model
+
+- A subagent has no thread and no continuation state. A subagent that stops partway
+  through leaves its work only in the working tree, with no record of where it got to.
+- Questions came back as free text, and the lead relayed answers by hand through
+  `SendMessage`. The plugin subagent sent four questions in one message, against Jim's
+  rule to raise points one at a time.
+- Decisions made in a subagent reached the briefing only because the prompt said to
+  write them there.
+- The lead retyped context that the ledger already holds: the task row, the relevant
+  decisions, the constraints.
+
+### Candidate features
+
+- **A command that renders a delegation prompt from the ledger.** For example
+  `tsk mission brief M-BOOT-04 T-10`, which prints the task row, the decisions that name
+  the task, the constraints, the out-of-scope list and a report template.
+- **A child thread per subagent.** The subagent's report becomes a pause entry on its
+  own thread, linked to the lead's thread. A stopped subagent can then be resumed by
+  another session.
+- **Decision authority per run, not per mission.** The same mission ran in "ask" mode
+  for T-07 and in "decide and record" mode for T-10.
+- **File ownership as data.** A run declares the paths it owns, and a check refuses an
+  overlapping run. This connects to the concurrency gap on the shared ledger worktree,
+  recorded under M-BOOT-04.
+- **Structured questions from a subagent.** Each question carries an ID, options and a
+  recommendation, and is raised one at a time to the lead and from there to the human.
