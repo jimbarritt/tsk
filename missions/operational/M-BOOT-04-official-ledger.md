@@ -86,7 +86,7 @@ the command names.
 | T-07 | Cut over to the binary and the ledger | `tsk/ledger` created from the `tsk/bootstrap` tip with `.tsk-ledger.toml` added, so history carries over. Hooks, skills, `CLAUDE.md` and the justfile call `tsk`. The thread skills and the `SessionStart` and `Stop` hooks move from `.claude/` into `plugin/`, and this repo loads them from there. `ops/local/poll-security-alerts.sh` pipes its events to `tsk events append` in batch form. Prose uses "ledger worktree" and "code worktree", never "worktree" alone. The `SessionStart` hook ensures tsk is installed. The replaced scripts are removed | T-02, T-05, T-06 | DONE (main 96f8dd1, 47a5325, 7c593a8, 59ab6ec; `tsk/ledger` created and migrated) |
 | T-08 | Migrate to the ledger | Merged into T-07 on 2026-10-03 | n/a | MERGED |
 | T-09 | Retire `tsk/bootstrap` | The branch is tagged, `CLAUDE.md` points at the ledger, and no bootstrap scaffolding remains | T-07 | DONE (tag `archive/tsk-bootstrap` at 1819948; main a548367; the old bootstrap ledger worktree on each clone is left for a manual `git worktree remove`) |
-| T-10 | Hold a ledger in the nexus | `tsk config attach-nexus <url>` records the nexus in the user config. A managed repo's entry in `nexus.json` with `"ledger": "nexus"` holds its ledger on a namespaced branch in the nexus, and `tsk ledger fetch` and `tsk ledger push` work against it. The tsk-nexus README and `docs/domain/territory-and-nexus.md` say the nexus holds ledgers as an option | T-09 | TODO |
+| T-10 | Hold a ledger in the nexus | `tsk config attach-nexus <url>` records the nexus in the user config. A managed repo's entry in `nexus.json` with `"ledger": "nexus"` holds its ledger on a namespaced branch in the nexus, and `tsk ledger fetch` and `tsk ledger push` work against it. The tsk-nexus README and `docs/domain/territory-and-nexus.md` say the nexus holds ledgers as an option | T-09 | DONE (main 5fd57be, eae4c86; tsk-nexus 0e31dd6) |
 | T-11 | Install the harness outside this repo | The hooks and skills have no dependency on the tsk repo and call only `tsk`. The plugin at `plugin/` installs them through a marketplace entry of the `git-subdir` form, so a session in another repo, such as a work repo, runs the harness. Optional: if it is not done by Monday 2026-10-05, the hooks and skills are copied by hand | T-10 | TODO |
 
 **Essential task**: T-09. Its end state and M-BOOT's objective are the same.
@@ -221,6 +221,52 @@ the command names.
   in `.claude/settings.json`, and `just build-install` updates the binary. When the
   install fails or `tsk` is still not found, the hook exits with the install command and
   the command that runs the session start again.
+- 2026-10-04, T-10: the repo ID is the nexus entry's existing `id` (a slug such as
+  `tsk`), validated as `[a-z0-9][a-z0-9-]*`. No ID is minted: entries are added by hand,
+  so the author chooses it. The ledger branch is `refs/heads/ledgers/<repo-id>`.
+  `.tsk-ledger.toml` gains an optional `repo_id`, written for nexus ledgers when tsk
+  creates one. The version stays 1. A nexus ledger whose manifest `repo_id` differs from
+  the entry `id` stops with an error. An absent `repo_id` in an existing nexus ledger is
+  accepted.
+- 2026-10-04, T-10: the user config is `${XDG_CONFIG_HOME:-~/.config}/tsk/config.toml`
+  with `[nexus] url = "..."`. `tsk config attach-nexus <url>` is idempotent and reports
+  an attach, an unchanged URL or a replacement. `tsk config show` is added as the read
+  form.
+- 2026-10-04, T-10: location resolution runs in `Repo::location`, so `tsk ledger fetch`
+  and `push`, `thread`, `events` and the session start share it. `tsk ledger path` does
+  not resolve, because it needs only the clone ID. Order: no attached nexus is in-repo.
+  Otherwise the entry is found by the cached ID in `$(git-common-dir)/tsk-repo-id`, then
+  by the normalised raw `remote.origin.url` against each entry's normalised `url`. An
+  entry whose `local` names another machine is skipped. The machine name is
+  `TSK_MACHINE_NAME` or the output of `hostname`. A found entry's `id` is written to
+  `tsk-repo-id`. No entry, or no `ledger` field, or `"repo"` is in-repo. Any other
+  `ledger` value is an error.
+- 2026-10-04, T-10: tsk reads `nexus.json` from a bare clone at
+  `<state root>/nexus/`, refreshed on each resolution with
+  `git fetch <url> +HEAD:refs/heads/nexus` and read with `git show`. When the fetch fails
+  and a copy exists, tsk prints a note and reads the copy, so an offline session still
+  resolves. With no copy, the command stops. Attaching a different URL needs no
+  clean-up, because the fetch replaces the tracking ref.
+- 2026-10-04, T-10: a nexus ledger is fetched and pushed from the managed repo's clone
+  with the nexus URL as the remote argument, always with full ref names. The nexus is not
+  added as a named remote and `.git/config` is not written. The ledger worktree stays a
+  linked worktree of the managed clone, at the same path, because the fetch puts the
+  objects in the clone's object database. Messages call the remote "the nexus", so a URL
+  with credentials is not printed by tsk's own notes.
+- 2026-10-04, T-10: a ledger branch that does not exist yet is created as an orphan
+  commit built with git plumbing (`hash-object`, `mktree`, `commit-tree`) holding
+  `.tsk-ledger.toml` and an `index.md` stub. `missions/`, `threads/` and
+  `external-events/` are not in the tree, because git holds no empty directory and the
+  commands create them on first write. Absence is detected from `git ls-remote
+  --exit-code` exit status 2 after a failed fetch. The first `tsk ledger push` uses a
+  create-only lease (`--force-with-lease=<ref>:`). This replaces the earlier in-repo
+  behaviour, an error when `tsk/ledger` is absent. The e2e test of that error became a
+  test of creation.
+- 2026-10-04, T-10: deferred, as scoped: automatic transition of a `local` entry to a
+  `url` entry on first push, and any registration command. Also deferred: a ledger
+  worktree created in-repo before an entry was added keeps its in-repo history, and
+  fetch does not move it to the nexus. The operator moves the ledger worktree aside and
+  re-runs `tsk ledger fetch`. The plugin version moved to 0.1.1 for the SKILL.md change.
 
 ## Open decisions
 
