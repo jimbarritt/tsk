@@ -18,6 +18,29 @@ A consequence: a tsk install does not hold a fixed list of roots. It connects to
 nexus, and the wider network becomes available by following links from there. Each
 repo keeps its own ledger; the nexus only records where to find it.
 
+## The nexus holds ledgers as an option
+
+A nexus is a git repo with a `nexus.json` at the root of its default branch. A tsk install
+attaches one with `tsk config attach-nexus <url>`, which writes the user config.
+
+A managed repo's entry in `nexus.json` chooses where its ledger lives. With
+`"ledger": "nexus"` the ledger is the branch `refs/heads/ledgers/<repo-id>` in the nexus repo. With
+`"ledger": "repo"`, or no `ledger` field, or no entry, the ledger is the branch
+`refs/heads/tsk/ledger` in the managed repo. The layout and the resolution rules are in
+[ledger-layout.md](ledger-layout.md#location-and-ref).
+
+An entry has these fields:
+
+| Field | Required | Meaning |
+|---|---|---|
+| `id` | yes | The repo ID, `[a-z0-9][a-z0-9-]*`. Names the ledger branch and is stored in the ledger's `.tsk-ledger.toml` as `repo_id`. |
+| `url` | no | The repo's clone URL. tsk matches it, normalised, against the managed repo's `origin`. |
+| `local` | no | A machine name. The entry is visible only on that machine and is found only through the repo ID cached in the clone. For a repo with no `url`. |
+| `ledger` | no | `"repo"` or `"nexus"`. Absent means `"repo"`. |
+
+Entries are added by hand. No command registers a repo. When a `local` entry gains a
+`url`, the edit is by hand too: automatic transition on first push is not implemented.
+
 ## Why a coordination repo, not a GitHub feature
 
 - GitHub custom properties are restricted to five value types, must be printable
@@ -44,7 +67,7 @@ repo keeps its own ledger; the nexus only records where to find it.
   a directory, or a git ref. (Resolved for the bootstrap: a directory,
   `~/.planning/tsk/missions/` initially, moving into the repository before the first
   cloud test, per M-BOOT-02.)
-- What the nexus index holds per project.
+- What the nexus index holds per project beyond the entry fields above.
 - Link direction: whether a link from nexus A to nexus B implies B knows about A, or
   links are one-way and a wider view is a traversal from wherever you start.
 - How the active territory filter is expressed in the command line interface.
