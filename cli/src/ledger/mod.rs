@@ -2,6 +2,7 @@ pub mod fetch;
 pub mod git;
 pub mod location;
 pub mod manifest;
+pub mod nexus;
 pub mod push;
 
 use clap::Subcommand;
@@ -64,6 +65,9 @@ pub fn fetch_reporting(
     if !outcome.pending.is_empty() {
         eprintln!("{}", pending_note(&outcome));
     }
+    if outcome.unpublished {
+        eprintln!("{}", unpublished_note(&outcome));
+    }
     Ok(outcome)
 }
 
@@ -101,11 +105,20 @@ fn push_notes(outcome: &push::PushOutcome) -> Vec<String> {
     if outcome.result == push::PushResult::AlreadyOnRemote {
         notes.push(format!(
             "note: {}'s {} already holds this worktree's state; nothing to push",
-            outcome.location.remote(),
+            outcome.location.label(),
             outcome.location.ref_name()
         ));
     }
     notes
+}
+
+fn unpublished_note(outcome: &fetch::FetchOutcome) -> String {
+    format!(
+        "note: {}'s {} does not exist yet; {} holds a new ledger.\n      The first tsk ledger push creates the branch",
+        outcome.location.label(),
+        outcome.location.ref_name(),
+        outcome.path.display()
+    )
 }
 
 fn pending_note(outcome: &fetch::FetchOutcome) -> String {
@@ -113,7 +126,7 @@ fn pending_note(outcome: &fetch::FetchOutcome) -> String {
     let mut note = format!(
         "note: {} holds a commit that is not on {}'s {}:\n",
         outcome.path.display(),
-        location.remote(),
+        location.label(),
         location.ref_name()
     );
     for line in &outcome.pending {
@@ -137,10 +150,11 @@ mod tests {
     #[test]
     fn pending_note_names_each_commit_and_the_reset_command() {
         let outcome = fetch::FetchOutcome {
-            location: location::LedgerLocation::InRepo,
+            location: location::LedgerLocation::in_repo(),
             path: PathBuf::from("/s/tsk/repos/x/ledger"),
             commit: "abc123".to_string(),
             pending: vec!["1111111 first".to_string(), "2222222 second".to_string()],
+            unpublished: false,
         };
         let note = pending_note(&outcome);
         assert!(note.starts_with("note: /s/tsk/repos/x/ledger holds a commit"));
@@ -150,9 +164,24 @@ mod tests {
         assert!(note.ends_with("reset --hard abc123"));
     }
 
+    #[test]
+    fn unpublished_note_names_the_ref_and_the_first_push() {
+        let outcome = fetch::FetchOutcome {
+            location: location::LedgerLocation::nexus("https://example.test/o/nexus", "work-api"),
+            path: PathBuf::from("/s/tsk/repos/x/ledger"),
+            commit: "abc123".to_string(),
+            pending: Vec::new(),
+            unpublished: true,
+        };
+        let note = unpublished_note(&outcome);
+        assert!(note.contains("the nexus's refs/heads/ledgers/work-api does not exist yet"));
+        assert!(note.contains("/s/tsk/repos/x/ledger holds a new ledger"));
+        assert!(note.ends_with("The first tsk ledger push creates the branch"));
+    }
+
     fn push_outcome(committed: bool, result: push::PushResult) -> push::PushOutcome {
         push::PushOutcome {
-            location: location::LedgerLocation::InRepo,
+            location: location::LedgerLocation::in_repo(),
             path: PathBuf::from("/s/tsk/repos/x/ledger"),
             committed,
             commit: "abc123".to_string(),

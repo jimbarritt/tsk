@@ -449,7 +449,7 @@ fn fetch_stops_on_a_supported_to_unsupported_upgrade_without_resetting() {
 }
 
 #[test]
-fn fetch_fails_when_origin_has_no_ledger_branch() {
+fn fetch_creates_a_new_ledger_when_origin_has_no_ledger_branch() {
     let fx = Fixture::new();
     git(
         fx.root.path(),
@@ -458,12 +458,54 @@ fn fetch_fails_when_origin_has_no_ledger_branch() {
 
     let output = fx.tsk(&["ledger", "fetch"]);
 
-    assert!(!output.status.success());
+    assert_success(&output);
     assert!(
-        stderr(&output).contains("refs/heads/tsk/ledger"),
+        stderr(&output).contains("refs/heads/tsk/ledger does not exist yet"),
         "{}",
         stderr(&output)
     );
+    let path = PathBuf::from(stdout(&output).trim_end());
+    assert_eq!(
+        std::fs::read_to_string(path.join(".tsk-ledger.toml")).unwrap(),
+        "version = 1\n"
+    );
+    assert!(path.join("index.md").is_file());
+    assert!(!git_output(
+        &fx.origin(),
+        &["rev-parse", "--verify", "--quiet", LEDGER_REF]
+    )
+    .status
+    .success());
+
+    let again = fx.fetch_ok();
+    assert_eq!(again, path);
+}
+
+#[test]
+fn the_first_push_creates_the_ledger_branch() {
+    let fx = Fixture::new();
+    git(
+        fx.root.path(),
+        &["clone", "--quiet", fx.origin().to_str().unwrap(), "work"],
+    );
+    let path = fx.fetch_ok();
+    std::fs::create_dir_all(path.join("missions")).unwrap();
+    write(&path.join("missions").join("M-1.md"), "mission\n");
+
+    let output = fx.push("First ledger commit");
+
+    assert_success(&output);
+    assert_eq!(stdout(&output).trim_end(), fx.origin_ledger_sha());
+    assert_eq!(
+        fx.origin_file(LEDGER_REF, "missions/M-1.md").as_deref(),
+        Some("mission\n")
+    );
+    assert_eq!(
+        fx.origin_file(LEDGER_REF, ".tsk-ledger.toml").as_deref(),
+        Some("version = 1\n")
+    );
+    let second = fx.push("Nothing new");
+    assert_success(&second);
 }
 
 #[test]

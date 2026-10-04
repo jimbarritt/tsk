@@ -38,37 +38,39 @@ pub fn push(
     message: &str,
     on_retry: &mut dyn FnMut(usize, &PushStatus),
 ) -> Result<PushOutcome, String> {
-    let location = repo.location();
+    let location = repo.location(state_root)?;
     let path = existing_worktree(repo, state_root)?;
     let wt = Git::new(&path);
     ensure_worktree_of_repo(&wt, &repo.common_dir)?;
 
     let mut tip = fetch_tip(&wt, &location)?;
-    check_manifest(&wt, &tip, &location)?;
+    check_manifest(&wt, tip.as_deref().unwrap_or("HEAD"), &location)?;
 
     let committed = commit_changes(&wt, message)?;
 
     for attempt in 1..=MAX_ATTEMPTS {
         if attempt > 1 {
             tip = fetch_tip(&wt, &location)?;
-            check_manifest(&wt, &tip, &location)?;
+            check_manifest(&wt, tip.as_deref().unwrap_or("HEAD"), &location)?;
         }
 
-        if is_ancestor(&wt, "HEAD", &tip)? {
-            return Ok(PushOutcome {
-                location,
-                path,
-                committed,
-                commit: tip,
-                result: PushResult::AlreadyOnRemote,
-            });
+        if let Some(remote_tip) = &tip {
+            if is_ancestor(&wt, "HEAD", remote_tip)? {
+                return Ok(PushOutcome {
+                    location,
+                    path,
+                    committed,
+                    commit: remote_tip.clone(),
+                    result: PushResult::AlreadyOnRemote,
+                });
+            }
+
+            if !is_ancestor(&wt, remote_tip, "HEAD")? {
+                rebase_onto(&wt, remote_tip, &location)?;
+            }
         }
 
-        if !is_ancestor(&wt, &tip, "HEAD")? {
-            rebase_onto(&wt, &tip, &location)?;
-        }
-
-        let status = push_head(&wt, &location, &tip)?;
+        let status = push_head(&wt, &location, tip.as_deref())?;
         if !status.rejected() {
             let commit = wt.run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
             return Ok(PushOutcome {
@@ -88,7 +90,7 @@ pub fn push(
         "error: {} on {} rejected the push {} times; it moved between each fetch and push.\n       \
          The commit stays in {}. Re-run tsk ledger push to try again",
         location.ref_name(),
-        location.remote(),
+        location.label(),
         MAX_ATTEMPTS,
         path.display()
     ))
@@ -147,7 +149,7 @@ fn rebase_onto(wt: &Git, tip: &str, location: &LedgerLocation) -> Result<(), Str
         "error: rebase onto {}'s {} ({}) conflicted; the rebase is aborted.\n       \
          Resolve it in {}: git rebase {}, fix the conflicts,\n       \
          git rebase --continue, then re-run tsk ledger push",
-        location.remote(),
+        location.label(),
         location.ref_name(),
         tip,
         wt.dir().display(),
@@ -155,8 +157,16 @@ fn rebase_onto(wt: &Git, tip: &str, location: &LedgerLocation) -> Result<(), Str
     ))
 }
 
-fn push_head(wt: &Git, location: &LedgerLocation, expected: &str) -> Result<PushStatus, String> {
-    let lease = format!("--force-with-lease={}:{}", location.ref_name(), expected);
+fn push_head(
+    wt: &Git,
+    location: &LedgerLocation,
+    expected: Option<&str>,
+) -> Result<PushStatus, String> {
+    let lease = format!(
+        "--force-with-lease={}:{}",
+        location.ref_name(),
+        expected.unwrap_or("")
+    );
     let refspec = format!("HEAD:{}", location.ref_name());
     let (args, output) = wt.output([
         "push",
