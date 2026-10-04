@@ -169,6 +169,10 @@ the command names.
   command, `tsk thread session-start`, does the `SessionStart` work and prints the
   context message, so the unbound prompt text has one copy, in the binary. ADR 0011:
   all logic lives in the binary; plugin hooks, skills and scripts hold the minimum.
+- 2026-10-04: `tskd` is retired (ADR 0012). Git ledgers, located through the nexus,
+  are the only shared state. Its 43 tests move to `daemon/tests/`, so the later removal
+  of the crate is clean. Rebuilding the TUI on the ledgers is a later mission. A local
+  cache index is recorded in the ADR as a deferred extension.
 
 ## Open decisions
 
