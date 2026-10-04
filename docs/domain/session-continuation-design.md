@@ -22,14 +22,14 @@ Depends on: `docs/domain/ubiquitous-language.md` (Actor, Thread, Thread continua
 
 ## Binding a session to a thread
 
-A binding ties a running session, or a worktree, to a thread ID. Thread identity is
+A binding ties a running session, or a code worktree, to a thread ID. Thread identity is
 tsk's own, minted once, never a platform session ID or a path: neither is stable across
 every channel.
 
 | Channel | Binding mechanism |
 |---|---|
-| Cloud session | `CLAUDE_CODE_REMOTE_SESSION_ID` looked up in `threads/lookup-by-cloud-session.json` on `tsk/bootstrap` |
-| CLI worktree | A thread-ID marker file written inside the worktree's own git metadata |
+| Cloud session | `CLAUDE_CODE_REMOTE_SESSION_ID` looked up in `threads/lookup-by-cloud-session.json` on the ledger |
+| Code worktree | A thread-ID marker file written inside the code worktree's own git metadata |
 
 ### Cloud session binding
 
@@ -41,7 +41,7 @@ A second variable, `CLAUDE_CODE_SESSION_ID`, is a different UUID: a lower-level
 container or instance identifier, not the platform session ID. A binding must use
 `CLAUDE_CODE_REMOTE_SESSION_ID`, never the other one.
 
-The lookup lives at `threads/lookup-by-cloud-session.json` on `tsk/bootstrap`, keyed on
+The lookup lives at `threads/lookup-by-cloud-session.json` on the ledger, keyed on
 the session ID, each entry:
 
 ```json
@@ -52,10 +52,10 @@ A shared, durable map is needed here because a cloud session's identity is a str
 with no persistent local file store attached to it that survives the session's
 container being reclaimed and reopened.
 
-### CLI worktree binding
+### Code worktree binding
 
 `git rev-parse --show-toplevel` is not a stable identifier: it returns the working
-directory, which changes the moment a worktree is renamed or moved.
+directory, which changes the moment a code worktree is renamed or moved.
 
 `git rev-parse --git-dir` and `--git-dir --git-common-dir` are equal in the main
 worktree (`.git`) and diverge in a linked worktree: `--git-dir` returns
@@ -64,7 +64,7 @@ worktree (`.git`) and diverge in a linked worktree: `--git-dir` returns
 
 `<name>`, the basename of `--git-dir`'s output, is set once at `git worktree add` time
 and survives a rename or a `git worktree move`. It is not permanently unique, though:
-removing a worktree frees its name, and a later, unrelated worktree created with the
+removing a code worktree frees its name, and a later, unrelated code worktree created with the
 same directory basename is assigned the same name. `git worktree list --porcelain`
 does not expose `<name>` directly; it has to be derived from `--git-dir`.
 
@@ -81,9 +81,9 @@ main one), so the marker never collides even though the main worktree's `.git` i
 otherwise shared object and ref storage that every linked worktree also reads via
 `--git-common-dir`.
 
-No separate lookup map exists for worktrees. The marker file is the whole binding: it
-is colocated with the worktree, has no name to key on, and so has no recycling problem
-to guard against. Two worktrees can each hold a marker pointing at the same thread with
+No separate lookup map exists for code worktrees. The marker file is the whole binding: it
+is colocated with the code worktree, has no name to key on, and so has no recycling problem
+to guard against. Two code worktrees can each hold a marker pointing at the same thread with
 no coordination needed, since each marker is its own file.
 
 ## Thread identity and the threads directory
@@ -136,11 +136,11 @@ Backed by a deterministic script. Invoked explicitly, or via a natural-language
 request naming a mission.
 
 1. Resolve the current binding: check `CLAUDE_CODE_REMOTE_SESSION_ID` first; if absent,
-   resolve the worktree marker.
+   resolve the code worktree marker.
 2. If a thread already exists for that binding, this is a resume, not a start (see
    `/resume-thread`).
 3. If none exists, mint a new thread ID, scaffold `threads/<slug>/`, and write the
-   binding (the cloud lookup entry, or the worktree marker file).
+   binding (the cloud lookup entry, or the code worktree marker file).
 4. The mission argument is resolved and validated twice: the agent resolves a
    natural-language mission reference to an actual mission ID and briefing link before
    running the script, and the script validates that reference independently rather
@@ -184,18 +184,18 @@ this is where we are at: <summary of the handover note>
 Invoked two ways:
 
 - Automatically, when the `SessionStart` hook finds an existing binding for the
-  current session or worktree.
+  current session or code worktree.
 - Explicitly, naming an arbitrary thread ID. This is how a different actor takes over
-  a thread that was not automatically bound to their session or worktree.
+  a thread that was not automatically bound to their session or code worktree.
 
 Multiple actors can be bound to the same thread simultaneously. Binding a session or
-worktree to a thread that already has another binding elsewhere prints a warning but
+code worktree to a thread that already has another binding elsewhere prints a warning but
 proceeds.
 
 ### `/detach-thread`
 
-Backed by `thread-detach.sh`. Removes only the current session's or worktree's own
-binding: the cloud lookup entry, or the worktree marker file. The thread itself, its
+Backed by `thread-detach.sh`. Removes only the current session's or code worktree's own
+binding: the cloud lookup entry, or the code worktree marker file. The thread itself, its
 continuation state, and any other actor's binding to it are untouched.
 
 ### `/stop-thread [<thread-id>]`
@@ -208,11 +208,11 @@ targets the thread currently bound; given an explicit thread ID, it targets that
 thread instead, regardless of the current binding — how `/switch-thread` composes it
 below.
 
-A worktree marker in some other worktree that still names the stopped thread cannot
+A code worktree marker in some other code worktree that still names the stopped thread cannot
 be reached or cleaned up from here: it is local metadata inside that other
-worktree's own git directory, invisible to this script. It goes stale silently, the
-same limitation worktree markers already carry generally (no separate lookup map
-exists for them either — see Worktree binding above).
+code worktree's own git directory, invisible to this script. It goes stale silently, the
+same limitation code worktree markers already carry generally (no separate lookup map
+exists for them either: see Code worktree binding above).
 
 ### `/switch-thread [<thread-id>]`
 
@@ -227,7 +227,7 @@ which to resume.
 The `SessionStart` hook runs `tsk thread session-start`, which does the tsk-specific
 work and prints the context message. It extends the ledger fetch with:
 
-1. Resolve the current binding (cloud session ID, or worktree marker).
+1. Resolve the current binding (cloud session ID, or code worktree marker).
 2. If found, prompt the agent to run `/tsk:resume-thread <thread-id>` with the resolved ID.
 3. If not found, prompt the agent to ask the human directly, as a structured question
    (`AskUserQuestion`: selectable options plus free text), not a plain message: no
@@ -263,9 +263,9 @@ unsupervised context, not this design's supervised-interactive scope.
 
 **Why the check does not fetch.** `thread_resolve_binding_local` (`thread-lib.sh`)
 performs the same lookup as `thread_resolve_binding` but never calls
-`fetch-bootstrap-ref.sh`. Refreshing over the network on every turn would be slow and
+`tsk ledger fetch`. Refreshing over the network on every turn would be slow and
 liable to fail transiently, and it is unnecessary here: a binding this session itself
-wrote is already reflected in its own worktree checkout without being fetched again.
+wrote is already reflected in its own ledger worktree checkout without being fetched again.
 
 **Safety valve.** The guard does not track its own attempt count. Claude Code overrides
 a `Stop` hook that blocks eight times in a row without progress, which is the actual
@@ -277,5 +277,5 @@ trying a ninth time.
 to any mission. The `/clear` scenario is not covered by a live run: no tool call lets
 an agent trigger `/clear` on itself, the same limitation M-BOOT-02-01's report
 recorded. The guarantee holds by construction instead: the guard depends on no
-conversational state, only on the worktree marker or the cloud lookup entry, neither
+conversational state, only on the code worktree marker or the cloud lookup entry, neither
 of which `/clear` changes, so its behaviour cannot differ before and after one.

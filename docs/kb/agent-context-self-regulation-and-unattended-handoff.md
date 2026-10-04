@@ -49,7 +49,7 @@ handoff pattern — applies differently depending on which one a session is in.
      environment variable `CLAUDE_CODE_REMOTE_SESSION_ID` (`cse_...`; swap the prefix
      for `session_` to match `get_session`'s `id` field exactly — confirmed
      byte-identical). This means a plain bash `SessionStart` hook can resolve a cloud
-     session's identity itself, the same way it already can a CLI worktree's.
+     session's identity itself, the same way it already can a CLI code worktree's.
 
      There are two different session identifiers in a cloud session's environment, and
      they must not be conflated. `CLAUDE_CODE_REMOTE_SESSION_ID` is the CCR platform
@@ -60,14 +60,14 @@ handoff pattern — applies differently depending on which one a session is in.
      not the CCR session). Any design that binds a thread to "the session ID" needs to
      say `CLAUDE_CODE_REMOTE_SESSION_ID` explicitly.
    - **CLI.** `/clear` produces a new session ID directly. There is no equivalent of
-     `worker_epoch` to fall back on here; a worktree is the thing that persists across
+     `worker_epoch` to fall back on here; a code worktree is the thing that persists across
      it instead.
    - Not yet explored: whether `external_metadata.permission_mode_seq` (also seen
      incrementing) tracks the same thing as `worker_epoch` or something independent,
      and whether anything reads `worker_epoch` back to resume state rather than only
      reporting it.
 
-   Neither a session ID nor a worktree is thread identity; each is only what a given
+   Neither a session ID nor a code worktree is thread identity; each is only what a given
    sub-context happens to keep durable. Resolution: tsk's own thread concept (Thread and
    Actor, `docs/domain/ubiquitous-language.md`) is the actual anchor — minted once when
    the thread starts, associated with an actor, and bound to whichever of these a

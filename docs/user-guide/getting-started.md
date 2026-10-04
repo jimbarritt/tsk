@@ -14,7 +14,7 @@ are in [session-continuation-design.md](../domain/session-continuation-design.md
 WT="$(tsk ledger fetch)"
 ```
 
-It checks out the ledger as a detached worktree outside the repository and prints its
+It checks out the ledger as a detached ledger worktree outside the repository and prints its
 path. `tsk ledger path` prints the same path without fetching.
 
 **2. Start a thread for a mission:**
@@ -24,7 +24,7 @@ tsk thread start M-BOOT-04 missions/operational/M-BOOT-04-official-ledger.md
 ```
 
 The briefing path is relative to the ledger root. The command mints a thread ID, writes
-`threads/<thread-id>/` on the ledger, binds the current worktree (or cloud session) to
+`threads/<thread-id>/` on the ledger, binds the current code worktree (or cloud session) to
 it, pushes, and prints `started:<thread-id>`. With a binding already in place it prints
 `resume-required:<thread-id>` and exits with status 2.
 
@@ -44,7 +44,7 @@ refuses when the repository's `HEAD` is not on origin's default branch (for exam
 tsk thread resume <thread-id>
 ```
 
-It binds the current worktree or cloud session to the thread and prints
+It binds the current code worktree or cloud session to the thread and prints
 `{"thread_id":"...","latest":{...},"warning":"..."}`. `warning` names the other actors
 when someone else wrote to the thread.
 

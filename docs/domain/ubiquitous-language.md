@@ -134,7 +134,7 @@ thread continuations, and the reports missions leave behind. One ledger per repo
 data rather than a line of development, which is why it is kept apart from the
 [artefacts](#artefact) instead of sitting beside them.
 
-Today the ledger is the `tsk/bootstrap` branch, checked out at a fixed path outside the
+Today the ledger is the `tsk/ledger` branch, checked out in the ledger worktree at a fixed path outside the
 repository (`docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`,
 `docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md`). A separate branch, not
 a directory committed on `main`, is itself a decision:
