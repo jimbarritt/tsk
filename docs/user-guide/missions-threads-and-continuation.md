@@ -9,8 +9,8 @@ behind it, see `docs/domain/session-continuation-design.md`; for the terms, see
 
 - [Two stores, not one](#two-stores-not-one)
 - [Where each one lives](#where-each-one-lives)
-- [The scripts](#the-scripts)
-- [The three commands](#the-three-commands)
+- [The commands](#the-commands)
+- [The skills](#the-skills)
 - [What happens at session start](#what-happens-at-session-start)
 - [A worked session](#a-worked-session)
 - [Rules that matter](#rules-that-matter)
@@ -23,11 +23,11 @@ see the Artefact and Ledger entries in `docs/domain/ubiquitous-language.md`.
 | | What it holds | Where |
 |---|---|---|
 | **The artefacts** | What a mission builds: source, `docs/`, `ops/`, `.claude/` | `main`, in the ordinary checkout |
-| **The ledger** | Missions, briefings, threads, continuation state entries, mission reports | The `tsk/bootstrap` branch, checked out elsewhere |
+| **The ledger** | Missions, briefings, threads, continuation state entries, mission reports | The `tsk/ledger` branch, checked out elsewhere |
 
 They are two branches of the same GitHub repository, `jimbarritt/tsk`. They are never
 checked out together. Changes to the artefacts go to `main` in the normal way. The
-ledger is written through its own scripts.
+ledger is written through the `tsk ledger` commands.
 
 The reason they are split: the ledger is data, not a line of development. Keeping it on
 its own branch means a change to what a mission says never appears in a diff of the
@@ -38,18 +38,18 @@ account of the building.
 
 **The artefacts**: wherever you cloned the repository. Nothing unusual.
 
-**The ledger**: a linked git worktree at
+**The ledger**: the ledger worktree, a detached linked git worktree at
 
 ```
-${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/bootstrap
+${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger
 ```
 
-exported to every session as `$TSK_BOOTSTRAP_WT`. `<clone-id>` is minted once per
+exported to every session as `$TSK_LEDGER_WT`. `<clone-id>` is minted once per
 clone and stored in that clone's `.git/tsk-clone-id`, so two clones of tsk on one
 machine each get their own checkout, and renaming a clone directory does not orphan
-it.
+it. The ordinary checkout of the repository is the code worktree.
 
-Inside that worktree:
+Inside the ledger worktree:
 
 ```
 index.md                        current state, the mission tree, next step
@@ -61,48 +61,49 @@ threads/<thread-id>/index.md            a pointer to the mission being worked
 threads/<thread-id>/continuation-state.jsonl   the thread's continuation state entries
 ```
 
-This checkout used to sit inside the repository's `.git/` directory. It moved out on
-2026-09-17; see `docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md`. An
-existing clone migrates itself on the next fetch.
+An earlier design kept the ledger on a `tsk/bootstrap` branch and checked it out inside
+the repository's `.git/` directory; see
+`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md`. The ledger branch
+replaces it.
 
-## The scripts
+## The commands
 
-All in `ops/local/`. Use these rather than running git against `tsk/bootstrap`
-yourself. There is a name collision on the remote that makes an unqualified
-`git fetch origin tsk/bootstrap` return stale content with no error, and these
-scripts spell the ref out in full.
+The `tsk` binary provides these. Use them rather than running git against
+`tsk/ledger` yourself. Run from inside any working tree of the managed repo.
 
-| Script | Does | Side effects |
+| Command | Does | Side effects |
 |---|---|---|
-| `bootstrap-wt-path.sh` | Prints the worktree path | None. Safe to call any time |
-| `fetch-bootstrap-ref.sh` | Refreshes the worktree to origin's latest, prints the path | Resets the worktree. Refuses if it holds uncommitted work |
-| `push-bootstrap-ref.sh "<message>"` | Commits everything in the worktree and pushes to `tsk/bootstrap` | Commits and pushes |
-| `thread-start.sh` | Mints and binds a thread | Writes and pushes |
-| `thread-append-handover.sh` | Appends a continuation state entry | Writes and pushes |
-| `thread-resume.sh` | Loads a thread's latest continuation state entry | Binds, and pushes if the binding changed |
-| `thread-resolve-binding.sh` | Prints the current binding, if any | None beyond a fetch |
+| `tsk ledger path` | Prints the ledger worktree path | None. Safe to call any time |
+| `tsk ledger fetch` | Refreshes the ledger worktree to origin's latest, prints the path | Resets the ledger worktree. Refuses if it holds uncommitted work |
+| `tsk ledger push "<message>"` | Commits everything in the ledger worktree, rebases onto the latest ledger and pushes to `tsk/ledger` | Commits and pushes |
+| `tsk thread start` | Mints and binds a thread | Writes and pushes |
+| `tsk thread pause` | Appends a continuation state entry | Writes and pushes |
+| `tsk thread resume` | Loads a thread's latest continuation state entry | Binds, and pushes if the binding changed |
+| `tsk thread binding` | Prints the current binding, if any | None beyond a fetch |
+| `tsk thread guard` | Stop hook check for a binding | None. Never fetches |
+| `tsk thread session-start` | SessionStart hook: fetches the ledger, exports `$TSK_LEDGER_WT` | Resets the ledger worktree |
 
-To read the path, use `bootstrap-wt-path.sh`. `fetch-bootstrap-ref.sh` also refreshes,
-so calling it merely to find out where the worktree is counts as a write.
+To read the path, use `tsk ledger path`. `tsk ledger fetch` also refreshes, so calling
+it merely to find out where the ledger worktree is counts as a write.
 
-## The three commands
+## The skills
 
 A thread is an execution sequence that survives a session ending. It has its own
-identity, minted once, and a session or a worktree binds to it. See the Thread and
+identity, minted once, and a session or a code worktree binds to it. See the Thread and
 Actor entries in `docs/domain/ubiquitous-language.md`.
 
 **`/start-thread <mission>`** mints a thread for a mission and binds this session or
-worktree to it. If a binding already exists, it says so and points you at
+code worktree to it. If a binding already exists, it says so and points you at
 `/resume-thread` instead, because that case is a resume, not a start.
 
 **`/pause-thread`** writes one continuation state entry: the mission briefing, the task in
-progress, a short account of where things stand, plus the commit on `tsk/bootstrap`,
+progress, a short account of where things stand, plus the commit on `tsk/ledger`,
 the commit on `main`, a timestamp, and which actor wrote it. Run it before `/clear`.
-The commit hashes and timestamp come from the script; the three judgement fields come
-from the agent.
+The commit hashes and timestamp come from `tsk thread pause`; the three judgement fields
+come from the agent.
 
 **`/resume-thread <thread-id>`** loads the latest continuation state entry, binds the current
-session or worktree to that thread, and reports:
+session or code worktree to that thread, and reports:
 
 ```
 thread id: <id>
@@ -116,14 +117,15 @@ proceeds, rather than refusing.
 
 ## What happens at session start
 
-The `SessionStart` hook runs `.claude/hooks/session-start.sh` and:
+The `SessionStart` hook is `plugin/hooks/session-start.sh`, provided by the tsk plugin.
+It ensures the `tsk` binary is installed, then runs `tsk thread session-start`, which:
 
-1. Fetches `tsk/bootstrap` and materialises the worktree, exporting
-   `$TSK_BOOTSTRAP_WT`.
+1. Fetches `tsk/ledger` and materialises the ledger worktree, exporting
+   `$TSK_LEDGER_WT`.
 2. Resolves the current binding: the cloud session ID
    (`CLAUDE_CODE_REMOTE_SESSION_ID`, looked up in
    `threads/lookup-by-cloud-session.json`) if there is one, otherwise the
-   `tsk-thread-id` marker file in the worktree's own git metadata.
+   `tsk-thread-id` marker file in the code worktree's own git metadata.
 3. Tells the agent what to do next: run `/resume-thread <id>` when a binding is
    found, or ask which mission to work and then run `/start-thread` when none is.
 
@@ -158,16 +160,14 @@ warning tells you who else has worked it.
 
 ## Rules that matter
 
-- **Edit mission files inside `$TSK_BOOTSTRAP_WT`, then run
-  `push-bootstrap-ref.sh`.** That is the only sanctioned way to change what a mission
+- **Edit mission files inside `$TSK_LEDGER_WT`, then run
+  `tsk ledger push "<message>"`.** That is the only sanctioned way to change what a mission
   says.
 - **Do not run `git fetch`, `git push`, `git reset` or `git rebase` against
-  `tsk/bootstrap` by hand**, including for a read-only check. An unqualified
-  `tsk/bootstrap` resolves to an orphaned custom ref left over from an earlier design
-  and returns content frozen at 2026-09-14, exiting zero with no error. To check the
-  branch directly, spell it out: `git fetch origin refs/heads/tsk/bootstrap`, then read
+  `tsk/ledger` by hand**, including for a read-only check. To check the branch
+  directly, spell it out: `git fetch origin refs/heads/tsk/ledger`, then read
   `FETCH_HEAD`.
-- **A script that needs to push to `tsk/bootstrap` calls `push-bootstrap-ref.sh`**
+- **A script that needs to push to `tsk/ledger` calls `tsk ledger push`**
   rather than inlining the same git sequence. One copy of that logic, in one place.
 - **Code work goes to `main` directly.** No development branch, no pull request unless
   asked.

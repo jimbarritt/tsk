@@ -156,6 +156,7 @@ mod tests {
             vec!["tsk", "thread", "detach"],
             vec!["tsk", "thread", "list"],
             vec!["tsk", "thread", "guard"],
+            vec!["tsk", "thread", "session-start"],
         ] {
             assert!(Cli::try_parse_from(&args).is_ok(), "{:?}", args);
         }

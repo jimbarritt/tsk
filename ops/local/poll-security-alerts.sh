@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Polls GitHub's Dependabot, code scanning and secret scanning alert APIs for one
 # repository, and appends each open alert as one event to the external event queue
-# on tsk/bootstrap (M-BOOT-02 T-19), in a single fetch/append/push cycle covering
+# on the ledger (M-BOOT-02 T-19), in a single `tsk events append-batch` call covering
 # every alert this run finds.
 #
 # Needs a real personal access token, not the Action's own automatic GITHUB_TOKEN:
@@ -23,17 +23,14 @@ fi
 
 REPO="$1"
 : "${GH_PAT:?GH_PAT must be set}"
-SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 
 fetch() {
   curl -sS -H "Authorization: Bearer $GH_PAT" -H "Accept: application/vnd.github+json" \
     "https://api.github.com/repos/$REPO/$1?state=open&per_page=100"
 }
 
-WT="$("$SCRIPT_DIR/fetch-bootstrap-ref.sh")"
-QUEUE="$WT/external-events/queue.ndjson"
-mkdir -p "$(dirname "$QUEUE")"
-TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+EVENTS="$(mktemp)"
+trap 'rm -f "$EVENTS"' EXIT
 APPENDED=0
 
 append_alerts() {
@@ -45,17 +42,12 @@ append_alerts() {
   fi
 
   count="$(echo "$alerts" | jq 'length')"
-  for i in $(seq 0 $((count - 1))); do
-    echo "$alerts" | jq -c \
-      --arg source "github" \
-      --arg event_type "$event_type" \
-      --arg action "polled" \
-      --arg repo "$REPO" \
-      --arg received_at "$TIMESTAMP" \
-      ".[$i] as \$p | {source: \$source, event_type: \$event_type, action: \$action, repo: \$repo, received_at: \$received_at, payload: \$p}" \
-      >>"$QUEUE"
-    APPENDED=$((APPENDED + 1))
-  done
+  echo "$alerts" | jq -c \
+    --arg event_type "$event_type" \
+    --arg repo "$REPO" \
+    '.[] | {event_type: $event_type, repo: $repo, payload: .}' \
+    >>"$EVENTS"
+  APPENDED=$((APPENDED + count))
 }
 
 append_alerts "dependabot_alert" "$(fetch dependabot/alerts)"
@@ -67,5 +59,4 @@ if [ "$APPENDED" -eq 0 ]; then
   exit 0
 fi
 
-"$SCRIPT_DIR/push-bootstrap-ref.sh" "External event queue: polled $APPENDED open security alert(s) on $REPO"
-echo "queued:$APPENDED"
+tsk events append-batch --source github --action polled <"$EVENTS"

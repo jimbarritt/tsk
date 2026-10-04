@@ -113,8 +113,7 @@ One JSON object per line, appended, never rewritten. Fields:
 | Mission briefing link | Agent (usually already known from thread state) | The briefing document the thread works on |
 | Task ID | Agent (usually already known from thread state) | The task in progress when the thread paused |
 | What's next | Agent | A short account of where things stand |
-| Commit on `tsk/bootstrap` | Script | The commit `tsk/bootstrap` was at when the pause began, read before this entry is appended. It cannot be the commit the push creates: that commit holds this entry, so its hash is unknown here. |
-| Commit on `main` | Script | The commit left on `main` at pause time |
+| Git state | Binary | A nested `git` object. `git.ledger.commit` is the commit the ledger branch was at when the pause began, read before this entry is appended. It cannot be the commit the push creates: that commit holds this entry, so its hash is unknown here. `git.code.ref` is the full ref of the branch the code worktree is on at pause time. `git.code.commit` is the commit at its `HEAD`. |
 | Timestamp | Script | When the entry was appended |
 | Written by | Script | `urn:tsk:worktree:<name>` or `urn:tsk:cloudsession:<session-id>`, naming the binding that wrote this entry |
 
@@ -152,9 +151,19 @@ argument is resolved.
 
 ### `/pause-thread`
 
-Writes one continuation state entry, via a script, `append-handover.sh`. The script
-captures the commit hashes and the timestamp; the agent supplies the mission link, task
-ID and what's-next text as arguments.
+Writes one continuation state entry, through `tsk thread pause`. The command captures
+the commit hashes, the branch and the timestamp; the agent supplies the mission link,
+task ID and what's-next text as arguments.
+
+The pause rule: `HEAD` of the code worktree must be reachable from some branch on origin,
+not only from origin's default branch, because work happens on feature branches and in
+other code worktrees. A detached `HEAD` stops the pause, because there is no branch to
+record in `git.code.ref`. The command takes its context from the directory it runs in,
+so it needs no record of branch switches: each entry is a snapshot at pause.
+
+A session that moves into another code worktree resolves the binding of that code
+worktree, not the binding it started with. No mechanism carries a binding across code
+worktrees yet.
 
 `/pause-thread` is invoked manually, in the supervised operating context: a human runs
 it themselves before `/clear`.
@@ -215,14 +224,15 @@ which to resume.
 
 ## Resolution at session start
 
-The `SessionStart` hook extends to:
+The `SessionStart` hook runs `tsk thread session-start`, which does the tsk-specific
+work and prints the context message. It extends the ledger fetch with:
 
 1. Resolve the current binding (cloud session ID, or worktree marker).
-2. If found, prompt the agent to run `/resume-thread <thread-id>` with the resolved ID.
+2. If found, prompt the agent to run `/tsk:resume-thread <thread-id>` with the resolved ID.
 3. If not found, prompt the agent to ask the human directly, as a structured question
    (`AskUserQuestion`: selectable options plus free text), not a plain message: no
    thread found, which mission do they want to work, with an initial inference offered
-   as a candidate option. Once answered, the agent runs `/start-thread`.
+   as a candidate option. Once answered, the agent runs `/tsk:start-thread`.
 
 The hook never creates a thread itself. Both branches end by naming a command and
 letting the agent invoke it, not by the hook doing the loading or the asking itself.
@@ -234,12 +244,11 @@ session. Naming it once is not the same as it happening. A binding check that ru
 once at session start can be skipped when conversation moves elsewhere, leaving the
 session unbound for its entire duration.
 
-**Mechanism.** A `Stop` hook, `ops/local/thread-binding-guard.sh`, runs on every turn,
+**Mechanism.** A `Stop` hook, which calls `tsk thread guard`, runs on every turn,
 not once at session start. It checks the current binding; if none is found, it blocks
 the turn from completing (`{"decision": "block", "reason": "..."}`), and the agent
 continues the same turn instead of handing control back. The reason text is the same
-instruction the `SessionStart` hook gives on a miss (`thread_unbound_prompt_text` in
-`thread-lib.sh`), so the two call sites cannot drift apart the way the push sequence
+instruction `tsk thread session-start` gives on a miss (one constant in the binary), so the two call sites cannot drift apart the way the push sequence
 once did (see `CLAUDE.md`). This holds even when the human's first message after a
 `SessionStart` firing, or after a `/clear`, is unrelated to any mission: the agent may
 answer it, but the turn cannot end until a thread is bound, so the binding instruction

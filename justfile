@@ -32,10 +32,10 @@ publish:
     cargo publish --package tsk-bin
     cargo publish --package tskd
 
-# Fetch the tsk/bootstrap branch and print the worktree path it materialises at
-fetch-refs:
-    @ops/local/fetch-bootstrap-ref.sh
+# Fetch the ledger branch and print the ledger worktree path
+ledger-fetch:
+    @tsk ledger fetch
 
-# Commit and push staged/unstaged changes in the tsk/bootstrap worktree
-push-refs MESSAGE:
-    ops/local/push-bootstrap-ref.sh "{{MESSAGE}}"
+# Commit and push staged/unstaged changes in the ledger worktree
+ledger-push MESSAGE:
+    tsk ledger push "{{MESSAGE}}"

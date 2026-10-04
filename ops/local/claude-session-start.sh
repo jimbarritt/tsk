@@ -26,19 +26,30 @@ fi
 # refresh so it sees a version newer than the cached one.
 PLUGIN_MSG=""
 PLUGIN_LOG="$(mktemp)"
-if ! claude plugin marketplace add jimbarritt/claude-plugins >"$PLUGIN_LOG" 2>&1; then
-  PLUGIN_MSG=" WARNING: adding the jimbarritt-claude-plugins marketplace failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
-elif ! claude plugin install swe@jimbarritt-claude-plugins --scope project -y >"$PLUGIN_LOG" 2>&1; then
-  PLUGIN_MSG=" WARNING: installing the swe plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
-elif ! claude plugin marketplace update jimbarritt-claude-plugins >"$PLUGIN_LOG" 2>&1; then
-  PLUGIN_MSG=" WARNING: refreshing the jimbarritt-claude-plugins marketplace cache failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
-elif ! claude plugin update swe@jimbarritt-claude-plugins --scope project >"$PLUGIN_LOG" 2>&1; then
-  PLUGIN_MSG=" WARNING: updating the swe plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+
+ensure_plugin() {
+  local marketplace_source="$1" marketplace="$2" plugin="$3"
+  if ! claude plugin marketplace add "$marketplace_source" >"$PLUGIN_LOG" 2>&1; then
+    PLUGIN_MSG="$PLUGIN_MSG WARNING: adding the $marketplace marketplace failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+  elif ! claude plugin install "$plugin@$marketplace" --scope project -y >"$PLUGIN_LOG" 2>&1; then
+    PLUGIN_MSG="$PLUGIN_MSG WARNING: installing the $plugin plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+  elif ! claude plugin marketplace update "$marketplace" >"$PLUGIN_LOG" 2>&1; then
+    PLUGIN_MSG="$PLUGIN_MSG WARNING: refreshing the $marketplace marketplace cache failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+  elif ! claude plugin update "$plugin@$marketplace" --scope project >"$PLUGIN_LOG" 2>&1; then
+    PLUGIN_MSG="$PLUGIN_MSG WARNING: updating the $plugin plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+  fi
+}
+
+ensure_plugin jimbarritt/claude-plugins jimbarritt-claude-plugins swe
+TSK_PLUGIN_WAS_INSTALLED=false
+if claude plugin list 2>/dev/null | grep -q 'tsk@tsk'; then
+  TSK_PLUGIN_WAS_INSTALLED=true
+fi
+ensure_plugin "$REPO_ROOT" tsk tsk
+if [ "$TSK_PLUGIN_WAS_INSTALLED" = "false" ] && claude plugin list 2>/dev/null | grep -q 'tsk@tsk'; then
+  PLUGIN_MSG="$PLUGIN_MSG The tsk plugin was just installed. Its hooks run from the next session, or after /reload-plugins. Run \`tsk thread session-start </dev/null\` to run the session start now."
 fi
 rm -f "$PLUGIN_LOG"
-
-source "$REPO_ROOT/ops/local/bootstrap-wt-lib.sh"
-source "$REPO_ROOT/ops/local/thread-lib.sh"
 
 INPUT="$(cat)"
 SOURCE="$(printf '%s' "$INPUT" | jq -r '.source // empty')"
@@ -52,50 +63,11 @@ if [ "$SOURCE" = "startup" ]; then
   fi
 fi
 
-WT="$(ops/local/fetch-bootstrap-ref.sh 2>/dev/null || true)"
-
-if [ -n "$WT" ] && [ -d "$WT" ]; then
-  if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
-    echo "export TSK_BOOTSTRAP_WT=\"$WT\"" >> "$CLAUDE_ENV_FILE"
-  fi
-
-  # fetch-bootstrap-ref.sh leaves the worktree alone when it holds a commit
-  # origin does not have, rather than resetting over it. Surface that here:
-  # its stderr is discarded above, and the agent is the one that can act on it.
-  ORIGIN_SHA="$(git rev-parse FETCH_HEAD 2>/dev/null || true)"
-  PENDING=""
-  if [ -n "$ORIGIN_SHA" ]; then
-    PENDING="$(bootstrap_wt_pending_commits "$WT" "$ORIGIN_SHA" || true)"
-  fi
-
-  if [ -n "$PENDING" ]; then
-    PENDING_MSG=" WARNING: the worktree holds a commit that is not on origin's tsk/bootstrap, so it was left as it is rather than reset: $(printf '%s' "$PENDING" | tr '\n' ';'). A worker restart can end a turn between a commit and its push, which leaves exactly this state, so this may be your own work from a turn you hold no record of making. Do not assume another actor made it, and do not discard it on that basis. Read what it changes first, with: git -C '$WT' log -p $ORIGIN_SHA..HEAD. Then push it with ops/local/push-bootstrap-ref.sh, or discard it deliberately once you know what it is."
-  else
-    PENDING_MSG=""
-  fi
-
-  # $WT was just fetched above, so pass it through rather than fetching a
-  # second time (M-BOOT-02, ad-hoc task: double fetch on every SessionStart).
-  BINDING="$(ops/local/thread-resolve-binding.sh "$WT" 2>/dev/null || true)"
-
-  if [ -n "$BINDING" ]; then
-    THREAD_ID="${BINDING#*:}"
-    THREAD_MSG=" An existing thread binding was found: $BINDING. Run /resume-thread $THREAD_ID next."
-  else
-    THREAD_MSG=" $(thread_unbound_prompt_text)"
-  fi
-
-  jq -n --arg wt "$WT" --arg thread_msg "$THREAD_MSG" --arg pending_msg "$PENDING_MSG" --arg plugin_msg "$PLUGIN_MSG" '{
-    hookSpecificOutput: {
-      hookEventName: "SessionStart",
-      additionalContext: ("tsk/bootstrap fetched and materialised at " + $wt + " (also exported as $TSK_BOOTSTRAP_WT). Read " + $wt + "/index.md next." + $pending_msg + $thread_msg + $plugin_msg)
-    }
-  }'
-else
+if [ -n "$PLUGIN_MSG" ]; then
   jq -n --arg plugin_msg "$PLUGIN_MSG" '{
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: ("Warning: the tsk/bootstrap branch could not be fetched automatically at session start (network or git error). Run `just fetch-refs` or `ops/local/fetch-bootstrap-ref.sh` manually before reading index.md." + $plugin_msg)
+      additionalContext: $plugin_msg
     }
   }'
 fi

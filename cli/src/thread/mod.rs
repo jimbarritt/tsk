@@ -4,6 +4,7 @@ pub mod entry;
 pub mod lookup;
 pub mod ops;
 pub mod session;
+pub mod session_start;
 
 use std::io::Read;
 
@@ -82,6 +83,10 @@ pub enum ThreadCommands {
         about = "Stop hook check: exit 0 with no output when bound, otherwise print a block decision as JSON; reads and discards stdin; never fetches"
     )]
     Guard,
+    #[command(
+        about = "SessionStart hook: reads and discards stdin, fetches the ledger, exports TSK_LEDGER_WT to CLAUDE_ENV_FILE when set, and prints the hook JSON with the session context; exits 0 even when the fetch fails"
+    )]
+    SessionStart,
 }
 
 #[derive(Serialize)]
@@ -109,6 +114,10 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
             println!("{}", block_decision());
         }
         return Ok(0);
+    }
+
+    if let ThreadCommands::SessionStart = action {
+        return Ok(session_start::run());
     }
 
     let session = Session::discover()?;
@@ -176,7 +185,7 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                 None => Ok(1),
             }
         }
-        ThreadCommands::Guard => Ok(0),
+        ThreadCommands::Guard | ThreadCommands::SessionStart => Ok(0),
     }
 }
 
