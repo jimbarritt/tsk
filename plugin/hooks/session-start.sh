@@ -15,7 +15,7 @@ if [ "$(installed_version)" != "$REQUIRED" ]; then
     esac
     INSTALL_CMD="cargo install --path $SOURCE_PATH --locked"
   else
-    INSTALL_CMD="cargo install tsk-bin --version $REQUIRED --locked"
+    INSTALL_CMD="cargo install --git https://github.com/jimbarritt/tsk tsk-bin --tag v$REQUIRED --locked"
   fi
   $INSTALL_CMD >&2 || true
 fi
