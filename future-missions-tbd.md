@@ -673,3 +673,24 @@ Raised by Jim, 2026-10-03:
 Captured as an idea only. Nothing is decided.
 
 Mission brief: [M-NAMES](missions/operational/M-NAMES-session-names.md).
+
+## Concurrent writes to the shared ledger worktree
+
+Raised during M-BOOT-04, 2026-10-04. Jim chose to record it as a follow-up, outside
+[M-BOOT-04](missions/operational/M-BOOT-04-official-ledger.md).
+
+The ledger worktree is one per clone, at
+`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger`. Every session in
+that clone reads and writes it. `tsk ledger push` resolves concurrent writers in
+different clones at push time: it rebases onto the fetched tip, pushes with
+`--force-with-lease`, and retries on a `!` rejection. Two sessions in the same clone
+have no guard: no lock exists around a ledger write. A `git add -A` and commit from one
+session can take in the other's partly written change, or the two `git` processes
+collide on the worktree's `index.lock` and one fails. The bash scripts have the same
+gap.
+
+Options, not decided:
+
+- A lock file around each ledger write in the binary.
+- One ledger worktree per session or per code worktree, which moves this case onto the
+  push-time compare and swap.
