@@ -28,13 +28,31 @@ tsk --version
 
 ## 3. Create the nexus repo
 
-A nexus is an ordinary git repo with a `nexus.json` at its root. Create it empty, as a
-private repo, on any git host. With the GitHub CLI:
+A nexus is an ordinary git repo with a `nexus.json` at its root. It holds no code. Create
+it as a private repo on any git host that the machine can push to.
+
+On GitHub, with the GitHub CLI:
 
 ```bash
+gh auth login
 gh repo create <owner>/<name>-nexus --private --clone
 cd <name>-nexus
 ```
+
+On another host, or without the GitHub CLI: create an empty private repo in the host's
+web interface, with no README, licence or `.gitignore`, then:
+
+```bash
+mkdir <name>-nexus
+cd <name>-nexus
+git init -b main
+git remote add origin <nexus url>
+```
+
+The nexus URL is the repo's clone URL, in HTTPS or SSH form, for example
+`https://github.com/<owner>/<name>-nexus`. Step 5 uses the same URL. tsk fetches and
+pushes with the machine's own git credentials, so use the form those credentials work
+with.
 
 ## 4. Add the managed repo to `nexus.json`
 
