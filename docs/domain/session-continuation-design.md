@@ -194,13 +194,13 @@ proceeds.
 
 ### `/detach-thread`
 
-Backed by `thread-detach.sh`. Removes only the current session's or code worktree's own
+Backed by `tsk thread detach`. Removes only the current session's or code worktree's own
 binding: the cloud lookup entry, or the code worktree marker file. The thread itself, its
 continuation state, and any other actor's binding to it are untouched.
 
 ### `/stop-thread [<thread-id>]`
 
-Backed by `thread-stop.sh`. Detaches the current binding, if it points at the target
+Backed by `tsk thread stop`. Detaches the current binding, if it points at the target
 thread, deletes the thread's directory (`index.md` and `continuation-state.jsonl`),
 and purges every cloud-session lookup entry still pointing at it — a thread that no
 longer exists cannot be a valid binding target for anyone. With no argument it
@@ -219,7 +219,7 @@ exists for them either: see Code worktree binding above).
 Composes the three commands above rather than duplicating their logic: detach from
 the current thread, ask whether to stop (delete) it or leave it for someone to
 resume later, then resume a different thread. Given an explicit thread ID, resumes
-that thread directly. Given none, lists existing threads (`thread-list.sh`) and asks
+that thread directly. Given none, lists existing threads (`tsk thread list`) and asks
 which to resume.
 
 ## Resolution at session start
