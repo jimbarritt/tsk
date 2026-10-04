@@ -2,102 +2,93 @@
 
 ## Usage
 
-**1. Start the daemon** once per user session:
+Run `tsk` from inside any working tree of a repository whose `origin` holds a ledger
+branch, `refs/heads/tsk/ledger`. The `ledger`, `thread` and `events` commands run in the `tsk`
+client alone, with no daemon. The ledger's files and formats are in
+[ledger-layout.md](../domain/ledger-layout.md). Threads, bindings and continuation state
+are in [session-continuation-design.md](../domain/session-continuation-design.md).
+
+**1. Fetch the ledger:**
+
+```bash
+WT="$(tsk ledger fetch)"
+```
+
+It checks out the ledger as a detached worktree outside the repository and prints its
+path. `tsk ledger path` prints the same path without fetching.
+
+**2. Start a thread for a mission:**
+
+```bash
+tsk thread start M-BOOT-04 missions/operational/M-BOOT-04-official-ledger.md
+```
+
+The briefing path is relative to the ledger root. The command mints a thread ID, writes
+`threads/<thread-id>/` on the ledger, binds the current worktree (or cloud session) to
+it, pushes, and prints `started:<thread-id>`. With a binding already in place it prints
+`resume-required:<thread-id>` and exits with status 2.
+
+**3. Pause a thread before the session ends:**
+
+```bash
+tsk thread pause <thread-id> missions/operational/M-BOOT-04-official-ledger.md T-05 "Thread commands done; next: T-06"
+```
+
+It appends a continuation state entry, pushes, and prints `paused:<thread-id>`. It
+refuses when the repository's `HEAD` is not on origin's default branch (for example
+`main`, `master` or `trunk`).
+
+**4. Resume a thread:**
+
+```bash
+tsk thread resume <thread-id>
+```
+
+It binds the current worktree or cloud session to the thread and prints
+`{"thread_id":"...","latest":{...},"warning":"..."}`. `warning` names the other actors
+when someone else wrote to the thread.
+
+**5. Detach, stop and list:**
+
+```bash
+tsk thread binding            # cloud:<thread-id> or worktree:<thread-id>; exit 1 with no binding
+tsk thread detach             # remove this binding, keep the thread
+tsk thread stop [<thread-id>] # delete the thread and every cloud binding to it
+tsk thread list               # one JSON object per thread, most recently paused first
+```
+
+**6. Change a ledger file:**
+
+Edit the file in `$WT`, then push:
+
+```bash
+tsk ledger push "Describe the change"
+```
+
+**7. Queue and consume external events:**
+
+```bash
+tsk events append github dependabot_alert created owner/repo payload.json   # prints queued
+tsk events read-new                                                          # events past the watermark
+tsk events advance-watermark <total_count>                                   # prints watermark:<count>
+```
+
+`append` wraps the first JSON value in the payload file in an event envelope, appends it
+to `external-events/queue.ndjson` and pushes. `read-new` prints
+`{"new_count":N,"total_count":M,"events":[...]}` and writes nothing. Advance the watermark
+to `total_count` only after every event up to it is processed.
+
+**8. Launch the TUI** (no arguments):
 
 ```bash
 tskd &
-```
-
-The daemon stores all state in `~/.tsk/` and listens on `~/.tsk/tskd.sock`. You only need
-one daemon runs, and it serves all your projects.
-
-**2. Create a thread:**
-
-```bash
-tsk thread create fix-login PRIO "Fix the login bug"
-```
-
-Priorities: `BG` (background), `PRIO` (priority), `INC` (incident).
-
-Output is JSON, useful for agents and scripting:
-```json
-{
-  "id": 1,
-  "slug": "fix-login",
-  "state": "paused",
-  "priority": "PRIO",
-  "description": "Fix the login bug",
-  "dir": "/home/user/.tsk/threads/0001-fix-login"
-}
-```
-
-New threads start paused. Use `switch-to` to activate one.
-
-**3. Switch to a thread:**
-
-```bash
-tsk thread switch-to 1         # by id
-tsk thread switch-to fix-login  # by slug
-```
-
-**4. Update a thread:**
-
-```bash
-tsk thread update fix-login --description "New description"
-tsk thread update fix-login --slug new-slug
-tsk thread update fix-login --priority BG
-tsk thread update fix-login --path /abs/path/to/project   # bind to a project directory
-tsk thread update fix-login --path ""                      # clear the binding
-```
-
-All flags are optional: only the fields you pass are changed. If you change the slug, the thread directory is renamed automatically.
-
-**5. List threads:**
-
-```bash
-tsk thread list
-```
-
-**6. Find the thread bound to the current directory:**
-
-```bash
-tsk where
-```
-
-**7. Launch the TUI** (no arguments):
-
-```bash
 tsk
 ```
 
-Displays threads grouped by section (Active / Priority & Incidents / Background). Updates live when the CLI makes changes. Use `j`/`k` to scroll, `ctrl-d`/`ctrl-u` to page, `gg`/`G` to jump to top/bottom, `?` for keybindings, `q` to quit.
-
-## Global storage
-
-All tsk state is stored in `~/.tsk/`, not inside your projects:
-
-```
-~/.tsk/
-  tskd.sock              # Unix socket (present while daemon is running)
-  event-log/
-    events.ndjson        # append-only audit trail of all events
-  threads/
-    index.json           # authoritative thread state
-    0001-fix-login/      # per-thread context directory
-```
-
-## Binding threads to projects
-
-A thread can be bound to a project directory with `--path`:
-
-```bash
-tsk thread create fix-login PRIO "Fix the login bug" --path /abs/path/to/project
-```
-
-From inside that directory, `tsk where` shows the bound thread. If the project has a
-`doc/tsk/` directory, `tsk` auto-zooms to the bound thread when run from that project.
-You can commit project-local context files in `doc/tsk/` alongside the global thread
-context in `~/.tsk/threads/{id}-{slug}/`.
+The TUI reads threads from the `tskd` daemon, which keeps its own thread model in
+`~/.tsk/`, separate from the ledger. It displays threads grouped by section (Active /
+Priority & Incidents / Background). Use `j`/`k` to scroll, `ctrl-d`/`ctrl-u` to page,
+`gg`/`G` to jump to top/bottom, `?` for keybindings, `q` to quit.
 
 ## Running tests
 
@@ -105,7 +96,7 @@ context in `~/.tsk/threads/{id}-{slug}/`.
 # Unit tests only
 cargo test -p tsk-core
 
-# All tests including e2e (requires cargo build --workspace first)
+# All tests, including the tskd e2e tests in daemon/tests/e2e.rs
 cargo test --workspace
 ```
 

@@ -25,4 +25,4 @@ hi
 | [docs/index.md](docs/index.md) | Full documentation index |
 | [docs/vision.md](docs/vision.md) | Why tsk exists, the four dimensions of work |
 | [docs/user-guide/installation.md](docs/user-guide/installation.md) | Prerequisites, installing, upgrading, CI |
-| [docs/user-guide/getting-started.md](docs/user-guide/getting-started.md) | Running the daemon, threads, building, publishing |
+| [docs/user-guide/getting-started.md](docs/user-guide/getting-started.md) | The ledger, thread and external event commands, the TUI, building, publishing |

@@ -1,0 +1,635 @@
+# Ledger layout
+
+Reference for every file in a tsk ledger: where the ledger lives, the ref that holds it,
+where it is checked out, its tree, and the format and fields of each file. The scripts
+in `ops/local/` defined these formats before this document existed. This document is
+taken from them, and `tsk ledger fetch`, `tsk ledger push`, the `tsk thread` commands
+and the external event commands (M-BOOT-04, T-03 to T-07) build against it.
+
+Depends on: `docs/domain/session-continuation-design.md` (threads, bindings and
+continuation state), `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`,
+`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md`,
+`docs/adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md`.
+
+## Contents
+
+- [Location and ref](#location-and-ref)
+- [Ledger worktree location](#ledger-worktree-location)
+- [Tree](#tree)
+- [`.tsk-ledger.toml`](#tsk-ledgertoml)
+- [`index.md` and `future-missions-tbd.md`](#indexmd-and-future-missions-tbdmd)
+- [`missions/`](#missions)
+- [`threads/`](#threads)
+- [`external-events/`](#external-events)
+- [Local-only files](#local-only-files)
+- [Common value formats](#common-value-formats)
+- [Fetching and printing the path](#fetching-and-printing-the-path)
+- [Writing to the ledger](#writing-to-the-ledger)
+- [External event commands](#external-event-commands)
+- [Script outputs](#script-outputs)
+- [Differences from `tsk/bootstrap`](#differences-from-tskbootstrap)
+
+## Location and ref
+
+A ledger is a git branch. It is never a custom ref: a Claude Code cloud session can
+write only `refs/heads/*` (ADR 0008). It is never checked out in the managed repo's main
+working copy.
+
+| Location | Remote | Ref |
+|---|---|---|
+| In-repo (default) | the managed repo's `origin` | `refs/heads/tsk/ledger` |
+| Nexus (option) | the nexus repo | `refs/heads/ledgers/<host>/<owner>/<repo>` |
+
+The binary passes the full ref name to every git command. It never passes `tsk/ledger`
+or any other unqualified name. On the tsk repo's `origin`, an orphaned custom ref
+`refs/tsk/bootstrap` shadows the unqualified name `tsk/bootstrap`, and an unqualified
+fetch returns that ref's content with exit status 0 (ADR 0008, amended 2026-09-16). The
+full name makes the same trap impossible for `tsk/ledger`.
+
+### Choosing the location
+
+The choice is per managed repo:
+
+1. With no nexus attached, the ledger is in-repo.
+2. With a nexus attached (`tsk config attach-nexus <url>`, written to the user config),
+   tsk reads the nexus's `nexus.json` and finds the entry whose `url`, normalised, equals
+   the managed repo's normalised `origin` URL.
+3. No entry, or an entry with no `ledger` field, means in-repo. `"ledger": "repo"` means
+   in-repo. `"ledger": "nexus"` means the nexus ref above.
+
+For T-10, the entry is added to `nexus.json` by hand. No command registers a repo.
+
+T-03 implements the in-repo location only. The nexus location is T-10.
+
+### Origin URL normalisation
+
+A nexus ref name derives from the managed repo's `origin` URL
+(`git remote get-url origin`). Normalisation maps the HTTPS and SSH forms of one repo to
+the same `<host>/<owner>/<repo>`:
+
+| Form | Example |
+|---|---|
+| HTTPS | `https://github.com/jimbarritt/tsk.git` |
+| HTTPS with user | `https://jim@github.com/jimbarritt/tsk` |
+| SSH URL | `ssh://git@github.com/jimbarritt/tsk.git` |
+| SSH URL with port | `ssh://git@github.com:22/jimbarritt/tsk.git` |
+| scp-like SSH | `git@github.com:jimbarritt/tsk.git` |
+
+Each maps to `github.com/jimbarritt/tsk`, so the ref is
+`refs/heads/ledgers/github.com/jimbarritt/tsk`.
+
+Rules, applied in order:
+
+1. Remove the scheme (`https://`, `http://`, `ssh://`, `git://`). For the scp-like
+   form, the first `:` separates host from path.
+2. Remove a `user@` prefix from the host, and a `:<port>` suffix in the URL forms.
+3. Remove a trailing `/`, then a trailing `.git`.
+4. Lowercase the host, owner and repo.
+5. Join host and path segments with `/`. A path with more than two segments (a GitLab
+   subgroup, for example) keeps every segment in order.
+
+A `file://` URL or a local path has no host and does not normalise. A nexus ledger is
+not available for such a repo. The result must pass `git check-ref-format` once
+prefixed with `refs/heads/ledgers/`.
+
+## Ledger worktree location
+
+The ledger is materialised in the ledger worktree, a detached linked worktree of the
+managed repo's clone, at a fixed path outside the repository:
+
+```
+${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger
+```
+
+- `XDG_STATE_HOME` set to an empty string counts as unset, the same as the shell's
+  `${VAR:-default}`.
+- `<clone-id>` is the content of `.git/tsk-clone-id` (see
+  [Local-only files](#local-only-files)).
+- The directory name is `ledger`. The `tsk/bootstrap` ledger worktree for the same clone
+  is `.../repos/<clone-id>/bootstrap`, so both exist side by side until T-09 retires
+  `tsk/bootstrap`.
+- The ledger worktree is created with `git worktree add --detach`, so it holds no branch
+  checkout and does not lock `tsk/ledger` against a checkout elsewhere. Its metadata is
+  in the managed repo's `.git/worktrees/`, which only git edits.
+
+The path is the same for both ledger locations. How a nexus ledger's objects reach the
+managed repo's clone is decided in T-10.
+
+## Tree
+
+```
+.tsk-ledger.toml
+index.md
+future-missions-tbd.md
+missions/
+  administrative/
+    M-<ID>-<slug>.md
+    M-<ID>/
+      ...
+  operational/
+    M-<ID>-<slug>.md
+    M-<ID>/
+      ...
+threads/
+  lookup-by-cloud-session.json
+  <thread-id>/
+    index.md
+    continuation-state.jsonl
+external-events/
+  queue.ndjson
+  watermark.json
+```
+
+The tree is the `tsk/bootstrap` tree unchanged, plus `.tsk-ledger.toml`. It is the same
+in both ledger locations. The ADR 0007 event log is not part of it.
+
+Every file is optional except `.tsk-ledger.toml`. A command that reads an absent file
+treats it as empty, as described per file below.
+
+## `.tsk-ledger.toml`
+
+The ledger manifest, at the root of the tree. TOML:
+
+```toml
+version = 1
+```
+
+| Key | Type | Required | Meaning |
+|---|---|---|---|
+| `version` | integer | yes | Layout version. This document describes version `1`. |
+
+- A ledger with no `.tsk-ledger.toml` is not a tsk ledger. The binary stops and reports
+  it.
+- A `version` the binary does not support stops the binary with an error naming the
+  version found and the versions it supports. The binary writes nothing to the ledger or
+  the ledger worktree before this check.
+- Unknown keys are ignored.
+- T-07 adds this file in the first commit on `tsk/ledger`, made on top of the
+  `tsk/bootstrap` tip so history carries over.
+
+## `index.md` and `future-missions-tbd.md`
+
+Free-form Markdown, written by humans and agents. No command parses either file.
+
+- `index.md` is the entry point: current state and next steps. An agent reads it first.
+- `future-missions-tbd.md` holds mission ideas not yet shaped into briefings.
+
+## `missions/`
+
+Mission briefings and the files missions leave behind, as Markdown. The binary moves
+these files between the ledger and the ledger worktree without parsing them. Encoding the
+briefing format is a later mission.
+
+Layout in use:
+
+| Path | Content |
+|---|---|
+| `missions/administrative/`, `missions/operational/` | One directory per mission category. |
+| `missions/<category>/M-<ID>-<slug>.md` | A mission briefing. `<ID>` is the mission ID, for example `BOOT-04`. |
+| `missions/<category>/M-<ID>/` | A mission's supporting files: sub-briefings, intelligence indexes, reports. |
+| `missions/<category>/M-<ID>-<slug>-report-<YYYY-MM-DD>.md` | A dated report beside its briefing. |
+
+The one structural rule a command enforces: `thread start` takes a briefing path
+relative to the ledger root, for example
+`missions/operational/M-BOOT-04-official-ledger.md`, and refuses it unless a file exists
+at that path in the ledger worktree.
+
+## `threads/`
+
+The thread store from `docs/domain/session-continuation-design.md`.
+
+### `threads/<thread-id>/`
+
+One directory per thread. The directory name is the thread ID (see
+[Common value formats](#common-value-formats)). Created by `thread start`, deleted with
+its contents by `thread stop`. Its presence is the collision check when a new thread ID
+is minted.
+
+### `threads/<thread-id>/index.md`
+
+Written once, at thread start. Exact content, with a trailing newline:
+
+```
+# Thread <thread-id>
+
+Mission briefing: [<briefing-path>](<briefing-path>)
+```
+
+`<briefing-path>` is the path relative to the ledger root that `thread start` was given.
+
+`thread list` reads the mission link from this file: the text between
+`Mission briefing: [` and the next `]`, first match. A missing file or no match gives an
+empty string.
+
+### `threads/<thread-id>/continuation-state.jsonl`
+
+Append-only. Created empty at thread start. One JSON object per line, compact (no
+whitespace between tokens), terminated by `\n`. Each line is one continuation state
+entry, written by `thread pause` (today `thread-append-handover.sh`). Lines are never
+rewritten or removed, except that `thread stop` deletes the whole file with the thread.
+
+Fields, in the order written:
+
+| Field | Type | Source | Meaning |
+|---|---|---|---|
+| `mission_link` | string | caller | The mission briefing the thread works on, as a path relative to the ledger root. |
+| `task_id` | string | caller | The task in progress at pause time, for example `T-03`. Can be empty. |
+| `whats_next` | string | caller | A short account of where things stand. |
+| `commit_on_ledger` | string | command | Full 40-character SHA of the ledger worktree's `HEAD` after it is refreshed from the remote and before this entry is appended. |
+| `commit_on_main` | string | command | Full SHA of the managed repo's `HEAD` at pause time, checked against origin's default branch. The name keeps `main` for compatibility; the branch is not always `main`. |
+| `timestamp` | string | command | UTC time the entry is appended. |
+| `written_by` | string | command | URN of the binding that wrote the entry. |
+
+`commit_on_ledger` cannot be the commit the push creates: that commit holds this entry,
+so its hash is unknown when the entry is written.
+
+`commit_on_main` must be reachable from the tip of origin's default branch. The field
+name stays `commit_on_main` because existing entries and the skills read it, but the
+commit it holds is checked against the default branch, which can be `main`, `master`,
+`trunk` or any other name. If the commit is not reachable, the pause stops with an error
+and writes nothing: an actor resuming the thread from another clone cannot see an
+unpushed commit.
+
+The binary resolves the default branch as a full ref name, `refs/heads/<name>`:
+
+1. `git ls-remote --symref origin HEAD`. The line `ref: refs/heads/<name>\tHEAD` names
+   origin's current default branch.
+2. If origin reports no symbolic `HEAD` (a detached `HEAD`, or a server that does not
+   advertise symrefs), `git symbolic-ref --quiet refs/remotes/origin/HEAD` in the
+   managed repo. A target `refs/remotes/origin/<name>` maps to `refs/heads/<name>`.
+3. If neither resolves, the pause stops with an error that names
+   `git remote set-head origin <branch>` as the fix. It does not assume `main`.
+
+The query to origin comes first because `refs/remotes/origin/HEAD` is a local copy: a
+clone sets it once and never updates it when origin changes its default branch, and a
+repository set up with `git remote add` and `git fetch` does not have it at all. The
+cost is one extra network round trip per pause. The binary then runs
+`git fetch origin refs/heads/<name>` and checks reachability against `FETCH_HEAD`.
+
+#### `commit_on_bootstrap` and `commit_on_ledger`
+
+Entries written by the scripts carry `commit_on_bootstrap` in place of
+`commit_on_ledger`, with the same meaning and position. Existing entries are not
+rewritten. The binary:
+
+- reads `commit_on_ledger`, and falls back to `commit_on_bootstrap` when
+  `commit_on_ledger` is absent;
+- writes `commit_on_ledger` only, never both.
+
+A reader that passes an entry through unchanged (for example `thread resume`, which
+prints the latest entry) prints the field name as stored.
+
+#### Reading the latest entry
+
+The latest entry is the last non-empty line of the file. An empty file means the thread
+has no entry yet; the scripts print `{}` for its latest entry. `thread list` sorts threads
+by the latest entry's `timestamp`, newest first, with threads that have no entry last.
+The `written_by` values across all entries are the set of actors that have touched the
+thread.
+
+### `threads/lookup-by-cloud-session.json`
+
+The cloud session binding map. A single JSON object keyed by the
+`CLAUDE_CODE_REMOTE_SESSION_ID` value (`cse_...`). Each value:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `thread_id` | string | The thread the session is bound to. |
+| `registered_at` | string | UTC time the binding was written. |
+
+```json
+{
+  "cse_015h8qmbPEuyKyaoY7xuur11": {
+    "thread_id": "9qo5iin0",
+    "registered_at": "2026-09-17T18:26:21Z"
+  }
+}
+```
+
+- Absent file: no cloud bindings. The first bind creates it as `{}` before adding the
+  entry.
+- Written whole, pretty-printed with two-space indentation (the default `jq` output),
+  through a temporary file renamed over the original, so a reader never sees a partial
+  file. The binary creates the temporary file in the same directory, so the rename is
+  atomic.
+- Bind sets or replaces the entry for the current session ID. Detach deletes that one
+  key. Stop deletes every entry whose `thread_id` is the stopped thread, for any
+  session.
+- Only used when `CLAUDE_CODE_REMOTE_SESSION_ID` is set. A code worktree binds through
+  `tsk-thread-id` (see [Local-only files](#local-only-files)) and never writes this file.
+
+## `external-events/`
+
+The external event queue (M-BOOT-02, T-19).
+
+### `external-events/queue.ndjson`
+
+Append-only. One JSON object per line, compact, terminated by `\n`. Each line is one
+event envelope:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `source` | string | The event source, for example `github`. |
+| `event_type` | string | The kind of event, for example `dependabot_alert`, `code_scanning_alert`, `secret_scanning_alert`. |
+| `action` | string | What happened: the webhook action (`created`, `fixed`, ...), or `polled` for an event found by polling. |
+| `repo` | string | The repository the event concerns, `owner/repo`. |
+| `received_at` | string | UTC time the envelope was appended. |
+| `payload` | any JSON value | The source's own payload, unchanged. |
+
+- Absent file: an empty queue.
+- An event's position is its 1-based line number. The queue length is the number of
+  `\n`-terminated lines (`wc -l`).
+- Producers append and push in one fetch, append, push cycle. A poll that finds several
+  alerts appends all of them, with one shared `received_at`, and pushes once. A poll
+  that finds none pushes nothing.
+
+### `external-events/watermark.json`
+
+How far a consumer has processed the queue. Pretty-printed JSON object:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `processed_through` | non-negative integer | The number of queue lines processed. Lines `1` to `processed_through` are done. |
+| `updated_at` | string | UTC time the watermark was last advanced. |
+
+```json
+{
+  "processed_through": 17,
+  "updated_at": "2026-09-20T09:24:54Z"
+}
+```
+
+- Absent file: `processed_through` is `0`.
+- A missing `processed_through` field reads as `0`.
+- Reading new events returns lines `processed_through + 1` to the end, oldest first, and
+  does not write the watermark.
+- Advancing takes a count. A count below the current value is refused. A count equal to
+  it is a no-op and pushes nothing. A higher count rewrites the file and pushes. A
+  consumer advances only after it has processed every event up to that count, so an
+  interrupted run leaves the watermark behind rather than skipping events.
+
+## Local-only files
+
+Two files belong to one clone and are never committed to the ledger, in either ledger
+location.
+
+### `.git/tsk-clone-id`
+
+Path: `$(git rev-parse --path-format=absolute --git-common-dir)/tsk-clone-id`. One
+per clone, shared by all its linked worktrees.
+
+Content: `<name>-<suffix>` and a trailing newline. Readers strip all whitespace.
+
+- `<name>` is the basename of the directory that holds the common git directory (the
+  clone directory for a normal clone), with every character outside `A-Za-z0-9._-`
+  removed. An empty result becomes `repo`.
+- `<suffix>` is 8 lowercase hexadecimal characters, random per clone.
+
+Example: `tsk-180ae86e`. Minted once, by the first command that needs it and finds the
+file absent or empty, and read unchanged forever after. It survives a rename or move of
+the clone directory, which a hash of the path would not. A failure to mint writes
+nothing. The `tsk/bootstrap` scripts and the binary share this file, so the ledger
+worktrees for `tsk/bootstrap` and `tsk/ledger` sit under the same `<clone-id>` directory.
+
+### `tsk-thread-id`
+
+Path: `$(git rev-parse --path-format=absolute --git-dir)/tsk-thread-id`. The git dir,
+not the common dir: `.git/tsk-thread-id` in the main code worktree,
+`.git/worktrees/<name>/tsk-thread-id` in a linked one. One per code worktree.
+
+Content: a thread ID and a trailing newline. Readers strip all whitespace. An absent or
+empty file means no code worktree binding.
+
+Written by `thread start` and `thread resume` when `CLAUDE_CODE_REMOTE_SESSION_ID` is not
+set. Deleted by `thread detach`, and by `thread stop` when it names the stopped thread.
+Never pushed: a marker in another clone or code worktree that names a stopped thread stays
+there, stale.
+
+## Common value formats
+
+| Value | Format |
+|---|---|
+| Timestamp | UTC, second precision, `YYYY-MM-DDTHH:MM:SSZ` (`date -u +%Y-%m-%dT%H:%M:%SZ`). |
+| Commit | Full 40-character lowercase hexadecimal SHA-1. |
+| Thread ID | 8 characters, `[0-9a-z]`. Minted as 8 lowercase hexadecimal characters; IDs minted before hex minting are base36 (for example `4onylfsg`) and stay valid. Unique within `threads/`: a new ID that matches an existing directory is discarded and minted again, up to 100 attempts. |
+| Actor URN | `urn:tsk:cloudsession:<CLAUDE_CODE_REMOTE_SESSION_ID>` in a cloud session, otherwise `urn:tsk:worktree:<name>`, where `<name>` is the basename of `git rev-parse --git-dir` (`.git` in a main code worktree). |
+| Text encoding | UTF-8. JSON strings use standard JSON escaping. |
+
+## Fetching and printing the path
+
+`tsk ledger fetch` replaces `fetch-bootstrap-ref.sh`. `tsk ledger path` replaces
+`bootstrap-wt-path.sh`. Both run in the `tsk` client alone, with no `tskd`, from inside
+any working tree of the managed repo.
+
+### `tsk ledger path`
+
+Prints the ledger worktree path and a newline, and exits 0. It runs no fetch, writes no
+file, and does not check whether the ledger worktree exists. If `.git/tsk-clone-id` is
+absent or empty it does not mint one: it exits non-zero and names `tsk ledger fetch`,
+which mints it.
+
+### `tsk ledger fetch`
+
+1. Resolve the ledger location: today, `origin` and `refs/heads/tsk/ledger`.
+2. Read `.git/tsk-clone-id`, minting it if absent or empty, and compute the ledger
+   worktree path.
+3. `git fetch <remote> <ref>` with the full ref name, then read the fetched commit from
+   `FETCH_HEAD`.
+4. Read `.tsk-ledger.toml` from the fetched commit (`git cat-file blob <sha>:.tsk-ledger.toml`)
+   and check its version. A missing manifest or an unsupported version stops here, before
+   the ledger worktree changes.
+5. If the ledger worktree directory does not exist: remove a stale registration of that path
+   (`git worktree prune`, only when `git worktree list --porcelain -z` lists the path),
+   create the parent directories, and run `git worktree add --detach <path> <sha>`.
+6. If the ledger worktree directory exists:
+   - It must be a linked worktree of this clone (its `--git-common-dir` equals the clone's).
+     Otherwise stop.
+   - If `git status --porcelain=v2 -z` in the ledger worktree prints anything (staged,
+     unstaged or untracked changes), stop with exit 1 and leave the ledger worktree as
+     it is.
+   - If the ledger worktree's `HEAD` holds commits the fetched commit does not
+     (`git log -z --format='%h %s' <sha>..HEAD` is non-empty), print a note naming them to stderr,
+     leave the ledger worktree as it is, and continue to step 7 with exit 0. A commit
+     made without a push leaves a clean ledger worktree, and a reset would orphan it.
+   - Otherwise `git reset --hard <sha>`.
+7. Print the ledger worktree path and a newline to stdout.
+
+Diagnostics go to stderr. Stdout carries the path only, so `WT="$(tsk ledger fetch)"`
+works.
+
+## Writing to the ledger
+
+Every change to the ledger is an edit to files in the ledger worktree followed by a push.
+No command writes a ledger ref any other way. `tsk ledger push "<message>"` replaces
+`push-bootstrap-ref.sh`. It runs in the `tsk` client alone, with no `tskd`, from inside
+any working tree of the managed repo.
+
+### `tsk ledger push`
+
+1. Resolve the ledger location and the ledger worktree path, as for `tsk ledger fetch`.
+   If `.git/tsk-clone-id` is absent or empty, or the ledger worktree directory does not
+   exist, stop with exit 1 and name `tsk ledger fetch`. The push does not mint a clone
+   id. The ledger worktree must be a linked worktree of this clone.
+2. Fetch the ledger ref by its full name in the ledger worktree and check the fetched
+   commit's `.tsk-ledger.toml`, as `tsk ledger fetch` does. A missing manifest or an
+   unsupported version stops here, before anything is staged or committed.
+3. `git add -A` in the ledger worktree.
+4. If `git diff --cached --quiet` exits 1, commit the staged changes with the caller's
+   message. If it exits 0, nothing is staged: print a note to stderr and continue, since
+   an earlier run can have committed without pushing.
+5. Up to 5 attempts. Attempt 1 uses the commit fetched in step 2. Each later attempt
+   fetches the ledger ref again and checks the manifest again.
+   1. If `HEAD` is an ancestor of the fetched commit
+      (`git merge-base --is-ancestor HEAD <sha>`), the remote already holds this state:
+      print a note to stderr and exit 0.
+   2. If the fetched commit is not an ancestor of `HEAD`, `git rebase <sha>`. On a
+      conflict, `git rebase --abort` and stop with exit 1. The ledger worktree keeps its
+      local commit, and the remote is not written.
+   3. `git push --porcelain --force-with-lease=<ref>:<sha> <remote> HEAD:<ref>`, with
+      `<ref>` the full ref name and `<sha>` the fetched commit. The lease is a compare and
+      swap: the remote updates the ref only if it still holds `<sha>`, so a commit a
+      concurrent writer pushed after the fetch is never overwritten.
+   4. Read the status line for `<ref>` from the porcelain output. Flag `!` is a rejected
+      update: print a note to stderr and go to the next attempt. Any other flag is
+      success: exit 0. No status line for `<ref>` (a network or authentication failure,
+      for example) stops with exit 1 and git's own error, without a retry.
+6. After 5 rejected attempts, stop with exit 1. The local commit stays in the ledger
+   worktree, and a later `tsk ledger push` with nothing to commit sends it.
+
+A rejected update is detected from the porcelain status flag only, never from error
+text. Flag `!` covers a stale lease checked by the client (`[rejected] (stale info)`)
+and a ref update the remote rejects because the ref moved during the push
+(`[remote rejected] (failed to update ref)`). Both lead to a retry.
+
+On success, stdout carries the full SHA the ledger ref holds after the command and a
+newline: the pushed commit, or the fetched commit when the remote already holds the
+ledger worktree's state. Diagnostics go to stderr.
+
+Each command that writes does one push after all its file changes, not one per file.
+
+## External event commands
+
+The `tsk events` commands replace `append-external-event.sh`,
+`read-new-external-events.sh` and `advance-external-events-watermark.sh`. They run in the
+`tsk` client alone, with no `tskd`. Each one runs `tsk ledger fetch`'s steps first, as the
+scripts run `fetch-bootstrap-ref.sh`. The three that write push once through
+`tsk ledger push`'s steps.
+
+### `tsk events append <source> <event-type> <action> <repo> <payload-file>`
+
+1. If `<payload-file>` is not a file, stop with exit 1 and
+   `error: no such payload file: <payload-file>`. If it holds anything that is not JSON,
+   stop with exit 1. Both checks run before the fetch, so nothing is fetched or pushed.
+2. Fetch the ledger.
+3. Append one envelope line to `external-events/queue.ndjson`, creating the directory
+   and the file when absent. `payload` is the first JSON value in the file, or `null`
+   when the file holds none, with whitespace outside strings removed and key order kept.
+   `received_at` is the current UTC time.
+4. Push with the message `External event queue: <source> <event-type> (<action>) on <repo>`.
+5. Print `queued`.
+
+The script wrote the payload through `jq -c`, which also rewrites some literals: `1e2`
+becomes `1E+2` and `"\u00e9"` becomes `"é"`. The binary keeps each literal as the payload
+file holds it. The two forms hold the same JSON value.
+
+### `tsk events append-batch [--source <source>] [--action <action>]`
+
+Appends many events with one fetch and one push. An external event producer, such as
+`poll-security-alerts.sh`, pipes its events to this command and does not write the queue
+file or the envelope format itself.
+
+1. Read stdin to its end. Each non-blank line is one event: a JSON object with the
+   string fields `event_type` and `repo`, the field `payload` holding any JSON value,
+   and optionally the string fields `source` and `action`. A line's `source` or `action`
+   overrides `--source` or `--action`. A blank line is skipped.
+2. Check every line before the fetch. A line that is not a JSON object, lacks a required
+   field, holds a field that is not a non-empty string where a string is required, holds
+   a field not in the list above (`received_at` included), or has no `source` or `action`
+   with no matching flag, stops the command with exit 1 and
+   `tsk events append-batch: stdin line <n>: <detail>`, where `<n>` counts every
+   physical line from 1. Nothing is fetched, appended or pushed.
+3. With no events, print `queued:0` and exit 0. Nothing is fetched or pushed.
+4. Fetch the ledger.
+5. Append one envelope line per event to `external-events/queue.ndjson`, in stdin order,
+   with the field order and format of `tsk events append`. Every envelope in the batch
+   has the same `received_at`, the current UTC time. `payload` is the line's value with
+   whitespace outside strings removed and key order kept.
+6. Push once, with the message `External event queue: append batch of <n> event(s)`
+   (`event` for one, `events` otherwise).
+7. Print `queued:<n>`.
+
+### `tsk events read-new`
+
+Fetches the ledger, then prints one compact JSON object and writes nothing:
+`{"new_count":N,"total_count":M,"events":[...]}`. `total_count` is the number of
+`\n`-terminated lines in the queue. `events` holds lines `processed_through + 1` to the
+end, oldest first, each compacted with key order kept, and `new_count` is their number.
+With no queue file, or with `processed_through` at or past `total_count`, `events` is
+empty and `new_count` is `0`. A queue line that is not JSON, or a watermark file that is
+not a JSON object with a non-negative integer `processed_through`, stops with exit 1.
+
+### `tsk events advance-watermark <count>`
+
+1. `<count>` must be decimal digits only. Otherwise stop with exit 1 and
+   `tsk events advance-watermark: count must be a non-negative integer, got '<count>'`,
+   before the fetch.
+2. Fetch the ledger and read `processed_through`.
+3. A lower count stops with exit 1 and
+   `tsk events advance-watermark: refusing to move the watermark backwards (<current> -> <count>)`.
+4. An equal count prints `note: watermark already at <current>; nothing to advance.` to
+   stderr, prints nothing on stdout, pushes nothing, and exits 0.
+5. A higher count rewrites `external-events/watermark.json`, pushes with the message
+   `External event queue: advance watermark <current> -> <count>`, and prints
+   `watermark:<count>`.
+
+The command does not check `<count>` against the queue length, as the script did not.
+
+### `poll-security-alerts.sh`
+
+This script stays a script. It calls GitHub's REST API with `curl` and a personal access
+token from `GH_PAT`, for Dependabot, code scanning and secret scanning alerts, then
+appends every open alert to the queue in one fetch, append, push cycle. The binary holds
+no HTTP client. From T-07 the script pipes its alerts to
+`tsk events append-batch --source github --action polled`, one line per alert, in place
+of writing envelopes to the queue file and calling `fetch-bootstrap-ref.sh` and
+`push-bootstrap-ref.sh`. This keeps one push per poll. Calling `tsk events append` per
+alert would push once per alert. The GitHub Actions workflow that runs it
+(`.github/workflows/external-security-events.yml`) then needs `tsk` installed.
+
+## Script outputs
+
+The skills and hooks parse these outputs today. The binary commands that replace the
+thread scripts (T-05) and the external event scripts (T-06) print the same stdout and
+exit with the same status, so T-07
+switches the harness over by changing only the command it calls. This table records
+what the harness expects until then.
+
+| Script | Stdout on success | Other exits | Replaced by |
+|---|---|---|---|
+| `thread-start.sh` | `started:<thread-id>` | `resume-required:<thread-id>` and exit 2 when a binding exists | `tsk thread start <mission-id> <briefing-path>` |
+| `thread-append-handover.sh` | `paused:<thread-id>` | | `tsk thread pause <thread-id> <mission-link> <task-id> <whats-next>` |
+| `thread-resume.sh` | `{"thread_id":"...","latest":{...},"warning":"..."}` (`latest` is `{}` with no entry; `warning` is empty unless another actor wrote to the thread) | | `tsk thread resume <thread-id>` |
+| `thread-detach.sh` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread detach` |
+| `thread-stop.sh` | `stopped:<thread-id>` | | `tsk thread stop [<thread-id>]` |
+| `thread-list.sh` | one compact JSON object per line: `id`, `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry) | | `tsk thread list` |
+| `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger worktree |
+| `thread-binding-guard.sh` | nothing when bound; `{"decision":"block","reason":"..."}` when not | | `tsk thread guard` |
+| `thread-scaffold.sh` | nothing | exit 1 when `threads/<thread-id>` exists | internal to `tsk thread start` |
+| `thread-mint-id.sh` | `<thread-id>` | | internal to `tsk thread start` |
+| `append-external-event.sh` | `queued` | | `tsk events append <source> <event-type> <action> <repo> <payload-file>` |
+| `poll-security-alerts.sh` | `queued:<count>`, or `no open alerts queued` | | not replaced: stays a script, calling `tsk events append-batch` from T-07, which prints `queued:0` for zero events (see [External event commands](#external-event-commands)) |
+| `read-new-external-events.sh` | `{"new_count":N,"total_count":M,"events":[...]}` | | `tsk events read-new` |
+| `advance-external-events-watermark.sh` | `watermark:<count>` | exit 0 and no stdout when already at the count; exit 1 when the count is lower | `tsk events advance-watermark <count>` |
+
+## Differences from `tsk/bootstrap`
+
+| | `tsk/bootstrap` | Ledger |
+|---|---|---|
+| Ref | `refs/heads/tsk/bootstrap` | `refs/heads/tsk/ledger`, or `refs/heads/ledgers/<host>/<owner>/<repo>` in the nexus |
+| Ledger worktree | `.../repos/<clone-id>/bootstrap` | `.../repos/<clone-id>/ledger` |
+| Manifest | none | `.tsk-ledger.toml`, `version = 1` |
+| Continuation commit field | `commit_on_bootstrap` | `commit_on_ledger`; `commit_on_bootstrap` still read |
+| Fetch and path | `fetch-bootstrap-ref.sh`, `bootstrap-wt-path.sh` | `tsk ledger fetch`, `tsk ledger path` |
+| Thread commands | `thread-*.sh`, `mint-token-lib.sh` | `tsk thread` subcommands |
+| Push | `push-bootstrap-ref.sh`, plain push, retried on any failure | `tsk ledger push`, explicit lease, retried on a rejected update only |
+| Legacy ledger worktree migration | moves `.git/tsk/bootstrap-ref-wt` (ADR 0009) | none: the ledger worktree has no earlier location |
