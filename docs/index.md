@@ -20,11 +20,12 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 - [persistence-and-sync.md](domain/persistence-and-sync.md): state persistence strategy and event log design using custom Rust sync.
 - [mission-briefing-template.md](domain/mission-briefing-template.md): rendering format for missions as briefings for humans and agents.
 - [session-continuation-design.md](domain/session-continuation-design.md): thread binding, the continuation state store, and the `/start-thread`, `/pause-thread`, `/resume-thread` commands.
+- [ledger-layout.md](domain/ledger-layout.md): every ledger file, its format and JSON fields, the `.tsk-ledger.toml` manifest, the ledger refs and nexus URL normalisation, the worktree location, the local-only files, and what `tsk ledger fetch` and `tsk ledger path` do.
 
 ## User guide
 
 - [installation.md](user-guide/installation.md): prerequisites, installing and upgrading the `tsk` and `tskd` binaries, and CI.
-- [getting-started.md](user-guide/getting-started.md): running the daemon, threads, global storage, project binding, tests, building, publishing.
+- [getting-started.md](user-guide/getting-started.md): the `tsk ledger` and `tsk thread` commands, the TUI, tests, building, publishing.
 - [state-models.md](user-guide/state-models.md): task and thread state models, diversions, and how the daemon and client fit together.
 - [missions-threads-and-continuation.md](user-guide/missions-threads-and-continuation.md): how tsk's own missions and task data are stored and worked, the `/start-thread`, `/pause-thread` and `/resume-thread` commands, and what the `SessionStart` hook does.
 
@@ -51,6 +52,8 @@ Architecture Decision Records capture why significant technical choices were mad
 - [0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md](adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md): why the bootstrap data store moved from a custom git ref to a branch — the Claude Code cloud sandbox proxy blocks writes outside `refs/heads/*`.
 - [0009-bootstrap-worktree-outside-the-git-directory.md](adr/0009-bootstrap-worktree-outside-the-git-directory.md): why the bootstrap worktree moved out of `.git/` to an XDG state path, keyed per clone.
 - [0010-ledger-stays-a-branch-not-a-directory-on-main.md](adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md): why the ledger stays a separate branch rather than a `.tsk/` directory committed on `main`, and why the fully-external option stays open rather than decided either way.
+- [0011-logic-lives-in-the-binary-not-the-plugin.md](adr/0011-logic-lives-in-the-binary-not-the-plugin.md): all harness logic lives in the `tsk` binary. Plugin hooks, skills and scripts call `tsk` and hold only what belongs to the Claude Code harness.
+- [0012-retire-tskd-ledgers-are-the-only-shared-state.md](adr/0012-retire-tskd-ledgers-are-the-only-shared-state.md): `tskd` is retired. Git ledgers, located through the nexus, are the only shared state, and the TUI is rebuilt to read them. A local cache index is a deferred extension.
 
 ## Knowledge base
 

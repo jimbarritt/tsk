@@ -1,0 +1,10 @@
+{
+  "name": "tsk",
+  "version": "0.1.0",
+  "description": "Missions, threads and the ledger for Claude Code sessions, backed by the tsk binary",
+  "author": {
+    "name": "Jim Barritt"
+  },
+  "repository": "https://github.com/jimbarritt/tsk",
+  "license": "MIT"
+}

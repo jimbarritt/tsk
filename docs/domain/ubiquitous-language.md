@@ -46,7 +46,8 @@ identifier. Confirmed empirically (M-BOOT-02, 2026-09-16): a Claude Code cloud
 session's session ID survives `/clear`, but the same command on the CLI produces a new
 one. An identifier that is stable on one surface and not another cannot serve as a
 thread's identity across both. Thread identity is tsk's own, minted once when the
-thread starts, and a session or a worktree binds to it, not the other way round.
+thread starts, and a session or a [code worktree](#code-worktree) binds to it, not the
+other way round.
 
 Related: operating context (`docs/kb/agent-context-self-regulation-and-unattended-handoff.md`
 in the tsk repo) describes how a session started and who or what is supervising it —
@@ -153,6 +154,41 @@ Rejected: account (the mission briefing template already uses "your account" for
 actor's own report), record (M-BOOT-02's run record holds that word), chronicle (says
 nothing ledger does not), data branch and bootstrap branch (name the mechanism, so they
 rot when the mechanism changes, exactly as "data ref" did).
+
+## Ledger worktree
+
+The git linked worktree that holds the [ledger](#ledger) branch beside the managed repo's
+own checkout. It is created with `git worktree add --detach`, so it holds no branch, and
+it sits at a fixed path outside the repository:
+`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger`. The branch it holds
+is `refs/heads/tsk/ledger`, and `tsk/bootstrap` until the cut-over; the bootstrap one is
+at `.../<clone-id>/bootstrap`.
+
+One per clone. Every session in that clone shares it. It shares the clone's object store
+and refs, and is not a clone itself. It makes the ledger branch readable and writable
+without a switch of the branch in the code checkout. `tsk ledger fetch` creates and
+refreshes it, and `tsk ledger push` writes from it.
+
+Distinguished from a [code worktree](#code-worktree): the ledger worktree holds the
+ledger, a code worktree holds the [artefacts](#artefact).
+
+## Code worktree
+
+A worktree of the managed repo's code, the main one or a linked one. Typically one per
+session, so sessions work in parallel without a shared tree.
+
+A session binds to a [thread](#thread) through a marker file in the code worktree's own
+git directory: `.git/tsk-thread-id` for the main worktree,
+`.git/worktrees/<name>/tsk-thread-id` for a linked one.
+
+Distinguished from the [ledger worktree](#ledger-worktree), which there is one of per
+clone and which holds the ledger, not the code.
+
+Usage: "worktree" never appears unqualified in tsk prose. Write "ledger worktree" or
+"code worktree". "Worktree" alone is acceptable only where it names the git mechanism
+itself, for example `git worktree add` or "a linked worktree" in a description of git,
+and in code identifiers. "Clone" means the managed repo's clone, as in `<clone-id>`, and
+never the ledger worktree.
 
 ## Task
 
