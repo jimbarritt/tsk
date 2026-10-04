@@ -159,7 +159,7 @@ the command names.
   never uses "worktree" unqualified. Recorded in `docs/domain/ubiquitous-language.md`.
   ADR bodies are not rewritten.
 - 2026-10-04: the Claude Code plugin's source tree is `plugin/` in the tsk repo:
-  `.claude-plugin/plugin.json` (name `tsk`, no `version`, so each commit is a version),
+  `.claude-plugin/plugin.json` (name `tsk`, semver `version` starting at 0.1.0, because the version is visible to the user; a release is a version change),
   `skills/`, `hooks/hooks.json`. Anything in `ops/local/` that tsk distributes moves out
   to a source directory. The concurrency gap on the shared ledger worktree is recorded in
   `future-missions-tbd.md`.
