@@ -14,7 +14,7 @@ separate rather than answering for an ambiguous target.
 
 **The bootstrap ledger.** The concrete, currently running store: the `tsk/bootstrap`
 branch, holding mission briefings and `threads/<slug>/{index.md,
-continuation-state.jsonl}` as plain files, edited through a worktree and pushed by
+continuation-state.jsonl}` as plain files, edited through a ledger worktree and pushed by
 compare-and-swap scripts (`docs/domain/bootstrap-rationale.md`,
 `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`). This is
 stage-zero scaffolding by design: `bootstrap-rationale.md` states its objective is

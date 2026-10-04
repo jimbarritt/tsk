@@ -20,7 +20,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 - [persistence-and-sync.md](domain/persistence-and-sync.md): state persistence strategy and event log design using custom Rust sync.
 - [mission-briefing-template.md](domain/mission-briefing-template.md): rendering format for missions as briefings for humans and agents.
 - [session-continuation-design.md](domain/session-continuation-design.md): thread binding, the continuation state store, and the `/start-thread`, `/pause-thread`, `/resume-thread` commands.
-- [ledger-layout.md](domain/ledger-layout.md): every ledger file, its format and JSON fields, the `.tsk-ledger.toml` manifest, the ledger refs and nexus URL normalisation, the worktree location, the local-only files, and what `tsk ledger fetch` and `tsk ledger path` do.
+- [ledger-layout.md](domain/ledger-layout.md): every ledger file, its format and JSON fields, the `.tsk-ledger.toml` manifest, the ledger refs and nexus URL normalisation, the ledger worktree location, the local-only files, and what `tsk ledger fetch` and `tsk ledger path` do.
 
 ## User guide
 

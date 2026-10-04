@@ -377,7 +377,7 @@ location.
 ### `.git/tsk-clone-id`
 
 Path: `$(git rev-parse --path-format=absolute --git-common-dir)/tsk-clone-id`. One
-per clone, shared by all its linked worktrees.
+per clone, shared by all its code worktrees.
 
 Content: `<name>-<suffix>` and a trailing newline. Readers strip all whitespace.
 

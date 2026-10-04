@@ -163,7 +163,7 @@ Facts about tsk are from its own documents. No design is implied.
 | Configuration at project, global and enterprise levels, and policies an employee cannot override. | [claude-code-mods.md](claude-code-mods.md) records five mod tiers: prepend, user, append, built-in and core. tsk has no permission model. |
 | Give Claude "some sort of tool that it can use for feedback" and it iterates. | A tsk Objective is a checkable end state. |
 | `claude -p` runs Claude in CI and pipelines. | M-BOOT-03's objective includes one unattended cloud routine run that produces a pull request, a run record and thread state. Not built. |
-| Power users run several sessions with checkouts or Git worktrees, and tmux. | Mission Control, M-BOOT-06, is a tmux layout of Claude sessions, each in its own worktree that the user creates. |
+| Power users run several sessions with checkouts or Git worktrees, and tmux. | Mission Control, M-BOOT-06, is a tmux layout of Claude sessions, each in its own code worktree that the user creates. |
 | Plan first and "ask for approval before you write code". | A mission briefing contains a Plan section that the actor takes ownership of before any other action. |
 
 ## Sources
