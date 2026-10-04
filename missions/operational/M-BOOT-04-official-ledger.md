@@ -227,3 +227,17 @@ the command names.
 - Whether the `tsk` marketplace moves from this repo to `jimbarritt/claude-plugins`.
   Decided later.
 
+## Clean-up for later
+
+Recorded 2026-10-04 at Jim's request, after T-09.
+
+- Any other clone or cloud checkout of tsk still holds an old bootstrap ledger worktree
+  at `.../tsk/repos/<clone-id>/bootstrap`. Remove it on that machine with
+  `git worktree remove <path>` once its status is clean. This machine's copy is gone.
+- `refs/heads/tsk/bootstrap` and the orphaned custom ref `refs/tsk/bootstrap` still
+  exist on origin. The tag `archive/tsk-bootstrap` holds the final branch commit.
+  Deleting both refs ends the name collision that `CLAUDE.md` warns about. Jim decides
+  when.
+- `.claude/skills/worktrees/` in the tsk repo predates the plugin. Check whether it is
+  still needed.
+
