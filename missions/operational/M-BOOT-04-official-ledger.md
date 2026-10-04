@@ -212,9 +212,12 @@ the command names.
   script adds the marketplace and installs and updates `tsk@tsk` at project scope, as it
   does for `swe`. A change to `plugin/` takes effect after a `version` bump in
   `plugin.json`.
-- 2026-10-04, T-07: the plugin installs the binary. Its `SessionStart` hook runs
-  `cargo install --path "$TSK_SOURCE"` when `tsk` is not on `PATH` and `TSK_SOURCE` is
-  set, otherwise `cargo install tsk-bin`. This repo sets `env.TSK_SOURCE` to its `cli/`
+- 2026-10-04, T-07: the plugin installs the binary, and the plugin holds the `tsk`
+  version it requires. Its `SessionStart` hook compares `tsk --version` with that
+  version. When `tsk` is not on `PATH` or the versions differ, it runs
+  `cargo install --path "$TSK_SOURCE"` when `TSK_SOURCE` is set, otherwise
+  `cargo install tsk-bin --version <required>`. The workspace version moves to 0.2.0,
+  unpublished, and the plugin requires 0.2.0. This repo sets `env.TSK_SOURCE` to its `cli/`
   in `.claude/settings.json`, and `just build-install` updates the binary. When the
   install fails or `tsk` is still not found, the hook exits with the install command and
   the command that runs the session start again.
