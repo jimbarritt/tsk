@@ -238,6 +238,6 @@ Recorded 2026-10-04 at Jim's request, after T-09.
   exist on origin. The tag `archive/tsk-bootstrap` holds the final branch commit.
   Deleting both refs ends the name collision that `CLAUDE.md` warns about. Jim decides
   when.
-- `.claude/skills/worktrees/` in the tsk repo predates the plugin. Check whether it is
-  still needed.
+- `.claude/worktrees/` in the local tsk clone is an empty, untracked directory left by
+  Claude Code. Delete it by hand.
 
