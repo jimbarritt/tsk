@@ -29,11 +29,10 @@ cargo --version
 ## Installation
 
 ```bash
-cargo install --git https://github.com/jimbarritt/tsk tsk-bin --tag v0.2.0 --locked
+cargo install tsk-bin --locked
 ```
 
-This installs the `tsk` binary. 0.2.0 is not on crates.io yet. `tskd` is retired
-(ADR 0012) and is not needed.
+This installs the `tsk` binary. `tskd` is retired (ADR 0012) and is not needed.
 
 The Claude Code plugin installs from the marketplace in the tsk repo:
 
