@@ -1,130 +1,144 @@
-# tsk — agent context
+# tsk: agent context
 
-tsk is a tool for tracking parallel work threads. It is designed to work alongside both
-autonomous agents and humans, keeping cognitive context clear across context switches.
+tsk tracks missions and the threads that work them. The missions, threads and their
+continuation state live in a **ledger**: a git branch, `refs/heads/tsk/ledger` on the
+managed repo's `origin`, checked out in a detached ledger worktree outside the
+repository. The `ledger` and `thread` commands run in the `tsk` client alone, with no
+daemon, from inside any working tree of the managed repo.
+
+Every ledger file and format is in `docs/domain/ledger-layout.md`. Threads, bindings and
+continuation state are in `docs/domain/session-continuation-design.md`.
 
 ## Core concepts
 
-A **thread** is a stream of work — a feature, bug fix, investigation, or task. You can have
-many threads but only one is **active** at a time. When you switch to a thread, all others
-are paused.
+A **thread** is one line of work on a mission. Its ID is 8 characters from `[0-9a-z]`.
+Each thread has a directory on the ledger, `threads/<thread-id>/`, that holds `index.md`
+(a link to the mission briefing) and `continuation-state.jsonl` (one continuation state
+entry per pause).
 
-Each thread has a **directory** (`~/.tsk/threads/{id}-{slug}/`) for storing context: notes,
-plans, decisions, links — anything needed to resume this thread quickly without losing
-cognitive continuity. This directory is the thread's working memory.
+A **binding** ties the current session or code worktree to a thread:
 
-Threads can optionally be **bound to a project directory** via a `path` field. When a thread
-is bound, `tsk where` (run from inside that directory) shows it as the relevant thread.
+- In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` set), the binding is an entry in
+  `threads/lookup-by-cloud-session.json` on the ledger.
+- Otherwise, the binding is the file `tsk-thread-id` in the code worktree's own git
+  directory (`git rev-parse --git-dir`). It is never pushed.
 
-Thread ids are stable zero-padded integers (0001, 0002, ...). Reference a thread by id
-(`1` or `0001`) or slug (`fix-login`).
+More than one session or code worktree can bind to the same thread. Resuming a thread that
+another actor wrote to binds anyway, and prints a warning.
 
-### Priorities
-
-- `INC` — incident: something is on fire, drop everything
-- `PRIO` — priority: important, should be worked on soon
-- `BG` — background: low urgency, pick up when nothing more pressing
-
-### Commands
+## Commands
 
 ```
-tsk thread create <slug> <priority> <description> [--path <dir>]       create a new thread (starts paused)
-tsk thread switch-to <id-or-slug>                                       activate a thread (pauses all others)
-tsk thread update <id-or-slug> [--slug] [--description] [--priority] [--path <dir>]  update thread metadata
-tsk thread list                                                         list all threads as JSON
-tsk where                                                               show which thread is bound to the current directory
-tsk context                                                             print this context
-tsk                                                                     launch the live TUI
+tsk ledger fetch                         fetch refs/heads/tsk/ledger from origin, refresh the ledger worktree, print the path
+tsk ledger path                          print the ledger worktree path; no fetch, no writes
+tsk ledger push "<message>"              commit every ledger worktree change, rebase onto the latest ledger, push; prints the ledger commit
 
-tsk task create <description> [--due-by <date>] [--thread <id>]  create a task (not-started)
-tsk task list [--thread <id>]                                  list tasks for a thread as JSON
-tsk task start <task-id> [--thread <id>]                       start a task (→ in-progress)
-tsk task block <task-id> <reason> [--thread <id>]              block a task (→ blocked)
-tsk task complete <task-id> [--thread <id>]                    complete a task (→ done)
-tsk task cancel <task-id> [--thread <id>]                      cancel a task (→ cancelled)
-tsk task update <task-id> [--description] [--due-by] [--seq] [--thread <id>]  update task fields
+tsk thread start <mission-id> <briefing-path>                         mint, scaffold and bind a thread, push
+tsk thread pause <thread-id> <mission-link> <task-id> <whats-next>    append a continuation state entry, push
+tsk thread resume <thread-id>                                         bind to a thread, print its latest entry
+tsk thread detach                                                     remove this session's or code worktree's binding
+tsk thread stop [<thread-id>]                                         delete a thread and every cloud binding to it, push
+tsk thread list                                                       list threads, most recently paused first
+tsk thread binding [--no-fetch]                                       print the current binding
+tsk thread guard                                                      Stop hook check for a binding; never fetches
+
+tsk events append <source> <event-type> <action> <repo> <payload-file>   queue one event envelope, push
+tsk events append-batch [--source <s>] [--action <a>]                    queue every NDJSON event line on stdin, push once
+tsk events read-new                                                       print the events past the watermark; no writes
+tsk events advance-watermark <count>                                      set the watermark to <count>, push
+tsk                                                                   launch the TUI (reads threads from tskd)
 ```
 
-Task commands default to the active thread. Use `--thread <id-or-slug>` to target a different
-thread without switching to it (the **Diversion** pattern — record a thought against another
-thread and get straight back to what you were doing).
+`<briefing-path>` and `<mission-link>` are paths relative to the ledger root, for example
+`missions/operational/M-BOOT-04-official-ledger.md`. `tsk thread start` refuses a path
+with no file at it in the ledger worktree.
 
-### Response formats
+### Ledger
 
-**`tsk thread create`** returns the created thread:
-```json
-{
-  "id": 1,
-  "slug": "fix-login",
-  "priority": "PRIO",
-  "state": "paused",
-  "description": "Fix the login bug",
-  "dir": "/home/user/.tsk/threads/0001-fix-login",
-  "path": "/home/user/projects/my-project"
-}
-```
+`tsk ledger fetch` checks the ledger's `.tsk-ledger.toml` version before it changes the
+ledger worktree, and refuses to reset over uncommitted changes in it. Both `fetch` and
+`path` print a bare path on stdout, so `WT="$(tsk ledger fetch)"` works. To change the
+ledger, edit files in the ledger worktree, then run `tsk ledger push "<message>"`: it
+commits everything, rebases onto the latest `refs/heads/tsk/ledger`, and pushes with a
+compare and swap, retrying up to 5 times when another writer pushes first. With nothing to
+commit it still pushes a commit an earlier run left unpushed. A rebase conflict stops it
+with the rebase aborted.
 
-The `dir` field is the absolute path to the thread's context directory inside `~/.tsk/`.
-This is where you should read and write context files. An `index.md` is pre-created in
-this directory. The optional `path` field is the project directory this thread is bound to
-(omitted if not set).
+### Threads
 
-**`tsk thread list`** returns all threads:
-```json
-{
-  "threads": [
-    { "id": 1, "slug": "fix-login", "priority": "PRIO", "state": "active", "description": "Fix the login bug" },
-    { "id": 2, "slug": "update-deps", "priority": "BG", "state": "paused", "description": "Update dependencies" }
-  ]
-}
-```
+Every `thread` command that reads the ledger fetches it first, except `binding
+--no-fetch` and `guard`. Every command that writes to the ledger pushes once,
+after all its file changes, through the same code as `tsk ledger push`. Diagnostics go to
+stderr.
 
-**`tsk thread switch-to`** returns the newly activated thread, same shape as `thread create`
-including the `dir` field.
+| Command | Stdout on success | Other exits |
+|---|---|---|
+| `thread start` | `started:<thread-id>` | `resume-required:<thread-id>` and exit status 2 when a binding exists |
+| `thread pause` | `paused:<thread-id>` | exit 1 when the managed repo's `HEAD` is not on origin's default branch |
+| `thread resume` | `{"thread_id":"...","latest":{...},"warning":"..."}` | |
+| `thread detach` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding |
+| `thread stop` | `stopped:<thread-id>` | exit 1 with no binding and no thread ID given |
+| `thread list` | one compact JSON object per line: `id`, `mission_link`, `latest_whats_next`, `latest_timestamp` | |
+| `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding |
+| `thread guard` | nothing when bound; `{"decision":"block","reason":"..."}` when not | |
 
-**`tsk thread update`** returns the updated thread, same shape as `thread create`. All flags
-are optional — only the fields you pass are changed.
+In `thread resume`, `latest` is the thread's last continuation state entry as stored, or
+`{}` with no entry. `warning` is empty unless the thread's entries name a `written_by`
+actor and none of them is the current actor.
 
-**`tsk task create`** returns the created task:
-```json
-{
-  "id": "TSK-0001-0001",
-  "description": "Write unit tests",
-  "state": "not-started",
-  "seq": 1
-}
-```
+A continuation state entry holds `mission_link`, `task_id`, `whats_next`,
+`commit_on_ledger`, `commit_on_main`, `timestamp` and `written_by`. Entries written by the
+`tsk/bootstrap` scripts hold `commit_on_bootstrap` in place of `commit_on_ledger`. tsk
+reads both and writes `commit_on_ledger` only.
 
-Task ids: `TSK-{thread-id-padded}-{seq-padded}` e.g. `TSK-0001-0001`. Use the full id string
-when targeting a task with start/block/complete/cancel/update.
+`thread pause` records the commit the ledger worktree is at before the entry is appended,
+and the managed repo's `HEAD`. It refuses a `HEAD` that origin's default branch does not hold,
+because an actor resuming from another clone cannot see it. `commit_on_main` holds
+that commit whatever the default branch is called.
 
-**`tsk task list`** returns all tasks for the thread sorted by `seq`:
-```json
-{
-  "tasks": [
-    { "id": "TSK-0001-0001", "description": "Write unit tests", "state": "not-started", "seq": 1 },
-    { "id": "TSK-0001-0002", "description": "Ship feature", "state": "in-progress", "seq": 2, "due_by": "2026-03-31" }
-  ]
-}
-```
+### External events
 
-Task state transitions:
-```
-not-started → in-progress → done
-                   ↓
-                blocked → in-progress
-any state → cancelled
-```
+The external event queue is `external-events/queue.ndjson` on the ledger, one event
+envelope per line: `source`, `event_type`, `action`, `repo`, `received_at` and `payload`.
+`external-events/watermark.json` holds `processed_through`, the number of queue lines
+processed. Each `events` command fetches the ledger first. `append`, `append-batch`
+and `advance-watermark` push once, through the same code as `tsk ledger push`.
 
-### TUI
+| Command | Stdout on success | Other exits |
+|---|---|---|
+| `events append` | `queued` | exit 1, nothing pushed, when the payload file is absent or not JSON |
+| `events append-batch` | `queued:<count>`; `queued:0`, nothing fetched or pushed, for empty stdin | exit 1, nothing pushed, naming the stdin line, when any line is invalid |
+| `events read-new` | `{"new_count":N,"total_count":M,"events":[...]}`, oldest first | |
+| `events advance-watermark` | `watermark:<count>` | exit 0 and no stdout when already at the count; exit 1 when the count is lower |
+
+`append` queues the first JSON value in the payload file, or `null` for an empty file.
+`append-batch` reads one JSON object per stdin line, with `event_type`, `repo` and
+`payload`, and `source` and `action` from the line or from `--source` and `--action`.
+It checks every line before the fetch, then appends them all with one `received_at`
+and one push.
+`total_count` is the queue's line count. Advance the watermark to it only after every
+event up to it is processed, so an interrupted run reads those events again rather than
+skipping them.
+
+### Switching threads
+
+No single command switches threads. To switch: `tsk thread binding` to find the current
+thread, `tsk thread detach`, optionally `tsk thread stop <old-thread-id>`, then
+`tsk thread resume <new-thread-id>`. `tsk thread list` gives the candidates.
+
+## TUI
+
+`tsk` with no arguments launches the TUI. It reads threads and tasks from the `tskd`
+daemon over its Unix socket, `~/.tsk/tskd.sock`, so `tskd` must be running. The daemon
+and its thread model are separate from the ledger threads above.
 
 The TUI has two panes:
 
-**Threads pane** (default) — shows all threads grouped by state/priority. Navigate with
-`j`/`k` to move a selection cursor. Press `Enter` to view tasks for the selected thread.
-Type `gt` (two-key sequence) to view tasks for the active thread.
+**Threads pane** (default): shows all threads grouped by state and priority. Navigate
+with `j`/`k` to move a selection cursor. Press `Enter` to view tasks for the selected
+thread. Type `gt` (two-key sequence) to view tasks for the active thread.
 
-**Tasks pane** — shows tasks for a specific thread. At the top is a thread summary box
+**Tasks pane**: shows tasks for a specific thread. At the top is a thread summary box
 (id, slug, priority). Below is the task list sorted by state priority:
 1. `▶` in-progress
 2. `⏳` blocked
@@ -132,101 +146,4 @@ Type `gt` (two-key sequence) to view tasks for the active thread.
 4. `✓` done (greyed out)
 5. `✗` cancelled (greyed out)
 
-Each task shows a dynamic index (1-based), status symbol, and description. The index
-updates when sort order changes, so you can reference tasks by their visible position.
-
 Press `Esc` or `Ctrl-O` to return to the threads pane. Press `q` to quit.
-
----
-
-## Mode A — Autonomous agent
-
-Use this mode when the agent is doing independent work and managing its own threads.
-
-**You are the worker.** You decide what threads to create, when to switch, and what context
-to store. tsk is your working memory across tasks.
-
-### Responsibilities
-
-- Create a thread for each distinct stream of work you undertake
-- When activating a thread, read the files in its directory to restore context before starting
-- Write notes, plans, and decisions to files in the active thread's directory as you work
-- Switch threads when you decide to context-switch, or when interrupted by higher priority work
-- Keep descriptions concise — they appear in the TUI at a glance
-
-### Suggested workflow
-
-1. `tsk thread list` — check current state before starting
-2. `tsk thread switch-to <id>` — activate the thread you are working on
-3. Read the thread's `dir` (from the response) to restore context — files live under `~/.tsk/threads/{id}-{slug}/`
-4. Do the work; write context files as you go
-5. When done or interrupted, update your context files before switching away
-
----
-
-## Mode B — Human-assisted
-
-Use this mode when the agent is helping a human manage their work threads.
-
-**The human is the worker.** They decide what to work on and when to switch. You help them
-organise their context, execute tsk commands on request, and keep their thread directories
-useful. You are a co-pilot, not the pilot.
-
-### Responsibilities
-
-- Execute tsk commands when asked by the human
-- Help the human write useful context into their active thread's directory — summaries,
-  decisions made, next steps, links to relevant code or docs
-- When the human switches context, offer to capture a summary of where they left off
-- Suggest thread switches when you notice priority conflicts, but do not switch unilaterally
-- Help the human keep descriptions and context files up to date
-
-### Suggested workflow
-
-1. At session start: `tsk context` to understand the current state; if in a project directory, run `tsk where` to find the bound thread
-2. Ask the human which thread they are working on, or suggest based on current state
-3. As the human works, help them document decisions and progress in the thread directory
-4. When the human is interrupted: help them capture context before switching away
-5. When resuming: read the thread directory together and summarise where they left off
-
----
-
-## Daemon and storage
-
-tsk uses a **single global daemon** (`tskd`) per user. All thread state lives in `~/.tsk/`:
-
-```
-~/.tsk/
-  tskd.sock              # Unix socket (daemon must be running)
-  event-log/
-    events.ndjson        # append-only audit trail
-  threads/
-    index.json           # authoritative thread state
-    0001-fix-login/      # per-thread context directory
-```
-
-The daemon is started once and serves all projects. You do not need to start it per project.
-
-### Project binding
-
-Threads can be bound to a project directory with `--path`:
-
-```
-tsk thread create my-feature PRIO "Implement X" --path /abs/path/to/project
-tsk thread update my-feature --path /abs/path/to/project   # add or change binding
-tsk thread update my-feature --path ""                      # clear binding
-```
-
-From inside a project directory, `tsk where` shows which thread is bound to it:
-
-```
-tsk where
-```
-
-If a project has a `doc/tsk/` directory, `tsk` auto-zooms to the bound thread when run
-from that project. You can place project-local context files (notes, plans, ADRs) in
-`doc/tsk/` alongside the thread's global context in `~/.tsk/threads/{id}-{slug}/`.
-
----
-
-## Current state

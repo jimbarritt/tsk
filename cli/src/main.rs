@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use tsk_core::{send_request, Priority};
 
 // ---------------------------------------------------------------------------
 // Zoom / auto-context
@@ -44,145 +43,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Manage work threads
+    #[command(
+        about = "Start, pause, resume, detach, stop and list ledger threads, and resolve this session's or worktree's binding (runs without tskd)"
+    )]
     Thread {
         #[command(subcommand)]
-        action: ThreadCommands,
+        action: thread::ThreadCommands,
     },
-    /// Manage tasks within a thread
-    Task {
+    #[command(about = "Fetch, locate and push the ledger branch (runs without tskd)")]
+    Ledger {
         #[command(subcommand)]
-        action: TaskCommands,
+        action: ledger::LedgerCommands,
     },
-    /// Print agent context: conceptual overview, commands, and current thread state
-    Context,
-    /// Show which thread is bound to the current directory
-    Where,
-}
-
-#[derive(Subcommand)]
-enum ThreadCommands {
-    /// Create a new work thread (starts paused; use switch-to to activate)
-    Create {
-        /// Unique slug identifier (e.g. fix-login)
-        slug: String,
-        /// Priority: BG (background), PRIO (priority), INC (incident)
-        priority: String,
-        /// Short description
-        description: String,
-        /// Associated filesystem path (e.g. /path/to/project)
-        #[arg(long)]
-        path: Option<String>,
-    },
-    /// List all threads
-    List,
-    /// Switch to a thread by its short ID or slug (makes it active, pauses others)
-    SwitchTo {
-        /// Short hash ID or slug of the thread to activate
-        id: String,
-    },
-    /// Mark a thread as waiting on an external dependency
-    Wait {
-        /// ID or slug of the thread
-        id: String,
-        /// Optional reason (what are you waiting for?)
-        reason: Option<String>,
-    },
-    /// Resume a waiting thread, restoring its previous state
-    Resume {
-        /// ID or slug of the thread
-        id: String,
-        /// Optional note (e.g. what unblocked it)
-        note: Option<String>,
-    },
-    /// Update metadata on an existing thread (all flags optional)
-    Update {
-        /// ID or slug of the thread to update
-        id: String,
-        /// New slug (renames the thread directory)
-        #[arg(long)]
-        slug: Option<String>,
-        /// New description
-        #[arg(long)]
-        description: Option<String>,
-        /// New priority: BG, PRIO, or INC
-        #[arg(long)]
-        priority: Option<String>,
-        /// Associated filesystem path (use empty string to clear)
-        #[arg(long)]
-        path: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-enum TaskCommands {
-    /// Create a new task on the active thread (or a named thread with --thread)
-    Create {
-        /// Task description
-        description: String,
-        /// Optional due date (ISO 8601, e.g. 2026-03-15)
-        #[arg(long)]
-        due_by: Option<String>,
-        /// Target thread id or slug (defaults to active thread)
-        #[arg(long)]
-        thread: Option<String>,
-    },
-    /// List tasks on the active thread (or a named thread with --thread)
-    List {
-        /// Target thread id or slug (defaults to active thread)
-        #[arg(long)]
-        thread: Option<String>,
-    },
-    /// Start a task (not-started or blocked → in-progress)
-    Start {
-        /// Task id (e.g. TSK-0001-0001)
-        id: String,
-        /// Target thread id or slug (defaults to active thread)
-        #[arg(long)]
-        thread: Option<String>,
-    },
-    /// Block a task (in-progress → blocked); requires a reason
-    Block {
-        /// Task id (e.g. TSK-0001-0001)
-        id: String,
-        /// Reason the task is blocked
-        reason: String,
-        /// Target thread id or slug (defaults to active thread)
-        #[arg(long)]
-        thread: Option<String>,
-    },
-    /// Mark a task as done
-    Complete {
-        /// Task id (e.g. TSK-0001-0001)
-        id: String,
-        /// Target thread id or slug (defaults to active thread)
-        #[arg(long)]
-        thread: Option<String>,
-    },
-    /// Cancel a task (any state → cancelled)
-    Cancel {
-        /// Task id (e.g. TSK-0001-0001)
-        id: String,
-        /// Target thread id or slug (defaults to active thread)
-        #[arg(long)]
-        thread: Option<String>,
-    },
-    /// Update task fields (all flags optional)
-    Update {
-        /// Task id (e.g. TSK-0001-0001)
-        id: String,
-        /// New description
-        #[arg(long)]
-        description: Option<String>,
-        /// New due date (ISO 8601)
-        #[arg(long)]
-        due_by: Option<String>,
-        /// New sequence number (for manual ordering)
-        #[arg(long)]
-        seq: Option<u32>,
-        /// Target thread id or slug (defaults to active thread)
-        #[arg(long)]
-        thread: Option<String>,
+    #[command(
+        about = "Append to, read and advance the ledger's external event queue (runs without tskd)"
+    )]
+    Events {
+        #[command(subcommand)]
+        action: events::EventsCommands,
     },
 }
 
@@ -204,186 +82,23 @@ fn main() {
         return;
     }
 
-    // All other args (subcommands, --version, --help) → clap
     let cli = Cli::parse();
-    if let Err(e) = run_cli(cli) {
-        eprintln!("{}", e);
-        std::process::exit(1);
+    match run_cli(cli) {
+        Ok(0) => {}
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
     }
 }
 
-// ---------------------------------------------------------------------------
-// CLI mode
-// ---------------------------------------------------------------------------
-
-fn run_cli(cli: Cli) -> Result<(), String> {
-    let sock = tsk_core::socket_path();
-
+fn run_cli(cli: Cli) -> Result<i32, String> {
     match cli.command {
-        Some(Commands::Thread { action }) => match action {
-            ThreadCommands::Create {
-                slug,
-                priority,
-                description,
-                path,
-            } => {
-                let _: Priority = priority.parse()?;
-                let mut params = serde_json::json!({
-                    "slug": slug,
-                    "priority": priority,
-                    "description": description,
-                });
-                if let Some(p) = path { params["path"] = p.into(); }
-                let result = send_request(&sock, "thread.create", params)?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-            ThreadCommands::List => {
-                let result = send_request(&sock, "thread.list", serde_json::json!({}))?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-            ThreadCommands::SwitchTo { id } => {
-                let result = send_request(
-                    &sock,
-                    "thread.switch_to",
-                    serde_json::json!({ "id": id }),
-                )?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-            ThreadCommands::Wait { id, reason } => {
-                let mut params = serde_json::json!({ "id": id });
-                if let Some(r) = reason { params["reason"] = r.into(); }
-                let result = send_request(&sock, "thread.wait", params)?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-            ThreadCommands::Resume { id, note } => {
-                let mut params = serde_json::json!({ "id": id });
-                if let Some(n) = note { params["note"] = n.into(); }
-                let result = send_request(&sock, "thread.resume", params)?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-            ThreadCommands::Update { id, slug, description, priority, path } => {
-                if let Some(ref p) = priority {
-                    let _: Priority = p.parse()?;
-                }
-                let mut params = serde_json::json!({ "id": id });
-                if let Some(s) = slug        { params["slug"]        = s.into(); }
-                if let Some(d) = description { params["description"] = d.into(); }
-                if let Some(p) = priority    { params["priority"]    = p.into(); }
-                match path {
-                    Some(p) if p.is_empty() => { params["path"] = serde_json::Value::Null; }
-                    Some(p)                 => { params["path"] = p.into(); }
-                    None                    => {}
-                }
-                let result = send_request(&sock, "thread.update", params)?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-        },
-        Some(Commands::Task { action }) => match action {
-            TaskCommands::Create { description, due_by, thread } => {
-                let mut params = serde_json::json!({ "description": description });
-                if let Some(d) = due_by   { params["due_by"] = d.into(); }
-                if let Some(t) = thread   { params["thread"] = t.into(); }
-                let result = send_request(&sock, "task.create", params)?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-            TaskCommands::List { thread } => {
-                let mut params = serde_json::json!({});
-                if let Some(t) = thread { params["thread"] = t.into(); }
-                let result = send_request(&sock, "task.list", params)?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-            TaskCommands::Start { id, thread } => {
-                let mut params = serde_json::json!({ "id": id });
-                if let Some(t) = thread { params["thread"] = t.into(); }
-                let result = send_request(&sock, "task.start", params)?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-            TaskCommands::Block { id, reason, thread } => {
-                let mut params = serde_json::json!({ "id": id, "reason": reason });
-                if let Some(t) = thread { params["thread"] = t.into(); }
-                let result = send_request(&sock, "task.block", params)?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-            TaskCommands::Complete { id, thread } => {
-                let mut params = serde_json::json!({ "id": id });
-                if let Some(t) = thread { params["thread"] = t.into(); }
-                let result = send_request(&sock, "task.complete", params)?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-            TaskCommands::Cancel { id, thread } => {
-                let mut params = serde_json::json!({ "id": id });
-                if let Some(t) = thread { params["thread"] = t.into(); }
-                let result = send_request(&sock, "task.cancel", params)?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-            TaskCommands::Update { id, description, due_by, seq, thread } => {
-                let mut params = serde_json::json!({ "id": id });
-                if let Some(d) = description { params["description"] = d.into(); }
-                if let Some(d) = due_by      { params["due_by"]      = d.into(); }
-                if let Some(s) = seq         { params["seq"]         = s.into(); }
-                if let Some(t) = thread      { params["thread"]      = t.into(); }
-                let result = send_request(&sock, "task.update", params)?;
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
-                Ok(())
-            }
-        },
-        Some(Commands::Context) => {
-            const AGENT_CONTEXT: &str = include_str!("agent-context.md");
-            print!("{}", AGENT_CONTEXT);
-
-            // Append live thread state if the daemon is running
-            match send_request(&sock, "thread.list", serde_json::json!({})) {
-                Ok(result) => {
-                    let threads = result["threads"].as_array().cloned().unwrap_or_default();
-                    if threads.is_empty() {
-                        println!("No threads exist yet.");
-                    } else {
-                        for t in &threads {
-                            let id = t["id"].as_u64().unwrap_or(0);
-                            let slug = t["slug"].as_str().unwrap_or("?");
-                            let state = t["state"].as_str().unwrap_or("?");
-                            let priority = t["priority"].as_str().unwrap_or("?");
-                            let description = t["description"].as_str().unwrap_or("");
-                            println!(
-                                "- {:04} {:20} {:6} {:6} {}",
-                                id, slug, priority, state, description
-                            );
-                        }
-                    }
-                }
-                Err(_) => {
-                    println!("(tskd is not running — start it with: tskd)");
-                }
-            }
-            Ok(())
-        }
-        Some(Commands::Where) => {
-            match resolve_zoom_thread(&sock) {
-                Some(thread) => println!("{}", serde_json::to_string_pretty(&thread).unwrap()),
-                None => println!(
-                    "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({
-                        "zoom": null,
-                        "message": "No thread bound to current directory"
-                    }))
-                    .unwrap()
-                ),
-            }
-            Ok(())
-        }
-        None => Ok(()),
+        Some(Commands::Thread { action }) => thread::run(action),
+        Some(Commands::Ledger { action }) => ledger::run(action).map(|()| 0),
+        Some(Commands::Events { action }) => events::run(action),
+        None => Ok(0),
     }
 }
 
@@ -393,6 +108,12 @@ fn run_cli(cli: Cli) -> Result<(), String> {
 
 mod tui;
 
+mod ledger;
+
+mod thread;
+
+mod events;
+
 // ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
@@ -400,26 +121,125 @@ mod tui;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tsk_core::{Thread, ThreadState};
+    use tsk_core::{Priority, Thread, ThreadState};
 
     #[test]
-    fn no_args_would_launch_tui() {
-        let cli = Cli::try_parse_from(["tsk", "thread", "list"]);
-        assert!(cli.is_ok());
-
-        let cli = Cli::try_parse_from(["tsk", "thread", "create", "fix-login", "PRIO", "Fix it"]);
-        assert!(cli.is_ok());
-
-        let cli = Cli::try_parse_from(["tsk", "thread", "switch-to", "a3f1b2c"]);
-        assert!(cli.is_ok());
+    fn thread_subcommands_parse() {
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "thread", "start", "M-X", "missions/M-X.md"]).unwrap().command,
+            Some(Commands::Thread { action: thread::ThreadCommands::Start { mission_id, briefing_path } })
+                if mission_id == "M-X" && briefing_path == "missions/M-X.md"
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "thread", "pause", "1234abcd", "m.md", "", "-next: tests"]).unwrap().command,
+            Some(Commands::Thread { action: thread::ThreadCommands::Pause { task_id, whats_next, .. } })
+                if task_id.is_empty() && whats_next == "-next: tests"
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "thread", "stop"])
+                .unwrap()
+                .command,
+            Some(Commands::Thread {
+                action: thread::ThreadCommands::Stop { thread_id: None }
+            })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "thread", "binding", "--no-fetch"])
+                .unwrap()
+                .command,
+            Some(Commands::Thread {
+                action: thread::ThreadCommands::Binding { no_fetch: true }
+            })
+        ));
+        for args in [
+            vec!["tsk", "thread", "resume", "1234abcd"],
+            vec!["tsk", "thread", "detach"],
+            vec!["tsk", "thread", "list"],
+            vec!["tsk", "thread", "guard"],
+        ] {
+            assert!(Cli::try_parse_from(&args).is_ok(), "{:?}", args);
+        }
+        assert!(Cli::try_parse_from(["tsk", "thread", "pause", "1234abcd"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "thread", "resume"]).is_err());
     }
 
     #[test]
-    fn cli_validates_priority() {
-        assert!("BG".parse::<Priority>().is_ok());
-        assert!("PRIO".parse::<Priority>().is_ok());
-        assert!("INC".parse::<Priority>().is_ok());
-        assert!("NORMAL".parse::<Priority>().is_err());
+    fn removed_daemon_commands_do_not_parse() {
+        assert!(Cli::try_parse_from(["tsk", "task", "list"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "context"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "where"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "thread", "create", "a", "PRIO", "d"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "thread", "switch-to", "1"]).is_err());
+    }
+
+    #[test]
+    fn ledger_subcommands_parse() {
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "ledger", "fetch"])
+                .unwrap()
+                .command,
+            Some(Commands::Ledger {
+                action: ledger::LedgerCommands::Fetch
+            })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "ledger", "path"])
+                .unwrap()
+                .command,
+            Some(Commands::Ledger {
+                action: ledger::LedgerCommands::Path
+            })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "ledger", "push", "Record a change"]).unwrap().command,
+            Some(Commands::Ledger { action: ledger::LedgerCommands::Push { message } }) if message == "Record a change"
+        ));
+        assert!(Cli::try_parse_from(["tsk", "ledger", "push"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "ledger"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "ledger", "fetch", "extra"]).is_err());
+    }
+
+    #[test]
+    fn events_subcommands_parse() {
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "events", "append", "github", "dependabot_alert", "created", "o/r", "p.json"]).unwrap().command,
+            Some(Commands::Events { action: events::EventsCommands::Append { source, event_type, action, repo, payload_file } })
+                if source == "github" && event_type == "dependabot_alert" && action == "created" && repo == "o/r" && payload_file == std::path::Path::new("p.json")
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "events", "append-batch"])
+                .unwrap()
+                .command,
+            Some(Commands::Events {
+                action: events::EventsCommands::AppendBatch {
+                    source: None,
+                    action: None
+                }
+            })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "events", "append-batch", "--source", "github", "--action", "polled"]).unwrap().command,
+            Some(Commands::Events { action: events::EventsCommands::AppendBatch { source: Some(source), action: Some(action) } })
+                if source == "github" && action == "polled"
+        ));
+        assert!(Cli::try_parse_from(["tsk", "events", "append-batch", "github"]).is_err());
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "events", "read-new"])
+                .unwrap()
+                .command,
+            Some(Commands::Events {
+                action: events::EventsCommands::ReadNew
+            })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "events", "advance-watermark", "-1"]).unwrap().command,
+            Some(Commands::Events { action: events::EventsCommands::AdvanceWatermark { count } }) if count == "-1"
+        ));
+        assert!(
+            Cli::try_parse_from(["tsk", "events", "append", "github", "t", "a", "o/r"]).is_err()
+        );
+        assert!(Cli::try_parse_from(["tsk", "events", "advance-watermark"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "events", "read-new", "extra"]).is_err());
     }
 
     // --- TUI scroll helpers ---
@@ -467,12 +287,20 @@ mod tests {
     #[test]
     fn count_rows_two_sections() {
         let active = Thread {
-            id: 1, slug: "a".to_string(), state: ThreadState::Active,
-            priority: Priority::Priority, description: "".to_string(), path: None,
+            id: 1,
+            slug: "a".to_string(),
+            state: ThreadState::Active,
+            priority: Priority::Priority,
+            description: "".to_string(),
+            path: None,
         };
         let paused = Thread {
-            id: 2, slug: "b".to_string(), state: ThreadState::Paused,
-            priority: Priority::Background, description: "".to_string(), path: None,
+            id: 2,
+            slug: "b".to_string(),
+            state: ThreadState::Paused,
+            priority: Priority::Background,
+            description: "".to_string(),
+            path: None,
         };
         // active section: 4 rows; blank separator: 1; bg section: 4 rows = 9
         assert_eq!(tui::count_rows(&[active, paused]), 9);
