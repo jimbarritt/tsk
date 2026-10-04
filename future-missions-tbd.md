@@ -694,3 +694,12 @@ Options, not decided:
 - A lock file around each ledger write in the binary.
 - One ledger worktree per session or per code worktree, which moves this case onto the
   push-time compare and swap.
+
+## A focus in the rebuilt TUI
+
+Raised by Jim during M-BOOT-04, 2026-10-04, and deferred.
+
+Under ADR 0012 the TUI is rebuilt as a global view over every ledger, located through
+the nexus, so it has no single working directory. A long running TUI instance can hold a
+focus that narrows the view to one repo or one code worktree, moved with a `/cd` style
+command. This belongs to the mission that rebuilds the TUI on the ledgers.

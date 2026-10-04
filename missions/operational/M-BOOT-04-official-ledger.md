@@ -183,6 +183,23 @@ the command names.
   `origin` to a URL such as `https://example.test/owner/repo` and a git
   `url.<bare-repo-path>.insteadOf` rule. tsk reads the raw `remote.origin.url` from
   config, not `git remote get-url`, which applies the rewrite.
+- 2026-10-04: `tsk thread pause` checks that `HEAD` is reachable from some branch on
+  origin, not only the default branch, because work happens on feature branches and in
+  other code worktrees. The entry records the branch at pause as `code_ref` next to the
+  commit. A rename of `commit_on_main` to `code_commit` is to be decided with it. Every
+  command takes its context from the directory it runs in; a branch switch needs no
+  tracking, because each entry is a snapshot at pause. Done in T-07, replacing
+  `ensure_on_origin_default_branch` in `cli/src/thread/ops.rs`. A session that moves
+  into another code worktree resolves that code worktree's binding; this is recorded in
+  the design doc, with no mechanism.
+- 2026-10-04, T-10, changes the T-02 identity decision: each managed repo gets a minted
+  repo ID, held in its nexus entry and in the ledger's `.tsk-ledger.toml`. A nexus ledger
+  branch is `refs/heads/ledgers/<repo-id>`, not keyed by URL. A nexus entry has an
+  optional `url`. With no URL it carries `"local": "<machine name>"`, and other machines
+  that pull the nexus do not fetch it. On the first push the entry gains `url` and
+  `local` is removed; the ID and the branch stay. A rename changes only `url`. Matching
+  the normalised `origin` URL against entries stays, to find the entry for a clone with
+  no local record of its ID. Local-only repos can be in the nexus.
 
 ## Open decisions
 
