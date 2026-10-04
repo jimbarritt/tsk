@@ -49,12 +49,32 @@ git init -b main
 git remote add origin <nexus url>
 ```
 
+### What the nexus repo holds
+
+You write one file, `nexus.json`, on the default branch (step 4). tsk creates the ledger
+branches. Nothing else is required.
+
+```
+<name>-nexus
+├── main                     branch you write
+│   └── nexus.json           the index of territories and repos
+├── ledgers/work-api         branch tsk creates in step 6
+│   ├── .tsk-ledger.toml
+│   ├── index.md
+│   ├── missions/
+│   ├── threads/
+│   └── external-events/
+└── ledgers/<other-id>       one branch per managed repo with "ledger": "nexus"
+```
+
+A `README.md` on `main` is optional. tsk does not read it.
+
 The nexus URL is the repo's clone URL, in HTTPS or SSH form, for example
 `https://github.com/<owner>/<name>-nexus`. Step 5 uses the same URL. tsk fetches and
 pushes with the machine's own git credentials, so use the form those credentials work
 with.
 
-## 4. Add the managed repo to `nexus.json`
+## 4. Write `nexus.json`, with an entry for the managed repo
 
 In the managed repo, read its `origin` URL:
 
@@ -62,7 +82,8 @@ In the managed repo, read its `origin` URL:
 git -C <path-to-managed-repo> config --get remote.origin.url
 ```
 
-In the nexus repo, write `nexus.json`:
+In the nexus repo, create `nexus.json` at the root with this content. Replace
+`<origin url>` with the URL from the command above, and pick a territory and repo ID:
 
 ```json
 {
