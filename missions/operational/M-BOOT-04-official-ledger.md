@@ -163,6 +163,12 @@ the command names.
   `skills/`, `hooks/hooks.json`. Anything in `ops/local/` that tsk distributes moves out
   to a source directory. The concurrency gap on the shared ledger worktree is recorded in
   `future-missions-tbd.md`.
+- 2026-10-04: the checks in the binary that are stricter than the scripts are accepted.
+  Exit code 2 means a usage error.
+- 2026-10-04: `cli/src/agent-context.md` moves into the plugin as a skill. A new
+  command, `tsk thread session-start`, does the `SessionStart` work and prints the
+  context message, so the unbound prompt text has one copy, in the binary. ADR 0011:
+  all logic lives in the binary; plugin hooks, skills and scripts hold the minimum.
 
 ## Open decisions
 
