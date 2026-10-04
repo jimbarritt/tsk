@@ -82,9 +82,9 @@ held across every pause and resume; a continuation is one snapshot within it, ad
 time a pause happens.
 
 Each continuation carries a fixed schema: the mission briefing it points at, the task in
-progress, the commit `tsk/bootstrap` and `main` were each at when the thread paused, and
+progress, the commits the ledger and the code were each at when the thread paused (`git.ledger.commit`, `git.code.ref` and `git.code.commit`), and
 a short written account of what to do next. The commit fields and the record's own
-timestamp come from a script, since the script already handles the git side of a pause.
+timestamp come from the `tsk` binary, since it already handles the git side of a pause.
 The what's-next account is the one field a human or an agent writes by judgement.
 
 Resuming a thread reads the latest continuation by default. Earlier ones stay in the
@@ -139,8 +139,8 @@ repository (`docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.
 `docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md`). A separate branch, not
 a directory committed on `main`, is itself a decision:
 `docs/adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md`. That is the mechanism
-in use, not the definition. M-BOOT-04 and M-BOOT-05 move it, and the term survives the
-move.
+in use, not the definition. The branch is `refs/heads/tsk/ledger`. `tsk/bootstrap` is
+retired.
 
 Distinguished from the artefacts: the artefacts are what a mission builds, the ledger is
 the account of the building. A change to one leaves the other untouched, and neither
@@ -161,8 +161,7 @@ The git linked worktree that holds the [ledger](#ledger) branch beside the manag
 own checkout. It is created with `git worktree add --detach`, so it holds no branch, and
 it sits at a fixed path outside the repository:
 `${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger`. The branch it holds
-is `refs/heads/tsk/ledger`, and `tsk/bootstrap` until the cut-over; the bootstrap one is
-at `.../<clone-id>/bootstrap`.
+is `refs/heads/tsk/ledger`.
 
 One per clone. Every session in that clone shares it. It shares the clone's object store
 and refs, and is not a clone itself. It makes the ledger branch readable and writable
