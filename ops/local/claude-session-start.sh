@@ -41,14 +41,7 @@ ensure_plugin() {
 }
 
 ensure_plugin jimbarritt/claude-plugins jimbarritt-claude-plugins swe
-TSK_PLUGIN_WAS_INSTALLED=false
-if claude plugin list 2>/dev/null | grep -q 'tsk@tsk'; then
-  TSK_PLUGIN_WAS_INSTALLED=true
-fi
 ensure_plugin "$REPO_ROOT" tsk tsk
-if [ "$TSK_PLUGIN_WAS_INSTALLED" = "false" ] && claude plugin list 2>/dev/null | grep -q 'tsk@tsk'; then
-  PLUGIN_MSG="$PLUGIN_MSG The tsk plugin was just installed. Its hooks run from the next session, or after /reload-plugins. Run \`tsk thread session-start </dev/null\` to run the session start now."
-fi
 rm -f "$PLUGIN_LOG"
 
 INPUT="$(cat)"
@@ -63,11 +56,33 @@ if [ "$SOURCE" = "startup" ]; then
   fi
 fi
 
-if [ -n "$PLUGIN_MSG" ]; then
-  jq -n --arg plugin_msg "$PLUGIN_MSG" '{
+# Claude Code reads plugin hooks once, when its process starts. A plugin
+# installed or updated above has no hooks in this process, and `/clear`
+# starts a new session in the same process without reading them again. So
+# this script runs the tsk session start itself, every time, rather than
+# depending on the plugin's hook. When the plugin's hook also runs, the
+# binary claims the event by session ID and source, and the second run exits
+# with no output. This repo builds tsk from its own source, so a running
+# container picks up a new tsk on its next session start.
+TSK_MSG=""
+WORKSPACE_VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$REPO_ROOT/Cargo.toml" | head -n 1)"
+INSTALLED_VERSION="$(command -v tsk >/dev/null 2>&1 && tsk --version 2>/dev/null | awk '{print $NF}')"
+if [ "$INSTALLED_VERSION" != "$WORKSPACE_VERSION" ]; then
+  cargo install --path "$REPO_ROOT/cli" --locked >&2 || true
+fi
+if command -v tsk >/dev/null 2>&1; then
+  TSK_OUTPUT="$(printf '%s' "$INPUT" | tsk thread session-start)"
+  TSK_MSG="$(printf '%s' "$TSK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+else
+  TSK_MSG="WARNING: tsk is not installed and \`cargo install --path cli --locked\` failed. Run it, then run \`tsk thread session-start </dev/null\`."
+fi
+
+CONTEXT="$(printf '%s %s' "$TSK_MSG" "$PLUGIN_MSG" | sed 's/^ *//; s/ *$//')"
+if [ -n "$CONTEXT" ]; then
+  jq -n --arg context "$CONTEXT" '{
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: $plugin_msg
+      additionalContext: $context
     }
   }'
 fi

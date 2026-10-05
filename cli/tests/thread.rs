@@ -1035,6 +1035,32 @@ fn session_start_appends_to_an_existing_env_file() {
 }
 
 #[test]
+fn session_start_runs_once_per_event_when_two_hooks_call_it() {
+    let fx = Fixture::new();
+    let env_file = fx.root.path().join("claude-env");
+    let event = "{\"session_id\":\"sess-1\",\"source\":\"clear\"}";
+
+    let first = session_start(&fx, event, Some(&env_file));
+    let second = session_start(&fx, event, Some(&env_file));
+
+    assert_success(&first);
+    assert!(session_context(&first).contains("was fetched and materialised at"));
+    assert_success(&second);
+    assert_eq!(stdout(&second), "");
+    assert_eq!(
+        std::fs::read_to_string(&env_file).unwrap().lines().count(),
+        1
+    );
+
+    let compact = session_start(
+        &fx,
+        "{\"session_id\":\"sess-1\",\"source\":\"compact\"}",
+        Some(&env_file),
+    );
+    assert!(session_context(&compact).contains("was fetched and materialised at"));
+}
+
+#[test]
 fn session_start_names_an_existing_binding_and_the_resume_command() {
     let fx = Fixture::new();
     let id = fx.start();

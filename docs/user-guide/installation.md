@@ -42,7 +42,7 @@ claude plugin install tsk@tsk
 ```
 
 The plugin's `SessionStart` hook installs the `tsk` version the plugin requires when
-`tsk` is missing or at another version. With `TSK_SOURCE` set to a path, it installs
+`tsk` is missing or older than that version. A newer `tsk` is accepted. With `TSK_SOURCE` set to a path, it installs
 from that source tree with `cargo install --path`.
 
 ## Upgrading

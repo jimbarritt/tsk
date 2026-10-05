@@ -13,10 +13,18 @@ Claude Code cloud sandbox proxy refuses to push or update anything outside
 is never checked out in the code worktree: agents only ever touch it through the ledger
 worktree, a detached linked checkout at a fixed path outside the repository.
 
-The `tsk` plugin (`plugin/`, installed from this repo's own marketplace by the
-`SessionStart` script) ensures the `tsk` binary is installed, then runs
-`tsk thread session-start`. That command fetches the ledger, materialises the ledger
-worktree, exports its path as `$TSK_LEDGER_WT`, and prints the thread binding prompt.
+The repo's `SessionStart` script (`ops/local/claude-session-start.sh`) installs the
+`tsk` plugin (`plugin/`) from this repo's own marketplace, builds `tsk` from `cli/` when
+the installed binary is not at the workspace version, then runs
+`tsk thread session-start`. The plugin's own `SessionStart` hook runs the same command.
+The binary claims each event by session ID and source, so the second run exits with no
+output. The command fetches the ledger, materialises the ledger worktree, exports its
+path as `$TSK_LEDGER_WT`, and prints the thread binding prompt.
+
+The repo script runs the command itself because Claude Code reads plugin hooks once,
+when its process starts. A plugin installed during startup has no hooks in that
+process, and `/clear` starts a new session in the same process without reading them
+again.
 
 **Before anything else this session**, confirm `$TSK_LEDGER_WT` is set and the
 directory it names exists. If it is not (the hook did not run, or failed: check the

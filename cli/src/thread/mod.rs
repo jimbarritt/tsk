@@ -84,7 +84,7 @@ pub enum ThreadCommands {
     )]
     Guard,
     #[command(
-        about = "SessionStart hook: reads and discards stdin, fetches the ledger, exports TSK_LEDGER_WT to CLAUDE_ENV_FILE when set, and prints the hook JSON with the session context; exits 0 even when the fetch fails"
+        about = "SessionStart hook: reads the session ID and source from stdin, exits with no output when another run already claimed that event, fetches the ledger, exports TSK_LEDGER_WT to CLAUDE_ENV_FILE when set, and prints the hook JSON with the session context; exits 0 even when the fetch fails"
     )]
     SessionStart,
 }

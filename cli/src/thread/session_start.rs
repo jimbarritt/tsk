@@ -1,15 +1,113 @@
 use std::io::{Read, Write};
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::ledger::fetch::{fetch, FetchOutcome};
+use crate::ledger::location::state_root_from_env;
 
 use super::binding::{resolve_at, UNBOUND_PROMPT};
 use super::session::Session;
 
 pub const ENV_FILE_VAR: &str = "CLAUDE_ENV_FILE";
 pub const LEDGER_WT_VAR: &str = "TSK_LEDGER_WT";
+pub const CLAIM_DIR: &str = "session-start";
+pub const CLAIM_WINDOW: Duration = Duration::from_secs(300);
+pub const CLAIM_PRUNE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+#[derive(Deserialize, Default)]
+pub struct HookInput {
+    pub session_id: Option<String>,
+    pub source: Option<String>,
+}
+
+impl HookInput {
+    pub fn parse(bytes: &[u8]) -> HookInput {
+        serde_json::from_slice(bytes).unwrap_or_default()
+    }
+
+    fn claim_name(&self) -> Option<String> {
+        let session_id = self.session_id.as_deref().filter(|v| is_safe_name(v))?;
+        let source = self
+            .source
+            .as_deref()
+            .filter(|v| is_safe_name(v))
+            .unwrap_or("unknown");
+        Some(format!("{}.{}", session_id, source))
+    }
+}
+
+fn is_safe_name(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Claim {
+    First,
+    Duplicate,
+}
+
+/// Two hooks can run this command for one `SessionStart` event: the plugin's and a
+/// repo's own. The first to create the claim file for the session ID and source does
+/// the work. Any other run inside `CLAIM_WINDOW` of that claim is a duplicate. A claim
+/// older than the window belongs to an earlier event (a second compact, say) and is
+/// replaced. Any I/O error counts as `First`, so a broken state directory never
+/// suppresses session start.
+pub fn claim(dir: &Path, input: &HookInput, now: SystemTime) -> Claim {
+    let Some(name) = input.claim_name() else {
+        return Claim::First;
+    };
+    if std::fs::create_dir_all(dir).is_err() {
+        return Claim::First;
+    }
+    prune_claims(dir, now);
+    let path = dir.join(name);
+    match create_claim(&path) {
+        Ok(()) => return Claim::First,
+        Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => return Claim::First,
+        Err(_) => {}
+    }
+    if !is_older_than(&path, now, CLAIM_WINDOW) {
+        return Claim::Duplicate;
+    }
+    let _ = std::fs::remove_file(&path);
+    match create_claim(&path) {
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Claim::Duplicate,
+        _ => Claim::First,
+    }
+}
+
+fn create_claim(path: &Path) -> std::io::Result<()> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map(|_| ())
+}
+
+fn is_older_than(path: &Path, now: SystemTime, age: Duration) -> bool {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|modified| now.duration_since(modified).ok())
+        .is_some_and(|elapsed| elapsed >= age)
+}
+
+fn prune_claims(dir: &Path, now: SystemTime) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if is_older_than(&path, now, CLAIM_PRUNE_AGE) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
 
 #[derive(Serialize)]
 struct SpecificOutput<'a> {
@@ -134,7 +232,14 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
 }
 
 pub fn run() -> i32 {
-    let _ = std::io::stdin().read_to_end(&mut Vec::new());
+    let mut bytes = Vec::new();
+    let _ = std::io::stdin().read_to_end(&mut bytes);
+    let input = HookInput::parse(&bytes);
+    if let Ok(state_root) = state_root_from_env() {
+        if claim(&state_root.join(CLAIM_DIR), &input, SystemTime::now()) == Claim::Duplicate {
+            return 0;
+        }
+    }
     let context = Session::discover()
         .and_then(|session| context_after_fetch(&session))
         .unwrap_or_else(|e| failure_context(&e));
@@ -198,6 +303,97 @@ mod tests {
             "An existing thread binding was found: worktree:1234abcd. Run /tsk:resume-thread 1234abcd next."
         );
         assert_eq!(thread_message(None), UNBOUND_PROMPT);
+    }
+
+    fn input(session_id: Option<&str>, source: Option<&str>) -> HookInput {
+        HookInput {
+            session_id: session_id.map(str::to_string),
+            source: source.map(str::to_string),
+        }
+    }
+
+    fn age(path: &Path, by: Duration) {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(SystemTime::now() - by)
+            .unwrap();
+    }
+
+    #[test]
+    fn hook_input_parses_the_session_id_and_source_and_ignores_bad_input() {
+        let parsed =
+            HookInput::parse(b"{\"session_id\":\"abc\",\"source\":\"clear\",\"cwd\":\"/x\"}");
+        assert_eq!(parsed.session_id.as_deref(), Some("abc"));
+        assert_eq!(parsed.source.as_deref(), Some("clear"));
+        assert!(HookInput::parse(b"").session_id.is_none());
+        assert!(HookInput::parse(b"not json").session_id.is_none());
+    }
+
+    #[test]
+    fn claim_marks_a_second_run_for_the_same_event_as_a_duplicate() {
+        let dir = tempfile::tempdir().unwrap();
+        let event = input(Some("s-1"), Some("startup"));
+        assert_eq!(claim(dir.path(), &event, SystemTime::now()), Claim::First);
+        assert_eq!(
+            claim(dir.path(), &event, SystemTime::now()),
+            Claim::Duplicate
+        );
+        assert_eq!(
+            claim(
+                dir.path(),
+                &input(Some("s-1"), Some("compact")),
+                SystemTime::now()
+            ),
+            Claim::First
+        );
+        assert_eq!(
+            claim(
+                dir.path(),
+                &input(Some("s-2"), Some("startup")),
+                SystemTime::now()
+            ),
+            Claim::First
+        );
+    }
+
+    #[test]
+    fn claim_replaces_a_claim_older_than_the_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let event = input(Some("s-1"), Some("compact"));
+        assert_eq!(claim(dir.path(), &event, SystemTime::now()), Claim::First);
+        age(&dir.path().join("s-1.compact"), CLAIM_WINDOW);
+        assert_eq!(claim(dir.path(), &event, SystemTime::now()), Claim::First);
+        assert_eq!(
+            claim(dir.path(), &event, SystemTime::now()),
+            Claim::Duplicate
+        );
+    }
+
+    #[test]
+    fn claim_needs_a_safe_session_id() {
+        let dir = tempfile::tempdir().unwrap();
+        for event in [input(None, Some("startup")), input(Some("../x"), None)] {
+            assert_eq!(claim(dir.path(), &event, SystemTime::now()), Claim::First);
+            assert_eq!(claim(dir.path(), &event, SystemTime::now()), Claim::First);
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn claim_prunes_claims_older_than_a_day() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("old.startup");
+        std::fs::write(&old, "").unwrap();
+        age(&old, CLAIM_PRUNE_AGE);
+        claim(
+            dir.path(),
+            &input(Some("new"), Some("startup")),
+            SystemTime::now(),
+        );
+        assert!(!old.exists());
+        assert!(dir.path().join("new.startup").exists());
     }
 
     #[test]
