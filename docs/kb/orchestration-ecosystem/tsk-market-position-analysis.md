@@ -3,7 +3,8 @@
 Date: 2026-07-01 (beads re-examination), distilled 2026-09-14, widened to cover Claude
 Code Projects 2026-09-18, JetBrains Air 2026-09-22, and Cursor Projects 2026-09-29.
 LangSmith was added on 2026-09-29 and OpenAI Dots on 2026-09-30, each as a related system,
-not a system assessed. Orca was added on 2026-10-02 as a fifth system assessed.
+not a system assessed. Orca was added on 2026-10-02 as a fifth system assessed. Copilot
+dynamic workflows were added on 2026-10-05 as a related mechanism, not a system assessed.
 
 ## Status
 
@@ -493,6 +494,21 @@ whose interfaces "may break without shims". Treat it as a candidate enforcement 
 beneath tsk's constraints, and as a source of the checkable-objective method. See
 [openappa.md](openappa.md).
 
+**Copilot dynamic workflows: an execution mechanism beneath a task.** The two sit at
+different levels. tsk structures the mission, the briefing, the plan and the ledger. A
+dynamic workflow structures how one task's agents run, with limits that are enforced and
+a run that resumes from saved results. The Claude Code feature of the same name is
+already part of the platform tsk's harness runs on, so this is the mechanism a tsk actor
+uses to execute a task with many agents, not a competing model of the work. The Copilot
+version is a dependency only if adopted, like Air and Cursor Projects. It adds evidence on
+the untested half of tsk's substrate question: two vendors now ship the same execution
+mechanism, so a tsk task that delegates to a workflow does not depend on one vendor's
+design. Two limits apply. No link between tsk and either version exists and none was
+tested. A workflow's plan is fixed in code, so a task whose plan changes during execution
+fits it only stage by stage. Treat it as the executor of a task's fan-out, and as the
+model for enforcing Execution constraints. See
+[copilot-dynamic-workflows.md](copilot-dynamic-workflows.md).
+
 tsk's thesis is the unification of all four dimensions, not any single one, so it does
 not collapse if any of these systems later absorbs another dimension.
 
@@ -712,6 +728,40 @@ Position: no change to the three-part verdict below. OpenAPPA governs data flow 
 call, and it has no work record, no handover and no success criterion in the product.
 Archestra's benchmark figures are its own. The full paper and the website were not read.
 
+## Copilot dynamic workflows: an orchestration mechanism beneath a task
+
+Research: [copilot-dynamic-workflows.md](copilot-dynamic-workflows.md). Public preview,
+announced 2026-10-01.
+
+A dynamic workflow is a program, inside a Copilot extension, that defines the steps of a
+task and when agents take part. Code holds the order, the branching and the handoffs.
+Agents do the parts that need judgement. It runs in Copilot CLI, the Copilot app and the
+SDK, and from a shell with `copilot workflow run`. Claude Code ships a feature with the
+same name. Both move the plan of a multi-agent task into code. It models no mission,
+thread or ledger, so it is listed beside OpenAPPA and Unblocked, not among the systems
+assessed. Four items intersect tsk:
+
+- **Enforced limits**: concurrent agents, total agents, running time and an approximate
+  AI credit budget, set in the prompt, the code or personal settings. tsk's Execution
+  constraints name an attempt limit and a budget as text, and no component enforces them.
+- **Resume from saved results**: a paused run, or one stopped at a limit, reuses the
+  results of completed steps. A shared definition does not include run state. tsk's
+  continuation entry is in the ledger and any later actor reads it.
+- **Verification checked in code**: agents cross-check each other, and code reports a
+  finding only when two models agree. This is an inference-based check with a
+  deterministic check around it.
+- **A headless run with a run ID**: `copilot workflow run` returns a JSON record of name,
+  run ID, status and result. This is part of the run record that M-BOOT-03 names.
+
+The sharpest difference: a workflow fixes the plan, and tsk's plan stays provisional. A
+workflow's author writes the steps once and every run follows them. A tsk briefing seeds
+a plan that the actor owns and rewrites as execution proceeds. A workflow runs a
+task. It has no objective, purpose, report or actor identity.
+
+Position: no change to the three-part verdict below. Dynamic workflows occupy the layer
+below a task: how one task's agents run. They describe no mission, objective, handover
+record or continuation entry.
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Sources: Yegge's essay
@@ -851,6 +901,9 @@ collision above).
   comparison against tsk.
 - [orca.md](orca.md): the full reference for the Orca section above, with a comparison
   against tsk and against the Mission Control task.
+- [copilot-dynamic-workflows.md](copilot-dynamic-workflows.md): the full reference for the
+  Copilot dynamic workflows section above, with a comparison against Claude Code's feature
+  of the same name and against tsk.
 - The token-saving experiment referenced above has not yet been designed or run as of
   this writing; it is not tracked in the M-BOOT mission tree, which is scoped to
   bootstrapping self-hosting rather than to this product decision.
