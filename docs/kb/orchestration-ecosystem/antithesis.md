@@ -11,9 +11,15 @@ Sources: the documentation page
 [How Antithesis works](https://antithesis.com/docs/introduction/how_antithesis_works/),
 and the blog post
 [How Antithesis lets Clément Salaün of Formance sleep soundly at night](https://antithesis.com/blog/2025/formance/),
-dated 2025-05-01. Both pages were fetched as raw HTML and read as text. Quoted phrases
-were matched against that text. Claims are Antithesis's and Formance's own and were not
-run independently.
+dated 2025-05-01. For Jepsen, the [jepsen.io](https://jepsen.io/) home and
+[services](https://jepsen.io/services) pages, and the
+[README](https://github.com/jepsen-io/jepsen/blob/main/README.md) and
+[What's Here](https://github.com/jepsen-io/jepsen/blob/main/doc/whats-here.md) documents
+in `jepsen-io/jepsen`. Every page was fetched as raw HTML or Markdown and read as text.
+Quoted phrases were matched against that text. Claims are each vendor's own and were not
+run independently. Jev facts come from
+[typesafe-jev-classifier.md](../typesafe-jev-classifier.md), whose sources are search
+result snippets and one LangChain pull request, not TypeSafe AI's own pages.
 
 ## What it is
 
@@ -58,6 +64,36 @@ accounts and balances, and records transactions. Transaction IDs are integers th
 On release confidence, Salaün says Antithesis "lets us prove to ourselves that something
 has been mitigated and will not show up anymore".
 
+## Compared with Jepsen and Jev
+
+Jepsen is a Clojure library for testing distributed systems, by Kyle Kingsbury (aphyr),
+and the name of his company, Jepsen LLC. "A test is a Clojure program which uses the
+Jepsen library to set up a distributed system, run a bunch of operations against that
+system, and verify that the history of those operations makes sense." The two are
+connected: Kingsbury gave a retrospective talk on testing distributed systems at the
+Antithesis Resilience Meetup in New York in May 2026, listed on jepsen.io on 2026-09-17.
+
+Jev is TypeSafe AI's classifier. It answers a typed question about a given state.
+
+| Aspect | Antithesis | Jepsen | Jev |
+|---|---|---|---|
+| What it is | A commercial testing platform | An open-source Clojure library, plus paid analyses, training and consulting | A hosted model with one API endpoint, in early access |
+| What it tests | A whole system, with its dependencies, client and checkers | A distributed system installed on db nodes | Not a test harness. It judges one state |
+| Where it runs | Inside Antithesis's deterministic environment. The customer supplies containers | On db nodes over SSH from a control node: EC2 VMs, LXC containers, or real hardware | TypeSafe AI's API, `POST /v1/systemone` |
+| Operations | Random inputs, and a guidance component trained with RL that steers towards new states | A *generator* gives operations to logically single-threaded *processes*, each with a *client* | None. The caller sends the state |
+| Faults | Network partitions, node kills and others, injected across the whole environment | A *nemesis* process injects faults, also scheduled by the generator. Clock skew needs separate VMs | None |
+| How a check is stated | An assertion in the test harness | A *checker* over the recorded history of operations. Elle checks transactional safety | A question against a fixed schema: `Choice`, `Score` or `Noul` |
+| Result | A property broken in any timeline of the multiverse | A report, graphs and the history, under `store/<test-name>/<date>/` | A typed answer with probabilities and a confidence value |
+| Reproduction | Deterministic replay of a failing timeline | The README describes no replay of a failing run | Not applicable |
+| Who writes the checks | The customer. An agent skill writes a starting property catalogue | The test author, in Clojure | The caller, as questions |
+
+Antithesis and Jepsen do the same kind of job: generate operations, inject faults, then
+check a stated property against what happened. They differ in where the run happens.
+Jepsen drives real nodes. Antithesis runs everything in one deterministic environment,
+so a failing run replays exactly. Jev does a different job. It returns a probability
+that a condition holds on one state, where Antithesis and Jepsen return a true or false
+result from a check written in code.
+
 ## Comparison with tsk
 
 | tsk term | Antithesis |
@@ -70,6 +106,8 @@ has been mitigated and will not show up anymore".
 
 ## Not established
 
+- Whether a Jepsen run is deterministic or can be replayed. None of the pages read
+  states either.
 - Price, and whether a single developer or open-source project can use it.
 - How a system that calls an external service, such as a model API, runs inside the
   deterministic environment.
