@@ -5,6 +5,8 @@ Code Projects 2026-09-18, JetBrains Air 2026-09-22, and Cursor Projects 2026-09-
 LangSmith was added on 2026-09-29 and OpenAI Dots on 2026-09-30, each as a related system,
 not a system assessed. Orca was added on 2026-10-02 as a fifth system assessed. Copilot
 dynamic workflows were added on 2026-10-05 as a related mechanism, not a system assessed.
+Antithesis was added on 2026-10-05 as a related tool, not a system assessed, compared
+with Jepsen and Jev.
 
 ## Status
 
@@ -762,6 +764,54 @@ Position: no change to the three-part verdict below. Dynamic workflows occupy th
 below a task: how one task's agents run. They describe no mission, objective, handover
 record or continuation entry.
 
+## Antithesis: a testing platform, compared with Jepsen and Jev
+
+Research: [antithesis.md](antithesis.md). Commercial product, read 2026-10-05, raised by
+an inbound message to Jim from Antithesis.
+
+Antithesis tests a whole system inside a deterministic environment. It sends random
+inputs, injects faults such as network partitions and node kills, and checks the
+customer's stated properties across thousands of branching timelines per run. A
+failing timeline replays exactly. Formance, which builds an open-source financial
+ledger, used it to find a second cause of a gap in transaction IDs after its own tests
+could not reproduce the first. Antithesis models no mission, thread or actor, so it is
+listed beside Jev, not among the systems assessed.
+
+Jepsen, Kyle Kingsbury's Clojure library, does the same kind of job on real nodes. A
+generator gives operations to clients, a nemesis injects faults, and a checker reads
+the recorded history. Antithesis moves that loop into one deterministic environment.
+
+Jev does a different job. Its overlap with Antithesis is the check itself. That is the
+same point where Jev intersects tsk: the evaluator behind a verification loop.
+
+- **Antithesis** checks an assertion written in code, true or false in each timeline,
+  against a system under generated load and faults.
+- **Jev** returns a probability that a condition holds on one given state, through a
+  typed question.
+
+For tsk, a deterministic check fits a property of the binary, such as the ledger's
+behaviour under concurrent writers. A typed classifier fits a condition with no exact
+form in code, such as whether an objective is met.
+
+Two items intersect tsk:
+
+- **Concurrent writers on the ledger**: several actors run `tsk ledger push`, which
+  fetches `tsk/ledger` and builds on its latest state before it pushes. Two
+  `SessionStart` hooks can run `tsk thread session-start` for one event, and the binary
+  claims the event with an exclusive file create. These are the interleavings that
+  Antithesis and Jepsen target. tsk's tests run only the interleavings their author
+  writes.
+- **A property catalogue written by an agent**: Antithesis ships an agent skill that
+  writes a starting set of properties from a system's architecture. tsk has no
+  equivalent artefact.
+
+The word "ledger" is shared and nothing else. Formance's ledger holds money. tsk's
+ledger is a git branch of mission state.
+
+Position: no change to the three-part verdict below. Antithesis and Jepsen test the
+software that tsk's actors write. They are candidates for testing the `tsk` binary, not
+alternatives to tsk.
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Sources: Yegge's essay
@@ -885,6 +935,8 @@ collision above).
   agent orchestration.
 - [typesafe-jev-classifier.md](../typesafe-jev-classifier.md): research on Jev, cited in
   the Jev section above for its intersection with `/goal`'s evaluator mechanism.
+- [antithesis.md](antithesis.md): the full reference for the Antithesis section above,
+  with Jepsen and Jev compared side by side, and a comparison against tsk.
 - [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md): a schema-level
   sharpening of the Beads section above, on whether beads could be tsk's official ledger.
 - [cursor-projects.md](cursor-projects.md): the full reference for the Cursor Projects
