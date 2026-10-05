@@ -7,7 +7,16 @@ installed_version() {
   command -v tsk >/dev/null 2>&1 && tsk --version 2>/dev/null | awk '{print $NF}'
 }
 
-if [ "$(installed_version)" != "$REQUIRED" ]; then
+# A repo that builds tsk from its own source can install a newer tsk than the
+# plugin requires, so any version at or above the required one is accepted.
+installed_is_current() {
+  local installed
+  installed="$(installed_version)"
+  [ -n "$installed" ] &&
+    [ "$(printf '%s\n%s\n' "$REQUIRED" "$installed" | sort -V | head -n 1)" = "$REQUIRED" ]
+}
+
+if ! installed_is_current; then
   if [ -n "${TSK_SOURCE:-}" ]; then
     case "$TSK_SOURCE" in
       /*) SOURCE_PATH="$TSK_SOURCE" ;;
@@ -20,8 +29,8 @@ if [ "$(installed_version)" != "$REQUIRED" ]; then
   $INSTALL_CMD >&2 || true
 fi
 
-if [ "$(installed_version)" != "$REQUIRED" ]; then
-  MESSAGE="tsk $REQUIRED is required and could not be installed automatically. Run \`$INSTALL_CMD\`, then run \`tsk thread session-start </dev/null\` (or restart the session) to complete session start."
+if ! installed_is_current; then
+  MESSAGE="tsk $REQUIRED or later is required and could not be installed automatically. Run \`$INSTALL_CMD\`, then run \`tsk thread session-start </dev/null\` (or restart the session) to complete session start."
   ESCAPED="$(printf '%s' "$MESSAGE" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$ESCAPED"
   exit 0

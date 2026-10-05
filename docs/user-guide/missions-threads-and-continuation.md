@@ -118,7 +118,11 @@ proceeds, rather than refusing.
 ## What happens at session start
 
 The `SessionStart` hook is `plugin/hooks/session-start.sh`, provided by the tsk plugin.
-It ensures the `tsk` binary is installed, then runs `tsk thread session-start`, which:
+It ensures the `tsk` binary is installed, then runs `tsk thread session-start`. In the
+tsk repo, `ops/local/claude-session-start.sh` also runs `tsk thread session-start`,
+because Claude Code reads plugin hooks only when its process starts. The first run for
+a session ID and source does the work, and a second run exits with no output.
+`tsk thread session-start`:
 
 1. Fetches `tsk/ledger` and materialises the ledger worktree, exporting
    `$TSK_LEDGER_WT`.

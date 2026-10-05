@@ -749,15 +749,23 @@ also prints.
 
 Steps, in order:
 
-1. Read standard input to the end and discard it. The hook input can be empty.
-2. Fetch the ledger. A fetch failure, or a directory outside a git repository, skips to
+1. Read standard input to the end. The hook input can be empty or not JSON.
+2. Claim the event. When the input names a `session_id`, and optionally a `source`,
+   made only of ASCII letters, digits, `-` and `_`, create the file
+   `<state-root>/session-start/<session_id>.<source>` with exclusive create. `source`
+   defaults to `unknown`. When the file exists and is less than 300 seconds old, a run
+   for the same event holds the claim: exit with status 0 and no output. A file 300
+   seconds old or more belongs to an earlier event with the same source, such as a
+   second compact, so replace it and continue. Remove any claim file older than one
+   day. Without a usable `session_id`, or on any I/O error, continue.
+3. Fetch the ledger. A fetch failure, or a directory outside a git repository, skips to
    the failure output below.
-3. When the environment variable `CLAUDE_ENV_FILE` is set and not empty, append
+4. When the environment variable `CLAUDE_ENV_FILE` is set and not empty, append
    `export TSK_LEDGER_WT="<path>"` and a newline to that file. A write failure adds a
    warning to the context and does not stop the command.
-4. Resolve the binding of the session, as `tsk thread binding` does, from the fetched
+5. Resolve the binding of the session, as `tsk thread binding` does, from the fetched
    ledger worktree.
-5. Print one JSON object on one line and exit with status 0.
+6. Print one JSON object on one line and exit with status 0.
 
 Standard output on success:
 
@@ -782,6 +790,18 @@ On failure the output is the same object with the context
 
 The command does not unshallow the clone, install plugins, or stash, check out or pull
 the code worktree. Those steps stay in the repo's own hook script.
+
+Two hooks call the command for one event in the tsk repo: the plugin's hook and
+`ops/local/claude-session-start.sh`. Claude Code reads plugin hooks once, when its
+process starts. The repo script installs the plugin during startup, so the plugin's
+hook is absent from that process, and `/clear` starts a new session in the same process
+without reading hooks again. The repo script runs the command on every event so that
+`$TSK_LEDGER_WT` is set in every session. The claim in step 2 stops the second run from
+fetching the ledger again and repeating the context.
+
+`CLAUDE_ENV_FILE` is a file Claude Code creates for one session ID, under
+`~/.claude/session-env/<session-id>/`. Claude Code runs it before each Bash command in
+that session. A new session ID, such as the one `/clear` creates, gets a new, empty file.
 
 ## Script outputs
 
