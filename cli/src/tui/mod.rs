@@ -59,6 +59,7 @@ pub fn scroll_bottom(row_count: usize, height: usize) -> usize {
 }
 
 // Re-export for tests
+#[cfg(test)]
 pub use threads_pane::count_rows;
 
 // -----------------------------------------------------------------------
@@ -157,11 +158,13 @@ fn event_loop(
                     frame,
                     &threads,
                     &tasks,
-                    *thread_id,
-                    slug,
-                    task_scroll,
-                    show_help,
-                    zoom_slug.as_deref(),
+                    tasks_pane::TasksView {
+                        thread_id: *thread_id,
+                        thread_slug: slug,
+                        scroll: task_scroll,
+                        show_help,
+                        zoom_slug: zoom_slug.as_deref(),
+                    },
                 );
             }
         })?;
