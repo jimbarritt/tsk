@@ -41,6 +41,42 @@ immense space".
 | Reproduction | "The Antithesis environment is fully deterministic", so every bug found is reproducible |
 | Agent support | "an agent skill that analyzes your system and generates a basic property catalog based on your system architecture", plus guides to properties for system shapes such as blockchains and key-value datastores |
 
+## The deterministic environment
+
+Sources: the documentation page
+[The Antithesis environment](https://antithesis.com/docs/environment/the_antithesis_environment/),
+and the blog post
+[So you think you want to write a deterministic hypervisor?](https://antithesis.com/blog/deterministic_hypervisor/)
+by Alex Pshenichkin, dated 2024-03-20.
+
+The customer's containers run in one virtual machine under Antithesis's own hypervisor,
+"the Determinator". It is a fork of FreeBSD's bhyve hypervisor, with much of bhyve's
+standard function removed. "The unit of reproducibility is the state of the entire
+system/experiment/workload as an interconnected whole, not any single process or
+server within the system."
+
+| Aspect | Mechanism |
+|---|---|
+| Definition used | Given an input, the same output, "with the underlying machine always passing through the same sequence of states" |
+| Time | Every read of a time source inside the guest, such as TSC or HPET, returns a virtual time the hypervisor computes. Guest clock values are "a function of only the deterministic state and execution history of the guest system" |
+| Clock source | Intel's Performance Monitoring Counters, instructions retired. Antithesis measured about one miscount per trillion instructions, and an interrupt that arrives dozens of instructions late, and built workarounds for both |
+| Parallelism | Each hypervisor instance runs on one physical core. A 48 or 96 core machine runs that many VMs, each exploring a different part of the state space |
+| Concurrency inside | The guest operating system schedules processes, so the software sees concurrency. Antithesis controls that scheduler and uses it to inject faults, such as thread starvation |
+| Input and output | A custom use of the `VMCALL` instruction. The guest sends out data such as logs, and takes in commands and random seeds. Each point where the guest takes input is a possible branch, so the exploration forms an input tree. Interrupt injection was added later, to push an input at a chosen time |
+| Exploration | The guest sees one linear history. Outside it, Antithesis sees every path visited, and picks new inputs or returns to earlier ones. It does not replay each path from the start. The post leaves out how |
+| CPU | A simulated x86-64 Intel CPU with most Skylake extensions. The default clock speed is modulated, or "strobed", as a fault |
+| Idle time | The simulation fast-forwards through idle periods. Code that sleeps runs faster than code that busy-waits |
+| Kernel | Mostly a Linux 6.x kernel with `io_uring`. A customer can bring their own kernel |
+| Memory | 10 GB, shared across the containers |
+| Network | No connection to any computer outside the simulation. Containers reach each other by the names in `docker-compose.yaml` |
+| Randomness | `/dev/random` and `/dev/urandom` are replaced with devices whose entropy comes from Antithesis |
+| External services | AWS services and other third-party infrastructure "Need to be emulated with a stub or mock". Antithesis supplies mocks for many AWS services |
+| Output | Standard output and standard error of each container's first process are captured. Files written under `$ANTITHESIS_OUTPUT_DIR` are captured too, and `.jsonl` files are parsed into structured events |
+| Detection | `ANTITHESIS_OUTPUT_DIR` is always set inside Antithesis, so software can check for it |
+
+Determinism also makes destructive analysis safe. A failing state can be dumped,
+changed and rerun, because it can always be reproduced again.
+
 ## The Formance case
 
 Formance is an EU-based provider of open-source financial infrastructure. It has five
@@ -109,7 +145,8 @@ result from a check written in code.
 - Whether a Jepsen run is deterministic or can be replayed. None of the pages read
   states either.
 - Price, and whether a single developer or open-source project can use it.
-- How a system that calls an external service, such as a model API, runs inside the
-  deterministic environment.
+- Whether Antithesis supplies a mock for a model API. The environment has no outside
+  network, and third-party services need a stub or mock, so a system that calls a model
+  API runs only against one.
 - Whether the Formance work is current. The inbound message says "currently working
   with Formance". The post is dated 2025-05-01.
