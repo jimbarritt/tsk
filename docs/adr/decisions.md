@@ -12,3 +12,4 @@
 - [10. The ledger stays a branch, not a directory on `main`](0010-ledger-stays-a-branch-not-a-directory-on-main.md)
 - [11. Logic lives in the binary, not the plugin](0011-logic-lives-in-the-binary-not-the-plugin.md)
 - [12. Retire tskd: git ledgers are the only shared state](0012-retire-tskd-ledgers-are-the-only-shared-state.md)
+- [13. tsk works in any harness, and Mission Control stays a separate product](0013-tsk-works-in-any-harness-mission-control-stays-separate.md)
