@@ -11,8 +11,6 @@ this repository. They hold the minimum logic: see
 | Skills | `skills/<name>/SKILL.md` |
 | Hooks | `hooks/hooks.json` |
 
-The plugin is installed from a marketplace entry of the `git-subdir` form, with `path`
-set to `plugin`. See [docs/kb/claude-code-plugin-packaging.md](../docs/kb/claude-code-plugin-packaging.md).
-
-The thread skills and the `SessionStart` and `Stop` hooks move here from `.claude/` at
-the M-BOOT-04 cut-over (T-07), when they call `tsk` in place of the `ops/local` scripts.
+The plugin is installed from the `jimbarritt/claude-plugins` marketplace, as
+`tsk@jimbarritt-claude-plugins`. Its entry has the `git-subdir` form, with `url` set to
+this repo and `path` set to `plugin`. See [docs/kb/claude-code-plugin-packaging.md](../docs/kb/claude-code-plugin-packaging.md).
