@@ -250,6 +250,8 @@ They differ on five:
 
 ## Related
 
+- [orca-integration.md](orca-integration.md): where tsk could attach to Orca as a second
+  delivery surface, read from Orca's own source.
 - [tsk-market-position-analysis.md](tsk-market-position-analysis.md): tsk's position, and
   the Orca section that links here.
 - [openappa.md](openappa.md): an enforcement layer for the permissions Orca leaves to the
