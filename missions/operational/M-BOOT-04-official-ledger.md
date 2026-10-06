@@ -280,6 +280,7 @@ Recorded 2026-10-04 at Jim's request, after T-09.
 - Any other clone or cloud checkout of tsk still holds an old bootstrap ledger worktree
   at `.../tsk/repos/<clone-id>/bootstrap`. Remove it on that machine with
   `git worktree remove <path>` once its status is clean. This machine's copy is gone.
+  Jim, 2026-10-06: done case by case, as he returns to each session and migrates it.
 - `refs/heads/tsk/bootstrap` and the orphaned custom ref `refs/tsk/bootstrap` still
   exist on origin. The tag `archive/tsk-bootstrap` holds the final branch commit.
   Deleting both refs ends the name collision that `CLAUDE.md` warns about. Jim,
