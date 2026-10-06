@@ -6,7 +6,8 @@ LangSmith was added on 2026-09-29 and OpenAI Dots on 2026-09-30, each as a relat
 not a system assessed. Orca was added on 2026-10-02 as a fifth system assessed. Copilot
 dynamic workflows were added on 2026-10-05 as a related mechanism, not a system assessed.
 Antithesis was added on 2026-10-05 as a related tool, not a system assessed, compared
-with Jepsen and Jev.
+with Jepsen and Jev. Herdr was added on 2026-10-06 as a related runtime, not a system
+assessed, compared with tmux.
 
 ## Status
 
@@ -812,6 +813,40 @@ Position: no change to the three-part verdict below. Antithesis and Jepsen test 
 software that tsk's actors write. They are candidates for testing the `tsk` binary, not
 alternatives to tsk.
 
+## Herdr: an agent runtime, compared with tmux
+
+Research: [herdr.md](herdr.md). Version 0.9.3, read 2026-10-06. Open source (Apache
+2.0), from Herdr, Inc., which raised a $6M seed in September 2026.
+
+Herdr is a terminal multiplexer for coding agents, one Rust binary that runs inside an
+existing terminal. A background server owns the terminals, and the TUI, the CLI and
+plain SSH are clients. It keeps tmux's model, with the `ctrl+b` prefix, detach and
+reattach, and adds three things:
+
+- **Agent state per pane**: idle, working, blocked or done, read from the screen by a
+  detection manifest per agent, or reported by the agent or an integration. State rolls
+  up from pane to tab to workspace in the sidebar.
+- **An API agents use**: a CLI and a socket API that print JSON. One agent starts
+  another in a pane, prompts it, waits until it is blocked or idle, and reads its
+  output. tmux offers panes and text, and a script polls them.
+- **Restore after a restart**: the layout comes back from `session.json`, and supported
+  agents restart with their own resume command, such as `claude --resume <id>`.
+
+It models no mission, objective, briefing or ledger, so it is listed beside Antithesis
+and Jev, not among the systems assessed. Two items intersect tsk:
+
+- **Mission Control**: Herdr ships most of the Mission Control objectives: a list of
+  agent sessions, the selected session, a terminal, a status indicator and resume after
+  a restart. It does not document a token total per session. Mission Control is a
+  standalone reconnaissance mission, so Herdr is a product to read before its later
+  phases, as Orca is.
+- **Continuity**: Herdr keeps the same agent process alive, or restarts it with the
+  agent's own resume command, on one machine. tsk's thread continuation is an
+  append-only entry in the ledger that any later actor reads, on any machine.
+
+Position: no change to the three-part verdict below. Herdr occupies the layer below a
+task: where an agent's terminal runs and what state it is in.
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Sources: Yegge's essay
@@ -937,6 +972,8 @@ collision above).
   the Jev section above for its intersection with `/goal`'s evaluator mechanism.
 - [antithesis.md](antithesis.md): the full reference for the Antithesis section above,
   with Jepsen and Jev compared side by side, and a comparison against tsk.
+- [herdr.md](herdr.md): the full reference for the Herdr section above, with tmux, the
+  Mission Control task and tsk compared.
 - [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md): a schema-level
   sharpening of the Beads section above, on whether beads could be tsk's official ledger.
 - [cursor-projects.md](cursor-projects.md): the full reference for the Cursor Projects
