@@ -8,7 +8,8 @@ dynamic workflows were added on 2026-10-05 as a related mechanism, not a system 
 Antithesis was added on 2026-10-05 as a related tool, not a system assessed, compared
 with Jepsen and Jev. Herdr was added on 2026-10-06 as a related runtime, not a system
 assessed, compared with tmux. OpenSpec was added on 2026-10-06 as a related
-system, not a system assessed, and the first read that models parts of Product and Delta.
+system, not a system assessed. It is the first read that models parts of Product and Delta,
+and it models no Navigation or Scale.
 
 ## Status
 
@@ -425,7 +426,9 @@ Most of Orca's source was not read, and its claims are its own.
    the central bet, and what the (separately scoped, not yet run) token-saving experiment
    exists to test. Whether Product, Delta, and Scale add value an agent or buyer will
    reward is unproven. None of the five systems models them, so all five sharpen the
-   experiment rather than settling it. The product decision waits on that experiment
+   experiment rather than settling it. OpenSpec, a related system, models parts of
+   Product and Delta and no Navigation or Scale. No system read so far models all four
+   dimensions, which is tsk's hypothesis. The product decision waits on that experiment
    rather than being made now.
 
 Caveat in tsk's favour: beads' star count likely overstates independent, load-bearing
@@ -885,11 +888,12 @@ Three more items intersect tsk:
 - **Any harness**: OpenSpec writes skills and commands for 72 AI tools. This is the
   pattern ADR 0013 adopts for tsk: one adapter per harness.
 
-Position: the three-part verdict below needs one qualification, and the qualification
-is not yet written into it. Part 3 says none of the systems assessed models Product,
-Delta or Scale. OpenSpec models parts of Product and Delta, with no Navigation model of
-missions and no Scale. It is a candidate for the Product and Delta records beneath a
-tsk mission, and a baseline for the token-saving experiment on those two dimensions.
+Position: OpenSpec supports part 3 of the verdict below. tsk's hypothesis is that no
+single system models all four dimensions. The five systems assessed model Navigation.
+OpenSpec models parts of Product and Delta, with no model of missions and no Scale. Each
+system read so far covers part of the model, and none covers all four. OpenSpec is a
+candidate for the Product and Delta records beneath a tsk mission, and a baseline for
+the token-saving experiment on those two dimensions.
 
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
