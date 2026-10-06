@@ -1,10 +1,9 @@
 # tsk justfile
 # Install: brew install just
 
-# Build and install tsk and tskd to ~/.cargo/bin
+# Build and install tsk to ~/.cargo/bin
 build-install:
     cargo install --path cli
-    cargo install --path daemon
 
 # Run all tests
 test:
@@ -14,10 +13,9 @@ test:
 build:
     cargo build --workspace
 
-# Remove installed binaries
+# Remove the installed binary
 uninstall:
     cargo uninstall tsk-bin
-    cargo uninstall tskd
 
 # Bump the workspace version (requires cargo-edit: cargo install cargo-edit)
 bump VERSION:

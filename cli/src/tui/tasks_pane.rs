@@ -81,7 +81,7 @@ fn task_data_line<'a>(
     ws: &TaskColWidths,
     style: Style,
 ) -> Line<'a> {
-    let cells = vec![
+    let cells = [
         format!(" {}", pad(index,  ws.index.saturating_sub(1))),
         format!(" {}", pad(symbol, ws.status.saturating_sub(1))),
         format!(" {}", pad(title,  ws.title.saturating_sub(1))),
@@ -109,16 +109,22 @@ pub fn count_task_rows(tasks: &[Task]) -> usize {
 // Main render function for tasks pane
 // -----------------------------------------------------------------------
 
-pub fn render(
-    frame: &mut Frame,
-    threads: &[Thread],
-    tasks: &[Task],
-    thread_id: u32,
-    thread_slug: &str,
-    scroll: usize,
-    show_help: bool,
-    zoom_slug: Option<&str>,
-) {
+pub struct TasksView<'a> {
+    pub thread_id: u32,
+    pub thread_slug: &'a str,
+    pub scroll: usize,
+    pub show_help: bool,
+    pub zoom_slug: Option<&'a str>,
+}
+
+pub fn render(frame: &mut Frame, threads: &[Thread], tasks: &[Task], view: TasksView) {
+    let TasksView {
+        thread_id,
+        thread_slug,
+        scroll,
+        show_help,
+        zoom_slug,
+    } = view;
     let area = frame.area();
 
     let chunks = Layout::default()
