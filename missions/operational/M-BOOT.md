@@ -110,11 +110,13 @@ the order is now M-BOOT-04, then the plugin, with M-BOOT-03 later.
 | [M-BOOT-01](M-BOOT-01-substrate.md) | Substrate | Every place exists and holds its first content; `docs/` is sufficient for an agent with only the repo clone | none | none | DONE |
 | [M-BOOT-02](M-BOOT-02/M-BOOT-02-briefing.md) | Harness | A local session and a test cloud session both load the harness and read a briefing | none | M-BOOT-01 | DONE |
 | [M-BOOT-03](M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | none | M-BOOT-02 | DEFERRED |
-| [M-BOOT-04](M-BOOT-04-official-ledger.md) | The official ledger | The `tsk` binary replaces the bootstrap scripts, the missions move into the ledger, and `tsk/bootstrap` is tagged | none | M-BOOT-02 | TODO |
+| [M-BOOT-04](M-BOOT-04-official-ledger.md) | The official ledger | The `tsk` binary replaces the bootstrap scripts, the missions move into the ledger, and `tsk/bootstrap` is tagged | none | M-BOOT-02 | DONE |
+| [M-BOOT-07](M-BOOT-07-session-migration.md) | Session migration | Every session runs on the binary, the plugin and `tsk/ledger`, and the `tsk/bootstrap` refs are deleted | none | M-BOOT-04 | IN PROGRESS |
 | [M-BOOT-06](M-BOOT-06-mission-control.md) | Mission Control | A single command sets up a tmux session with a list of Claude sessions, the selected session, and a terminal | none | none | TODO |
 
-**Essential task**: M-BOOT-04. Its objective and this mission's objective are the same
-state.
+**Essential task**: M-BOOT-07, since 2026-10-06, when M-BOOT-04 closed and its
+migration items moved to M-BOOT-07. Its objective and this mission's objective are the
+same state.
 
 M-BOOT-04 will decompose into at least these candidate tasks:
 

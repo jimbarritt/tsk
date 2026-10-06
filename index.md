@@ -33,14 +33,15 @@ briefing: [missions/operational/M-BOOT.md](missions/operational/M-BOOT.md).
 | [M-BOOT-02-01](missions/operational/M-BOOT-02-01-continuation-harness.md) | Continuation harness | `/start-thread`, `/pause-thread`, `/resume-thread` work end to end | ✓ DONE | M-BOOT-02 |
 | [M-BOOT-02-02](missions/operational/M-BOOT-02-02-thread-binding-resilience.md) | Thread binding resilience | A session never ends up unbound after `SessionStart` fires, even when distracted first | ✓ DONE | M-BOOT-02 |
 | [M-BOOT-03](missions/operational/M-BOOT-03-operation.md) | Operation | One unattended run produces a pull request and a run record | DEFERRED | M-BOOT-02 |
-| [M-BOOT-04](missions/operational/M-BOOT-04-official-ledger.md) | The official ledger | The `tsk` binary replaces the bootstrap scripts, the missions move into the ledger, and `tsk/bootstrap` is tagged | TODO | M-BOOT-02 |
+| [M-BOOT-04](missions/operational/M-BOOT-04-official-ledger.md) | The official ledger | The `tsk` binary replaces the bootstrap scripts, the missions move into the ledger, and `tsk/bootstrap` is tagged | ✓ DONE | M-BOOT-02 |
+| [M-BOOT-07](missions/operational/M-BOOT-07-session-migration.md) | Session migration | Every session runs on the binary, the plugin and `tsk/ledger`, and the `tsk/bootstrap` refs are deleted | IN PROGRESS | M-BOOT-04 |
 | [M-KSOBR](missions/operational/M-KSOBR-integration.md) | ksobr integration | Transcripts hook and run record format, deferred out of M-BOOT-02, skeleton | TODO | none |
 | [M-BOOT-06](missions/operational/M-BOOT-06-mission-control.md) | Mission Control | A single command sets up a tmux session with a list of Claude sessions, the selected session, and a terminal | TODO | none |
 | [M-LAB](missions/operational/M-LAB-ai-lab-notes.md) | AI lab notes (journalling plugin) | Skeleton, most fields TBD | TODO | none |
 | [M-STORY](missions/operational/M-STORY-tsk-story-deck.md) | tsk story deck | A Marp deck in `docs/slide-decks/overview-for-engineers/` tells tsk's domain and features as a product, for other engineers | TODO | none |
 | [M-NAMES](missions/operational/M-NAMES-session-names.md) | Session names from Culture ship Minds | Each tsk actor has a Culture ship name it chose, stored in the ledger and used as the title of every session it runs in, skeleton | TODO | M-BOOT-04 |
 
-Essential mission: M-BOOT-04. Its objective and M-BOOT's objective are the same state.
+Essential mission: M-BOOT-07. Its objective and M-BOOT's objective are the same state.
 
 ## Administrative missions
 
