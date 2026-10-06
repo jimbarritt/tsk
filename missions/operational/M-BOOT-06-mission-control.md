@@ -37,7 +37,10 @@ Parent: M-BOOT. The aim: replicate the Claude app experience, native in the term
 using tmux.
 
 This is a reconnaissance mission. It is built standalone from tsk, to explore what a
-control list for Claude sessions needs. Later it folds back into tsk.
+control list for Claude sessions needs. It stays a separate product: one harness among
+several that tsk works in, beside Herdr, Orca and plain tmux. See
+`docs/adr/0013-tsk-works-in-any-harness-mission-control-stays-separate.md` in the tsk
+repo.
 
 It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 2026-09-25: tooling the user uses to run the bootstrap work itself.
@@ -46,9 +49,9 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 
 - **Standalone first.** The tmux layout, the pane handling, and the Claude Code hooks
   that report status and tokens are a separate set of scripts, with a small Python list
-  view. It follows the bootstrap ethos: build what is needed now, outside tsk, and move
-  it into tsk once tsk has a place for it.
-  Decided 2026-09-25.
+  view. It follows the bootstrap ethos: build what is needed now, outside tsk.
+  Decided 2026-09-25. The plan to move it into tsk later was dropped on 2026-10-06, see
+  Decisions: separate product.
 - **Status indicator.** A permission prompt, waiting for input, a finished turn and an
   error all count as "needs attention", with one indicator for all of them. An empty
   circle means no attention needed. A full circle means the session needs attention.
@@ -64,21 +67,32 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 - **Local only.** Phase one lists local Claude sessions only. Later: list cloud
   sessions too, and trigger a cloud session from Mission Control. Decided 2026-09-25.
 - **Threads.** Phase one ignores tsk threads. Later, the list shows each session's
-  thread. That depends on completing the bootstrap and moving the whole model into tsk
-  itself, so that any repo can use tsk. Decided 2026-09-25.
+  thread, read by calling `tsk`. That depends on completing the bootstrap and moving the
+  whole model into tsk itself, so that any repo can use tsk. Decided 2026-09-25. The
+  call to `tsk` added 2026-10-06, see Decisions: dependency.
 - **nvim.** One nvim per Claude session, opened in that session's worktree. Decided
   2026-09-25.
 - **Repo.** The scripts are kept in a new repo, `jimbarritt/tsk-mission-control`.
   Phase one needs no tsk knowledge: it uses tmux, Claude Code hooks and Claude Code's
-  transcript files. When tsk shows these sessions later, tsk reads the scripts' status
-  files, so the dependency goes from tsk to the scripts. Decided 2026-09-25.
+  transcript files. Decided 2026-09-25.
   The repo is public. The user created it on 2026-09-25, empty. A cloud session attaches it with `add_repo`, access `push`:
   confirmed working 2026-09-25.
-- **Command.** The command that sets up the layout is `tsk-mission-control`. Once the
-  list moves into tsk, it becomes a flag: `tsk --mission-control`. Decided 2026-09-25.
-- **Later, a view in the tsk TUI.** The list view moves into the tsk TUI once the tsk
-  model has a place for a Claude session. The tmux layout and the hooks carry over
-  unchanged.
+- **Command.** The command that sets up the layout is `tsk-mission-control`. Decided
+  2026-09-25. It stays this command. The flag `tsk --mission-control` was dropped on
+  2026-10-06.
+- **Separate product.** Mission Control stays a separate product in
+  `jimbarritt/tsk-mission-control`. It does not move into the tsk binary or the tsk TUI.
+  tsk works in whatever harness a person uses, and Mission Control is one of them.
+  Herdr and Orca ship the same layer: a session list, agent state and resume. tsk's
+  scope is the mission model, the ledger and thread continuation. Decided 2026-10-06,
+  ADR 0013. Replaces the decision of 2026-09-25 that the list view moves into the tsk
+  TUI.
+- **Dependency.** Mission Control depends on tsk, and tsk does not depend on Mission
+  Control. When Mission Control shows tsk data, it calls `tsk` commands and reads their
+  output. tsk reads no Mission Control file. The status indicator and the token total
+  belong to Mission Control. Mission Control runs without tsk installed. Decided
+  2026-10-06, ADR 0013. Replaces the decision of 2026-09-25 that tsk reads the scripts'
+  status files.
 
 ## Open questions
 
@@ -136,13 +150,16 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 
   The statement says "the index on the right" for the status indicator. The layout puts
   the list on the left. The objective reads it as the list.
-- `docs/adr/0004-unified-tsk-binary.md` (in the tsk repo): the tsk TUI, the later home
-  for the list view.
+- `docs/adr/0013-tsk-works-in-any-harness-mission-control-stays-separate.md` (in the
+  tsk repo): why Mission Control stays a separate product and depends on tsk.
 - `docs/kb/claude-code-mods.md` (in the tsk repo): Claude Code hooks, the source for
   status and token data.
 - `docs/kb/orchestration-ecosystem/orca.md` (in the tsk repo): Orca, an agent IDE with
   the same objectives as this list, compared objective by objective. Its agent state
   detection, usage tracking and session resume are designs to read before later phases.
+- `docs/kb/orchestration-ecosystem/herdr.md` (in the tsk repo): Herdr, a terminal
+  multiplexer for agents, compared objective by objective. Its agent state detection,
+  agent API and restore after a restart are designs to read before later phases.
 
 ## Decision authority
 
@@ -158,7 +175,8 @@ are installed. The mission report records each choice and the reason for it.
 
 ## Constraints
 
-- Standalone. No dependency on the tsk binary or the tsk daemon.
+- Standalone. Phase one has no dependency on the tsk binary. A later phase that shows
+  tsk data calls the `tsk` binary, and Mission Control still runs without it.
 - Python for scripting.
 - macOS only, for now. A cloud agent runs on Linux, so it tests there, and avoids anything that differs on macOS: GNU-only flags on `sed`,
   `date`, `stat` and `find`, and `inotify` for file watching. The user confirms
@@ -175,7 +193,8 @@ are installed. The mission report records each choice and the reason for it.
 - Cloud sessions, listed or triggered. A later phase.
 - Recovery after a tmux server restart or a machine restart, in phase one. It is phase
   two.
-- The tsk TUI view. It follows once the tsk model has a place for a Claude session.
+- Moving Mission Control into the tsk binary or the tsk TUI. It stays a separate
+  product, ADR 0013.
 - Creating a worktree per session.
 
 ## Plan
