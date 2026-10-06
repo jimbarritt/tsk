@@ -428,7 +428,8 @@ Most of Orca's source was not read, and its claims are its own.
    reward is unproven. None of the five systems models them, so all five sharpen the
    experiment rather than settling it. OpenSpec, a related system, models parts of
    Product and Delta and no Navigation or Scale. No system read so far models all four
-   dimensions, which is tsk's hypothesis. The product decision waits on that experiment
+   dimensions. tsk's hypothesis is that modelling all four together has value, and
+   the experiment tests that. The product decision waits on that experiment
    rather than being made now.
 
 Caveat in tsk's favour: beads' star count likely overstates independent, load-bearing
@@ -888,10 +889,12 @@ Three more items intersect tsk:
 - **Any harness**: OpenSpec writes skills and commands for 72 AI tools. This is the
   pattern ADR 0013 adopts for tsk: one adapter per harness.
 
-Position: OpenSpec supports part 3 of the verdict below. tsk's hypothesis is that no
-single system models all four dimensions. The five systems assessed model Navigation.
-OpenSpec models parts of Product and Delta, with no model of missions and no Scale. Each
-system read so far covers part of the model, and none covers all four. OpenSpec is a
+Position: OpenSpec fits part 3 of the verdict below. The five systems assessed model
+Navigation. OpenSpec models parts of Product and Delta, with no model of missions and no
+Scale. Each system read so far covers part of the model, and none covers all four. tsk's
+hypothesis is that a system that models all four dimensions together gives value that
+these separate systems do not. OpenSpec does not test that hypothesis, and the gap it
+leaves is the one tsk sets out to fill. OpenSpec is a
 candidate for the Product and Delta records beneath a tsk mission, and a baseline for
 the token-saving experiment on those two dimensions.
 
