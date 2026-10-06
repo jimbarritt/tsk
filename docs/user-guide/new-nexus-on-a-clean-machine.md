@@ -151,8 +151,8 @@ ledger another machine created.
 In the managed repo:
 
 ```bash
-claude plugin marketplace add jimbarritt/tsk
-claude plugin install tsk@tsk --scope local
+claude plugin marketplace add jimbarritt/claude-plugins
+claude plugin install tsk@jimbarritt-claude-plugins --scope local
 ```
 
 `--scope local` enables the plugin for this repo only and writes nothing that is

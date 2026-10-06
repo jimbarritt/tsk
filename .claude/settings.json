@@ -1,4 +1,7 @@
 {
+  "env": {
+    "TSK_SOURCE": "cli"
+  },
   "skillOverrides": {
     "load-plan": "off",
     "update-plan": "off",
@@ -6,9 +9,6 @@
     "prune-plan": "off",
     "resume-plan": "off",
     "init-plan": "off"
-  },
-  "env": {
-    "TSK_SOURCE": "cli"
   },
   "hooks": {
     "SessionStart": [
@@ -24,7 +24,7 @@
   },
   "enabledPlugins": {
     "swe@jimbarritt-claude-plugins": true,
-    "tsk@tsk": true
+    "tsk@jimbarritt-claude-plugins": true
   },
   "extraKnownMarketplaces": {
     "jimbarritt-claude-plugins": {

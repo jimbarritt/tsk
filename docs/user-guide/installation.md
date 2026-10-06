@@ -34,11 +34,12 @@ cargo install tsk-bin --locked
 
 This installs the `tsk` binary. `tskd` is retired (ADR 0012) and is not needed.
 
-The Claude Code plugin installs from the marketplace in the tsk repo:
+The Claude Code plugin installs from the `jimbarritt/claude-plugins` marketplace. Its
+entry points at `plugin/` in the tsk repo:
 
 ```bash
-claude plugin marketplace add jimbarritt/tsk
-claude plugin install tsk@tsk
+claude plugin marketplace add jimbarritt/claude-plugins
+claude plugin install tsk@jimbarritt-claude-plugins
 ```
 
 The plugin's `SessionStart` hook installs the `tsk` version the plugin requires when

@@ -41,7 +41,7 @@ ensure_plugin() {
 }
 
 ensure_plugin jimbarritt/claude-plugins jimbarritt-claude-plugins swe
-ensure_plugin "$REPO_ROOT" tsk tsk
+ensure_plugin jimbarritt/claude-plugins jimbarritt-claude-plugins tsk
 rm -f "$PLUGIN_LOG"
 
 INPUT="$(cat)"

@@ -14,7 +14,8 @@ is never checked out in the code worktree: agents only ever touch it through the
 worktree, a detached linked checkout at a fixed path outside the repository.
 
 The repo's `SessionStart` script (`ops/local/claude-session-start.sh`) installs the
-`tsk` plugin (`plugin/`) from this repo's own marketplace, builds `tsk` from `cli/` when
+`tsk` plugin (`plugin/`) from the `jimbarritt/claude-plugins` marketplace, whose
+`git-subdir` entry points at `plugin/` in this repo, builds `tsk` from `cli/` when
 the installed binary is not at the workspace version, then runs
 `tsk thread session-start`. The plugin's own `SessionStart` hook runs the same command.
 The binary claims each event by session ID and source, so the second run exits with no
