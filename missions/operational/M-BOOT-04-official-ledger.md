@@ -87,7 +87,7 @@ the command names.
 | T-08 | Migrate to the ledger | Merged into T-07 on 2026-10-03 | n/a | MERGED |
 | T-09 | Retire `tsk/bootstrap` | The branch is tagged, `CLAUDE.md` points at the ledger, and no bootstrap scaffolding remains | T-07 | DONE (tag `archive/tsk-bootstrap` at 1819948; main a548367; the old bootstrap ledger worktree on each clone is left for a manual `git worktree remove`) |
 | T-10 | Hold a ledger in the nexus | `tsk config attach-nexus <url>` records the nexus in the user config. A managed repo's entry in `nexus.json` with `"ledger": "nexus"` holds its ledger on a namespaced branch in the nexus, and `tsk ledger fetch` and `tsk ledger push` work against it. The tsk-nexus README and `docs/domain/territory-and-nexus.md` say the nexus holds ledgers as an option | T-09 | DONE (main 5fd57be, eae4c86; tsk-nexus 0e31dd6) |
-| T-11 | Install the harness outside this repo | The hooks and skills have no dependency on the tsk repo and call only `tsk`. The plugin at `plugin/` installs them through a marketplace entry of the `git-subdir` form, so a session in another repo, such as a work repo, runs the harness. Optional: if it is not done by Monday 2026-10-05, the hooks and skills are copied by hand | T-10 | TODO |
+| T-11 | Install the harness outside this repo | The hooks and skills have no dependency on the tsk repo and call only `tsk`. The plugin at `plugin/` installs them through a marketplace entry of the `git-subdir` form, so a session in another repo, such as a work repo, runs the harness. Optional: if it is not done by Monday 2026-10-05, the hooks and skills are copied by hand | T-10 | DONE (claude-plugins e4734b9, main f625e2d) |
 
 **Essential task**: T-09. Its end state and M-BOOT's objective are the same.
 
@@ -268,10 +268,17 @@ the command names.
   fetch does not move it to the nexus. The operator moves the ledger worktree aside and
   re-runs `tsk ledger fetch`. The plugin version moved to 0.1.1 for the SKILL.md change.
 
+- 2026-10-06, T-11: the `tsk` plugin moves to the `jimbarritt/claude-plugins`
+  marketplace, as an entry of the `git-subdir` form: `url`
+  `https://github.com/jimbarritt/tsk`, `path` `plugin`. The plugin ID is
+  `tsk@jimbarritt-claude-plugins`. The plugin's source stays in `plugin/` in the tsk
+  repo. The tsk repo's own marketplace, `.claude-plugin/marketplace.json`, is removed.
+  Reason: a machine adds one marketplace for `swe` and `tsk`, and the T-11 objective
+  names the `git-subdir` form.
+
 ## Open decisions
 
-- Whether the `tsk` marketplace moves from this repo to `jimbarritt/claude-plugins`.
-  Decided later.
+None.
 
 ## Clean-up for later
 
