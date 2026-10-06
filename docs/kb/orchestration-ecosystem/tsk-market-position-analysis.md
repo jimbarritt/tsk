@@ -7,7 +7,8 @@ not a system assessed. Orca was added on 2026-10-02 as a fifth system assessed. 
 dynamic workflows were added on 2026-10-05 as a related mechanism, not a system assessed.
 Antithesis was added on 2026-10-05 as a related tool, not a system assessed, compared
 with Jepsen and Jev. Herdr was added on 2026-10-06 as a related runtime, not a system
-assessed, compared with tmux.
+assessed, compared with tmux. OpenSpec was added on 2026-10-06 as a related
+system, not a system assessed, and the first read that models parts of Product and Delta.
 
 ## Status
 
@@ -847,6 +848,49 @@ and Jev, not among the systems assessed. Two items intersect tsk:
 Position: no change to the three-part verdict below. Herdr occupies the layer below a
 task: where an agent's terminal runs and what state it is in.
 
+## OpenSpec: a spec layer that models parts of Product and Delta
+
+Research: [openspec.md](openspec.md). Version 1.13.0, read 2026-10-06. Open source
+(MIT), from Fission. The site counts 68.0k GitHub stars.
+
+OpenSpec is a command-line tool plus generated skills and slash commands. A person and
+a coding agent agree on a change in writing before any code is written. Specs in
+`openspec/specs/` describe how the system behaves now, as requirements with
+Given/When/Then scenarios. A change is a folder with a proposal, a design, a task list
+and delta specs in `ADDED`, `MODIFIED` and `REMOVED` sections. Archiving a change merges
+its deltas into the specs. A store, in beta, keeps specs and changes in a separate git
+repo that several code repos use.
+
+It models no mission, objective, actor, thread or report, so it is listed beside
+Herdr and Antithesis, not among the systems assessed. It is the first system read that
+models two of the dimensions the five assessed systems leave out:
+
+- **Product**: a spec requirement is a persistent description of what the product does,
+  held for the life of the product. This is tsk's Product capability. Scenarios match
+  acceptance criteria. OpenSpec gives a requirement no health state.
+- **Delta**: a change describes the diff to the specs, not the whole system. Archiving
+  folds it into the record of what the product does. This is tsk's Delta, with a
+  different gate. tsk's `Delta Gate` opens when the delta deploys to production and the
+  system is healthy. OpenSpec archives when a person runs `/opsx:archive`.
+
+Three more items intersect tsk:
+
+- **A store resembles the nexus**: planning in a separate git repo, registered by name
+  on each machine, and shared by push and pull that OpenSpec never runs itself. A store
+  holds the specs and changes. A tsk nexus holds an index of repos, and each repo keeps
+  its own ledger.
+- **A plan, not a briefing**: a proposal and a design say why, what and how. Neither
+  states an objective as a checkable end state, decision authority or constraints.
+  `tasks.md` is a checklist the agent checks off.
+- **Any harness**: OpenSpec writes skills and commands for 72 AI tools. This is the
+  pattern ADR 0013 adopts for tsk: one adapter per harness.
+
+Position: the three-part verdict below needs one qualification, and the qualification
+is not yet written into it. Part 3 says none of the systems assessed models Product,
+Delta or Scale. OpenSpec models parts of Product and Delta, with no Navigation model of
+missions and no Scale. It is a candidate for the Product and Delta records beneath a
+tsk mission, and a baseline for the token-saving experiment on those two dimensions.
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Sources: Yegge's essay
@@ -974,6 +1018,8 @@ collision above).
   with Jepsen and Jev compared side by side, and a comparison against tsk.
 - [herdr.md](herdr.md): the full reference for the Herdr section above, with tmux, the
   Mission Control task and tsk compared.
+- [openspec.md](openspec.md): the full reference for the OpenSpec section above, with a
+  comparison against tsk's Product capability, Delta and nexus.
 - [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md): a schema-level
   sharpening of the Beads section above, on whether beads could be tsk's official ledger.
 - [cursor-projects.md](cursor-projects.md): the full reference for the Cursor Projects
