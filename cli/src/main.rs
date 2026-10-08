@@ -332,6 +332,50 @@ mod tests {
                 action: nexus_cmd::NexusCommands::List { json: true }
             })
         ));
+        match Cli::try_parse_from(["tsk", "nexus", "register-repo"])
+            .unwrap()
+            .command
+        {
+            Some(Commands::Nexus {
+                action:
+                    nexus_cmd::NexusCommands::RegisterRepo {
+                        id,
+                        territory,
+                        territory_name,
+                        ledger,
+                        local,
+                    },
+            }) => {
+                assert_eq!(id, None);
+                assert_eq!(territory, None);
+                assert_eq!(territory_name, None);
+                assert_eq!(ledger, nexus_cmd::LedgerChoice::Nexus);
+                assert!(!local);
+            }
+            _ => panic!("register-repo did not parse"),
+        }
+        assert!(Cli::try_parse_from([
+            "tsk",
+            "nexus",
+            "register-repo",
+            "--id",
+            "x",
+            "--territory",
+            "work",
+            "--territory-name",
+            "Work",
+            "--ledger",
+            "repo",
+            "--local",
+        ])
+        .is_ok());
+        assert!(
+            Cli::try_parse_from(["tsk", "nexus", "register-repo", "--territory-name", "Work"])
+                .is_err()
+        );
+        assert!(
+            Cli::try_parse_from(["tsk", "nexus", "register-repo", "--ledger", "cloud"]).is_err()
+        );
         assert!(Cli::try_parse_from(["tsk", "nexus", "add"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "nexus"]).is_err());
     }

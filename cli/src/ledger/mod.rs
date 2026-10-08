@@ -4,6 +4,7 @@ pub mod location;
 pub mod manifest;
 pub mod nexus;
 pub mod push;
+pub mod register;
 
 use clap::Subcommand;
 

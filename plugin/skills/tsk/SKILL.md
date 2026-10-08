@@ -42,7 +42,8 @@ where `<repo-id>` is the entry's `id`. With no attached nexus, no matching entry
 `ledger` field, the ledger is in-repo. tsk finds the entry through the repo ID cached in
 `.git/tsk-repo-id`, otherwise by matching the repo's raw `remote.origin.url` against each
 entry's `url`. An entry with `"local": "<machine name>"` and no `url` is found only through
-the cached ID, on that machine. Entries are added to `nexus.json` by hand. Every ledger,
+the cached ID, on that machine. `tsk nexus register-repo`, run in the repo, adds its entry
+to `nexus.json` and pushes it (the `register-repo` skill runs it). Every ledger,
 thread and events command works the same in both locations. The details are in
 `docs/domain/ledger-layout.md`.
 
@@ -56,6 +57,8 @@ tsk config attach-nexus <url>            record the nexus repo URL in the user c
 tsk config show                          print the user config path and the attached nexus URL
 tsk nexus add <url>                      the same as tsk config attach-nexus
 tsk nexus list [--json]                  print the config path, the nexus URL, and the territories and repos in its nexus.json
+tsk nexus register-repo [--id <id>] [--territory <id>] [--territory-name <name>] [--ledger nexus|repo] [--local]
+                                         add this repo's entry to nexus.json, commit and push it; idempotent
 
 tsk ledger fetch                         fetch the ledger branch (creating a new ledger when it does not exist), refresh the ledger worktree, print the path
 tsk ledger path                          print the ledger worktree path; no fetch, no writes

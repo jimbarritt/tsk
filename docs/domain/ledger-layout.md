@@ -139,8 +139,30 @@ not: it needs only the clone ID.
 | `local` | no | A machine name. The entry is visible only on that machine, and is found only through the cached repo ID. Used with no `url`. |
 | `ledger` | no | `"repo"` or `"nexus"`. Absent means `"repo"`. |
 
-Entries are added to `nexus.json` by hand. No command registers a repo. Automatic
-transition of an entry from `local` to `url` on the first push is not implemented.
+`tsk nexus register-repo`, run in the managed repo, adds its entry. It fetches the
+nexus's default branch, adds the entry to `nexus.json`, and commits and pushes it with the
+machine's own git credentials. On a rejected push it fetches again and retries once.
+
+- Without `--local`, the entry's `url` is the repo's raw `remote.origin.url`. An origin
+  that does not normalise (a local path, for example) stops with an error.
+- With `--local`, the entry carries `local` with this machine's name in place of `url`,
+  and the command writes the ID to `tsk-repo-id`.
+- The ID is `--id`, or the repo name (the last segment of the normalised origin URL, or
+  the working tree's directory name with `--local`) in lower case, with each run of other
+  characters as one `-`.
+- The territory is `--territory`, required when `nexus.json` has more than one. With one
+  territory, that one is used. With none, `--territory` creates it, named
+  `--territory-name` or, without that option, its ID.
+- `ledger` is `--ledger`, `nexus` by default, and is always written.
+- An entry with the same normalised `url` and the same ID, or the same ID and the same
+  `local`, means the repo is registered: the command prints `already registered` and
+  commits nothing. The same `url` under another ID, or the same ID for another repo, stops
+  with an error.
+- The command rewrites `nexus.json` from its parsed form, pretty printed with a trailing
+  newline. Every field is kept. Object keys come out in alphabetical order.
+
+Entries can still be written by hand. Automatic transition of an entry from `local` to
+`url` on the first push is not implemented.
 
 ### Origin URL normalisation
 
@@ -528,8 +550,9 @@ clone.
 Content: the repo ID of the clone's nexus entry and a trailing newline. Readers strip all
 whitespace. An absent or empty file means no cached ID.
 
-Written by the location resolution when it finds an entry, and by hand for a repo with
-no `url` (an entry that carries `local`), whose entry is found only through this file. It
+Written by the location resolution when it finds an entry, and by
+`tsk nexus register-repo --local` (or by hand) for a repo with no `url` (an entry that
+carries `local`), whose entry is found only through this file. It
 is read first on every later run, so a change of the repo's remote URL does not lose the
 entry. Never pushed.
 

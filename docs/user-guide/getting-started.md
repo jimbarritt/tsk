@@ -84,6 +84,7 @@ to `total_count` only after every event up to it is processed.
 tsk nexus add <nexus url>   # the same as tsk config attach-nexus <nexus url>
 tsk nexus list              # config path, nexus URL, territories and repos
 tsk nexus list --json       # the same as one JSON object
+tsk nexus register-repo     # add this repo's entry to nexus.json, commit and push it
 ```
 
 A repo whose `nexus.json` entry has `"ledger": "nexus"` holds its ledger in the nexus. See
@@ -91,6 +92,10 @@ A repo whose `nexus.json` entry has `"ledger": "nexus"` holds its ledger in the 
 `tsk nexus list` prints `nexus: none attached` and exits 0. When the nexus cannot be
 fetched, it lists the copy held from an earlier fetch, with a note on stderr, or exits 1
 when no copy is held.
+
+`tsk nexus register-repo` runs in the managed repo. It takes `--id`, `--territory`,
+`--territory-name`, `--ledger nexus|repo` and `--local`, and prints `already registered`
+when the entry exists. Step 6 of the clean machine guide describes each option.
 
 **9. Launch the TUI** (no arguments):
 
