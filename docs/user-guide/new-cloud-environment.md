@@ -57,13 +57,9 @@ Paste this into the environment's setup script field:
 set -euo pipefail
 
 if ! command -v cargo >/dev/null 2>&1; then
-  export RUSTUP_HOME=/usr/local/rustup
-  export CARGO_HOME=/usr/local/cargo
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
-  chmod -R a+rX "$RUSTUP_HOME" "$CARGO_HOME"
   for tool in cargo rustc rustup; do
-    printf '#!/bin/sh\nRUSTUP_HOME=%s exec %s/bin/%s "$@"\n' "$RUSTUP_HOME" "$CARGO_HOME" "$tool" > "/usr/local/bin/$tool"
-    chmod 755 "/usr/local/bin/$tool"
+    ln -sf "$HOME/.cargo/bin/$tool" "/usr/local/bin/$tool"
   done
 fi
 
@@ -77,14 +73,14 @@ mkdir -p /usr/local/share/tsk-setup
 tsk --version
 ```
 
-When `cargo` is missing, the script installs the Rust toolchain system-wide under
-`/usr/local` and writes wrappers for `cargo`, `rustc` and `rustup` into
-`/usr/local/bin`. The wrappers set only `RUSTUP_HOME`, so the toolchain is shared and
-read-only, and each user's `CARGO_HOME` stays at its own `~/.cargo`. When `cargo` is
-already present, that block is skipped.
+When `cargo` is missing, the script installs the Rust toolchain under `/root/.cargo` and
+links `cargo`, `rustc` and `rustup` into `/usr/local/bin`, so they are on `PATH` without
+sourcing `~/.cargo/env`. When `cargo` is already present, that block is skipped.
 
-`--root /usr/local` writes the binary to `/usr/local/bin/tsk`, which is on `PATH` for
-every user in the container, whichever user the setup script and the session run as.
+Setup scripts and sessions both run as root, observed on 2026-10-08, so the toolchain
+and the binary are readable in the session.
+
+`--root /usr/local` writes the binary to `/usr/local/bin/tsk`, which is on `PATH`.
 
 The last lines write the run time and the user to
 `/usr/local/share/tsk-setup/last-run`. They support the cache test below and can be
@@ -207,9 +203,21 @@ session takes to start is a second signal: a full `cargo install` takes minutes.
 | `git merge-base` reports unrelated branches | The clone is shallow. | `git fetch --unshallow origin`. The hook does this at session start. |
 | A new `tsk` release is not picked up | The setup script result is cached for the environment. | Edit the script, for example by pinning `--version`, so the environment rebuilds. |
 
+## Observed
+
+On 2026-10-08, with the script in step 3:
+
+- The setup script and the session both run as root, with `HOME=/root`.
+- A new session reuses the setup result. A session whose container booted at
+  05:53:48Z read a `last-run` stamp of 05:48:41Z, written before the boot. The script did
+  not run at session start.
+- Two sessions read stamps two seconds apart, 05:48:39Z and 05:48:41Z. The cause is not
+  established.
+- `/clear` keeps the same container and does not test the cache.
+
 ## Not verified
 
 - The exact labels of the network access levels, and whether the default level includes
   the crates.io hosts. Check the environment's settings screen.
-- Whether the setup script result is cached across sessions, and for how long.
+- How long the setup result is kept, and whether editing the script invalidates it.
 - That `cargo` is present in the default cloud image. The script installs it when missing.
