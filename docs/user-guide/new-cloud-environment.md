@@ -62,7 +62,9 @@ Paste this into the environment's setup script field:
 #!/bin/bash
 set -euo pipefail
 
+CARGO_INSTALLED=no
 if ! command -v cargo >/dev/null 2>&1; then
+  CARGO_INSTALLED=yes
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
   for tool in cargo rustc rustup; do
     ln -sf "$HOME/.cargo/bin/$tool" "/usr/local/bin/$tool"
@@ -74,7 +76,8 @@ cargo install tsk-bin --locked --root /usr/local
 mkdir -p /usr/local/share/tsk-setup
 {
   date -u +%Y-%m-%dT%H:%M:%SZ
-  echo "user=$(whoami) home=$HOME"
+  echo "user=$(whoami) home=$HOME cargo_installed=$CARGO_INSTALLED"
+  cargo --version
 } > /usr/local/share/tsk-setup/last-run
 tsk --version
 ```
@@ -88,7 +91,8 @@ and the binary are readable in the session.
 
 `--root /usr/local` writes the binary to `/usr/local/bin/tsk`, which is on `PATH`.
 
-The last lines write the run time and the user to
+The last lines write the run time, the user, whether the script had to install cargo
+(`cargo_installed=yes` or `no`) and the cargo version to
 `/usr/local/share/tsk-setup/last-run`. They support the cache test below and can be
 removed afterwards.
 
@@ -227,4 +231,6 @@ On 2026-10-08, with the script in step 3:
   The run on 2026-10-08 did not need the rustup hosts, and the plugin steps were not
   checked.
 - How long the setup result is kept, and whether editing the script invalidates it.
-- That `cargo` is present in the default cloud image. The script installs it when missing.
+- That `cargo` is present in the default cloud image. Read `cargo_installed=` in
+  `/usr/local/share/tsk-setup/last-run` after the first run with this script: `no` means
+  the image has it.
