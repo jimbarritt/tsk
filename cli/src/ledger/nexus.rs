@@ -9,7 +9,7 @@ use crate::config;
 pub const NEXUS_FILE: &str = "nexus.json";
 pub const NEXUS_DIR_NAME: &str = "nexus";
 pub const MACHINE_VAR: &str = "TSK_MACHINE_NAME";
-const TRACKING_REF: &str = "refs/heads/nexus";
+pub const TRACKING_REF: &str = "refs/heads/nexus";
 
 #[derive(Debug, Deserialize)]
 pub struct Entry {
@@ -165,7 +165,7 @@ pub fn nexus_clone_path(state_root: &Path) -> PathBuf {
     state_root.join(NEXUS_DIR_NAME)
 }
 
-pub fn load_index(state_root: &Path, nexus_url: &str) -> Result<NexusIndex, String> {
+pub fn open_clone(state_root: &Path) -> Result<Git, String> {
     let dir = nexus_clone_path(state_root);
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("error: could not create {}: {}", dir.display(), e))?;
@@ -173,6 +173,12 @@ pub fn load_index(state_root: &Path, nexus_url: &str) -> Result<NexusIndex, Stri
     if !dir.join("HEAD").is_file() {
         git.run(["init", "--quiet", "--bare"])?;
     }
+    Ok(git)
+}
+
+pub fn load_index(state_root: &Path, nexus_url: &str) -> Result<NexusIndex, String> {
+    let git = open_clone(state_root)?;
+    let dir = git.dir().to_path_buf();
     let refspec = format!("+HEAD:{}", TRACKING_REF);
     if let Err(fetch_error) = git.run(["fetch", "--quiet", nexus_url, refspec.as_str()]) {
         let held = git

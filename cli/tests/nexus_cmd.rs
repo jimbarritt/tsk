@@ -65,6 +65,31 @@ impl Fixture {
         );
     }
 
+    fn nexus_json(&self) -> String {
+        git(&self.nexus(), &["show", "refs/heads/main:nexus.json"])
+    }
+
+    fn nexus_commits(&self) -> usize {
+        git(&self.nexus(), &["rev-list", "--count", "refs/heads/main"])
+            .trim()
+            .parse()
+            .unwrap()
+    }
+
+    fn nexus_doc(&self) -> serde_json::Value {
+        serde_json::from_str(&self.nexus_json()).unwrap()
+    }
+
+    fn repo_id_file(&self) -> PathBuf {
+        self.work().join(".git").join("tsk-repo-id")
+    }
+
+    fn register(&self, args: &[&str]) -> Output {
+        let mut all = vec!["nexus", "register-repo"];
+        all.extend_from_slice(args);
+        self.tsk(&all)
+    }
+
     fn attach(&self) {
         assert_success(&self.tsk(&["nexus", "add", &self.nexus_url()]));
     }
@@ -279,4 +304,273 @@ fn nexus_list_stops_with_an_error_when_the_nexus_cannot_be_fetched() {
     assert_success(&fx.tsk(&["nexus", "add", "/nonexistent/nexus.git"]));
 
     assert_failure_mentioning(&fx.tsk(&["nexus", "list"]), "could not fetch the nexus");
+}
+
+const ONE_TERRITORY: &str = r#"{
+  "version": 1,
+  "owner": "acme",
+  "territories": [
+    {
+      "id": "work",
+      "name": "Work",
+      "colour": "blue",
+      "repos": [
+        { "id": "billing", "url": "https://example.test/acme/billing", "ledger": "nexus", "note": "keep" }
+      ]
+    }
+  ]
+}
+"#;
+
+#[test]
+fn register_repo_adds_the_origin_entry_commits_and_pushes() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(ONE_TERRITORY);
+    fx.attach();
+    let before = fx.nexus_commits();
+
+    let output = fx.register(&[]);
+
+    assert_success(&output);
+    assert_eq!(fx.nexus_commits(), before + 1);
+    let doc = fx.nexus_doc();
+    assert_eq!(doc["owner"], "acme");
+    assert_eq!(doc["version"], 1);
+    assert_eq!(doc["territories"][0]["colour"], "blue");
+    assert_eq!(doc["territories"][0]["repos"][0]["note"], "keep");
+    assert_eq!(
+        doc["territories"][0]["repos"][1],
+        serde_json::json!({"id": "work-api", "url": ORIGIN_URL, "ledger": "nexus"})
+    );
+    assert!(fx.nexus_json().ends_with("}\n"));
+    assert_eq!(
+        git(
+            &fx.nexus(),
+            &["log", "-1", "--format=%s", "refs/heads/main"]
+        )
+        .trim(),
+        "Register work-api in territory work"
+    );
+    let text = stdout(&output);
+    assert!(
+        text.contains("registered in territory work: {\"id\":\"work-api\""),
+        "{}",
+        text
+    );
+    assert!(
+        text.ends_with("next: run tsk ledger fetch in this repo\n"),
+        "{}",
+        text
+    );
+
+    let fetched = fx.tsk(&["ledger", "fetch"]);
+    assert_success(&fetched);
+    assert!(
+        stderr(&fetched).contains("refs/heads/ledgers/work-api does not exist yet"),
+        "{}",
+        stderr(&fetched)
+    );
+}
+
+#[test]
+fn register_repo_twice_prints_already_registered_without_a_commit() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(ONE_TERRITORY);
+    fx.attach();
+    assert_success(&fx.register(&[]));
+    let after_first = fx.nexus_commits();
+
+    let again = fx.register(&[]);
+
+    assert_success(&again);
+    assert!(
+        stdout(&again).starts_with("already registered in territory work: "),
+        "{}",
+        stdout(&again)
+    );
+    assert_eq!(fx.nexus_commits(), after_first);
+}
+
+#[test]
+fn register_repo_matches_an_existing_ssh_form_of_the_origin() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(
+        r#"{"version":1,"territories":[{"id":"work","repos":[{"id":"work-api","url":"git@example.test:Acme/work-api.git"}]}]}"#,
+    );
+    fx.attach();
+    let before = fx.nexus_commits();
+
+    let output = fx.register(&[]);
+
+    assert_success(&output);
+    assert!(stdout(&output).starts_with("already registered"));
+    assert_eq!(fx.nexus_commits(), before);
+}
+
+#[test]
+fn register_repo_refuses_an_id_or_url_already_used_by_another_entry() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(
+        r#"{"version":1,"territories":[{"id":"work","repos":[
+          {"id":"work-api","url":"https://example.test/acme/other"},
+          {"id":"legacy","url":"https://example.test/acme/billing"}
+        ]}]}"#,
+    );
+    fx.attach();
+    let before = fx.nexus_commits();
+
+    assert_failure_mentioning(&fx.register(&[]), "entry with the id \"work-api\"");
+
+    git(
+        &fx.work(),
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://example.test/acme/billing",
+        ],
+    );
+    assert_failure_mentioning(
+        &fx.register(&["--id", "billing"]),
+        "under the id \"legacy\"",
+    );
+    assert_eq!(fx.nexus_commits(), before);
+}
+
+#[test]
+fn register_repo_needs_a_territory_when_the_nexus_has_more_than_one() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(TWO_TERRITORIES);
+    fx.attach();
+
+    assert_failure_mentioning(&fx.register(&[]), "2 territories (work, home)");
+    assert_failure_mentioning(
+        &fx.register(&["--territory", "play"]),
+        "no territory \"play\"",
+    );
+
+    let output = fx.register(&["--territory", "home", "--id", "api", "--ledger", "repo"]);
+
+    assert_success(&output);
+    let doc = fx.nexus_doc();
+    assert_eq!(
+        doc["territories"][1]["repos"][0],
+        serde_json::json!({"id": "api", "url": ORIGIN_URL, "ledger": "repo"})
+    );
+    assert_eq!(doc["territories"][0]["repos"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn register_repo_creates_a_territory_when_the_nexus_has_none() {
+    let fx = Fixture::new();
+    fx.write_nexus_json("{\"version\": 1, \"territories\": []}\n");
+    fx.attach();
+
+    assert_failure_mentioning(&fx.register(&[]), "has no territories");
+
+    let output = fx.register(&["--territory", "work", "--territory-name", "Work"]);
+
+    assert_success(&output);
+    assert!(stdout(&output).starts_with("created territory work\n"));
+    let doc = fx.nexus_doc();
+    assert_eq!(doc["territories"][0]["id"], "work");
+    assert_eq!(doc["territories"][0]["name"], "Work");
+    assert_eq!(doc["territories"][0]["repos"][0]["id"], "work-api");
+}
+
+#[test]
+fn register_repo_local_names_this_machine_and_writes_the_repo_id() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(ONE_TERRITORY);
+    fx.attach();
+    git(&fx.work(), &["remote", "remove", "origin"]);
+
+    assert_failure_mentioning(&fx.register(&[]), "no origin remote URL");
+
+    let output = fx.register(&["--local"]);
+
+    assert_success(&output);
+    assert_eq!(
+        fx.nexus_doc()["territories"][0]["repos"][1],
+        serde_json::json!({"id": "work-api", "local": "laptop", "ledger": "nexus"})
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.repo_id_file()).unwrap(),
+        "work-api\n"
+    );
+    let before = fx.nexus_commits();
+    let again = fx.register(&["--local"]);
+    assert_success(&again);
+    assert!(stdout(&again).starts_with("already registered"));
+    assert_eq!(fx.nexus_commits(), before);
+
+    let fetched = fx.tsk(&["ledger", "fetch"]);
+    assert_success(&fetched);
+    assert!(
+        stderr(&fetched).contains("refs/heads/ledgers/work-api does not exist yet"),
+        "{}",
+        stderr(&fetched)
+    );
+}
+
+#[test]
+fn register_repo_refuses_a_local_path_origin_and_an_invalid_id() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(ONE_TERRITORY);
+    fx.attach();
+
+    assert_failure_mentioning(&fx.register(&["--id", "Work_API"]), "not a valid repo id");
+
+    git(
+        &fx.work(),
+        &["remote", "set-url", "origin", "/tmp/origin.git"],
+    );
+    assert_failure_mentioning(&fx.register(&[]), "run with --local");
+}
+
+#[test]
+fn register_repo_without_a_nexus_names_the_add_command() {
+    let fx = Fixture::new();
+
+    assert_failure_mentioning(&fx.register(&[]), "run tsk nexus add <url> first");
+}
+
+#[test]
+fn register_repo_fetches_again_and_keeps_a_concurrent_change_after_a_rejected_push() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(ONE_TERRITORY);
+    fx.attach();
+    let concurrent = ONE_TERRITORY.replace("\"owner\": \"acme\"", "\"owner\": \"someone else\"");
+    std::fs::write(fx.nexus_seed().join("nexus.json"), concurrent).unwrap();
+    git(
+        &fx.nexus_seed(),
+        &["commit", "--quiet", "-am", "Concurrent change"],
+    );
+    git(
+        &fx.nexus_seed(),
+        &["push", "--quiet", "origin", "HEAD:refs/heads/concurrent"],
+    );
+    let marker = fx.root.path().join("rejected-once");
+    let hook = fx.nexus().join("hooks").join("pre-receive");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\ncat >/dev/null\nif [ ! -e \"{marker}\" ]; then\n  touch \"{marker}\"\n  env -u GIT_QUARANTINE_PATH -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES git update-ref refs/heads/main refs/heads/concurrent\n  exit 1\nfi\n",
+            marker = marker.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+    let output = fx.register(&[]);
+
+    assert_success(&output);
+    assert!(
+        stderr(&output).contains("retrying once"),
+        "{}",
+        stderr(&output)
+    );
+    let doc = fx.nexus_doc();
+    assert_eq!(doc["owner"], "someone else");
+    assert_eq!(doc["territories"][0]["repos"][1]["id"], "work-api");
 }
