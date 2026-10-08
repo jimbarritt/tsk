@@ -34,19 +34,25 @@ Once created, the environment is selectable in every later session.
 
 ## 2. Set network access
 
-The setup script downloads crates from crates.io and, when Rust is missing, the Rust
-toolchain from rust-lang.org. Set the environment's network access to a level that
-allows these hosts:
+The environment's network access setting has four levels:
 
-- `crates.io`
-- `index.crates.io`
-- `static.crates.io`
-- `static.rust-lang.org`
-- `github.com`
+| Level | Meaning |
+|---|---|
+| None | Blocks internet access for maximum security. |
+| Trusted (Recommended) | Downloads packages from verified sources. |
+| Full | Unrestricted internet access for maximum flexibility. |
+| Custom | A list of allowed domains. |
 
-The default restricted level allows the package registries in common use. Check that
-the crates.io hosts are in its list. If they are not, use full network access or add the
-hosts as custom entries.
+Select Trusted. The setup script's `cargo install` ran to completion at this level, so
+the crates.io hosts are allowed.
+
+The script and the session hooks use these hosts:
+
+- `crates.io`, `index.crates.io` and `static.crates.io`, for `cargo install`.
+- `static.rust-lang.org` and `sh.rustup.rs`, only when `cargo` is missing from the image.
+- `github.com`, for the plugin marketplace and the ledger.
+
+If a host is blocked, use Custom and add it, or use Full.
 
 ## 3. Add the setup script
 
@@ -196,7 +202,7 @@ session takes to start is a second signal: a full `cargo install` takes minutes.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `tsk: command not found` | The setup script failed before the `cargo install` line. | Run the setup script's commands in the session and read the error. |
-| `cargo install` fails to resolve or download | crates.io hosts are blocked by the network access level. | Add the hosts in step 2, or raise the level. |
+| `cargo install` fails to resolve or download | A crates.io host is blocked by the network access level. | Set the level to Trusted, add the hosts under Custom, or use Full. |
 | The `SessionStart` context reports `WARNING: adding the ... marketplace failed` | `github.com` is blocked, or the marketplace repo is not readable. | Allow `github.com`. Confirm `jimbarritt/claude-plugins` is readable from the session. |
 | `$TSK_LEDGER_WT` is empty | The hook did not run, or `tsk thread session-start` failed. | Run `WT="${TSK_LEDGER_WT:-$(tsk ledger fetch)}"` and read any error. |
 | `tsk ledger push` is rejected | The cloud sandbox proxy refuses writes outside `refs/heads/*`. | The ledger is the branch `tsk/ledger`, not a custom ref. See [ADR 0008](../adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md). |
@@ -217,7 +223,8 @@ On 2026-10-08, with the script in step 3:
 
 ## Not verified
 
-- The exact labels of the network access levels, and whether the default level includes
-  the crates.io hosts. Check the environment's settings screen.
+- Whether the Trusted level allows `static.rust-lang.org`, `sh.rustup.rs` and `github.com`.
+  The run on 2026-10-08 did not need the rustup hosts, and the plugin steps were not
+  checked.
 - How long the setup result is kept, and whether editing the script invalidates it.
 - That `cargo` is present in the default cloud image. The script installs it when missing.
