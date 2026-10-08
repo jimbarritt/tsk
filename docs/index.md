@@ -26,6 +26,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 
 - [installation.md](user-guide/installation.md): prerequisites, installing and upgrading the `tsk` binary and the plugin, and CI.
 - [new-nexus-on-a-clean-machine.md](user-guide/new-nexus-on-a-clean-machine.md): step by step, a new nexus, tsk and the plugin on a clean machine, and a repo's ledger held in the nexus.
+- [new-cloud-environment.md](user-guide/new-cloud-environment.md): step by step, a Claude cloud environment on claude.ai/code with the `tsk` binary, the plugin and the ledger ready in every session.
 - [getting-started.md](user-guide/getting-started.md): the `tsk ledger` and `tsk thread` commands, the TUI, tests, building, publishing.
 - [state-models.md](user-guide/state-models.md): task and thread state models, diversions, and how the daemon and client fit together.
 - [missions-threads-and-continuation.md](user-guide/missions-threads-and-continuation.md): how tsk's own missions and task data are stored and worked, the `/start-thread`, `/pause-thread` and `/resume-thread` commands, and what the `SessionStart` hook does.
