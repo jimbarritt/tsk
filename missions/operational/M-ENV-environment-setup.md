@@ -66,9 +66,9 @@ decides the implementation within those names.
 
 | ID | Task | Objective | Blocked by | Status |
 |---|---|---|---|---|
-| T-01 | `tsk install-plugin claude-cli` | In a fresh repo, the command adds the `jimbarritt/claude-plugins` marketplace, installs and updates the `tsk` plugin at a chosen scope through the `claude` CLI, and exits 0 again when run twice | none | TODO |
-| T-02 | `tsk nexus add <url>` and `tsk nexus list` | `add` records the nexus URL in the user config. `list` prints the attached nexus URL and the territories and repos its `nexus.json` indexes | none | TODO |
-| T-03 | `tsk nexus register-repo` and the `register-repo` skill | Run in a repo, the command adds the repo's entry to `nexus.json` in the nexus, commits and pushes it. `/tsk:register-repo` runs it from a session | T-02 | TODO |
+| T-01 | `tsk install-plugin claude-cli` | In a fresh repo, the command adds the `jimbarritt/claude-plugins` marketplace, installs and updates the `tsk` plugin at a chosen scope through the `claude` CLI, and exits 0 again when run twice | none | DONE 2026-10-08, `c60b7ea`. Tested against a fake `claude`, not yet run against the real one |
+| T-02 | `tsk nexus add <url>` and `tsk nexus list` | `add` records the nexus URL in the user config. `list` prints the attached nexus URL and the territories and repos its `nexus.json` indexes | none | DONE 2026-10-08, `e5b394c`. `list --json` added |
+| T-03 | `tsk nexus register-repo` and the `register-repo` skill | Run in a repo, the command adds the repo's entry to `nexus.json` in the nexus, commits and pushes it. `/tsk:register-repo` runs it from a session | T-02 | DONE 2026-10-08, `e366fc2`. Tested against local bare repos, not yet run against a real nexus |
 | T-04 | Cloud environment guide and setup script | `docs/user-guide/new-cloud-environment.md` holds a setup script that installs `tsk` and records its own run, and the cache behaviour is known | none | IN PROGRESS: the guide and script are on `main`. Setup runs as root, and a new session reuses the setup result (2026-10-08). Cache expiry and invalidation on edit are untested. The script records whether it installed cargo, not yet read |
 | T-05 | Release | The version is bumped, `tsk-core` and `tsk-bin` are published, `plugin/tsk-version` is bumped to match, and the cloud setup script calls `tsk nexus add` | T-01, T-02, T-03 | TODO, Jim decides when |
 
@@ -86,6 +86,14 @@ hand edit only when registration is a command.
   an argument so other CLIs can follow.
 
 ## Open decisions
+
+- `register-repo` rewrites `nexus.json` through `serde_json::Value`, so object keys come out
+  in alphabetical order and `version` moves below `territories`. No data is lost.
+  Enabling serde_json's `preserve_order` would change key order in other commands' JSON
+  output too. An ordered value type for this file is the alternative.
+- `register-repo` needs `nexus.json` to exist already on the nexus's default branch. It
+  does not create the file. Decide whether a first run on an empty nexus should create it.
+- Whether T-04's cache expiry test is worth finishing before T-05.
 
 - Whether `install-plugin` also writes `extraKnownMarketplaces` and `enabledPlugins` into
   the repo's `.claude/settings.json`. The CLI route works in a cloud session and the
