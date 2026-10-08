@@ -103,22 +103,28 @@ pub fn attach_nexus(file: &Path, url: &str) -> Result<AttachOutcome, String> {
     })
 }
 
-pub fn run(action: ConfigCommands) -> Result<(), String> {
-    let file = config_file_from_env().ok_or_else(|| {
+pub fn required_config_file() -> Result<PathBuf, String> {
+    config_file_from_env().ok_or_else(|| {
         "error: neither XDG_CONFIG_HOME nor HOME is set; cannot locate the user config".to_string()
-    })?;
-    match action {
-        ConfigCommands::AttachNexus { url } => {
-            let url = url.trim().to_string();
-            match attach_nexus(&file, &url)? {
-                AttachOutcome::Attached => println!("attached nexus {}", url),
-                AttachOutcome::Unchanged => println!("nexus already attached: {}", url),
-                AttachOutcome::Replaced { previous } => {
-                    println!("replaced nexus {} with {}", previous, url)
-                }
-            }
-            Ok(())
+    })
+}
+
+pub fn attach_and_report(file: &Path, url: &str) -> Result<(), String> {
+    let url = url.trim();
+    match attach_nexus(file, url)? {
+        AttachOutcome::Attached => println!("attached nexus {}", url),
+        AttachOutcome::Unchanged => println!("nexus already attached: {}", url),
+        AttachOutcome::Replaced { previous } => {
+            println!("replaced nexus {} with {}", previous, url)
         }
+    }
+    Ok(())
+}
+
+pub fn run(action: ConfigCommands) -> Result<(), String> {
+    let file = required_config_file()?;
+    match action {
+        ConfigCommands::AttachNexus { url } => attach_and_report(&file, &url),
         ConfigCommands::Show => {
             println!("config: {}", file.display());
             match read_nexus_url(&file)? {

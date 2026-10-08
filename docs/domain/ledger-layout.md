@@ -55,7 +55,8 @@ a linked worktree of the managed repo's clone (see
 
 ### User config
 
-`tsk config attach-nexus <url>` records the nexus repo URL in the user config:
+`tsk nexus add <url>`, or `tsk config attach-nexus <url>`, records the nexus repo URL in
+the user config:
 
 ```
 ${XDG_CONFIG_HOME:-$HOME/.config}/tsk/config.toml
@@ -72,7 +73,8 @@ url = "https://github.com/jimbarritt/tsk-nexus"
 - Attaching the URL already recorded changes nothing and prints
   `nexus already attached: <url>`. Attaching a different URL replaces it and prints
   `replaced nexus <old> with <new>`. A first attach prints `attached nexus <url>`.
-- `tsk config show` prints the config path and the attached URL.
+- `tsk config show` prints the config path and the attached URL. `tsk nexus list` prints
+  the same, then the territories and repos in the nexus's `nexus.json`.
 
 ### Choosing the location
 

@@ -78,7 +78,21 @@ to `external-events/queue.ndjson` and pushes. `read-new` prints
 `{"new_count":N,"total_count":M,"events":[...]}` and writes nothing. Advance the watermark
 to `total_count` only after every event up to it is processed.
 
-**8. Launch the TUI** (no arguments):
+**8. Attach a nexus and list it:**
+
+```bash
+tsk nexus add <nexus url>   # the same as tsk config attach-nexus <nexus url>
+tsk nexus list              # config path, nexus URL, territories and repos
+tsk nexus list --json       # the same as one JSON object
+```
+
+A repo whose `nexus.json` entry has `"ledger": "nexus"` holds its ledger in the nexus. See
+[new-nexus-on-a-clean-machine.md](new-nexus-on-a-clean-machine.md). With no nexus attached,
+`tsk nexus list` prints `nexus: none attached` and exits 0. When the nexus cannot be
+fetched, it lists the copy held from an earlier fetch, with a note on stderr, or exits 1
+when no copy is held.
+
+**9. Launch the TUI** (no arguments):
 
 ```bash
 tskd &

@@ -67,6 +67,11 @@ enum Commands {
         #[command(subcommand)]
         action: events::EventsCommands,
     },
+    #[command(about = "Attach the nexus and list the territories and repos it indexes")]
+    Nexus {
+        #[command(subcommand)]
+        action: nexus_cmd::NexusCommands,
+    },
     #[command(
         about = "Add the plugin marketplace, then install and update the tsk plugin through a coding agent's CLI"
     )]
@@ -108,6 +113,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
         Some(Commands::Ledger { action }) => ledger::run(action).map(|()| 0),
         Some(Commands::Events { action }) => events::run(action),
         Some(Commands::Config { action }) => config::run(action).map(|()| 0),
+        Some(Commands::Nexus { action }) => nexus_cmd::run(action).map(|()| 0),
         Some(Commands::InstallPlugin(args)) => install_plugin::run(args).map(|()| 0),
         None => Ok(0),
     }
@@ -128,6 +134,8 @@ mod thread;
 mod events;
 
 mod install_plugin;
+
+mod nexus_cmd;
 
 // ---------------------------------------------------------------------------
 // Unit tests
@@ -299,6 +307,33 @@ mod tests {
             Cli::try_parse_from(["tsk", "install-plugin", "claude-cli", "--scope", "team"])
                 .is_err()
         );
+    }
+
+    #[test]
+    fn nexus_subcommands_parse() {
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "nexus", "add", "https://example.test/o/nexus"]).unwrap().command,
+            Some(Commands::Nexus { action: nexus_cmd::NexusCommands::Add { url } })
+                if url == "https://example.test/o/nexus"
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "nexus", "list"])
+                .unwrap()
+                .command,
+            Some(Commands::Nexus {
+                action: nexus_cmd::NexusCommands::List { json: false }
+            })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "nexus", "list", "--json"])
+                .unwrap()
+                .command,
+            Some(Commands::Nexus {
+                action: nexus_cmd::NexusCommands::List { json: true }
+            })
+        ));
+        assert!(Cli::try_parse_from(["tsk", "nexus", "add"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "nexus"]).is_err());
     }
 
     // --- TUI scroll helpers ---

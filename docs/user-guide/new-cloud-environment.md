@@ -170,7 +170,8 @@ hook also runs, the second run exits with no output.
 
 A repo that keeps its ledger in a nexus needs the nexus attached in the environment.
 Set the nexus URL in `~/.config/tsk/config.toml` from the setup script or the hook, with
-`tsk config attach-nexus <nexus url>`. See
+`tsk nexus add <nexus url>`, or `tsk config attach-nexus <nexus url>` with a release that
+has no `nexus` command. `tsk nexus list` shows the attached nexus and the repos it lists. See
 [new-nexus-on-a-clean-machine.md](new-nexus-on-a-clean-machine.md).
 
 ## 5. Check the environment

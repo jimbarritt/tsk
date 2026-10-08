@@ -117,11 +117,25 @@ git push origin HEAD
 ## 5. Attach the nexus
 
 ```bash
-tsk config attach-nexus <nexus url>
-tsk config show
+tsk nexus add <nexus url>
+tsk nexus list
 ```
 
-This writes the nexus URL to `~/.config/tsk/config.toml`. A machine holds one nexus.
+`tsk nexus add` writes the nexus URL to `~/.config/tsk/config.toml`. A machine holds one
+nexus. `tsk config attach-nexus <nexus url>` does the same.
+
+`tsk nexus list` prints the config path and the nexus URL, fetches the nexus and prints
+each territory in `nexus.json` with its repos:
+
+```
+config: /home/me/.config/tsk/config.toml
+nexus: https://github.com/<owner>/<name>-nexus
+territory: work (Work)
+  work-api  url: <origin url>  ledger: nexus
+```
+
+`tsk nexus list --json` prints the same as one JSON object. When the nexus cannot be
+fetched and no copy is held from an earlier fetch, the command exits 1 with the error.
 
 ## 6. Create the ledger
 
