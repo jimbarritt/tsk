@@ -151,6 +151,18 @@ OUTPUT="$(printf '%s' "$INPUT" | tsk thread session-start)"
 printf '%s' "$OUTPUT"
 ```
 
+With a released `tsk` that has the `install-plugin` command, the four `claude plugin`
+lines become one:
+
+```bash
+tsk install-plugin claude-cli >&2 || true
+```
+
+It runs the same four steps, in the same order, at project scope. See
+[installation.md](installation.md#installation). A `tsk` release without the command
+exits with a usage error, so keep the four lines until the setup script installs a
+release that has it.
+
 The script runs the session start command itself because Claude Code reads plugin hooks
 once, when its process starts. A plugin installed during startup has no hooks in that
 process. The binary claims each event by session ID and source, so when the plugin's own

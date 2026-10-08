@@ -67,6 +67,10 @@ enum Commands {
         #[command(subcommand)]
         action: events::EventsCommands,
     },
+    #[command(
+        about = "Add the plugin marketplace, then install and update the tsk plugin through a coding agent's CLI"
+    )]
+    InstallPlugin(install_plugin::InstallPluginArgs),
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +108,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
         Some(Commands::Ledger { action }) => ledger::run(action).map(|()| 0),
         Some(Commands::Events { action }) => events::run(action),
         Some(Commands::Config { action }) => config::run(action).map(|()| 0),
+        Some(Commands::InstallPlugin(args)) => install_plugin::run(args).map(|()| 0),
         None => Ok(0),
     }
 }
@@ -121,6 +126,8 @@ mod ledger;
 mod thread;
 
 mod events;
+
+mod install_plugin;
 
 // ---------------------------------------------------------------------------
 // Unit tests
@@ -249,6 +256,49 @@ mod tests {
         );
         assert!(Cli::try_parse_from(["tsk", "events", "advance-watermark"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "events", "read-new", "extra"]).is_err());
+    }
+
+    #[test]
+    fn install_plugin_parses_with_defaults_and_options() {
+        match Cli::try_parse_from(["tsk", "install-plugin", "claude-cli"])
+            .unwrap()
+            .command
+        {
+            Some(Commands::InstallPlugin(args)) => {
+                assert_eq!(args.target, install_plugin::Target::ClaudeCli);
+                assert_eq!(args.scope, install_plugin::Scope::Project);
+                assert_eq!(args.plugins, vec!["tsk".to_string()]);
+                assert_eq!(args.marketplace, "jimbarritt/claude-plugins");
+                assert_eq!(args.marketplace_name, "jimbarritt-claude-plugins");
+            }
+            _ => panic!("install-plugin did not parse"),
+        }
+        match Cli::try_parse_from([
+            "tsk",
+            "install-plugin",
+            "claude-cli",
+            "--scope",
+            "local",
+            "--plugin",
+            "swe",
+            "--plugin",
+            "tsk",
+        ])
+        .unwrap()
+        .command
+        {
+            Some(Commands::InstallPlugin(args)) => {
+                assert_eq!(args.scope, install_plugin::Scope::Local);
+                assert_eq!(args.plugins, vec!["swe".to_string(), "tsk".to_string()]);
+            }
+            _ => panic!("install-plugin did not parse"),
+        }
+        assert!(Cli::try_parse_from(["tsk", "install-plugin"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "install-plugin", "codex"]).is_err());
+        assert!(
+            Cli::try_parse_from(["tsk", "install-plugin", "claude-cli", "--scope", "team"])
+                .is_err()
+        );
     }
 
     // --- TUI scroll helpers ---
