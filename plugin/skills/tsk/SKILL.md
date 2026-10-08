@@ -35,7 +35,7 @@ another actor wrote to binds anyway, and prints a warning.
 
 ## Nexus ledgers
 
-`tsk config attach-nexus <url>` writes the nexus URL to
+`tsk nexus add <url>`, or `tsk config attach-nexus <url>`, writes the nexus URL to
 `${XDG_CONFIG_HOME:-~/.config}/tsk/config.toml`. A repo's entry in the nexus's `nexus.json`
 with `"ledger": "nexus"` holds its ledger on `refs/heads/ledgers/<repo-id>` in the nexus,
 where `<repo-id>` is the entry's `id`. With no attached nexus, no matching entry or no
@@ -54,6 +54,8 @@ ledger worktree, and the first `tsk ledger push` creates the branch.
 ```
 tsk config attach-nexus <url>            record the nexus repo URL in the user config; idempotent, reports a replacement
 tsk config show                          print the user config path and the attached nexus URL
+tsk nexus add <url>                      the same as tsk config attach-nexus
+tsk nexus list [--json]                  print the config path, the nexus URL, and the territories and repos in its nexus.json
 
 tsk ledger fetch                         fetch the ledger branch (creating a new ledger when it does not exist), refresh the ledger worktree, print the path
 tsk ledger path                          print the ledger worktree path; no fetch, no writes

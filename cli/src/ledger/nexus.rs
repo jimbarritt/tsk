@@ -20,9 +20,13 @@ pub struct Entry {
 }
 
 #[derive(Debug, Default, Deserialize)]
-struct Territory {
+pub struct Territory {
     #[serde(default)]
-    repos: Vec<Entry>,
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub repos: Vec<Entry>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -35,6 +39,10 @@ impl NexusIndex {
     pub fn parse(text: &str) -> Result<NexusIndex, String> {
         serde_json::from_str(text)
             .map_err(|e| format!("error: {} in the nexus is not valid: {}", NEXUS_FILE, e))
+    }
+
+    pub fn territories(&self) -> &[Territory] {
+        &self.territories
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {
@@ -298,6 +306,25 @@ mod tests {
     #[test]
     fn parse_tolerates_a_territory_with_no_repos() {
         assert_eq!(index().entries().count(), 4);
+    }
+
+    #[test]
+    fn parse_keeps_territory_ids_and_names() {
+        let index = index();
+        let territories: Vec<(&str, &str, usize)> = index
+            .territories()
+            .iter()
+            .map(|t| (t.id.as_str(), t.name.as_str(), t.repos.len()))
+            .collect();
+        assert_eq!(territories, vec![("a", "A", 4), ("b", "B", 0)]);
+    }
+
+    #[test]
+    fn parse_tolerates_a_territory_with_no_id_or_name() {
+        let index = NexusIndex::parse(r#"{"territories":[{"repos":[{"id":"x"}]}]}"#).unwrap();
+        assert_eq!(index.territories()[0].id, "");
+        assert_eq!(index.territories()[0].name, "");
+        assert_eq!(index.entries().count(), 1);
     }
 
     #[test]
