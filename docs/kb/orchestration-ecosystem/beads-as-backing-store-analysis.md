@@ -383,7 +383,13 @@ Findings:
 - **Concurrency is compare and swap plus merge.** A stale push is rejected, as with
   `tsk ledger push`. Dolt then merges rows and cells, and stops on a same-cell conflict
   with a queryable conflict table. tsk's ledger merges at file and line level through git.
-- **Cost**: one binary of 127 MB, and no account, server or secret.
+- **Cost**: one binary of 127 MB, unpacked from a 44 MB archive, and no account,
+  server or secret. Measured in the cloud session: 1.1 seconds to download and 1.4
+  seconds to unpack. The repo's `SessionStart` hook took 35 seconds to build `tsk` from
+  source in the same session. Within one session the container keeps the binary, and
+  `/clear` does not reset the container. A new session starts in a fresh container, so a
+  permanent install goes in the environment's setup script or in the repo's
+  `SessionStart` hook, where `tsk` itself is installed.
 
 The branch `experiment/dolt-ledger` remains on GitHub. The proxy refuses ref deletion
 from a cloud session (ADR 0008), so it is deleted by hand.
