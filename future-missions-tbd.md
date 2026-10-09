@@ -827,5 +827,6 @@ Context from the same session:
 - Herdr reads agent state from the screen instead. Rex's docs name that as the
   heuristic the protocol replaces.
 
-Captured as an idea only. Nothing is decided. Where it lands, as a `tsk` command, a
-hook, or both, is open.
+Adopted by Jim, 2026-10-09: "the OSC thing is in and Rex is just something people can
+use if they want." tsk will emit program status through OSC 7501. Where it lands, as a
+`tsk` command, a hook, or both, and which mission builds it, are open.
