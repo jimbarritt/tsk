@@ -7,7 +7,8 @@
 | Assignee | unassigned |
 | Blocked by | none |
 
-Skeleton. The decision is made in ADR 0014. The scope of the first step is open.
+Skeleton. The decision is made in ADR 0014. The scope and the branch were settled on
+2026-10-09, see Decisions. The plan is not yet drawn up.
 
 ## Idea, as captured
 
@@ -61,9 +62,19 @@ ledger this mission puts behind a seam. The reasons are in
 - `PROPOSAL-pluggable-storage-backends.md` in `gastownhall/beads`: a storage seam in
   Go, with conformance tests across backends, as a precedent.
 
+## Decisions
+
+- **Scope: everything at once.** Every ledger record moves to Dolt in one step, with
+  each briefing's Markdown body in a text column. Decided by Jim 2026-10-09.
+- **The Dolt data branch is `tsk/ledger`.** The same branch the file ledger uses
+  today. Decided by Jim 2026-10-09. The file ledger's history stays in that branch's
+  earlier commits.
+- **Projections are decided later.** They may not be committed at all. Decided by Jim
+  2026-10-09.
+
 ## Decision authority
 
-Jim decides the scope of the first step (open question 1) and the branch name.
+Jim decided the scope and the branch name, see Decisions.
 
 The actor decides the table design, the trait's shape, how the `dolt` binary is
 invoked, and the conformance test layout. The mission report records each choice and
@@ -86,17 +97,16 @@ the reason for it.
 
 ## Open questions
 
-1. Scope of the first step. Jim's two options, 2026-10-09: (a) everything at once,
-   with each briefing's Markdown body in a text column; (b) the JSONL records first
-   (continuation entries, external events, bindings, the index table), with briefings
-   staying as files until the seam holds both. Recommendation: (a), because (b) means
-   two stores and two push paths during the transition, and the briefing body is one
-   column.
-2. Ordering against M-BOOT-04 T-10 (a ledger in the nexus) and T-11 (the harness
-   outside this repo). Both touch the ledger's location.
-3. Whether the Dolt data branch is `tsk/ledger` itself or a branch beside it, so that
-   the file ledger's history stays readable in git.
+1. Answered 2026-10-09, see Decisions: scope.
+2. Withdrawn 2026-10-09: M-BOOT-04 T-10 and T-11 are both DONE, so nothing orders
+   against them. A nexus-held ledger (T-10) is a Dolt database on a namespaced branch
+   in the nexus, which the `--ref` option covers.
+3. Answered 2026-10-09, see Decisions: branch.
+4. How the cut-over runs: the file ledger's last commit on `tsk/ledger`, then the first
+   Dolt push on the same branch, and whether every clone's ledger worktree re-fetches
+   cleanly across that boundary.
 
 ## Plan
 
-Not yet drawn up. Drawn up when Jim settles open question 1.
+Not yet drawn up. The actor who starts the mission drafts it from the objective and
+the decisions, for Jim's approval.
