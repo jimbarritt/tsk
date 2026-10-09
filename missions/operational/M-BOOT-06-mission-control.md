@@ -87,6 +87,16 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
   scope is the mission model, the ledger and thread continuation. Decided 2026-10-06,
   ADR 0013. Replaces the decision of 2026-09-25 that the list view moves into the tsk
   TUI.
+- **tmux stays the base.** Rex, Superlogical's multiplexer
+  (`docs/kb/orchestration-ecosystem/rex.md` in the tsk repo), is not adopted in place
+  of tmux. Jim's reasons, 2026-10-09: tmux follows the Unix philosophy, running inside
+  any terminal with text in and text out, so every piece of Mission Control is a small
+  script over it. Rex replaces the terminal, the multiplexer and the remote connection
+  in one application with its own API, its source is not published, and its client is
+  macOS only. Rex is a harness tsk works in under ADR 0013, not a replacement for this
+  mission. One piece of Rex is kept: the Program Status Protocol, OSC 7501, a plain
+  escape sequence any terminal can read, captured as an idea in
+  `future-missions-tbd.md`. Decided 2026-10-09.
 - **Dependency.** Mission Control depends on tsk, and tsk does not depend on Mission
   Control. When Mission Control shows tsk data, it calls `tsk` commands and reads their
   output. tsk reads no Mission Control file. The status indicator and the token total
