@@ -318,6 +318,76 @@ weight on the substrate side. If the proposals land upstream, tsk's Product reco
 the Navigation layer could be typed Beads in a BDP store, with tsk's own concepts as
 Types. That is a question for a later mission, once the preview reaches upstream beads.
 
+### Beads as a substrate for tsk, revisited
+
+Asked 2026-10-09: can tsk still use beads as a substrate and build on top of it?
+
+Technically yes, once the preview lands upstream:
+
+- **Navigation**: IDs, atomic claims and the ready queue map cleanly, as found on
+  2026-09-20.
+- **Product records**: Memory Beads, with versions whose history is superseded, not
+  deleted.
+- **tsk's own concepts**: missions, objectives and reports as typed Beads with a JSON
+  Schema, not as text in a description.
+- **The language boundary**: BDP over HTTP removes the reason `persistence-and-sync.md`
+  gave against Dolt, a Go core reached from Rust. tsk would call BDP and never link
+  Dolt.
+
+What blocks it today:
+
+- BDP over HTTP serves reads only. Writes, history over HTTP, user-installed Types and
+  cross-Scope References are still ahead, and none of it is upstream.
+- A Scope has one serialised writer, so every tsk actor would write through one shared
+  server. A cloud session reaches that server only over HTTPS.
+- Thread continuation, the actor model, the nexus and territories stay in tsk.
+
+### Dolt in a Claude Code cloud session
+
+Probed 2026-10-09 from a cloud session, under that environment's network policy:
+
+| Path | Result |
+|---|---|
+| Embedded Dolt, the beads default | Works: it runs inside `bd` and writes local files |
+| `dolt sql-server` inside the container | Works, and its data ends with the container |
+| A remote `dolt sql-server` | Blocked: the MySQL protocol needs raw TCP on port 3306, and outbound raw TCP is blocked. SSH on port 22 is blocked too |
+| Sync to a git remote, default ref | Refused. Dolt writes `refs/dolt/data`, a ref outside `refs/heads/*`, and the proxy returns HTTP 403 (ADR 0008). Tested, see below |
+| Sync to a git remote, a branch ref | Works. `dolt remote add --ref refs/heads/<branch>` puts the data on an ordinary branch. Tested, see below |
+| Sync to DoltHub, S3 or GCS | Reachable over HTTPS. DoltHub's remote API uses gRPC, not tested through the proxy. S3 and GCS need credentials in the environment |
+
+### Experiment: a Dolt ledger in this repo, over git, from a cloud session
+
+Run 2026-10-09 from a Claude Code cloud session, with Dolt 1.88.2 installed from the
+GitHub release. The remote was this repository, `git+https://github.com/jimbarritt/tsk.git`,
+through the session's git proxy. Each writer was a separate Dolt clone in its own
+directory, standing in for two sessions.
+
+| Step | Result |
+|---|---|
+| `dolt push` with the default ref, `refs/dolt/data` | Failed after 58 seconds: `RPC failed; HTTP 403`. Nothing was written |
+| `dolt remote add --ref refs/heads/experiment/dolt-ledger`, then `dolt push` | Succeeded in 9 seconds. The branch `experiment/dolt-ledger` exists on GitHub |
+| `dolt clone` from that branch into a fresh directory | Succeeded, and returned the row written by the first clone |
+| Second writer pushes while behind | Rejected: "Updates were rejected because the tip of your current branch is behind" |
+| `dolt pull`, then push | Merged one writer's status change with the other's new row, and pushed |
+| Both writers change the same cell | `CONFLICT (content)`. `dolt_conflicts_missions` lists base `TODO`, ours `BLOCKED`, theirs `DONE`. The merge stops for a person or agent to resolve |
+
+Findings:
+
+- **Dolt over git works from a cloud session** when the data ref is under
+  `refs/heads/*`. The `--ref` option on `dolt remote add` is the whole fix. Beads sets its
+  own remote, so beads would need the same option exposed.
+- **The branch holds opaque files.** The git tree has a `manifest` and content-addressed
+  table files. Each push adds a git commit titled `gitblobstore: checkandput manifest`.
+  The data is readable only through Dolt, unlike tsk's ledger, whose Markdown and JSONL
+  read in any git viewer.
+- **Concurrency is compare and swap plus merge.** A stale push is rejected, as with
+  `tsk ledger push`. Dolt then merges rows and cells, and stops on a same-cell conflict
+  with a queryable conflict table. tsk's ledger merges at file and line level through git.
+- **Cost**: one binary of 127 MB, and no account, server or secret.
+
+The branch `experiment/dolt-ledger` remains on GitHub. The proxy refuses ref deletion
+from a cloud session (ADR 0008), so it is deleted by hand.
+
 ## Related
 
 - [tsk-market-position-analysis.md](tsk-market-position-analysis.md): the prior,
