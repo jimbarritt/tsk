@@ -785,7 +785,8 @@ Raised by Jim, 2026-10-09, after the Dolt over git experiment recorded in
 > I guess what dolt gives beads is an abstraction layer over the persistence. Which is
 > powerful.
 >
-> I wonder if we should rewrite dolt in rust or rewrite tsk in go?
+> I wonder if we should rewrite dolt in rust or rewrite tsk in dolt?
+> I meant go
 
 Asked whether to record it:
 
