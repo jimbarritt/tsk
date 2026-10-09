@@ -1,6 +1,8 @@
 # Analysis: using beads as tsk's backing store
 
-Status: exploratory research, no decision made. 2026-09-20.
+Status: exploratory research, no decision made. 2026-09-20. Updated 2026-10-09 with
+Memory Beads, the Beads Protocol and versioning, in
+[Update 2026-10-09](#update-2026-10-09-memory-beads-the-beads-protocol-and-versioning).
 
 ## The question
 
@@ -184,6 +186,79 @@ tsk models is built beside it or on top of it, not inside it.
 This sharpens, rather than changes, the existing conclusion in
 `tsk-market-position-analysis.md`: "Treat beads as a swappable substrate and a research
 baseline, not an ally."
+
+## Update 2026-10-09: Memory Beads, the Beads Protocol and versioning
+
+Source: the Gas City blog post
+[Extending Beads: Memories, Versions and the Wire Protocol](https://blog.gascity.com/posts/extending-beads-memories-versions-and-the-wire-protocol/),
+by Donna Box, dated 2026-10-01, credited to Stephanie Jarmak, Jim Wordelman, Chris Sells
+and Donna Box. The page was fetched as raw HTML and read as text. Quoted phrases were
+matched against that text. The post gives beads more than 27,000 GitHub stars and over
+1.5 million release downloads as of 2026-10-01.
+
+Status of the work: a preview on the `integration` branch of `versioned-beads/beads`.
+"None of it has landed in upstream Beads yet." The preview "may corrupt your Beads
+data". HTTP writes, HTTP history, user-installed Types and cross-Scope References are
+still ahead.
+
+Since 2026-09-20 tsk's official ledger has been built as git ledgers, and `tskd` is
+retired (ADR 0012). The mapping below uses tsk's domain terms, which did not change.
+
+### What the post proposes
+
+| Proposal | Mechanism |
+|---|---|
+| Memory Bead | Long-lived knowledge, such as "a project policy, a decision and its reasoning, or something an agent learned while doing the work". It has an identity, a title and a Markdown body. "Unlike an Issue, a Memory doesn't become ready or blocked, and we don't close it". It can be corrected or retired |
+| Generic graph | "A Bead is an identified, typed thing with properties. A Link is an identified, typed, directed relationship with properties of its own." An Issue and a Memory are kinds of Bead. A blocking Dependency is a kind of Link. Links have their own identity |
+| Types | Each Bead or Link has one Type, identified by a URL. A Type descriptor can supply a JSON Schema for properties and, for a Link, constraints on its endpoints. An open `metadata` record holds data specific to an application |
+| Beads Protocol (BDP) | A shared data model and an HTTP interface. A tool reads a Bead, inspects its Type and follows its Links without knowing the database schema |
+| Scope | "the owning boundary", with a canonical base URL. Each Bead and Link belongs to one Scope. A Link can cross a Scope boundary, and its far end is carried as a Reference: a URL |
+| Versioning | Earlier states are addressable, with attribution. A citation follows the current state by URL, or pins one retained version. A Type can own its outgoing Link Types, so changing an owned Link changes the source Bead's version |
+| Guarded writes | A writer names the revision it started from. If another write has landed, the guarded write fails. An unguarded write must record the version it replaced |
+| History contract | "an old address must continue to mean the same state", and a store that cannot serve an old state must say so, "never substitute the current version" |
+| Agent guidance | Graph initialisation writes instructions for remembering knowledge into `AGENTS.md`, and registers a Claude Code `Stop` hook |
+
+The post's motivating example is the split tsk draws between a story card and a product
+capability. A code flow policy stored as an Issue raises the question of what closing
+it means. "Updating the code flow policy is work we can finish. We want an Issue for the
+change and a Memory for the knowledge it leaves behind, with a Link connecting them."
+
+### How the mapping changes
+
+| tsk concept | 2026-09-20 finding | With the proposals |
+|---|---|---|
+| Story card and Product capability | No beads equivalent | The Issue and Memory split matches the distinction: work with a lifecycle in days, and a record that persists, is corrected and is retired, never closed. A Memory has no acceptance criteria and no health state |
+| Delta and `Delta Gate` | No beads equivalent | "an Issue for the change and a Memory for the knowledge it leaves behind" has the shape of a Delta that updates a capability. Nothing gates the Memory's change on the Issue's outcome, and nothing checks production health |
+| History that is never deleted, only superseded | Beads exposes a mutable row, with no append-only read path | A Memory's versions are addressable, with attribution, and an old address keeps its meaning. This covers tsk's rule for a product capability's history. It does not give a paused execution snapshot |
+| Thread continuation | No beads equivalent | Unchanged. Versions record states of a Bead, not a paused execution context per actor |
+| Territory and Nexus | No beads equivalent | A Scope is an owning boundary with a base URL, and a cross-Scope Link carries a URL to another store. This is closer to tsk's model than Gas Town's `routes.jsonl`. A Scope joins the ownership boundary and the address. tsk keeps the territory, which bounds, apart from the nexus, which only routes |
+| Ledger push | Not compared | Guarded writes with a revision token are the same compare and swap that `tsk ledger push` performs |
+| Mission briefing, Mission report, Objective | Inert text in an issue's `description` | Typed Beads with a JSON Schema could hold them as structured data that tools validate. This depends on user-installed Types, which are still ahead |
+| Actor | No beads equivalent | Unchanged. Versions carry attribution, but nothing models an actor's cardinality |
+| Scale | Fixed epic, task and subtask tiers | Unchanged in the post. A generic graph of typed Links could hold nesting without fixed tiers, but the post does not propose it |
+
+### Verdict on the update
+
+The overlap with tsk's model has grown, and it now reaches outside Navigation:
+
+- **Product**: Memory Beads give beads a persistent record that is distinct from work,
+  which is the core of tsk's Product dimension. The post reaches the split by the same
+  argument tsk's ubiquitous language makes against complecting a story card with a
+  capability.
+- **Delta**: the Issue and Memory pair has the shape of a Delta that updates the product
+  record, without a gate.
+- **History**: versioning gives beads the "never deleted, only superseded" rule.
+- **Structure**: Types with a JSON Schema remove the earlier finding that tsk's concepts
+  would ride along as inert text, once user-installed Types land.
+
+What stays outside beads: thread continuation as execution continuity, the actor model,
+objectives as checkable states, the mission report, the `Delta Gate` on production
+health, and continuous Scale.
+
+The earlier conclusion, beads as "a swappable substrate and a research baseline", gains
+weight on the substrate side. If the proposals land upstream, tsk's Product records and
+the Navigation layer could be typed Beads in a BDP store, with tsk's own concepts as
+Types. That is a question for a later mission, once the preview reaches upstream beads.
 
 ## Related
 
