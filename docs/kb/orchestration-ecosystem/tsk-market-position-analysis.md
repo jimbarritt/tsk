@@ -7,7 +7,7 @@ not a system assessed. Orca was added on 2026-10-02 as a fifth system assessed. 
 dynamic workflows were added on 2026-10-05 as a related mechanism, not a system assessed.
 Antithesis was added on 2026-10-05 as a related tool, not a system assessed, compared
 with Jepsen and Jev. A strategy section on adopting Dolt rather than beads was added on
-2026-10-09, with ADR 0014. Herdr was added on 2026-10-06 as a related runtime, not a system
+2026-10-09, with ADR 0014. Rex was added on 2026-10-09 as a related runtime beside Herdr. Herdr was added on 2026-10-06 as a related runtime, not a system
 assessed, compared with tmux. OpenSpec was added on 2026-10-06 as a related
 system, not a system assessed. It is the first read that models parts of Product and Delta,
 and it models no Navigation or Scale.
@@ -943,6 +943,38 @@ and Jev, not among the systems assessed. Two items intersect tsk:
 Position: no change to the three-part verdict below. Herdr occupies the layer below a
 task: where an agent's terminal runs and what state it is in.
 
+## Rex: a terminal that asks programs to report their state
+
+Research: [rex.md](rex.md). Public beta from 2026-10-05, macOS only, by invitation.
+Free and self-hostable, from Superlogical, Mitchell Hashimoto's company, funded by
+Notable Capital and Amplify Partners.
+
+Rex is a terminal multiplexer that is also the terminal, built on libghostty. A server
+holds sessions, and the macOS app, the web and other devices attach. It is listed
+beside Herdr, not among the systems assessed: it models no mission, objective, actor or
+ledger. It differs from Herdr on one point that matters to tsk:
+
+- **How a terminal learns an agent's state.** Herdr reads the screen against a manifest
+  per agent. Rex publishes the Program Status Protocol, OSC 7501, and waits for programs
+  to report `idle`, `working`, `blocked` with a kind, `done` or `error`. Rex names the
+  screen-reading approach as the heuristic it replaces.
+- **Automation.** A self-documenting JSON Schema API, Lua scripts that wait on events,
+  and a JSON event stream. Comparable to Herdr's agent API, with the server as the one
+  source of truth about what a method takes.
+- **The stated aim.** "a durable session around the work itself", with structured
+  data, actions and history, "driven by software while remaining visible and
+  controllable by people". That is the layer tsk's ledger occupies, approached from the
+  terminal. What Superlogical will put there is not published.
+
+Two items intersect tsk. A tsk actor that emits OSC 7501 appears in Rex's session
+picker with no Rex-specific code, and Mission Control could read the same sequence
+instead of its own state file. And Superlogical's second and third plan parts are a
+competitor to watch at the ledger layer, once they say what they hold.
+
+Position: no change to the three-part verdict. Rex is a harness under ADR 0013, and
+tsk works in it today as plain terminals do. OSC 7501 is the first open protocol read
+here for the state Mission Control and Herdr each detect by their own means.
+
 ## OpenSpec: a spec layer that models parts of Product and Delta
 
 Research: [openspec.md](openspec.md). Version 1.13.0, read 2026-10-06. Open source
@@ -1116,6 +1148,8 @@ collision above).
   with Jepsen and Jev compared side by side, and a comparison against tsk.
 - [herdr.md](herdr.md): the full reference for the Herdr section above, with tmux, the
   Mission Control task and tsk compared.
+- [rex.md](rex.md): the full reference for the Rex section above, with tmux, Herdr, the
+  Mission Control task and tsk compared, and the Program Status Protocol.
 - [openspec.md](openspec.md): the full reference for the OpenSpec section above, with a
   comparison against tsk's Product capability, Delta and nexus.
 - [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md): a schema-level
