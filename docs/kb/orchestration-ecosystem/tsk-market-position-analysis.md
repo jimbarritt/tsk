@@ -6,7 +6,8 @@ LangSmith was added on 2026-09-29 and OpenAI Dots on 2026-09-30, each as a relat
 not a system assessed. Orca was added on 2026-10-02 as a fifth system assessed. Copilot
 dynamic workflows were added on 2026-10-05 as a related mechanism, not a system assessed.
 Antithesis was added on 2026-10-05 as a related tool, not a system assessed, compared
-with Jepsen and Jev. Herdr was added on 2026-10-06 as a related runtime, not a system
+with Jepsen and Jev. A strategy section on adopting Dolt rather than beads was added on
+2026-10-09, with ADR 0014. Herdr was added on 2026-10-06 as a related runtime, not a system
 assessed, compared with tmux. OpenSpec was added on 2026-10-06 as a related
 system, not a system assessed. It is the first read that models parts of Product and Delta,
 and it models no Navigation or Scale.
@@ -540,6 +541,75 @@ model for enforcing Execution constraints. See
 
 tsk's thesis is the unification of all four dimensions, not any single one, so it does
 not collapse if any of these systems later absorbs another dimension.
+
+## Strategy: adopt Dolt, not beads
+
+Jim's proposal, 2026-10-09, after the Dolt experiment and the Memory Beads reading
+(both in [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md)):
+rather than compete at the infrastructure layer, adopt Dolt, or even beads. The
+reasons given: both are established; it is the same direction as ADR 0013 took for
+Mission Control; tsk keeps its uniqueness and builds on platforms with momentum;
+"built on beads, plugs into Orca" reaches an existing market; and if tsk's features are
+absorbed into those platforms, that is still a win. A seam would allow either a beads
+backend or native Dolt.
+
+### Where the reasoning holds
+
+- The direction matches ADR 0013. The git ledger was a zero-dependency choice, not a
+  bid to compete with Dolt.
+- Dolt's value is measured: row and cell merge, a queryable conflict table, SQL over
+  the ledger, and one abstraction over git, DoltHub, S3 and GCS remotes. It works from a
+  cloud session today.
+- "Absorbed is a win" is sound when the win is influence. That goal changes which path
+  is cheapest.
+
+### Where it does not
+
+1. **Dolt and beads are two bets.** Dolt is a database with years and a company behind
+   it. Adopting it is a storage decision. Beads is a one-year-old project whose data
+   model is mid-redesign on a fork. Adopting it is a domain-model decision.
+2. **On beads, tsk's model is a guest in beads' schema.** The 2026-09-20 analysis found
+   the conflicts: a status enum against an objective as a checkable state, fixed epic
+   tiers against continuous Scale, mutable rows against append-only continuation.
+   Beads' charter prefers the `metadata` column to new first-class fields. Memory
+   Beads reaching into Product and Delta is the absorption this document warned of.
+3. **The beads to build on is not upstream.** Memory Beads, BDP and versioning are on
+   `versioned-beads/beads`. BDP serves reads only. Writes, history over HTTP,
+   user-installed Types and cross-Scope References are ahead.
+4. **BDP centralises what tsk distributes.** A Scope has one serialised writer. tsk's
+   actors push to a git ledger from anywhere with compare and swap. Native Dolt over
+   git keeps that model.
+5. **Beads cannot push from a cloud session.** It sets its Dolt remote on
+   `refs/dolt/data`, which the proxy refuses. Dolt direct works through `--ref`.
+6. **Beads' market may be the wrong one.** Its users chose a lightweight tracker. tsk
+   adds missions, briefings and objectives. Whether they want that is what the
+   token-saving experiment tests, and it has not run.
+7. **The substrate question follows the value question.** ADR 0012 retired `tskd` on
+   2026-10-04 to reach a zero-dependency ledger. The recorded pain since is a missing
+   lock on same-clone writes, which no store fixes.
+8. **A binary store needs a reading path.** Agents open `index.md` and the briefings
+   today. Either a projection or `tsk` commands that print them must exist first.
+
+### Options
+
+| Option | Cost | What it tests | Risk |
+|---|---|---|---|
+| A. Native Dolt behind a seam, git ledger kept as a backend | Weeks | Whether Dolt's merge and SQL pay off | Low. Tested. Reversible |
+| B. Beads for Navigation only | Months, waits on upstream | Whether two models share a store | Medium |
+| C. Propose tsk's concepts to beads and BDP as Types | Days | Whether beads' users want tsk's ideas | Low |
+| D. Run the token-saving experiment first | Weeks | Whether the four dimensions have value | None |
+| E. Full beads substrate | Months | Market access | High, items 2 to 6 |
+
+### Decision
+
+Jim, 2026-10-09: adopt Dolt now, behind a seam, with no projection layer in the first
+step, since agents read and write through `tsk` and only a human needs the projection.
+Recorded as ADR 0014. Beads is not adopted. C remains a side bet. D runs in parallel
+and does not block A.
+
+Position: no change to the three-part verdict. The store is below the model. Beads is
+the system closest to modelling all four dimensions, and it is a substrate to re-check
+once BDP writes and Types are upstream, not a platform to build on today.
 
 ## Net position
 

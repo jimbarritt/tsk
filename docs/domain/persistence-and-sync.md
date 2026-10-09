@@ -1,6 +1,8 @@
 # Persistence and sync
 
-Status: settled on approach; several mechanics still open. Source: 2026-09-14
+Status: superseded on 2026-10-09 by
+[ADR 0014](../adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md), which adopts
+Dolt as the ledger store. Kept as the record of the 2026-09-14 design. Source: 2026-09-14
 bootstrap design session.
 
 ## Decided
