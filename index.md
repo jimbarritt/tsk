@@ -10,12 +10,22 @@ mission status at the level of scale you mean.
 
 ## Current mission
 
-**M-BOOT-04: the official ledger.** Full briefing:
-[missions/operational/M-BOOT-04-official-ledger.md](missions/operational/M-BOOT-04-official-ledger.md).
-The `tsk` binary replaces the bootstrap scripts, and the missions move into the ledger.
-Since T-07 (2026-10-04) the missions, threads and external events are held on
-`tsk/ledger`. `tsk/bootstrap` is retired: its final commit is tagged
-`archive/tsk-bootstrap`, and nothing writes to it. M-BOOT-02 closed on 2026-10-03 and M-BOOT-03 is deferred. See M-BOOT, Decisions.
+**M-BOOT-07: session migration**, in progress. Full briefing:
+[missions/operational/M-BOOT-07-session-migration.md](missions/operational/M-BOOT-07-session-migration.md).
+Every session runs on the binary, the plugin and `tsk/ledger`, and the `tsk/bootstrap`
+refs are deleted.
+
+**Next: M-DOLT, Dolt as the ledger store.** Full briefing:
+[missions/operational/M-DOLT-ledger-store.md](missions/operational/M-DOLT-ledger-store.md).
+The ledger moves from Markdown and JSONL files to a Dolt database, behind a storage
+trait that keeps the file ledger as a backend, synced over git on `tsk/ledger`. Decided
+in ADR 0014 and named by Jim as the next mission on 2026-10-09. The plan is not yet
+drawn up.
+
+M-BOOT-04, the official ledger, is done: the `tsk` binary replaced the bootstrap
+scripts, the missions moved into `tsk/ledger`, and `tsk/bootstrap` was retired and
+tagged `archive/tsk-bootstrap`. M-BOOT-02 closed on 2026-10-03 and M-BOOT-03 is
+deferred. See M-BOOT, Decisions.
 
 Parent mission: **M-BOOT, bootstrap tsk self hosting.** Reached when the missions and
 tasks for building tsk are held in tsk's own ledger and agents execute them from there,
