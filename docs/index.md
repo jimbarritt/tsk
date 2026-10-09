@@ -57,6 +57,7 @@ Architecture Decision Records capture why significant technical choices were mad
 - [0011-logic-lives-in-the-binary-not-the-plugin.md](adr/0011-logic-lives-in-the-binary-not-the-plugin.md): all harness logic lives in the `tsk` binary. Plugin hooks, skills and scripts call `tsk` and hold only what belongs to the Claude Code harness.
 - [0012-retire-tskd-ledgers-are-the-only-shared-state.md](adr/0012-retire-tskd-ledgers-are-the-only-shared-state.md): `tskd` is retired. Git ledgers, located through the nexus, are the only shared state, and the TUI is rebuilt to read them. A local cache index is a deferred extension.
 - [0013-tsk-works-in-any-harness-mission-control-stays-separate.md](adr/0013-tsk-works-in-any-harness-mission-control-stays-separate.md): tsk depends on no harness and each harness reaches it through an adapter. Mission Control stays a separate product, and depends on tsk, not the reverse.
+- [0014-dolt-is-the-ledger-store-behind-a-storage-seam.md](adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md): Dolt is the ledger store, run as an external binary and synced over git on a branch, behind a storage trait that keeps the git-file ledger as a backend. Beads is not adopted. Six options compared.
 
 ## Knowledge base
 
