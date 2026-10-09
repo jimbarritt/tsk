@@ -10,12 +10,14 @@ mission status at the level of scale you mean.
 
 ## Current mission
 
-**M-BOOT-07: session migration**, in progress. Full briefing:
+**M-DOLT runs first, then M-BOOT-07's clean-up.** Jim, 2026-10-09.
+
+**M-BOOT-07: session migration**, in progress, T-01 only until M-DOLT is done. Full briefing:
 [missions/operational/M-BOOT-07-session-migration.md](missions/operational/M-BOOT-07-session-migration.md).
 Every session runs on the binary, the plugin and `tsk/ledger`, and the `tsk/bootstrap`
 refs are deleted.
 
-**Next: M-DOLT, Dolt as the ledger store.** Full briefing:
+**M-DOLT, Dolt as the ledger store**, the next mission to start. Full briefing:
 [missions/operational/M-DOLT-ledger-store.md](missions/operational/M-DOLT-ledger-store.md).
 The ledger moves from Markdown and JSONL files to a Dolt database, behind a storage
 trait that keeps the file ledger as a backend, synced over git on `tsk/ledger`. Decided

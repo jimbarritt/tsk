@@ -69,6 +69,9 @@ ledger this mission puts behind a seam. The reasons are in
 - **The Dolt data branch is `tsk/ledger`.** The same branch the file ledger uses
   today. Decided by Jim 2026-10-09. The file ledger's history stays in that branch's
   earlier commits.
+- **M-DOLT runs before M-BOOT-07's remaining clean-up.** "Dolt first, then clean up."
+  Decided by Jim 2026-10-09. M-BOOT-07 T-01, migrating sessions, continues as sessions
+  are returned to.
 - **Projections are decided later.** They may not be committed at all. Decided by Jim
   2026-10-09.
 

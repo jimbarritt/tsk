@@ -5,7 +5,7 @@
 | ID | M-BOOT-07 |
 | Territory | agentic research |
 | Assignee | Jim |
-| Blocked by | M-BOOT-04 |
+| Blocked by | M-BOOT-04. T-02 and T-03 also wait for M-DOLT: Jim, 2026-10-09, "Dolt first, then clean up" |
 
 ## Objective
 
