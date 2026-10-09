@@ -804,3 +804,28 @@ Context from the same session:
   markdown as a read-only projection of tsk's own store.
 
 Captured as an idea only. Nothing is decided.
+
+## tsk emits program status through OSC 7501
+
+Raised by Jim, 2026-10-09, after reading Rex's Program Status Protocol
+(`docs/kb/orchestration-ecosystem/rex.md` in the tsk repo). Asked whether to capture
+"tsk emits OSC 7501" as an idea:
+
+> Yeah for sure this is a great idea a standard for emitting statuses for sure we
+> should add that
+
+Context from the same session:
+
+- OSC 7501 is a terminal escape sequence, published by Superlogical as a generic
+  protocol, by which a program reports `idle`, `working`, `blocked` (with
+  `kind=permission`, `question` or `auth`), `done` or `error`, plus progress, an `app`
+  name, a title and a message.
+- A tsk actor that emits it appears in Rex's session picker with no Rex-specific code,
+  and in any other terminal that adopts the protocol.
+- Mission Control (M-BOOT-06) could read the same sequence for its status indicator
+  instead of its own state file, if Claude Code or a hook emits it.
+- Herdr reads agent state from the screen instead. Rex's docs name that as the
+  heuristic the protocol replaces.
+
+Captured as an idea only. Nothing is decided. Where it lands, as a `tsk` command, a
+hook, or both, is open.
