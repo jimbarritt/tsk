@@ -64,6 +64,27 @@ loosely Product joined against Delta, but treats it as a join between two system
 modelled domain construct in its own right. It is the closest beads' framing comes to
 reaching outside Navigation.
 
+### Update 2026-10-09: beads reaches outside Navigation
+
+Research: the update section of
+[beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md), from the Gas
+City post of 2026-10-01 on Memory Beads, the Beads Protocol and versioning. The work is
+a preview on a fork's integration branch and has not landed in upstream beads.
+
+The post proposes a Memory Bead for long-lived knowledge, which is never closed, only
+corrected or retired, beside the Issue for work. It argues the split from a code flow
+policy: "an Issue for the change and a Memory for the knowledge it leaves behind". This
+is tsk's distinction between a story card and a product capability, and the pair has
+the shape of a Delta that updates the product record. A generic graph of typed Beads and
+Links, Types with a JSON Schema, addressable versions with attribution, guarded writes
+and Scopes with cross-Scope References come with it.
+
+The "Not converged" list above changes. Beads now has the start of a Product model and
+the shape of a Delta, with history that is superseded and not deleted. It still has no
+thread continuation, actor model, checkable objective, mission report, `Delta Gate` on
+production health, or continuous Scale. tsk's hypothesis stands: no system read so far
+models all four dimensions. Beads is now the system closest to doing so.
+
 ## Claude Code Projects
 
 Announced 2026-09-17, in beta. A project holds a goal, a repo or other context, and
@@ -1028,7 +1049,8 @@ collision above).
 - [openspec.md](openspec.md): the full reference for the OpenSpec section above, with a
   comparison against tsk's Product capability, Delta and nexus.
 - [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md): a schema-level
-  sharpening of the Beads section above, on whether beads could be tsk's official ledger.
+  sharpening of the Beads section above, on whether beads could be tsk's official ledger,
+  updated 2026-10-09 for Memory Beads, the Beads Protocol and versioning.
 - [cursor-projects.md](cursor-projects.md): the full reference for the Cursor Projects
   section above, with a mechanic-by-mechanic comparison against tsk.
 - [langsmith.md](langsmith.md): the full reference for the LangSmith section above, with
