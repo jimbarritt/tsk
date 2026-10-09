@@ -231,11 +231,69 @@ change and a Memory for the knowledge it leaves behind, with a Link connecting t
 | Delta and `Delta Gate` | No beads equivalent | "an Issue for the change and a Memory for the knowledge it leaves behind" has the shape of a Delta that updates a capability. Nothing gates the Memory's change on the Issue's outcome, and nothing checks production health |
 | History that is never deleted, only superseded | Beads exposes a mutable row, with no append-only read path | A Memory's versions are addressable, with attribution, and an old address keeps its meaning. This covers tsk's rule for a product capability's history. It does not give a paused execution snapshot |
 | Thread continuation | No beads equivalent | Unchanged. Versions record states of a Bead, not a paused execution context per actor |
-| Territory and Nexus | No beads equivalent | A Scope is an owning boundary with a base URL, and a cross-Scope Link carries a URL to another store. This is closer to tsk's model than Gas Town's `routes.jsonl`. A Scope joins the ownership boundary and the address. tsk keeps the territory, which bounds, apart from the nexus, which only routes |
+| Territory and Nexus | No beads equivalent | A Scope matches a ledger more than a territory: one store, one writer, one URL. A cross-Scope Link carries a URL to another store. BDP v0 has no index of Scopes, so no nexus, and nothing groups Scopes into a territory. See [Storage and Scope, from the source](#storage-and-scope-from-the-source) |
 | Ledger push | Not compared | Guarded writes with a revision token are the same compare and swap that `tsk ledger push` performs |
 | Mission briefing, Mission report, Objective | Inert text in an issue's `description` | Typed Beads with a JSON Schema could hold them as structured data that tools validate. This depends on user-installed Types, which are still ahead |
 | Actor | No beads equivalent | Unchanged. Versions carry attribution, but nothing models an actor's cardinality |
 | Scale | Fixed epic, task and subtask tiers | Unchanged in the post. A generic graph of typed Links could hold nesting without fixed tiers, but the post does not propose it |
+
+### Storage and Scope, from the source
+
+Read 2026-10-09 from two shallow clones: `versioned-beads/beads` on the `integration`
+branch at `648db76`, and the BDP specification repo `gastownhall/bdp` at `182f1fc`. The
+files named below were read directly.
+
+**Storage is still Dolt.** `docs/architecture/index.md`: "Beads uses **Dolt** as its
+sole storage backend", embedded in-process by default (`.beads/embeddeddolt/`) or as a
+`dolt sql-server` (`.beads/dolt/`). Every write auto-commits to Dolt history.
+`PROPOSAL-pluggable-storage-backends.md` records a SQLite adapter beside Dolt, and
+PostgreSQL and MySQL adapters that were rolled back.
+
+- **The graph is more tables in the same database.**
+  `internal/storage/graphstore/schema.go` adds seven `graph_preview_*` tables: links,
+  scope, types, catalog, payloads, versions and issue versions. Versions hold a full
+  snapshot per change, with the actor and a timestamp.
+- **HTTP is a front end, not a store.** `bd serve` mounts BDP as a second route table
+  on the existing `internal/httpapi` server, over the same Dolt database.
+  `engdocs/BDP_GRAPH_ARCHITECTURE.md`: BDP is served "only from SQL-server
+  workspaces"; "`bd serve` refuses embedded Dolt permanently".
+- **Git is a transport for Dolt, not the store.** A Dolt remote can be DoltHub, S3, GCS,
+  a file path, or a git remote. With a `git+ssh://` remote, `bd dolt push` writes Dolt's
+  data to `refs/dolt/data` on that git repository, "separate from standard Git refs".
+  `bd init` sets the project's git `origin` as the default sync remote. This is a
+  custom ref outside `refs/heads/*`, the same kind of ref ADR 0008 moved tsk off,
+  because the Claude Code cloud proxy refuses to push one.
+
+**A Scope is one store with one writer.** From `docs/specs/bdp.md`, "Scopes and
+identity": a Scope "is the boundary within which BDP interprets local identifiers,
+evaluates selections, and commits atomic mutations". Every Bead and Link belongs to
+exactly one Scope, each mutation applies to one Scope, and Scopes do not nest. Each
+Scope has one canonical URL ending in `/`, and a resource URL is never reused for an
+unrelated resource.
+
+- **In the code, one database holds one Scope.** `graph_preview_scope` has a single
+  row: the workspace, the Scope URL, an authority ID and a writer token.
+  `bd --graph-mode link serve` mints the Scope on its first serve.
+- **One writer per Scope.** The plan excludes "independently writable replicas and
+  multi-authority merge of one Scope history": a Scope has "One serialized serving
+  authority". The authority is a clone-local file, `graph-authority.local.json`, which
+  is git-ignored, checked against a hash-chained ledger and, on a shared server, a
+  lease row.
+- **Cross-Scope Links are URLs, with no index.** A Link may point outside its Scope by
+  URI. At least one end must be in the Scope. "A future cross-Scope indexing profile may
+  define ownership, lifecycle, authorization, and duplicate handling" for such Links.
+  BDP v0 defines no list of Scopes and no way to discover one from another.
+- **Access is per request.** An authorization view decides what a caller may read.
+  Holding a URL grants no permission.
+
+**Scope compared with territory, nexus and ledger:**
+
+| tsk | BDP | Match |
+|---|---|---|
+| Ledger: one per repo, written through compare and swap | Scope: one per beads database, one serialised writer, guarded writes | Close. A Scope is the nearer match to a ledger than to a territory |
+| Nexus entry: where a repo's ledger lives | The Scope's canonical URL | Close. Both locate one store |
+| Nexus: an index of the repos in an area, with links to other nexuses | None in v0. A "future cross-Scope indexing profile" is named | No equivalent yet |
+| Territory: the isolation boundary, which governs whether a link may be followed across it | Authorization views per request, and Scope boundaries that only bound identity and atomic writes | No equivalent. Nothing groups Scopes into an area with its own rules |
 
 ### Verdict on the update
 
