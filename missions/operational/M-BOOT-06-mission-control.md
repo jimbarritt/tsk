@@ -160,6 +160,10 @@ It is in M-BOOT's scope under the exception added to M-BOOT's constraints on
 - `docs/kb/orchestration-ecosystem/herdr.md` (in the tsk repo): Herdr, a terminal
   multiplexer for agents, compared objective by objective. Its agent state detection,
   agent API and restore after a restart are designs to read before later phases.
+- `docs/kb/orchestration-ecosystem/rex.md` (in the tsk repo): Rex, and its Program
+  Status Protocol (OSC 7501), an escape sequence by which a program reports idle,
+  working, blocked with a kind, done or error. A candidate for the status indicator in
+  place of a state file, if Claude Code or a hook emits it.
 
 ## Decision authority
 
