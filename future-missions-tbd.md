@@ -773,3 +773,33 @@ Three things had no place in the briefing format and were added by hand:
   recorded under M-BOOT-04.
 - **Structured questions from a subagent.** Each question carries an ID, options and a
   recommendation, and is raised one at a time to the lead and from there to the human.
+
+## Dolt as the ledger's store, and markdown as a projection for humans
+
+Raised by Jim, 2026-10-09, after the Dolt over git experiment recorded in
+`docs/kb/orchestration-ecosystem/beads-as-backing-store-analysis.md` in the tsk repo:
+
+> Ah this is already interesting information - and implies dolt already encountered
+> this issue!
+>
+> I guess what dolt gives beads is an abstraction layer over the persistence. Which is
+> powerful.
+>
+> I wonder if we should rewrite dolt in rust or rewrite tsk in go?
+
+Asked whether to record it:
+
+> Yes. Because I've been thinking about moving to a more binary format anyway.
+>
+> And making markdown a projection that gets published for Humans.
+
+Context from the same session:
+
+- Dolt pushed a database to this repo from a cloud session once its data ref was a
+  branch under `refs/heads/*`. The default `refs/dolt/data` got HTTP 403.
+- The options raised: rewrite Dolt in Rust, rewrite tsk in Go, or call the `dolt`
+  binary from the Rust `tsk` binary, as it already calls `git`.
+- `docs/adr/0007-event-log-as-source-of-truth.md` in the tsk repo already states
+  markdown as a read-only projection of tsk's own store.
+
+Captured as an idea only. Nothing is decided.
