@@ -7,7 +7,8 @@ not a system assessed. Orca was added on 2026-10-02 as a fifth system assessed. 
 dynamic workflows were added on 2026-10-05 as a related mechanism, not a system assessed.
 Antithesis was added on 2026-10-05 as a related tool, not a system assessed, compared
 with Jepsen and Jev. A strategy section on adopting Dolt rather than beads was added on
-2026-10-09, with ADR 0014. Rex was added on 2026-10-09 as a related runtime beside Herdr. Herdr was added on 2026-10-06 as a related runtime, not a system
+2026-10-09, with ADR 0014. Rex was added on 2026-10-09 as a related runtime beside Herdr. A closing section on interaction surfaces, with tmux, was added on
+2026-10-10. Herdr was added on 2026-10-06 as a related runtime, not a system
 assessed, compared with tmux. OpenSpec was added on 2026-10-06 as a related
 system, not a system assessed. It is the first read that models parts of Product and Delta,
 and it models no Navigation or Scale.
@@ -611,6 +612,43 @@ Position: no change to the three-part verdict. The store is below the model. Bea
 the system closest to modelling all four dimensions, and it is a substrate to re-check
 once BDP writes and Types are upstream, not a platform to build on today.
 
+## Surfaces: the core of tsk stays independent
+
+Jim, 2026-10-10, closing the research of 2026-10-05 to 2026-10-10: tmux, Herdr, Rex,
+Orca and Mission Control are surfaces, the places where a human sees and steers agent
+work. They are not where the work is modelled. This is the case for keeping the core
+of tsk independent of every one of them.
+
+| Surface | What it is | Source | Maturity | Platforms | How it learns an agent's state |
+|---|---|---|---|---|---|
+| tmux | Multiplexer inside any terminal | Open. ISC, C | First commit 2007-07-09. Release 3.8. Two people write nearly all of it. No company | Unix | It does not |
+| Herdr | Multiplexer for agents inside any terminal | Open. Apache 2.0, Rust | 0.9.3. $6M seed, September 2026 | macOS, Linux, Windows | Reads the screen against a manifest per agent, or takes an integration's reports |
+| Rex | Terminal and multiplexer in one app, with a server | No source published. Free, self-hostable | Public beta from 2026-10-05, by invitation | macOS client only. Linux and Windows servers not shipped | The program reports it, through OSC 7501 |
+| Orca | Desktop app for parallel agents in worktrees | Open. MIT, Electron | 1.4.214 | macOS, Windows, Linux, with phone companions | Terminal titles and agent hooks |
+| Mission Control | A tmux layout with a list of Claude sessions | Jim's own, in `jimbarritt/tsk-mission-control` | Built standalone | macOS | Claude Code hooks write a state file |
+
+What the research found:
+
+1. **Five surfaces give five answers to one question**: which agent needs a person.
+   A core that depended on one surface would inherit its answer, and its limits.
+2. **They differ most on openness and maturity.** tmux is open, nineteen years old and
+   in every package list. Rex is closed and not yet public, and by its own words it
+   replaces the terminal and the multiplexer. A core tied to Rex would depend on a beta
+   whose server and client have no published licence.
+3. **None models a mission, an objective, a ledger or thread continuation.** Each ends
+   where the agent's terminal ends.
+4. **The newer surfaces share a small interface.** Herdr and Rex expose a CLI that
+   prints JSON. Herdr, Rex and Orca each take a status that a program or a hook
+   reports. `tsk` meets both: the binary, ADR 0013's adapter per harness, and OSC 7501,
+   which Jim adopted on 2026-10-09.
+
+Position: the core of tsk is the mission model, the ledger and thread continuation,
+reached through the `tsk` binary. A surface attaches through an adapter that calls the
+binary, and tsk reads no file that a surface writes (ADR 0013). ADR 0014 applies the
+same rule below the model: the core does not depend on one store either. tmux stays the
+base for Mission Control. Herdr, Rex and Orca are places people can choose to use tsk.
+No change to the three-part verdict.
+
 ## Net position
 
 Do not stop tsk. Do not ship tsk as a head-to-head tracker or orchestrator. Do not plan
@@ -974,6 +1012,11 @@ competitor to watch at the ledger layer, once they say what they hold.
 Position: no change to the three-part verdict. Rex is a harness under ADR 0013, and
 tsk works in it today as plain terminals do. OSC 7501 is the first open protocol read
 here for the state Mission Control and Herdr each detect by their own means.
+
+Superlogical describes Rex as "a drop-in replacement for whichever terminal you use
+today". It replaces the terminal and the multiplexer, which are Ghostty and tmux. It
+does not do what tsk does. Its server and client have no published source, and it has
+been in public testing since 2026-10-05, on macOS only.
 
 ## OpenSpec: a spec layer that models parts of Product and Delta
 
