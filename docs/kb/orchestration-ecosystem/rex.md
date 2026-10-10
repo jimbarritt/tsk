@@ -183,9 +183,23 @@ Two items intersect tsk:
   and third plan parts aim at the layer tsk's ledger sits in, from the terminal
   upwards. What they hold is not published.
 
+## Possible direction: a browser block
+
+Plausible, not confirmed. No page read names WebKit or a browser block. The docs show
+that a block is "one application in a window. Today that means a terminal.", that a block
+has a kind (`com.superlogical.terminal.shell`), and that a server event, `creator_changed`,
+fires when "the kinds of block the session can create have changed". More kinds of block
+are designed for, and a web view block would fit.
+
+If it exists, Rex and Orca meet from opposite ends. Orca (`orca.md`) embeds a terminal
+in a Chromium window, drawn with xterm.js, and gives each worktree a browser pane that
+agents can control. Rex would embed a browser in a native terminal that parses with
+libghostty.
+
 ## Not established
 
 - The server's implementation language.
+- Whether Rex has, or will have, a browser block, and which engine it would use.
 - Whether the macOS app's local server keeps running after the app quits. The
   announcement says a session can survive closing the application.
 
