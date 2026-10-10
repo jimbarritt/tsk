@@ -830,3 +830,29 @@ Context from the same session:
 Adopted by Jim, 2026-10-09: "the OSC thing is in and Rex is just something people can
 use if they want." tsk will emit program status through OSC 7501. Where it lands, as a
 `tsk` command, a hook, or both, and which mission builds it, are open.
+
+## The Efrit channel's contract as a model for the next `tsk` command
+
+Raised during the Efrit research, 2026-10-10. Jim agreed to capture it as an idea when
+asked whether the channel's contract is worth reading again when the next `tsk` command
+is designed:
+
+> Yes.
+
+Context from `docs/kb/orchestration-ecosystem/efrit.md` in the tsk repo. Efrit's
+channel, `bin/efrit`, lets an external agent drive a live Emacs. Its contract:
+
+- One command per interaction.
+- Errors are data, in a JSON envelope: `{"ok":false,"error":{"type":...,"message":...}}`.
+- The result is bounded: printed values, snapshot content and messages each have a size
+  limit.
+- A timeout fails loudly with an error and a non-zero exit status, never a hang.
+- Every answer carries the current state, so the caller never acts blind.
+
+The channel document records why the earlier design failed: requests crossed several
+asynchronous hops (an MCP server, a file queue, a file watcher, an inner model loop) and
+returned no state, so agents fell back to batch mode. The `tsk` external event queue in
+the ledger crosses hops in a similar way.
+
+Captured as an idea only. Nothing is decided. Which command, and whether it applies to
+existing commands or to a new one, are open.
