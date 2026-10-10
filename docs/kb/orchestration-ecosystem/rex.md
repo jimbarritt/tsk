@@ -10,7 +10,8 @@ three layers of ancient terminal emulation with a lightning-fast, modern termina
 emulator that can replace ssh/mosh, ghostty, and tmux". Yegge runs "Emacs with 20+
 agents" in it, and says it "solves a problem I didn't realize even had a solution:
 agents going through five to six layers of terminals and shells."
-In replies in the same thread, read on 2026-10-10, he says tmux is still in his stack:
+In replies in the same thread, read on 2026-10-10, he says Rex is a trial and tmux is
+still his multiplexer:
 "Rex will also replace my tmux layer when it gets more stable. It's definitely buggy
 right now. Then all that's left are Emacs and agents and Rex." His terminals inside
 Emacs are eat buffers.
