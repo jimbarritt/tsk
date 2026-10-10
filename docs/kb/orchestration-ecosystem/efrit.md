@@ -10,9 +10,8 @@ agents". Two replies of his in the same thread, read on 2026-10-10, place Efrit 
 setup: "eat buffers work well for me so far", and "Rex will also replace my tmux layer
 when it gets more stable. It's definitely buggy right now. Then all that's left are Emacs
 and agents and Rex." So the agents run in eat terminal buffers inside Emacs, which is not
-Efrit's own buffer. Rex has taken the place of Ghostty and ssh in his stack, tmux still
-runs inside a Rex terminal, and Rex is to take tmux's place too once stable. Efrit may be
-one of the agents. See [Yegge's Emacs stack](#yegges-emacs-stack).
+Efrit's own buffer. His working stack is tmux, Emacs and agents in eat buffers. Rex is a
+trial alongside it, and replaces tmux once it is stable. Efrit may be one of the agents. See [Yegge's Emacs stack](#yegges-emacs-stack).
 
 Sources: a full clone of the repository. Files read: `README.md`, `ARCHITECTURE.md`,
 `SECURITY.md`, `CHANGELOG.md`, `docs/CHANNEL.md`, `docs/CLAUDE_CODE_MIGRATION.md`,
@@ -159,10 +158,11 @@ screenshot:
   tmux layer when it gets more stable. It's definitely buggy right now. Then all that's
   left are Emacs and agents and Rex."
 
-So today Rex is the terminal, in place of Ghostty and ssh. Inside a Rex terminal, tmux
-still runs. Inside tmux, an Emacs daemon reached through `emacsclient` (the tab title in
-his screenshot). Inside Emacs, agents in eat buffers. The end state he names drops tmux:
-Rex, Emacs, agents. Emacs is the top-level host of the agents, with terminals inside it. Efrit, whose agent surface is a buffer with no terminal, is at most
+So his working stack is tmux, then an Emacs daemon reached through `emacsclient` (the
+tab title in his screenshot), then agents in eat buffers inside Emacs. Rex is a trial he
+is running alongside that stack, and it is not yet stable enough to replace tmux. The end
+state he names is Rex, Emacs, agents. In both, Emacs is the top-level host of the agents,
+with terminals inside it. Efrit, whose agent surface is a buffer with no terminal, is at most
 one of those agents.
 
 ## Not established
