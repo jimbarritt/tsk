@@ -654,6 +654,12 @@ example of the surface that is its own harness: it runs the agent loop in Emacs,
 Claude Code plugin does not attach to it. A person or another agent reaches it through
 its channel, as they reach `tsk` through the binary.
 
+Yegge's own stack, from replies read on 2026-10-10, is Rex, then tmux, then Emacs, then
+agents in eat terminal buffers, with Rex to replace tmux "when it gets more stable.
+It's definitely buggy right now." That is Emacs as the top-level host with terminals
+inside it, the same shape as Orca, and one user running four of these surfaces at once.
+It is the case for a core that attaches to any of them and depends on none.
+
 Research: [efrit.md](efrit.md).
 
 ## Net position

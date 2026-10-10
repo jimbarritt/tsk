@@ -6,7 +6,12 @@ commit in the clone 2026-07-04. 632 commits, 620 of them by Steve Yegge, 527 in 
 months to 2026-10-10. 86 Emacs Lisp files, about 30,000 lines, and a TypeScript MCP server.
 
 Raised from Yegge's post of 2026-10-08 about Rex, which says he runs "Emacs with 20+
-agents". Whether that setup is Efrit is not stated in anything read.
+agents". Two replies of his in the same thread, read on 2026-10-10, place Efrit in that
+setup: "eat buffers work well for me so far", and "Rex will also replace my tmux layer
+when it gets more stable. It's definitely buggy right now. Then all that's left are Emacs
+and agents and Rex." So the agents run in eat terminal buffers inside Emacs, which is not
+Efrit's own buffer, and his stack today is Rex, then tmux, then Emacs, then agents. Efrit
+may be one of the agents. See [Yegge's Emacs stack](#yegges-emacs-stack).
 
 Sources: a full clone of the repository. Files read: `README.md`, `ARCHITECTURE.md`,
 `SECURITY.md`, `CHANGELOG.md`, `docs/CHANNEL.md`, `docs/CLAUDE_CODE_MIGRATION.md`,
@@ -140,9 +145,29 @@ Three items intersect tsk:
   `tmux send-keys` and `capture-pane` give Mission Control: keystrokes in, rendered screen
   out.
 
+## Yegge's Emacs stack
+
+From two replies in the thread of his 2026-10-08 post about Rex, read on 2026-10-10 as a
+screenshot:
+
+- **Terminals inside Emacs are eat buffers.** "eat buffers work well for me so far." eat
+  (Emulate A Terminal) is an Emacs package that runs a terminal emulator in a buffer, so
+  a terminal program such as Claude Code runs inside Emacs. That description of eat is
+  from general knowledge, not from a page read.
+- **tmux is still in the stack, and Rex is to replace it.** "Rex will also replace my
+  tmux layer when it gets more stable. It's definitely buggy right now. Then all that's
+  left are Emacs and agents and Rex."
+
+So the nesting today is Rex, then tmux, then an Emacs daemon reached through
+`emacsclient` (the tab title in his screenshot), then agents in eat buffers. The target
+is Rex, then Emacs, then agents. Emacs is the top-level host of the agents, with
+terminals inside it. Efrit, whose agent surface is a buffer with no terminal, is at most
+one of those agents.
+
 ## Not established
 
-- Whether Yegge's "Emacs with 20+ agents" is Efrit, or Emacs with other tooling.
+- Which agents run in his eat buffers, and whether Efrit is among them. The replies
+  name eat and Rex, not the agents.
 - Any dotfiles. No public repository of his Emacs configuration was found. His profile
   page could not be read from the sandbox, so the list of his repositories is not seen.
 - How the project is used by anyone but its author: 620 of 632 commits are his.
