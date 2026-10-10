@@ -55,8 +55,8 @@ as a delivery surface beside Mission Control, chosen by the person.
 
 ## Addendum, 2026-10-10
 
-The research of 2026-10-05 to 2026-10-10 read four more surfaces: tmux, Herdr, Rex and
-Orca. Each is where a human sees and steers agent work, and none models a mission, an
+The research of 2026-10-05 to 2026-10-10 read five more surfaces: tmux, Herdr, Rex, Orca
+and Efrit. Each is where a human sees and steers agent work, and none models a mission, an
 objective, a ledger or thread continuation. They differ in openness and maturity: tmux
 is open and nineteen years old, and Rex is a closed beta. That strengthens decision 1
 and decision 3. The comparison is in `tsk-market-position-analysis.md`, under

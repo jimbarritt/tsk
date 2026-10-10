@@ -615,7 +615,7 @@ once BDP writes and Types are upstream, not a platform to build on today.
 ## Surfaces: the core of tsk stays independent
 
 Jim, 2026-10-10, closing the research of 2026-10-05 to 2026-10-10: tmux, Herdr, Rex,
-Orca and Mission Control are surfaces, the places where a human sees and steers agent
+Orca, Efrit and Mission Control are surfaces, the places where a human sees and steers agent
 work. They are not where the work is modelled. This is the case for keeping the core
 of tsk independent of every one of them.
 
@@ -625,11 +625,12 @@ of tsk independent of every one of them.
 | Herdr | Multiplexer for agents inside any terminal | Open. Apache 2.0, Rust | 0.9.3. $6M seed, September 2026 | macOS, Linux, Windows | Reads the screen against a manifest per agent, or takes an integration's reports |
 | Rex | Terminal and multiplexer in one app, with a server | No source published. Free, self-hostable | Public beta from 2026-10-05, by invitation | macOS client only. Linux and Windows servers not shipped | The program reports it, through OSC 7501 |
 | Orca | Desktop app for parallel agents in worktrees | Open. MIT, Electron | 1.4.214 | macOS, Windows, Linux, with phone companions | Terminal titles and agent hooks |
+| Efrit | An agent inside Emacs, and a channel by which other agents drive a live Emacs | Open. Apache 2.0, Emacs Lisp | 0.4.1. First commit 2025-07-23. One author wrote 620 of 632 commits | Wherever Emacs runs | It is the agent: status and TODOs show in its buffer. For other agents it returns editor state after every command |
 | Mission Control | A tmux layout with a list of Claude sessions | Jim's own, in `jimbarritt/tsk-mission-control` | Built standalone | macOS | Claude Code hooks write a state file |
 
 What the research found:
 
-1. **Five surfaces give five answers to one question**: which agent needs a person.
+1. **Six surfaces give six answers to one question**: which agent needs a person.
    A core that depended on one surface would inherit its answer, and its limits.
 2. **They differ most on openness and maturity.** tmux is open, nineteen years old and
    in every package list. Rex is closed and not yet public, and by its own words it
@@ -638,7 +639,8 @@ What the research found:
 3. **None models a mission, an objective, a ledger or thread continuation.** Each ends
    where the agent's terminal ends.
 4. **The newer surfaces share a small interface.** Herdr and Rex expose a CLI that
-   prints JSON. Herdr, Rex and Orca each take a status that a program or a hook
+   prints JSON, and Efrit's channel answers each command with a JSON envelope that holds
+   the current state. Herdr, Rex and Orca each take a status that a program or a hook
    reports. `tsk` meets both: the binary, ADR 0013's adapter per harness, and OSC 7501,
    which Jim adopted on 2026-10-09.
 
@@ -647,7 +649,12 @@ reached through the `tsk` binary. A surface attaches through an adapter that cal
 binary, and tsk reads no file that a surface writes (ADR 0013). ADR 0014 applies the
 same rule below the model: the core does not depend on one store either. tmux stays the
 base for Mission Control. Herdr, Rex and Orca are places people can choose to use tsk.
-No change to the three-part verdict.
+No change to the three-part verdict. Efrit is also the closest
+example of the surface that is its own harness: it runs the agent loop in Emacs, so a
+Claude Code plugin does not attach to it. A person or another agent reaches it through
+its channel, as they reach `tsk` through the binary.
+
+Research: [efrit.md](efrit.md).
 
 ## Net position
 
@@ -1191,6 +1198,8 @@ collision above).
   with Jepsen and Jev compared side by side, and a comparison against tsk.
 - [herdr.md](herdr.md): the full reference for the Herdr section above, with tmux, the
   Mission Control task and tsk compared.
+- [efrit.md](efrit.md): the full reference for Efrit, an agent inside Emacs and a
+  channel for other agents, in the surfaces section above.
 - [rex.md](rex.md): the full reference for the Rex section above, with tmux, Herdr, the
   Mission Control task and tsk compared, and the Program Status Protocol.
 - [openspec.md](openspec.md): the full reference for the OpenSpec section above, with a
