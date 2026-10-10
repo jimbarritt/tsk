@@ -44,6 +44,41 @@ preserve history, and be driven by software while remaining visible and controll
 by people." The plan has three parts: build the multiplexer, make everything in it
 composable, make it safe and operable in production.
 
+## Built with
+
+- **The server's language is not published.** No page read names it.
+- **The client runs libghostty**, per a secondary write-up. Each client parses the
+  server's raw terminal bytes itself. libghostty is the terminal library from Ghostty:
+  "a cross-platform, zero-dependency C and Zig library", MIT licence. Its core is Zig,
+  about 350,000 lines in 599 files in the Ghostty repository read on 2026-10-10. Only
+  `libghostty-vt`, which parses escape sequences and keeps terminal state, is released.
+  The Ghostty README calls its API signatures "still in flux".
+- **Scripting is Lua 5.1**, "with the full standard library, including io, os, and
+  require". The docs do not say whether it is stock Lua or LuaJIT. A script runs where the
+  `rex` CLI runs and calls the server's API, so it is a client of the server, not code
+  inside it.
+- **Ghostty** began as Hashimoto's personal project. In 2025 he donated it to a non-profit,
+  and about a dozen core maintainers now work on it.
+
+## On one machine
+
+The macOS client "is fully self-contained with a local server", and "self-hosts its own
+Rex server". Every Rex terminal gets `REX_SERVER`, `REX_SESSION` and `REX_BLOCK` in its
+environment, so the `rex` CLI knows its place. The docs' listing of connected clients
+shows the app as principal `uid 501`, "over unix". The CLI is one more client:
+`rex -S <host> ls` points the same command at another server. tmux is also client and
+server on one machine. The difference is what a client is. A tmux client draws tmux's
+text inside a terminal, and a Rex client is the terminal.
+
+## Openness
+
+Superlogical states: "Rex is and will always be free", no account, self-hostable, "We do
+not see or share your data", and "the Rex clients and servers themselves are not going to
+be directly monetized". The commercial plan is "not ready to share". The mailing list
+promises "any OSS releases along the way". No source for the server or the client is
+published. The OSC 7501 protocol is public and carries "no Superlogical-specific
+functionality or language".
+
 ## Model
 
 | Concept | Meaning |
@@ -149,6 +184,10 @@ Two items intersect tsk:
   upwards. What they hold is not published.
 
 ## Not established
+
+- The server's implementation language.
+- Whether the macOS app's local server keeps running after the app quits. The
+  announcement says a session can survive closing the application.
 
 - Whether Rex's own source will be published. The mailing list promises "any OSS
   releases along the way", and Hashimoto's post commits to upstreaming shared terminal

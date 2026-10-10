@@ -52,3 +52,13 @@ as a delivery surface beside Mission Control, chosen by the person.
   view.
 - tsk competes with no harness. Its scope is the mission model, the ledger and thread
   continuation.
+
+## Addendum, 2026-10-10
+
+The research of 2026-10-05 to 2026-10-10 read four more surfaces: tmux, Herdr, Rex and
+Orca. Each is where a human sees and steers agent work, and none models a mission, an
+objective, a ledger or thread continuation. They differ in openness and maturity: tmux
+is open and nineteen years old, and Rex is a closed beta. That strengthens decision 1
+and decision 3. The comparison is in `tsk-market-position-analysis.md`, under
+"Surfaces: the core of tsk stays independent". Jim adopted OSC 7501, the Program Status
+Protocol, on 2026-10-09 as the way `tsk` reports status to any surface that reads it.
