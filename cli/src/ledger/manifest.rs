@@ -9,6 +9,29 @@ struct Manifest {
     repo_id: Option<String>,
 }
 
+/// The fields of a ledger manifest that a caller can read back.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestInfo {
+    pub version: i64,
+    pub repo_id: Option<String>,
+}
+
+#[allow(dead_code)]
+pub fn read(text: &str) -> Result<ManifestInfo, String> {
+    let manifest: Manifest = toml::from_str(text).map_err(|e| {
+        format!(
+            "error: {} is not a valid ledger manifest: {}",
+            MANIFEST_FILE,
+            e.message()
+        )
+    })?;
+    Ok(ManifestInfo {
+        version: manifest.version,
+        repo_id: manifest.repo_id,
+    })
+}
+
 pub fn initial_text(repo_id: Option<&str>) -> String {
     match repo_id {
         Some(id) => format!("version = 1\nrepo_id = \"{}\"\n", id),

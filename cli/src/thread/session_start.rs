@@ -4,10 +4,10 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
-use crate::ledger::fetch::{fetch, FetchOutcome};
 use crate::ledger::location::state_root_from_env;
+use crate::ledger::store::RefreshOutcome;
 
-use super::binding::{resolve_at, UNBOUND_PROMPT};
+use super::binding::{resolve, UNBOUND_PROMPT};
 use super::session::Session;
 
 pub const ENV_FILE_VAR: &str = "CLAUDE_ENV_FILE";
@@ -155,14 +155,10 @@ pub struct PendingNote {
 }
 
 impl PendingNote {
-    pub fn from_outcome(outcome: &FetchOutcome) -> PendingNote {
+    pub fn from_outcome(outcome: &RefreshOutcome) -> PendingNote {
         PendingNote {
-            remote_ref: format!(
-                "{}'s {}",
-                outcome.location.label(),
-                outcome.location.ref_name()
-            ),
-            origin_commit: outcome.commit.clone(),
+            remote_ref: outcome.remote_label.clone(),
+            origin_commit: outcome.remote_head.clone(),
             lines: outcome.pending.clone(),
         }
     }
@@ -212,11 +208,8 @@ fn export_to_env_file(path: &Path) -> Result<(), String> {
 }
 
 fn context_after_fetch(session: &Session) -> Result<String, String> {
-    let outcome = fetch(&session.repo, &session.state_root)?;
-    let binding = resolve_at(session, &outcome.path)
-        .ok()
-        .flatten()
-        .map(|b| b.to_string());
+    let outcome = session.store.refresh()?;
+    let binding = resolve(session).ok().flatten().map(|b| b.to_string());
     let mut context = fetched_context(
         &outcome.path,
         &PendingNote::from_outcome(&outcome),

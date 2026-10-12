@@ -1,15 +1,15 @@
 use std::collections::BTreeSet;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 
 use serde::Serialize;
 
 use crate::ledger::git::Git;
 use crate::ledger::location::mint_token;
+use crate::ledger::store::LedgerStore;
 
-use super::binding::{bind_cloud, bind_current, remove_marker, resolve_at, Binding};
+use super::binding::{bind_cloud, bind_current, remove_marker, resolve, Binding};
 use super::clock::utc_now;
-use super::entry::{self, read_store, CodeState, GitState, LedgerState, NewEntry, STORE_FILE};
-use super::lookup::{lookup_path, Lookup};
+use super::entry::{self, parse_store, CodeState, GitState, LedgerState, NewEntry};
 use super::session::Session;
 
 pub const THREAD_ID_LEN: usize = 8;
@@ -64,23 +64,26 @@ pub fn check_briefing_path(path: &str) -> Result<(), String> {
     }
 }
 
-pub fn thread_dir(wt: &Path, id: &str) -> PathBuf {
-    wt.join("threads").join(id)
-}
-
-fn mint_id(wt: &Path) -> Result<String, String> {
-    let seed = wt.to_string_lossy();
+fn mint_id(
+    seed: &str,
+    location: &str,
+    exists: &dyn Fn(&str) -> Result<bool, String>,
+) -> Result<String, String> {
     for _ in 0..MINT_ATTEMPTS {
-        let id = mint_token(THREAD_ID_LEN, &seed);
-        if !thread_dir(wt, &id).exists() {
+        let id = mint_token(THREAD_ID_LEN, seed);
+        if !exists(&id)? {
             return Ok(id);
         }
     }
     Err(format!(
         "error: no free thread id after {} attempts; is {} intact?",
-        MINT_ATTEMPTS,
-        wt.join("threads").display()
+        MINT_ATTEMPTS, location
     ))
+}
+
+fn entries_of(store: &dyn LedgerStore, id: &str) -> Result<Vec<entry::StoredEntry>, String> {
+    let lines = store.continuation_list(id)?;
+    parse_store(&lines.join("\n"), &store.describe_thread(id))
 }
 
 pub fn index_md(id: &str, briefing_path: &str) -> String {
@@ -90,44 +93,33 @@ pub fn index_md(id: &str, briefing_path: &str) -> String {
     )
 }
 
-fn scaffold(wt: &Path, id: &str, briefing_path: &str) -> Result<(), String> {
-    let dir = thread_dir(wt, id);
-    if dir.exists() {
-        return Err(format!("error: threads/{} already exists", id));
-    }
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("error: could not create {}: {}", dir.display(), e))?;
-    let index = dir.join("index.md");
-    std::fs::write(&index, index_md(id, briefing_path))
-        .map_err(|e| format!("error: could not write {}: {}", index.display(), e))?;
-    let store = dir.join(STORE_FILE);
-    std::fs::write(&store, "")
-        .map_err(|e| format!("error: could not write {}: {}", store.display(), e))
-}
-
 pub fn start(
     session: &Session,
     mission_id: &str,
     briefing_path: &str,
 ) -> Result<StartOutcome, String> {
-    let wt = session.refresh()?;
-    if let Some(binding) = resolve_at(session, &wt)? {
+    session.refresh()?;
+    let store = session.store.as_ref();
+    if let Some(binding) = resolve(session)? {
         return Ok(StartOutcome::ResumeRequired(
             binding.thread_id().to_string(),
         ));
     }
     check_briefing_path(briefing_path)?;
-    let briefing = wt.join(briefing_path);
-    if !briefing.is_file() {
+    if !store.doc_exists(briefing_path)? {
         return Err(format!(
             "error: mission briefing not found at ledger-relative path '{}' (checked {})",
             briefing_path,
-            briefing.display()
+            store.describe_document(briefing_path)
         ));
     }
-    let id = mint_id(&wt)?;
-    scaffold(&wt, &id, briefing_path)?;
-    bind_current(session, &id, &wt)?;
+    let id = mint_id(
+        &store.describe_threads(),
+        &store.describe_threads(),
+        &|id| store.thread_exists(id),
+    )?;
+    store.thread_create(&id, briefing_path)?;
+    bind_current(session, &id)?;
     session.push(&format!("Start thread {} for mission {}", id, mission_id))?;
     Ok(StartOutcome::Started(id))
 }
@@ -140,24 +132,24 @@ pub fn pause(
     whats_next: &str,
 ) -> Result<(), String> {
     check_thread_id(id)?;
-    let wt = session.refresh()?;
-    let store = thread_dir(&wt, id).join(STORE_FILE);
-    if !store.is_file() {
+    session.refresh()?;
+    let store = session.store.as_ref();
+    if !store.thread_exists(id)? {
         return Err(format!(
             "error: no such thread: {} (expected {})",
             id,
-            store.display()
+            store.describe_thread(id)
         ));
     }
-    let ledger_commit = Git::new(&wt).run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
+    let ledger_commit = store.head_id()?;
     let code_git = &session.repo.git;
     let code_ref = current_branch_ref(code_git)?;
     let code_commit = code_git.run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
     ensure_on_an_origin_branch(code_git, &code_ref, &code_commit)?;
     let timestamp = utc_now();
     let written_by = session.actor_urn();
-    entry::append(
-        &store,
+    store.continuation_append(
+        id,
         &NewEntry {
             mission_link,
             task_id,
@@ -173,7 +165,8 @@ pub fn pause(
             },
             timestamp: &timestamp,
             written_by: &written_by,
-        },
+        }
+        .to_json(),
     )?;
     session.push(&format!("Pause thread {}: {}", id, task_id))
 }
@@ -277,19 +270,19 @@ pub fn takeover_warning(id: &str, prior: &BTreeSet<String>, current: &str) -> St
 
 pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
     check_thread_id(id)?;
-    let wt = session.refresh()?;
-    let dir = thread_dir(&wt, id);
-    if !dir.is_dir() {
+    session.refresh()?;
+    let store = session.store.as_ref();
+    if !store.thread_exists(id)? {
         return Err(format!("error: no such thread: {}", id));
     }
-    let entries = read_store(&dir.join(STORE_FILE))?;
+    let entries = entries_of(store, id)?;
     let current = session.actor_urn();
     let warning = takeover_warning(id, &prior_actors(&entries), &current);
 
     match &session.cloud_session {
         Some(cloud) => {
-            if resolve_at(session, &wt)? != Some(Binding::Cloud(id.to_string())) {
-                bind_cloud(cloud, id, &wt)?;
+            if resolve(session)? != Some(Binding::Cloud(id.to_string())) {
+                bind_cloud(session, cloud, id)?;
                 session.push(&format!("Bind {} to thread {}", current, id))?;
             }
         }
@@ -316,16 +309,13 @@ pub fn render_resume(outcome: &ResumeOutcome) -> String {
 }
 
 pub fn detach(session: &Session) -> Result<String, String> {
-    let wt = session.refresh()?;
-    let binding = resolve_at(session, &wt)?.ok_or_else(|| {
+    session.refresh()?;
+    let binding = resolve(session)?.ok_or_else(|| {
         "error: no thread binding found for this session or worktree; nothing to detach".to_string()
     })?;
     match (&binding, &session.cloud_session) {
         (Binding::Cloud(id), Some(cloud)) => {
-            let path = lookup_path(&wt);
-            let mut lookup = Lookup::read(&path)?.unwrap_or_default();
-            lookup.remove(cloud);
-            lookup.write(&path)?;
+            session.store.cloud_unbind(cloud)?;
             session.push(&format!(
                 "Detach {} from thread {}",
                 session.actor_urn(),
@@ -338,8 +328,9 @@ pub fn detach(session: &Session) -> Result<String, String> {
 }
 
 pub fn stop(session: &Session, target: Option<&str>) -> Result<String, String> {
-    let wt = session.refresh()?;
-    let current = resolve_at(session, &wt)?;
+    session.refresh()?;
+    let store = session.store.as_ref();
+    let current = resolve(session)?;
     let id = match target {
         Some(id) => id.to_string(),
         None => current
@@ -351,20 +342,14 @@ pub fn stop(session: &Session, target: Option<&str>) -> Result<String, String> {
             })?,
     };
     check_thread_id(&id)?;
-    let dir = thread_dir(&wt, &id);
-    if !dir.is_dir() {
+    if !store.thread_exists(&id)? {
         return Err(format!("error: no such thread: {}", id));
     }
     if current == Some(Binding::Worktree(id.clone())) {
         remove_marker(session)?;
     }
-    let path = lookup_path(&wt);
-    if let Some(mut lookup) = Lookup::read(&path)? {
-        lookup.remove_thread(&id);
-        lookup.write(&path)?;
-    }
-    std::fs::remove_dir_all(&dir)
-        .map_err(|e| format!("error: could not remove {}: {}", dir.display(), e))?;
+    store.cloud_unbind_thread(&id)?;
+    store.thread_delete(&id)?;
     session.push(&format!("Stop thread {}", id))?;
     Ok(id)
 }
@@ -382,39 +367,17 @@ pub fn mission_link(index_md: &str) -> String {
         .unwrap_or_default()
 }
 
-pub fn list_rows(wt: &Path) -> Result<Vec<ListRow>, String> {
-    let threads = wt.join("threads");
-    let mut names: Vec<String> = match std::fs::read_dir(&threads) {
-        Ok(dir) => dir
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().is_dir())
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|name| !name.starts_with('.'))
-            .collect(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(e) => {
-            return Err(format!(
-                "error: could not read {}: {}",
-                threads.display(),
-                e
-            ))
-        }
-    };
-    names.sort();
-
+pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
     let mut rows = Vec::new();
-    for name in names {
-        let dir = threads.join(&name);
-        let link = std::fs::read_to_string(dir.join("index.md"))
-            .map(|text| mission_link(&text))
-            .unwrap_or_default();
-        let entries = read_store(&dir.join(STORE_FILE))?;
+    for name in store.thread_ids()? {
+        let link = store.thread_briefing(&name)?.unwrap_or_default();
+        let entries = entries_of(store, &name)?;
         let latest = entries.last().map(|stored| &stored.entry);
         rows.push(ListRow {
-            id: name,
             mission_link: link,
             latest_whats_next: latest.and_then(|e| e.whats_next.clone()),
             latest_timestamp: latest.and_then(|e| e.timestamp.clone()),
+            id: name,
         });
     }
     Ok(sort_rows(rows))
@@ -432,8 +395,8 @@ pub fn sort_rows(mut rows: Vec<ListRow>) -> Vec<ListRow> {
 }
 
 pub fn list(session: &Session) -> Result<Vec<ListRow>, String> {
-    let wt = session.refresh()?;
-    list_rows(&wt)
+    session.refresh()?;
+    list_rows(session.store.as_ref())
 }
 
 #[cfg(test)]
@@ -505,29 +468,26 @@ mod tests {
     }
 
     #[test]
-    fn scaffold_writes_index_and_empty_store_and_refuses_an_existing_thread() {
-        let dir = tempfile::tempdir().unwrap();
-        scaffold(dir.path(), "1234abcd", "missions/M-X.md").unwrap();
-        let thread = thread_dir(dir.path(), "1234abcd");
-        assert_eq!(
-            std::fs::read_to_string(thread.join("index.md")).unwrap(),
-            index_md("1234abcd", "missions/M-X.md")
-        );
-        assert_eq!(
-            std::fs::read_to_string(thread.join(STORE_FILE)).unwrap(),
-            ""
-        );
-        let err = scaffold(dir.path(), "1234abcd", "missions/M-X.md").unwrap_err();
-        assert_eq!(err, "error: threads/1234abcd already exists");
+    fn mint_id_is_eight_hex_characters_not_already_taken() {
+        let taken = std::cell::RefCell::new(Vec::new());
+        let id = mint_id("seed", "threads", &|id| {
+            taken.borrow_mut().push(id.to_string());
+            Ok(taken.borrow().len() < 3)
+        })
+        .unwrap();
+        assert!(check_thread_id(&id).is_ok());
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(taken.borrow().len(), 3);
+        assert_eq!(taken.borrow().last(), Some(&id));
     }
 
     #[test]
-    fn mint_id_is_eight_hex_characters_not_already_taken() {
-        let dir = tempfile::tempdir().unwrap();
-        let id = mint_id(dir.path()).unwrap();
-        assert!(check_thread_id(&id).is_ok());
-        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
-        assert!(!thread_dir(dir.path(), &id).exists());
+    fn mint_id_gives_up_when_every_id_is_taken() {
+        let err = mint_id("seed", "/s/threads", &|_| Ok(true)).unwrap_err();
+        assert_eq!(
+            err,
+            "error: no free thread id after 100 attempts; is /s/threads intact?"
+        );
     }
 
     fn actors(list: &[&str]) -> BTreeSet<String> {

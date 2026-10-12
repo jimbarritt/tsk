@@ -59,6 +59,7 @@ impl LedgerLocation {
     }
 }
 
+#[derive(Clone)]
 pub struct Repo {
     pub git: Git,
     pub common_dir: PathBuf,

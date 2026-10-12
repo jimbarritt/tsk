@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use clap::Subcommand;
 
-use crate::ledger::location::{state_root_from_env, Repo};
+use crate::ledger::store;
 use batch::{parse_batch, BatchDefaults};
 use ops::{AdvanceOutcome, AppendRequest, Ledger};
 
@@ -102,11 +102,9 @@ pub fn run(action: EventsCommands) -> Result<i32, String> {
     };
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
-    let repo = Repo::discover(&cwd)?;
-    let state_root = state_root_from_env()?;
+    let store = store::open(&cwd)?;
     let ledger = Ledger {
-        repo: &repo,
-        state_root: &state_root,
+        store: store.as_ref(),
     };
     match action {
         EventsCommands::Append {

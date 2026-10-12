@@ -11,7 +11,7 @@ use std::io::Read;
 use clap::Subcommand;
 use serde::Serialize;
 
-use binding::{resolve_at, resolve_local, UNBOUND_PROMPT};
+use binding::{resolve, resolve_local, UNBOUND_PROMPT};
 use ops::StartOutcome;
 use session::Session;
 
@@ -174,8 +174,8 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
             let binding = if no_fetch {
                 resolve_local(&session)?
             } else {
-                let wt = session.refresh()?;
-                resolve_at(&session, &wt)?
+                session.refresh()?;
+                resolve(&session)?
             };
             match binding {
                 Some(binding) => {

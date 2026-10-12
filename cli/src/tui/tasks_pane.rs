@@ -1,5 +1,5 @@
-use ratatui::prelude::*;
 use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use tsk_core::{Task, TaskState, Thread};
 
@@ -12,20 +12,20 @@ use super::threads_pane::pad;
 pub fn task_state_sort_key(state: &TaskState) -> u8 {
     match state {
         TaskState::InProgress => 0,
-        TaskState::Blocked    => 1,
+        TaskState::Blocked => 1,
         TaskState::NotStarted => 2,
-        TaskState::Done       => 3,
-        TaskState::Cancelled  => 4,
+        TaskState::Done => 3,
+        TaskState::Cancelled => 4,
     }
 }
 
 pub fn task_state_symbol(state: &TaskState) -> &'static str {
     match state {
-        TaskState::NotStarted => "\u{25cb}",  // ○
-        TaskState::InProgress => "\u{25b6}",  // ▶
-        TaskState::Blocked    => "\u{231b}",  // ⏳
-        TaskState::Done       => "\u{2713}",  // ✓
-        TaskState::Cancelled  => "\u{2717}",  // ✗
+        TaskState::NotStarted => "\u{25cb}", // ○
+        TaskState::InProgress => "\u{25b6}", // ▶
+        TaskState::Blocked => "\u{231b}",    // ⏳
+        TaskState::Done => "\u{2713}",       // ✓
+        TaskState::Cancelled => "\u{2717}",  // ✗
     }
 }
 
@@ -52,7 +52,11 @@ impl TaskColWidths {
     fn from_area(w: u16) -> Self {
         let overhead = 2 + 2 + W_INDEX + W_STATUS; // 2 borders + 2 separators
         let title = w.saturating_sub(overhead).max(1);
-        TaskColWidths { index: W_INDEX, status: W_STATUS, title }
+        TaskColWidths {
+            index: W_INDEX,
+            status: W_STATUS,
+            title,
+        }
     }
 
     fn active_widths(&self) -> Vec<u16> {
@@ -61,17 +65,27 @@ impl TaskColWidths {
 }
 
 fn top_border(ws: &TaskColWidths) -> Line<'static> {
-    let inner: Vec<String> = ws.active_widths().iter()
+    let inner: Vec<String> = ws
+        .active_widths()
+        .iter()
         .map(|&w| "\u{2500}".repeat(w as usize))
         .collect();
-    Line::from(Span::raw(format!("\u{250c}{}\u{2510}", inner.join("\u{252c}"))))
+    Line::from(Span::raw(format!(
+        "\u{250c}{}\u{2510}",
+        inner.join("\u{252c}")
+    )))
 }
 
 fn bottom_border(ws: &TaskColWidths) -> Line<'static> {
-    let inner: Vec<String> = ws.active_widths().iter()
+    let inner: Vec<String> = ws
+        .active_widths()
+        .iter()
         .map(|&w| "\u{2500}".repeat(w as usize))
         .collect();
-    Line::from(Span::raw(format!("\u{2514}{}\u{2518}", inner.join("\u{2534}"))))
+    Line::from(Span::raw(format!(
+        "\u{2514}{}\u{2518}",
+        inner.join("\u{2534}")
+    )))
 }
 
 fn task_data_line<'a>(
@@ -82,9 +96,9 @@ fn task_data_line<'a>(
     style: Style,
 ) -> Line<'a> {
     let cells = [
-        format!(" {}", pad(index,  ws.index.saturating_sub(1))),
+        format!(" {}", pad(index, ws.index.saturating_sub(1))),
         format!(" {}", pad(symbol, ws.status.saturating_sub(1))),
-        format!(" {}", pad(title,  ws.title.saturating_sub(1))),
+        format!(" {}", pad(title, ws.title.saturating_sub(1))),
     ];
     let line = format!("\u{2502}{}\u{2502}", cells.join("\u{2502}"));
     Line::from(Span::styled(line, style))
@@ -143,12 +157,13 @@ pub fn render(frame: &mut Frame, threads: &[Thread], tasks: &[Task], view: Tasks
 
     // Thread summary box
     let summary_w = main_area.width.saturating_sub(2).max(1) as usize;
-    let summary_text = format!(
-        " #{:04} {}  {}",
-        thread_id, thread_slug, priority_str,
-    );
+    let summary_text = format!(" #{:04} {}  {}", thread_id, thread_slug, priority_str,);
     let padded_summary = if summary_text.chars().count() < summary_w {
-        format!("{}{}", summary_text, " ".repeat(summary_w - summary_text.chars().count()))
+        format!(
+            "{}{}",
+            summary_text,
+            " ".repeat(summary_w - summary_text.chars().count())
+        )
     } else {
         summary_text.chars().take(summary_w).collect()
     };
@@ -177,10 +192,7 @@ pub fn render(frame: &mut Frame, threads: &[Thread], tasks: &[Task], view: Tasks
             Style::default().fg(Color::DarkGray),
         )));
     } else {
-        lines.push(Line::from(Span::styled(
-            "> Tasks",
-            Style::default().bold(),
-        )));
+        lines.push(Line::from(Span::styled("> Tasks", Style::default().bold())));
 
         let ws = TaskColWidths::from_area(main_area.width);
         lines.push(top_border(&ws));
@@ -192,16 +204,19 @@ pub fn render(frame: &mut Frame, threads: &[Thread], tasks: &[Task], view: Tasks
                 TaskState::Done | TaskState::Cancelled => Style::default().fg(Color::DarkGray),
                 _ => Style::default(),
             };
-            lines.push(task_data_line(&index_str, symbol, &task.description, &ws, style));
+            lines.push(task_data_line(
+                &index_str,
+                symbol,
+                &task.description,
+                &ws,
+                style,
+            ));
         }
 
         lines.push(bottom_border(&ws));
     }
 
-    frame.render_widget(
-        Paragraph::new(lines).scroll((scroll as u16, 0)),
-        main_area,
-    );
+    frame.render_widget(Paragraph::new(lines).scroll((scroll as u16, 0)), main_area);
 
     // --- Status bar ---
     let zoom_indicator = match zoom_slug {
@@ -234,16 +249,16 @@ fn render_help_popup(frame: &mut Frame, area: Rect) {
     let key_style = Style::default().bold();
 
     let bindings: &[(&str, &str)] = &[
-        ("j / \u{2193}",    "scroll down"),
-        ("k / \u{2191}",    "scroll up"),
-        ("ctrl-d",   "page down"),
-        ("ctrl-u",   "page up"),
-        ("gg",       "jump to top"),
-        ("G",        "jump to bottom"),
-        ("esc",      "back to threads"),
-        ("ctrl-o",   "back to threads"),
-        ("?",        "toggle this help"),
-        ("q",        "quit"),
+        ("j / \u{2193}", "scroll down"),
+        ("k / \u{2191}", "scroll up"),
+        ("ctrl-d", "page down"),
+        ("ctrl-u", "page up"),
+        ("gg", "jump to top"),
+        ("G", "jump to bottom"),
+        ("esc", "back to threads"),
+        ("ctrl-o", "back to threads"),
+        ("?", "toggle this help"),
+        ("q", "quit"),
     ];
 
     let rows: Vec<Line> = bindings

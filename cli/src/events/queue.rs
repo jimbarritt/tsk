@@ -1,5 +1,3 @@
-use std::path::{Path, PathBuf};
-
 use serde::Serialize;
 use serde_json::value::RawValue;
 
@@ -8,14 +6,6 @@ use super::json::compact_values;
 pub const EVENTS_DIR: &str = "external-events";
 pub const QUEUE_FILE: &str = "queue.ndjson";
 pub const WATERMARK_FILE: &str = "watermark.json";
-
-pub fn queue_path(wt: &Path) -> PathBuf {
-    wt.join(EVENTS_DIR).join(QUEUE_FILE)
-}
-
-pub fn watermark_path(wt: &Path) -> PathBuf {
-    wt.join(EVENTS_DIR).join(WATERMARK_FILE)
-}
 
 #[derive(Serialize)]
 struct Envelope<'a> {

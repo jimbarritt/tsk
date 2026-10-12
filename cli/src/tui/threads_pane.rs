@@ -27,16 +27,40 @@ impl ColWidths {
 
         if w > try5 + SLUG_FULL {
             let desc = w - try5 - SLUG_FULL;
-            return Self { id: W_ID, slug: SLUG_FULL, state: W_STATE, prio: W_PRIO, desc };
+            return Self {
+                id: W_ID,
+                slug: SLUG_FULL,
+                state: W_STATE,
+                prio: W_PRIO,
+                desc,
+            };
         }
         if w > try4 + SLUG_FULL {
-            return Self { id: W_ID, slug: SLUG_FULL, state: W_STATE, prio: W_PRIO, desc: 0 };
+            return Self {
+                id: W_ID,
+                slug: SLUG_FULL,
+                state: W_STATE,
+                prio: W_PRIO,
+                desc: 0,
+            };
         }
         if w > try3 + SLUG_FULL {
-            return Self { id: W_ID, slug: SLUG_FULL, state: W_STATE, prio: 0, desc: 0 };
+            return Self {
+                id: W_ID,
+                slug: SLUG_FULL,
+                state: W_STATE,
+                prio: 0,
+                desc: 0,
+            };
         }
         let slug = w.saturating_sub(try2).max(1);
-        Self { id: W_ID, slug, state: 0, prio: 0, desc: 0 }
+        Self {
+            id: W_ID,
+            slug,
+            state: 0,
+            prio: 0,
+            desc: 0,
+        }
     }
 
     pub fn active_widths(&self) -> Vec<u16> {
@@ -63,7 +87,9 @@ pub fn pad(s: &str, width: u16) -> String {
 }
 
 fn top_border(ws: &ColWidths) -> Line<'static> {
-    let inner: Vec<String> = ws.active_widths().iter()
+    let inner: Vec<String> = ws
+        .active_widths()
+        .iter()
         .map(|&w| "\u{2500}".repeat(w as usize))
         .collect();
     let line = format!("\u{250c}{}\u{2510}", inner.join("\u{252c}"));
@@ -71,7 +97,9 @@ fn top_border(ws: &ColWidths) -> Line<'static> {
 }
 
 fn bottom_border(ws: &ColWidths) -> Line<'static> {
-    let inner: Vec<String> = ws.active_widths().iter()
+    let inner: Vec<String> = ws
+        .active_widths()
+        .iter()
         .map(|&w| "\u{2500}".repeat(w as usize))
         .collect();
     let line = format!("\u{2514}{}\u{2518}", inner.join("\u{2534}"));
@@ -88,12 +116,18 @@ fn data_line<'a>(
     style: Style,
 ) -> Line<'a> {
     let mut cells: Vec<String> = vec![
-        format!(" {}", pad(id,   ws.id.saturating_sub(1))),
+        format!(" {}", pad(id, ws.id.saturating_sub(1))),
         format!(" {}", pad(slug, ws.slug.saturating_sub(1))),
     ];
-    if ws.state > 0 { cells.push(format!(" {}", pad(state, ws.state.saturating_sub(1)))); }
-    if ws.prio  > 0 { cells.push(format!(" {}", pad(prio,  ws.prio.saturating_sub(1)))); }
-    if ws.desc  > 0 { cells.push(format!(" {}", pad(desc,  ws.desc.saturating_sub(1)))); }
+    if ws.state > 0 {
+        cells.push(format!(" {}", pad(state, ws.state.saturating_sub(1))));
+    }
+    if ws.prio > 0 {
+        cells.push(format!(" {}", pad(prio, ws.prio.saturating_sub(1))));
+    }
+    if ws.desc > 0 {
+        cells.push(format!(" {}", pad(desc, ws.desc.saturating_sub(1))));
+    }
     let line = format!("\u{2502}{}\u{2502}", cells.join("\u{2502}"));
     Line::from(Span::styled(line, style))
 }
@@ -109,7 +143,8 @@ pub fn build_ordered_threads(threads: &[Thread]) -> Vec<&Thread> {
     ordered.extend(threads.iter().filter(|t| t.state == ThreadState::Active));
 
     // Priority & Incidents (incidents first)
-    let is_inactive = |t: &&Thread| matches!(t.state, ThreadState::Paused | ThreadState::Waiting { .. });
+    let is_inactive =
+        |t: &&Thread| matches!(t.state, ThreadState::Paused | ThreadState::Waiting { .. });
     let mut focus: Vec<&Thread> = threads
         .iter()
         .filter(|t| is_inactive(t) && matches!(t.priority, Priority::Incident | Priority::Priority))
@@ -122,9 +157,9 @@ pub fn build_ordered_threads(threads: &[Thread]) -> Vec<&Thread> {
 
     // Background
     ordered.extend(
-        threads.iter().filter(|t| {
-            is_inactive(t) && matches!(t.priority, Priority::Background)
-        }),
+        threads
+            .iter()
+            .filter(|t| is_inactive(t) && matches!(t.priority, Priority::Background)),
     );
 
     ordered
@@ -176,14 +211,20 @@ fn section_lines(
 // -----------------------------------------------------------------------
 
 pub fn count_rows(threads: &[Thread]) -> usize {
-    let is_inactive = |t: &&Thread| matches!(t.state, ThreadState::Paused | ThreadState::Waiting { .. });
-    let active = threads.iter().filter(|t| t.state == ThreadState::Active).count();
-    let focus = threads.iter().filter(|t| {
-        is_inactive(t) && matches!(t.priority, Priority::Incident | Priority::Priority)
-    }).count();
-    let bg = threads.iter().filter(|t| {
-        is_inactive(t) && matches!(t.priority, Priority::Background)
-    }).count();
+    let is_inactive =
+        |t: &&Thread| matches!(t.state, ThreadState::Paused | ThreadState::Waiting { .. });
+    let active = threads
+        .iter()
+        .filter(|t| t.state == ThreadState::Active)
+        .count();
+    let focus = threads
+        .iter()
+        .filter(|t| is_inactive(t) && matches!(t.priority, Priority::Incident | Priority::Priority))
+        .count();
+    let bg = threads
+        .iter()
+        .filter(|t| is_inactive(t) && matches!(t.priority, Priority::Background))
+        .count();
 
     let counts = [active, focus, bg];
     let non_empty = counts.iter().filter(|&&n| n > 0).count();
@@ -230,15 +271,27 @@ pub fn render(
         let ordered = build_ordered_threads(threads);
 
         // Split ordered list into sections
-        let active_threads: Vec<&Thread> = ordered.iter().copied().filter(|t| t.state == ThreadState::Active).collect();
-        let focus_threads: Vec<&Thread> = ordered.iter().copied().filter(|t| {
-            matches!(t.state, ThreadState::Paused | ThreadState::Waiting { .. })
-                && matches!(t.priority, Priority::Incident | Priority::Priority)
-        }).collect();
-        let bg_threads: Vec<&Thread> = ordered.iter().copied().filter(|t| {
-            matches!(t.state, ThreadState::Paused | ThreadState::Waiting { .. })
-                && matches!(t.priority, Priority::Background)
-        }).collect();
+        let active_threads: Vec<&Thread> = ordered
+            .iter()
+            .copied()
+            .filter(|t| t.state == ThreadState::Active)
+            .collect();
+        let focus_threads: Vec<&Thread> = ordered
+            .iter()
+            .copied()
+            .filter(|t| {
+                matches!(t.state, ThreadState::Paused | ThreadState::Waiting { .. })
+                    && matches!(t.priority, Priority::Incident | Priority::Priority)
+            })
+            .collect();
+        let bg_threads: Vec<&Thread> = ordered
+            .iter()
+            .copied()
+            .filter(|t| {
+                matches!(t.state, ThreadState::Paused | ThreadState::Waiting { .. })
+                    && matches!(t.priority, Priority::Background)
+            })
+            .collect();
 
         let mut lines: Vec<Line> = Vec::new();
         let mut idx_offset = 0;
@@ -251,8 +304,12 @@ pub fn render(
 
         for (title, section_threads) in &sections {
             let s = section_lines(title, section_threads, &ws, selected, idx_offset);
-            if s.is_empty() { continue; }
-            if !lines.is_empty() { lines.push(Line::from("")); }
+            if s.is_empty() {
+                continue;
+            }
+            if !lines.is_empty() {
+                lines.push(Line::from(""));
+            }
             lines.extend(s);
             idx_offset += section_threads.len();
         }
@@ -264,7 +321,7 @@ pub fn render(
     let active_thread = threads.iter().find(|t| t.state == ThreadState::Active);
     let status_text = match active_thread {
         Some(t) => format!("  #{} {}   |   ? help   |   gt tasks", t.id_str(), t.slug),
-        None    => "  (no active thread)   |   ? help   |   gt tasks".to_string(),
+        None => "  (no active thread)   |   ? help   |   gt tasks".to_string(),
     };
     frame.render_widget(
         Paragraph::new(status_text).style(Style::default().bg(Color::DarkGray)),
@@ -288,16 +345,16 @@ fn render_help_popup(frame: &mut Frame, area: Rect) {
     let key_style = Style::default().bold();
 
     let bindings: &[(&str, &str)] = &[
-        ("j / \u{2193}",    "move down"),
-        ("k / \u{2191}",    "move up"),
-        ("Enter",    "view tasks for thread"),
-        ("gt",       "tasks for active thread"),
-        ("ctrl-d",   "page down"),
-        ("ctrl-u",   "page up"),
-        ("gg",       "jump to top"),
-        ("G",        "jump to bottom"),
-        ("?",        "toggle this help"),
-        ("q / esc",  "quit"),
+        ("j / \u{2193}", "move down"),
+        ("k / \u{2191}", "move up"),
+        ("Enter", "view tasks for thread"),
+        ("gt", "tasks for active thread"),
+        ("ctrl-d", "page down"),
+        ("ctrl-u", "page up"),
+        ("gg", "jump to top"),
+        ("G", "jump to bottom"),
+        ("?", "toggle this help"),
+        ("q / esc", "quit"),
     ];
 
     let rows: Vec<Line> = bindings
