@@ -105,7 +105,7 @@ Read and change documents with `tsk ledger doc`. Read the index with
 
 `tsk ledger fetch` and `path` print a bare path on stdout, so
 `WT="$(tsk ledger fetch)"` works. `tsk ledger push` runs `dolt add -A` and `dolt commit`,
-then up to 5 attempts of `dolt pull` and `dolt push`. A merge conflict stops it with exit
+then up to 5 attempts of `dolt fetch`, `dolt merge` and `dolt push`. A merge conflict stops it with exit
 1 and names the conflicting tables. The local commit stays. `git.ledger.commit` in a
 continuation state entry holds the Dolt commit hash. An older `tsk` finds no
 `.tsk-ledger.toml` on the Dolt branch and stops before writing: update `tsk`.
