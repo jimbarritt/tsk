@@ -4,7 +4,8 @@
 
 Run `tsk` from inside any working tree of a repository whose `origin` holds a ledger
 branch, `refs/heads/tsk/ledger`. The `ledger`, `thread` and `events` commands run in the `tsk`
-client alone, with no daemon. The ledger's files and formats are in
+client alone, with no daemon. The default ledger backend is Dolt and needs the `dolt` binary, version 1.88.2 (see
+[installation.md](installation.md)). The ledger's tables, files and formats are in
 [ledger-layout.md](../domain/ledger-layout.md). Threads, bindings and continuation state
 are in [session-continuation-design.md](../domain/session-continuation-design.md).
 
@@ -14,8 +15,21 @@ are in [session-continuation-design.md](../domain/session-continuation-design.md
 WT="$(tsk ledger fetch)"
 ```
 
-It checks out the ledger as a detached ledger worktree outside the repository and prints its
-path. `tsk ledger path` prints the same path without fetching.
+It clones the ledger as a Dolt database, the ledger store, outside the repository
+(`.../tsk/repos/<clone-id>/ledger-db`) and prints its path. `tsk ledger path` prints the
+same path without fetching. Do not open files in it. Read and write documents with
+`tsk ledger doc`:
+
+```bash
+tsk ledger doc get index.md                      # print the index
+tsk ledger doc list missions/                    # list the briefings
+tsk ledger doc get missions/operational/M-BOOT-04-official-ledger.md
+tsk ledger doc put index.md updated-index.md     # or pipe the body on stdin
+tsk ledger doc rm missions/operational/old.md
+tsk ledger push "Update the index"               # commit and push the change
+```
+
+`doc put` and `doc rm` change the local store only. `tsk ledger push` sends the change.
 
 **2. Start a thread for a mission:**
 
