@@ -1,3 +1,4 @@
+pub mod dolt;
 pub mod fetch;
 pub mod git;
 pub mod location;
@@ -183,11 +184,19 @@ pub(crate) fn push_notes(outcome: &push::PushOutcome) -> Vec<String> {
 }
 
 pub(crate) fn unpublished_note(outcome: &fetch::FetchOutcome) -> String {
-    format!(
-        "note: {}'s {} does not exist yet; {} holds a new ledger.\n      The first tsk ledger push creates the branch",
+    unpublished_text(
         outcome.location.label(),
         outcome.location.ref_name(),
-        outcome.path.display()
+        &outcome.path,
+    )
+}
+
+pub(crate) fn unpublished_text(label: &str, ref_name: &str, path: &std::path::Path) -> String {
+    format!(
+        "note: {}'s {} does not exist yet; {} holds a new ledger.\n      The first tsk ledger push creates the branch",
+        label,
+        ref_name,
+        path.display()
     )
 }
 

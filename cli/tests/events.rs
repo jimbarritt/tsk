@@ -191,6 +191,7 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
         ("GIT_AUTHOR_EMAIL", "test@example.com"),
         ("GIT_COMMITTER_NAME", "Test"),
         ("GIT_COMMITTER_EMAIL", "test@example.com"),
+        ("TSK_LEDGER_BACKEND", "git"),
     ]
 }
 

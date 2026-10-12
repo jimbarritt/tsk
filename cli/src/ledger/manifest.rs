@@ -47,23 +47,39 @@ pub fn check(text: &str, expected_repo_id: Option<&str>) -> Result<i64, String> 
             e.message()
         )
     })?;
-    if !SUPPORTED_VERSIONS.contains(&manifest.version) {
+    check_values(
+        manifest.version,
+        manifest.repo_id.as_deref(),
+        expected_repo_id,
+        MANIFEST_FILE,
+    )
+}
+
+/// The version and repo ID checks, for a manifest already read from any store. `source`
+/// names where the values came from, for the error text.
+pub fn check_values(
+    version: i64,
+    found_repo_id: Option<&str>,
+    expected_repo_id: Option<&str>,
+    source: &str,
+) -> Result<i64, String> {
+    if !SUPPORTED_VERSIONS.contains(&version) {
         return Err(format!(
             "error: unsupported ledger version {} in {}; this tsk supports version {}",
-            manifest.version,
-            MANIFEST_FILE,
+            version,
+            source,
             supported_list()
         ));
     }
-    if let (Some(expected), Some(found)) = (expected_repo_id, manifest.repo_id.as_deref()) {
+    if let (Some(expected), Some(found)) = (expected_repo_id, found_repo_id) {
         if expected != found {
             return Err(format!(
                 "error: {} names repo_id \"{}\" but the nexus entry is \"{}\"; this ledger belongs to another repo",
-                MANIFEST_FILE, found, expected
+                source, found, expected
             ));
         }
     }
-    Ok(manifest.version)
+    Ok(version)
 }
 
 fn supported_list() -> String {

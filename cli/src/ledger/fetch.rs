@@ -112,7 +112,38 @@ fn remote_ref_absent(git: &Git, location: &LedgerLocation) -> Result<bool, Strin
     Ok(output.status.code() == Some(2))
 }
 
+/// What a ledger ref holds, judged from the top level of its tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefKind {
+    /// `.tsk-ledger.toml` is present: the git-file layout.
+    Files,
+    /// A `manifest` file and no `.tsk-ledger.toml`: a Dolt database stored in git.
+    Dolt,
+    Unknown,
+}
+
+/// The kind of ledger a commit holds. The commit must be in `git`'s object database.
+pub fn ref_kind(git: &Git, commit: &str) -> Result<RefKind, String> {
+    let listing = git.run(["ls-tree", "--name-only", "-z", commit])?;
+    let names = split_nul(&listing);
+    Ok(if names.contains(&MANIFEST_FILE) {
+        RefKind::Files
+    } else if names.contains(&"manifest") {
+        RefKind::Dolt
+    } else {
+        RefKind::Unknown
+    })
+}
+
 pub fn check_manifest(git: &Git, commit: &str, location: &LedgerLocation) -> Result<i64, String> {
+    if ref_kind(git, commit)? == RefKind::Dolt {
+        return Err(format!(
+            "error: {} on {} holds a Dolt ledger, not a file ledger.\n       \
+             Set TSK_LEDGER_BACKEND=dolt (or backend = \"dolt\" under [ledger] in the tsk config), or update tsk to a version that uses Dolt by default",
+            location.ref_name(),
+            location.label()
+        ));
+    }
     let object = format!("{}:{}", commit, MANIFEST_FILE);
     let (_, output) = git.output(["cat-file", "-e", object.as_str()])?;
     if !output.status.success() {

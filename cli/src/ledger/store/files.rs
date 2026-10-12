@@ -249,6 +249,10 @@ impl LedgerStore for FilesStore {
     fn describe_threads(&self) -> String {
         self.describe(THREADS_DIR)
     }
+
+    fn pending_inspect_hint(&self, path: &Path, remote_head: &str) -> String {
+        format!("git -C '{}' log -p {}..HEAD", path.display(), remote_head)
+    }
 }
 
 /// File operations on a materialised ledger worktree.
