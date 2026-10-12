@@ -88,7 +88,9 @@ impl Dolt {
         let mut command = Command::new("dolt");
         command
             .current_dir(&self.dir)
-            .env("DOLT_DISABLE_EVENT_FLUSH", "1");
+            .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+            // Empty, so a push to a git remote writes no `__dolt_remote_info__` branch.
+            .env("DOLT_REMOTE_INFO_BRANCH", "");
         command
     }
 

@@ -89,8 +89,16 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 | `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` varchar(32) | One row, `id` 1, the processed position of the queue. No row reads as `0`. It replaces `watermark.json`. |
 
 The binary writes every text value as a hex literal, `CONVERT(X'...' USING utf8mb4)`,
-and sends SQL to `dolt sql` on stdin. It sets `DOLT_DISABLE_EVENT_FLUSH=1` on every
-`dolt` call, so Dolt sends no telemetry.
+and sends SQL to `dolt sql` on stdin. It sets two environment variables on every `dolt`
+call:
+
+- `DOLT_DISABLE_EVENT_FLUSH=1`, so Dolt sends no telemetry.
+- `DOLT_REMOTE_INFO_BRANCH` to an empty string. Without it, each `dolt push` to a git
+  remote also writes a branch `__dolt_remote_info__` holding one file, `DOLT_REMOTE.md`,
+  with the data ref, its head commit and a timestamp. No tsk command reads that branch.
+  The variable is not in Dolt's documentation. Measured with Dolt 1.88.2: a name sets
+  the branch's name, and an empty string writes no branch. The conformance suite checks
+  that a push leaves no branch on the remote other than the ledger ref.
 
 `git.ledger.commit` in a continuation entry holds the Dolt commit hash with the Dolt
 backend.

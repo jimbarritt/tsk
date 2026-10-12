@@ -186,6 +186,17 @@ impl Fixture {
         out.split_whitespace().next().map(str::to_string)
     }
 
+    /// Every branch on the origin, sorted.
+    fn remote_branches(&self) -> Vec<String> {
+        let out = git(
+            &self.origin(),
+            &["for-each-ref", "--format=%(refname)", "refs/heads/"],
+        );
+        let mut refs: Vec<String> = out.lines().map(str::to_string).collect();
+        refs.sort();
+        refs
+    }
+
     fn ledger_path(&self, dir: &Path) -> PathBuf {
         PathBuf::from(self.ok(dir, &["ledger", "path"]).trim_end())
     }
@@ -292,6 +303,10 @@ mod cases {
         assert_success(&push);
         assert!(!stdout(&push).trim().is_empty());
         assert!(fx.remote_ledger().is_some());
+        assert_eq!(
+            fx.remote_branches(),
+            vec!["refs/heads/main".to_string(), LEDGER_REF.to_string()]
+        );
 
         let second = fx.b();
         let fetch = fx.tsk(&second, &["ledger", "fetch"]);
