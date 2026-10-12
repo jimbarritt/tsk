@@ -20,7 +20,21 @@ brew install rust
 mise use -g rust@latest
 ```
 
-Once installed, verify with:
+**dolt** (version 1.88.2): the default ledger backend stores the ledger in a Dolt
+database and runs the external `dolt` binary. The Claude Code `SessionStart` hook installs
+it. By hand, download the archive for your platform from
+`https://github.com/dolthub/dolt/releases/download/v1.88.2/` (`dolt-linux-amd64.tar.gz`,
+`dolt-linux-arm64.tar.gz`, `dolt-darwin-amd64.tar.gz` or `dolt-darwin-arm64.tar.gz`),
+unpack it and copy `bin/dolt` to a directory on your `PATH`. Then set an identity:
+```bash
+dolt version
+dolt config --global --add user.name tsk
+dolt config --global --add user.email tsk@localhost
+```
+A ledger set to the `git` backend (`[ledger] backend = "git"` in the tsk config, or
+`TSK_LEDGER_BACKEND=git`) does not need `dolt`.
+
+Once the Rust toolchain is installed, verify with:
 ```bash
 rustc --version
 cargo --version
