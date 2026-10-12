@@ -24,13 +24,26 @@ const MANIFEST_SOURCE: &str = "the manifest table";
 pub struct DoltStore {
     repo: Repo,
     state_root: PathBuf,
+    /// Reads from this database instead of the one at the clone's usual path. The
+    /// migration uses it to check a database it has built but not yet moved into place.
+    db_override: Option<PathBuf>,
 }
 
 impl DoltStore {
     pub fn open(dir: &Path) -> Result<DoltStore, String> {
         let repo = Repo::discover(dir)?;
         let state_root = state_root_from_env()?;
-        Ok(DoltStore { repo, state_root })
+        Ok(DoltStore {
+            repo,
+            state_root,
+            db_override: None,
+        })
+    }
+
+    /// The same store, reading and writing the database at `path`.
+    pub fn with_db(mut self, path: PathBuf) -> DoltStore {
+        self.db_override = Some(path);
+        self
     }
 
     fn hint(&self) -> Option<PathBuf> {
@@ -43,6 +56,9 @@ impl DoltStore {
 
     /// The database of an already materialised ledger.
     fn db(&self) -> Result<Dolt, String> {
+        if let Some(path) = &self.db_override {
+            return Ok(Dolt::new(path));
+        }
         let missing = |what: String| {
             format!(
                 "error: {}. Run tsk ledger fetch first, which creates the ledger database",
@@ -153,7 +169,7 @@ fn absolute(path: &str, base: &Path) -> String {
 }
 
 /// The URL of the ledger's remote, as Dolt reaches it.
-fn remote_url(repo: &Repo, location: &LedgerLocation) -> Result<String, String> {
+pub(crate) fn remote_url(repo: &Repo, location: &LedgerLocation) -> Result<String, String> {
     let base = repo
         .git
         .run_line(["rev-parse", "--show-toplevel"])
@@ -169,7 +185,7 @@ fn remote_url(repo: &Repo, location: &LedgerLocation) -> Result<String, String> 
 }
 
 /// The commit the remote ref points at, or `None` when the ref is absent.
-fn remote_tip(git: &Git, location: &LedgerLocation) -> Result<Option<String>, String> {
+pub(crate) fn remote_tip(git: &Git, location: &LedgerLocation) -> Result<Option<String>, String> {
     let (args, output) = git.output([
         "ls-remote",
         "--exit-code",
@@ -200,6 +216,28 @@ pub fn create_database(
     repo_id: Option<&str>,
     seed_index: bool,
 ) -> Result<(), String> {
+    create_database_with(
+        path,
+        url,
+        ref_name,
+        repo_id,
+        seed_index,
+        "",
+        "Create the ledger",
+    )
+}
+
+/// [`create_database`] with `extra_sql` run in the same transaction as the schema, and
+/// `message` as the commit message. The schema and the data land in one commit.
+pub(crate) fn create_database_with(
+    path: &Path,
+    url: &str,
+    ref_name: &str,
+    repo_id: Option<&str>,
+    seed_index: bool,
+    extra_sql: &str,
+    message: &str,
+) -> Result<(), String> {
     std::fs::create_dir_all(path)
         .map_err(|e| format!("error: could not create {}: {}", path.display(), e))?;
     let build = || -> Result<(), String> {
@@ -213,9 +251,10 @@ pub fn create_database(
                 lit(INITIAL_INDEX)
             ));
         }
+        sql.push_str(extra_sql);
         db.exec(&sql)?;
         db.run(["add", "-A"])?;
-        db.run(["commit", "-m", "Create the ledger"])?;
+        db.run(["commit", "-m", message])?;
         db.run(["remote", "add", "--ref", ref_name, REMOTE, url])?;
         Ok(())
     };

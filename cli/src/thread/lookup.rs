@@ -56,6 +56,11 @@ impl Lookup {
         }
     }
 
+    /// Every session and its binding, in file order.
+    pub fn entries(&self) -> &[(String, CloudBinding)] {
+        &self.entries
+    }
+
     pub fn thread_for(&self, session: &str) -> Option<&str> {
         self.entries
             .iter()
