@@ -13,8 +13,9 @@ Backs the `/tsk:start-thread` command. This skill is the agent-facing wrapper ar
    - `<mission-id>`: the mission's stable ID, e.g. `M-BOOT-02-01`.
    - `<briefing-path>`: the mission briefing's path, relative to the ledger root
      (not the absolute path), e.g. `missions/operational/M-BOOT-04-official-ledger.md`.
-     Look it up in `$TSK_LEDGER_WT/index.md`'s mission tree if you don't already know
-     it. If `$TSK_LEDGER_WT` is not set, use `tsk ledger path`.
+     Look it up in the mission tree that `tsk ledger doc get index.md` prints, or
+     list the briefings with `tsk ledger doc list missions/`, if you don't already
+     know it.
 
    If you cannot resolve the reference to an actual mission, stop and ask rather
    than guessing. Do not invent an ID or a path.
@@ -25,7 +26,7 @@ Backs the `/tsk:start-thread` command. This skill is the agent-facing wrapper ar
    tsk thread start "<mission-id>" "<briefing-path>"
    ```
 
-   The command validates that the briefing path exists in the ledger worktree. It
+   The command validates that the briefing path exists in the ledger. It
    does not trust your resolution alone.
 
 3. **Handle the result.**

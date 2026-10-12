@@ -1,6 +1,6 @@
 # Ledger layout
 
-Reference for every file in a tsk ledger: where the ledger lives, the ref that holds it,
+Reference for the tsk ledger: the Dolt backend (the default) and, for the `git` backend, every file in it: where the ledger lives, the ref that holds it,
 where it is checked out, its tree, and the format and fields of each file. The scripts
 in `ops/local/` defined these formats before this document existed. This document is
 taken from them, and `tsk ledger fetch`, `tsk ledger push`, the `tsk thread` commands
@@ -13,6 +13,8 @@ continuation state), `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-cu
 
 ## Contents
 
+- [Dolt backend](#dolt-backend)
+- [File layout (`git` backend)](#file-layout-git-backend)
 - [Location and ref](#location-and-ref)
 - [Ledger worktree location](#ledger-worktree-location)
 - [Tree](#tree)
@@ -29,6 +31,115 @@ continuation state), `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-cu
 - [Session start command](#session-start-command)
 - [Script outputs](#script-outputs)
 - [Differences from `tsk/bootstrap`](#differences-from-tskbootstrap)
+
+## Dolt backend
+
+The default ledger backend stores the ledger in a Dolt database, synced over git. The
+decision is in
+[ADR 0014](../adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md). The rest of
+this document, from [Location and ref](#location-and-ref) on, describes the file layout of
+the `git` backend. The Dolt backend keeps the same records in tables, and the same ledger
+refs, nexus rules and local-only files apply to both.
+
+### Backend selection
+
+A `LedgerStore` trait in the `tsk` binary names every read and write the ledger supports.
+It has two backends: `dolt` (the default) and `git` (the file ledger).
+
+- The user config, `${XDG_CONFIG_HOME:-$HOME/.config}/tsk/config.toml`, selects the
+  backend:
+
+  ```toml
+  [ledger]
+  backend = "dolt"
+  ```
+
+  The accepted values are `"dolt"` and `"git"`.
+- The environment variable `TSK_LEDGER_BACKEND` overrides the config. Its accepted values
+  are the same.
+- With neither set, the backend is `dolt`.
+
+### Location
+
+The Dolt database is a `dolt clone` at:
+
+```
+${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
+```
+
+- `tsk ledger path` prints this path. `$TSK_LEDGER_WT` names it.
+- The clone has one remote, added with `--ref refs/heads/tsk/ledger` for an in-repo
+  ledger, or `--ref refs/heads/ledgers/<repo-id>` for a nexus ledger. Its URL is
+  `git+<remote url>`, with the remote URL resolved as in
+  [Location and ref](#location-and-ref).
+- The database needs the external `dolt` binary, version 1.88.2. The `SessionStart` hook
+  installs it.
+- No file in `ledger-db` is edited by hand. The `tsk ledger` commands are the interface.
+
+### Tables
+
+| Table | Columns | Content |
+|---|---|---|
+| `manifest` | `key` varchar, primary key; `value` text | The `.tsk-ledger.toml` keys, for example `version` and `repo_id`. |
+| `documents` | `path` varchar, primary key; `body` longtext | `index.md`, `future-missions-tbd.md` and every file under `missions/`. |
+| `threads` | `thread_id` varchar, primary key; `briefing_path` text | One row per thread. `briefing_path` replaces `threads/<thread-id>/index.md`. |
+| `continuation_entries` | `thread_id` varchar; `seq` int; `entry` text. Primary key (`thread_id`, `seq`) | One row per continuation state entry. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
+| `cloud_session_bindings` | `session_id` varchar, primary key; `thread_id` varchar; `registered_at` text | One row per cloud session binding. It replaces `threads/lookup-by-cloud-session.json`. |
+| `external_events` | `position` bigint, primary key; `envelope` text | The external event queue. `envelope` is the JSON line, in the format of [`queue.ndjson`](#external-eventsqueuendjson). |
+| `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` text | One row, the processed position of the queue. It replaces `watermark.json`. |
+
+`git.ledger.commit` in a continuation entry holds the Dolt commit hash with the Dolt
+backend.
+
+### Documents
+
+`index.md`, `future-missions-tbd.md` and everything under `missions/` are rows in
+`documents`. An agent does not open them as files. Four commands read and write them:
+
+| Command | Effect |
+|---|---|
+| `tsk ledger doc get <path>` | Prints the body of the document at `<path>`. |
+| `tsk ledger doc put <path> [<file>]` | Stores the content of `<file>`, or stdin when no file is given, as the document at `<path>`. Writes the local store only. |
+| `tsk ledger doc list [<prefix>]` | Prints the document paths, limited to those under `<prefix>` when given. |
+| `tsk ledger doc rm <path>` | Removes the document. Writes the local store only. |
+
+`doc put` and `doc rm` do not reach the remote. `tsk ledger push "<message>"` does.
+`tsk thread start` refuses a briefing path that has no row in `documents`.
+
+### Push
+
+`tsk ledger push "<message>"` with the Dolt backend:
+
+1. Runs `dolt add -A`.
+2. Runs `dolt commit` with the caller's message.
+3. Makes up to 5 attempts of `dolt pull` followed by `dolt push`.
+
+A merge conflict stops the push at once. The command aborts the merge, exits 1 and names
+the conflicting tables. The local commit stays in the database, and a later
+`tsk ledger push` sends it. Dolt merges by row and cell, so two writers that change
+different rows or different cells of one row do not conflict.
+
+On success, stdout carries the Dolt commit hash.
+
+### Migration
+
+`tsk ledger migrate-to-dolt` moves a file ledger to the Dolt backend. It:
+
+1. Fetches the file ledger.
+2. Pushes the file ledger's tip to `refs/heads/archive/tsk-ledger-files`.
+3. Writes every record into a new Dolt database in one Dolt commit.
+4. Pushes the database to the ledger ref.
+
+Dolt's first push to a git branch replaces the branch with an orphan history. The archive
+branch in step 2 keeps the file ledger's history. The command refuses a ledger ref that
+already holds Dolt data.
+
+An older `tsk` binary that fetches the Dolt branch finds no `.tsk-ledger.toml` and stops
+before it writes. The binary needs updating.
+
+## File layout (`git` backend)
+
+The rest of this document describes the file ledger, the `git` backend. Where it names the ledger worktree, the Dolt backend has the ledger store (`ledger-db`) instead.
 
 ## Location and ref
 

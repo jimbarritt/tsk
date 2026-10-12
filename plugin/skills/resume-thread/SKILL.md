@@ -38,8 +38,8 @@ refuse.
    this is where we are at: <summary of the handover note>
    ```
 
-   Resolve `<mission title>` from `latest.mission_link`. Read the briefing under
-   the ledger worktree (`tsk ledger path`) if you need the title, and do not just
+   Resolve `<mission title>` from `latest.mission_link`. Read the briefing with
+   `tsk ledger doc get <mission_link>` if you need the title, and do not just
    repeat the raw link.
 
 4. **Ask whether to continue** with this thread, or do something else. Do not

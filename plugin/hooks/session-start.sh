@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+# The default ledger backend runs the dolt binary. Install it first. A failure
+# is a warning in the session context and does not stop session start.
+DOLT_MSG="$("${CLAUDE_PLUGIN_ROOT}/hooks/install-dolt.sh" | tr '\n' ' ' | sed 's/ *$//')"
+
 REQUIRED="$(tr -d '[:space:]' <"${CLAUDE_PLUGIN_ROOT}/tsk-version")"
 
 installed_version() {
@@ -30,9 +34,22 @@ if ! installed_is_current; then
 fi
 
 if ! installed_is_current; then
-  MESSAGE="tsk $REQUIRED or later is required and could not be installed automatically. Run \`$INSTALL_CMD\`, then run \`tsk thread session-start </dev/null\` (or restart the session) to complete session start."
+  MESSAGE="tsk $REQUIRED or later is required and could not be installed automatically. Run \`$INSTALL_CMD\`, then run \`tsk thread session-start </dev/null\` (or restart the session) to complete session start. $DOLT_MSG"
   ESCAPED="$(printf '%s' "$MESSAGE" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$ESCAPED"
+  exit 0
+fi
+
+if [ -n "$DOLT_MSG" ]; then
+  # Add the dolt warning to the context that tsk prints.
+  TSK_OUTPUT="$(tsk thread session-start)"
+  TSK_MSG="$(printf '%s' "$TSK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+  jq -n --arg context "$TSK_MSG $DOLT_MSG" '{
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext: $context
+    }
+  }'
   exit 0
 fi
 

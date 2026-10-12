@@ -45,14 +45,14 @@ suggest an automated trigger for it.
    anything is safe.** A successful `paused:<thread-id>` above only confirms the
    handover entry itself was pushed. It says nothing about other work from the
    session, uncommitted in the code worktree or still pending in the ledger
-   worktree. Check both:
+   store. Check both:
 
    ```bash
    # code worktree: nothing uncommitted, HEAD on a branch origin holds
    git status --porcelain
    git branch -r --contains HEAD
 
-   # ledger: commits any pending ledger worktree change and pushes any unpushed commit
+   # ledger: commits any pending ledger change and pushes any unpushed commit
    tsk ledger push "Flush ledger before clear"
    ```
 
