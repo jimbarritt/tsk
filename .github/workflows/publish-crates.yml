@@ -8,8 +8,10 @@ name: Publish to crates.io
 # The run from the Actions tab (workflow_dispatch) takes a tag, for a release that was
 # published before this workflow existed, or a run that failed.
 #
-# Needs the repository secret CARGO_REGISTRY_TOKEN: a crates.io API token with the
-# publish-update scope for tsk-core and tsk-bin.
+# Needs the secret CARGO_REGISTRY_TOKEN in the environment `crates-io`: a crates.io API
+# token with the publish-update scope for tsk-core and tsk-bin. Only a job that names the
+# environment can read it. The environment's deployment rules admit `main` (for a run
+# from the Actions tab) and tags matching `v*` (for a release).
 
 on:
   release:
@@ -30,6 +32,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: crates-io
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
@@ -53,7 +56,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
-            echo "::error::the repository secret CARGO_REGISTRY_TOKEN is not set"
+            echo "::error::the secret CARGO_REGISTRY_TOKEN is not set in the environment crates-io"
             exit 1
           fi
 
