@@ -17,12 +17,12 @@ mission status at the level of scale you mean.
 Every session runs on the binary, the plugin and `tsk/ledger`, and the `tsk/bootstrap`
 refs are deleted.
 
-**M-DOLT, Dolt as the ledger store**, the next mission to start. Full briefing:
+**M-DOLT, Dolt as the ledger store**, in progress on thread c5e8b519 from 2026-10-12.
+Full briefing:
 [missions/operational/M-DOLT-ledger-store.md](missions/operational/M-DOLT-ledger-store.md).
 The ledger moves from Markdown and JSONL files to a Dolt database, behind a storage
 trait that keeps the file ledger as a backend, synced over git on `tsk/ledger`. Decided
-in ADR 0014 and named by Jim as the next mission on 2026-10-09. The plan is not yet
-drawn up.
+in ADR 0014. The plan is in the briefing.
 
 M-BOOT-04, the official ledger, is done: the `tsk` binary replaced the bootstrap
 scripts, the missions moved into `tsk/ledger`, and `tsk/bootstrap` was retired and
@@ -52,7 +52,7 @@ briefing: [missions/operational/M-BOOT.md](missions/operational/M-BOOT.md).
 | [M-LAB](missions/operational/M-LAB-ai-lab-notes.md) | AI lab notes (journalling plugin) | Skeleton, most fields TBD | TODO | none |
 | [M-STORY](missions/operational/M-STORY-tsk-story-deck.md) | tsk story deck | A Marp deck in `docs/slide-decks/overview-for-engineers/` tells tsk's domain and features as a product, for other engineers | TODO | none |
 | [M-NAMES](missions/operational/M-NAMES-session-names.md) | Session names from Culture ship Minds | Each tsk actor has a Culture ship name it chose, stored in the ledger and used as the title of every session it runs in, skeleton | TODO | M-BOOT-04 |
-| [M-DOLT](missions/operational/M-DOLT-ledger-store.md) | Dolt as the ledger store | The ledger is read and written through a storage trait, with Dolt and the git-file ledger as backends, Dolt synced over git on a branch, skeleton | TODO | none |
+| [M-DOLT](missions/operational/M-DOLT-ledger-store.md) | Dolt as the ledger store | The ledger is read and written through a storage trait, with Dolt and the git-file ledger as backends, Dolt synced over git on a branch | IN PROGRESS | none |
 | [M-ENV](missions/operational/M-ENV-environment-setup.md) | Environment and nexus setup | A fresh repo or Claude cloud environment gets the plugin, the nexus and its repo registration from `tsk` commands | IN PROGRESS | none |
 
 Essential mission: M-BOOT-07. Its objective and M-BOOT's objective are the same state.

@@ -4,11 +4,11 @@
 |---|---|
 | ID | M-DOLT |
 | Territory | agentic research |
-| Assignee | unassigned |
+| Assignee | thread c5e8b519 |
 | Blocked by | none |
 
-Skeleton. The decision is made in ADR 0014. The scope and the branch were settled on
-2026-10-09, see Decisions. The plan is not yet drawn up.
+In progress. The decision is made in ADR 0014. The scope and the branch were settled on
+2026-10-09, the cut-over on 2026-10-12, see Decisions. Plan drawn up 2026-10-12, below.
 
 ## Idea, as captured
 
@@ -105,11 +105,62 @@ the reason for it.
    against them. A nexus-held ledger (T-10) is a Dolt database on a namespaced branch
    in the nexus, which the `--ref` option covers.
 3. Answered 2026-10-09, see Decisions: branch.
-4. How the cut-over runs: the file ledger's last commit on `tsk/ledger`, then the first
-   Dolt push on the same branch, and whether every clone's ledger worktree re-fetches
-   cleanly across that boundary.
+4. Answered 2026-10-12, see Decisions: cut-over. An old `tsk` binary that fetches the
+   Dolt branch finds no `.tsk-ledger.toml` and stops before it writes, so it cannot
+   overwrite the Dolt data.
 
 ## Plan
 
-Not yet drawn up. The actor who starts the mission drafts it from the objective and
-the decisions, for Jim's approval.
+Drawn up 2026-10-12 by thread c5e8b519. Jim asked for the mission to be completed as far
+as an actor can, with Sonnet subagents doing the build, everything committed to `main`,
+and a release at the end.
+
+### Design
+
+- **The trait.** `LedgerStore` in `cli/src/ledger/store/`. One method per ledger read
+  and write: the manifest, documents, threads, continuation entries, cloud session
+  bindings, the event queue and the watermark, plus refresh, commit and push, the head
+  ID and the pending local changes. Every command calls the trait. No command opens a
+  ledger file or runs `dolt` itself.
+- **Documents.** Every free-form Markdown file (`index.md`, `future-missions-tbd.md`,
+  everything under `missions/`) is a document: a path relative to the ledger root and a
+  UTF-8 body. New commands, for both backends: `tsk ledger doc get <path>`,
+  `tsk ledger doc put <path> [<file>]` (stdin without a file), `tsk ledger doc list
+  [<prefix>]`, `tsk ledger doc rm <path>`. `put` and `rm` write the local store only.
+  `tsk ledger push "<message>"` commits and pushes, as today.
+- **Dolt tables.** `manifest(key, value)`, `documents(path, body)`,
+  `threads(thread_id, briefing_path)`, `continuation_entries(thread_id, seq, entry)`
+  with `entry` the JSON line as stored today, `cloud_session_bindings(session_id,
+  thread_id, registered_at)`, `external_events(position, envelope)` with `envelope` the
+  JSON line as stored today, `watermark(id, processed_through, updated_at)`.
+  JSON text is stored as it is written today, so every output stays byte for byte the
+  same.
+- **The Dolt database** is a `dolt clone` of the ledger branch at
+  `${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db`, with the
+  remote added through `--ref <full ref>` and the URL `git+<remote url>`.
+  `tsk ledger path` prints it and `$TSK_LEDGER_WT` names it.
+- **Push with Dolt.** `dolt add -A`, `dolt commit`, then up to 5 attempts of
+  `dolt pull` and `dolt push`. A merge conflict aborts the merge, leaves the local
+  commit, and stops with exit 1 and the conflicting tables. A rejected push retries.
+- **`git.ledger.commit`** in a continuation entry holds the Dolt commit hash with the
+  Dolt backend.
+- **Selecting the backend.** `[ledger] backend = "dolt" | "git"` in
+  `${XDG_CONFIG_HOME:-$HOME/.config}/tsk/config.toml`, overridden by
+  `TSK_LEDGER_BACKEND`. The default is `dolt`.
+- **Migration.** `tsk ledger migrate-to-dolt`: fetches the file ledger, pushes its tip
+  to `refs/heads/archive/tsk-ledger-files`, writes every record into a new Dolt
+  database in one Dolt commit, and pushes it to the ledger ref. It refuses a ledger ref
+  that already holds Dolt data.
+
+### Tasks
+
+| ID | Task | Status |
+|---|---|---|
+| T-01 | Spike: Dolt over `git+file://` and over the proxy, `--ref` on clone and remote, JSON output, the orphan first push | ✓ DONE |
+| T-02 | Add the `LedgerStore` trait and the git-file backend. Every command goes through it. Add `tsk ledger doc`. Every existing test passes unchanged | TODO |
+| T-03 | Add the Dolt backend and the conformance suite, one set of tests run against both backends | TODO |
+| T-04 | Backend selection, and `fetch`, `push`, `path`, `thread`, `events` and `session-start` working with Dolt, with the session start context naming `tsk ledger doc get index.md` | TODO |
+| T-05 | `tsk ledger migrate-to-dolt`, tested against a file ledger fixture | TODO |
+| T-06 | Install `dolt` in the repo `SessionStart` script, the plugin hook and the external events workflow. Update the plugin skills, `CLAUDE.md` with the migration note, `ledger-layout.md`, `persistence-and-sync.md` and the user guide | TODO |
+| T-07 | Run the migration on this repo's ledger, check a fresh clone reads it, bump the version, tag the release | TODO |
+
