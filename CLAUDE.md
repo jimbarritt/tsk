@@ -37,10 +37,12 @@ the same command. The binary claims each event by session ID and source, so the 
 run exits with no output. The command fetches the ledger, refreshes the ledger store,
 exports its path as `$TSK_LEDGER_WT`, and prints the thread binding prompt.
 
-The repo script runs the command itself because Claude Code reads plugin hooks once,
-when its process starts. A plugin installed during startup has no hooks in that
-process, and `/clear` starts a new session in the same process without reading them
-again.
+The repo script runs the command itself because Claude Code reads plugin hooks and
+skills once, when its process starts. A plugin installed during startup has no hooks in
+that process, and `/clear` starts a new session in the same process without reading them
+again. For the same reason, the first `/clear` after a plugin version bump runs the old
+version's hooks and skills, even though the repo script installs the new version. A new
+process loads the new version: open a new cloud session, or restart this one.
 
 **Before anything else this session**, confirm `$TSK_LEDGER_WT` is set and the
 directory it names exists. If it is not (the hook did not run, or failed: check the
