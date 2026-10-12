@@ -151,12 +151,21 @@ just publish         # publish all crates to crates.io
 
 ## Publishing to crates.io
 
-Bump the version with `just bump`, commit, then publish:
+The workflow `.github/workflows/publish-crates.yml` publishes `tsk-core`, then `tsk-bin`,
+when a GitHub release is published. Steps:
 
-```bash
-just bump 0.1.7   # requires cargo-edit: cargo install cargo-edit
-git add -p && git commit -m "Bumping version to 0.1.7"
-just publish
-```
+1. Bump the workspace version with `just bump <version>` (requires cargo-edit:
+   `cargo install cargo-edit`), commit, and push to `main`.
+2. On GitHub, publish a release with the tag `v<version>`, targeting that commit.
 
-This publishes `tsk-core` first, waits 30 seconds for crates.io to index it, then publishes `tsk-bin` and `tskd`. The published crate name for the CLI is `tsk-bin` (it installs the `tsk` binary).
+The workflow stops when the tag does not match the workspace version at the tagged
+commit. It skips a crate whose version is already on crates.io, so a rerun publishes only
+what is missing. To publish an existing release, run the workflow from the Actions tab
+and give it the tag.
+
+The workflow needs the repository secret `CARGO_REGISTRY_TOKEN`, a crates.io API token
+with the publish-update scope.
+
+From a terminal, `just publish` publishes both crates by hand.
+
+The published crate name for the CLI is `tsk-bin` (it installs the `tsk` binary).
