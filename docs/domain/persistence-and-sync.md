@@ -2,13 +2,17 @@
 
 Status: superseded on 2026-10-09 by
 [ADR 0014](../adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md), which adopts
-Dolt as the ledger store. Kept as the record of the 2026-09-14 design. Source: 2026-09-14
+Dolt as the ledger store. Kept as the record of the 2026-09-14 design. The current design is the
+[Dolt backend](ledger-layout.md#dolt-backend) section of the ledger layout. Source: 2026-09-14
 bootstrap design session.
 
 ## Decided
 
 - tsk needs state that persists outside the local machine.
-- The sync mechanism is built from scratch, in Rust. Dolt is not adopted.
+- The sync mechanism is built from scratch, in Rust. Dolt is not adopted. (Reversed by
+  [ADR 0014](../adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md): Dolt is the
+  ledger store, run as an external binary and synced over git on `refs/heads/tsk/ledger`.
+  See [Dolt backend](ledger-layout.md#dolt-backend).)
 - Event data is stored under a custom git ref, for example `refs/tsk/data`.
 - Sync happens by pushing and fetching that ref, using `--force-with-lease` for
   atomic writes.
@@ -16,7 +20,7 @@ bootstrap design session.
   disposable; it can be rebuilt from the event log (see
   [ADR 0007](../adr/0007-event-log-as-source-of-truth.md)).
 
-## Why not Dolt
+## Why not Dolt (superseded by ADR 0014)
 
 Dolt is a general-purpose, version-controlled SQL database from DoltHub, not a beads
 component; beads adopted it. Its git remote feature was added later, partly to

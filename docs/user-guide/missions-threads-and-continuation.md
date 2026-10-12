@@ -23,7 +23,7 @@ see the Artefact and Ledger entries in `docs/domain/ubiquitous-language.md`.
 | | What it holds | Where |
 |---|---|---|
 | **The artefacts** | What a mission builds: source, `docs/`, `ops/`, `.claude/` | `main`, in the ordinary checkout |
-| **The ledger** | Missions, briefings, threads, continuation state entries, mission reports | The `tsk/ledger` branch, checked out elsewhere |
+| **The ledger** | Missions, briefings, threads, continuation state entries, mission reports | A Dolt database (the ledger store), synced over the `tsk/ledger` branch |
 
 They are two branches of the same GitHub repository, `jimbarritt/tsk`. They are never
 checked out together. Changes to the artefacts go to `main` in the normal way. The
@@ -38,28 +38,36 @@ account of the building.
 
 **The artefacts**: wherever you cloned the repository. Nothing unusual.
 
-**The ledger**: the ledger worktree, a detached linked git worktree at
+**The ledger**: the ledger store, a Dolt database (a `dolt clone` of the `tsk/ledger`
+branch) at
 
 ```
-${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger
+${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 ```
 
 exported to every session as `$TSK_LEDGER_WT`. `<clone-id>` is minted once per
 clone and stored in that clone's `.git/tsk-clone-id`, so two clones of tsk on one
-machine each get their own checkout, and renaming a clone directory does not orphan
-it. The ordinary checkout of the repository is the code worktree.
+machine each get their own store, and renaming a clone directory does not orphan
+it. The ordinary checkout of the repository is the code worktree. The default backend
+needs the `dolt` binary, version 1.88.2. The `git` backend keeps the ledger as files in a
+ledger worktree instead (see `docs/domain/ledger-layout.md`).
 
-Inside the ledger worktree:
+The store holds documents and tables. You read and write the documents with
+`tsk ledger doc`, not as files:
 
 ```
 index.md                        current state, the mission tree, next step
 missions/                       one briefing per mission
 missions/<id>/                  a mission's report, once it starts executing
 future-missions-tbd.md          ideas not yet shaped into briefings
-threads/lookup-by-cloud-session.json    cloud session ID -> thread ID
-threads/<thread-id>/index.md            a pointer to the mission being worked
-threads/<thread-id>/continuation-state.jsonl   the thread's continuation state entries
 ```
+
+`tsk ledger doc get <path>` prints a document, `tsk ledger doc list [<prefix>]` lists
+them, `tsk ledger doc put <path> [<file>]` writes one (stdin when no file is given), and
+`tsk ledger doc rm <path>` removes one. The last two change the local store only. Run
+`tsk ledger push "<message>"` to send the change. Threads, cloud session bindings,
+continuation state entries and the external event queue are tables, which the
+`tsk thread` and `tsk events` commands read and write.
 
 An earlier design kept the ledger on a `tsk/bootstrap` branch and checked it out inside
 the repository's `.git/` directory; see
@@ -73,18 +81,23 @@ The `tsk` binary provides these. Use them rather than running git against
 
 | Command | Does | Side effects |
 |---|---|---|
-| `tsk ledger path` | Prints the ledger worktree path | None. Safe to call any time |
-| `tsk ledger fetch` | Refreshes the ledger worktree to origin's latest, prints the path | Resets the ledger worktree. Refuses if it holds uncommitted work |
-| `tsk ledger push "<message>"` | Commits everything in the ledger worktree, rebases onto the latest ledger and pushes to `tsk/ledger` | Commits and pushes |
+| `tsk ledger path` | Prints the ledger store path | None. Safe to call any time |
+| `tsk ledger fetch` | Refreshes the ledger store to origin's latest, prints the path | Updates the ledger store. Refuses if it holds uncommitted work |
+| `tsk ledger doc get <path>` | Prints a document | None |
+| `tsk ledger doc list [<prefix>]` | Lists document paths | None |
+| `tsk ledger doc put <path> [<file>]` | Writes a document from a file or stdin | Local store only |
+| `tsk ledger doc rm <path>` | Removes a document | Local store only |
+| `tsk ledger push "<message>"` | Commits everything in the ledger store, pulls the latest ledger and pushes to `tsk/ledger` | Commits and pushes |
+| `tsk ledger migrate-to-dolt` | One-off: moves a file ledger into a Dolt database | Pushes `archive/tsk-ledger-files` and the ledger branch |
 | `tsk thread start` | Mints and binds a thread | Writes and pushes |
 | `tsk thread pause` | Appends a continuation state entry | Writes and pushes |
 | `tsk thread resume` | Loads a thread's latest continuation state entry | Binds, and pushes if the binding changed |
 | `tsk thread binding` | Prints the current binding, if any | None beyond a fetch |
 | `tsk thread guard` | Stop hook check for a binding | None. Never fetches |
-| `tsk thread session-start` | SessionStart hook: fetches the ledger, exports `$TSK_LEDGER_WT` | Resets the ledger worktree |
+| `tsk thread session-start` | SessionStart hook: fetches the ledger, exports `$TSK_LEDGER_WT` | Updates the ledger store |
 
 To read the path, use `tsk ledger path`. `tsk ledger fetch` also refreshes, so calling
-it merely to find out where the ledger worktree is counts as a write.
+it merely to find out where the ledger store is counts as a write.
 
 ## The skills
 
@@ -118,14 +131,15 @@ proceeds, rather than refusing.
 ## What happens at session start
 
 The `SessionStart` hook is `plugin/hooks/session-start.sh`, provided by the tsk plugin.
-It ensures the `tsk` binary is installed, then runs `tsk thread session-start`. In the
+It ensures the `dolt` and `tsk` binaries are installed, then runs `tsk thread session-start`. In the
 tsk repo, `ops/local/claude-session-start.sh` also runs `tsk thread session-start`,
 because Claude Code reads plugin hooks only when its process starts. The first run for
 a session ID and source does the work, and a second run exits with no output.
 `tsk thread session-start`:
 
-1. Fetches `tsk/ledger` and materialises the ledger worktree, exporting
-   `$TSK_LEDGER_WT`.
+1. Fetches `tsk/ledger` and refreshes the ledger store, exporting
+   `$TSK_LEDGER_WT`. The context it prints tells the agent to read the index with
+   `tsk ledger doc get index.md`.
 2. Resolves the current binding: the cloud session ID
    (`CLAUDE_CODE_REMOTE_SESSION_ID`, looked up in
    `threads/lookup-by-cloud-session.json`) if there is one, otherwise the

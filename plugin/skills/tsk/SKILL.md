@@ -6,9 +6,9 @@ description: Reference for the tsk command line: the ledger, threads and binding
 # tsk: agent context
 
 tsk tracks missions and the threads that work them. The missions, threads and their
-continuation state live in a **ledger**: a git branch, `refs/heads/tsk/ledger` on the
-managed repo's `origin` by default, checked out in a detached ledger worktree outside the
-repository. For a repo that cannot hold a ledger branch, the ledger is
+continuation state live in a **ledger**: a Dolt database synced over a git branch,
+`refs/heads/tsk/ledger` on the managed repo's `origin` by default, cloned to a local
+ledger store (`ledger-db`) outside the repository. For a repo that cannot hold a ledger branch, the ledger is
 `refs/heads/ledgers/<repo-id>` in the nexus repo (see Nexus ledgers below). The `ledger`, `thread` and `events` commands run in the `tsk` binary alone, with no
 daemon, from inside any working tree of the managed repo.
 
@@ -48,7 +48,7 @@ thread and events command works the same in both locations. The details are in
 `docs/domain/ledger-layout.md`.
 
 When the ledger branch does not exist yet, `tsk ledger fetch` creates a new ledger in the
-ledger worktree, and the first `tsk ledger push` creates the branch.
+local ledger store, and the first `tsk ledger push` creates the branch.
 
 ## Commands
 
@@ -60,9 +60,14 @@ tsk nexus list [--json]                  print the config path, the nexus URL, a
 tsk nexus register-repo [--id <id>] [--territory <id>] [--territory-name <name>] [--ledger nexus|repo] [--local]
                                          add this repo's entry to nexus.json, commit and push it; idempotent
 
-tsk ledger fetch                         fetch the ledger branch (creating a new ledger when it does not exist), refresh the ledger worktree, print the path
-tsk ledger path                          print the ledger worktree path; no fetch, no writes
-tsk ledger push "<message>"              commit every ledger worktree change, rebase onto the latest ledger, push; prints the ledger commit
+tsk ledger fetch                         fetch the ledger branch (creating a new ledger when it does not exist), refresh the local ledger store, print the path
+tsk ledger path                          print the ledger store path (the Dolt database); no fetch, no writes
+tsk ledger push "<message>"              commit every local ledger change, pull and push; prints the ledger commit
+tsk ledger doc get <path>                print a document's body (index.md, future-missions-tbd.md, missions/...)
+tsk ledger doc put <path> [<file>]       write a document from <file>, or from stdin; changes the local store only
+tsk ledger doc list [<prefix>]           list document paths, optionally under a prefix
+tsk ledger doc rm <path>                 remove a document; changes the local store only
+tsk ledger migrate-to-dolt               one-off: move a file ledger into a Dolt database and push it
 
 tsk thread start <mission-id> <briefing-path>                         mint, scaffold and bind a thread, push
 tsk thread pause <thread-id> <mission-link> <task-id> <whats-next>    append a continuation state entry, push
@@ -82,18 +87,28 @@ tsk events advance-watermark <count>                                      set th
 
 `<briefing-path>` and `<mission-link>` are paths relative to the ledger root, for example
 `missions/operational/M-BOOT-04-official-ledger.md`. `tsk thread start` refuses a path
-with no file at it in the ledger worktree.
+with no document at it in the ledger.
 
 ### Ledger
 
-`tsk ledger fetch` checks the ledger's `.tsk-ledger.toml` version before it changes the
-ledger worktree, and refuses to reset over uncommitted changes in it. Both `fetch` and
-`path` print a bare path on stdout, so `WT="$(tsk ledger fetch)"` works. To change the
-ledger, edit files in the ledger worktree, then run `tsk ledger push "<message>"`: it
-commits everything, rebases onto the latest `refs/heads/tsk/ledger`, and pushes with a
-compare and swap, retrying up to 5 times when another writer pushes first. With nothing to
-commit it still pushes a commit an earlier run left unpushed. A rebase conflict stops it
-with the rebase aborted.
+The default ledger backend is Dolt. The ledger store is a Dolt database at
+`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db`, synced over git
+on `refs/heads/tsk/ledger`. `$TSK_LEDGER_WT` names it. Do not open files in it and do not
+run `dolt` against it by hand. The `git` backend (the file ledger) is selected with
+`[ledger] backend = "git"` in the user config or `TSK_LEDGER_BACKEND=git`.
+
+Read and change documents with `tsk ledger doc`. Read the index with
+`tsk ledger doc get index.md` and a briefing with
+`tsk ledger doc get missions/<group>/<file>.md`. To change one, run
+`tsk ledger doc put <path>` (body on stdin, or a file argument), then
+`tsk ledger push "<message>"`. `doc put` and `doc rm` change the local store only.
+
+`tsk ledger fetch` and `path` print a bare path on stdout, so
+`WT="$(tsk ledger fetch)"` works. `tsk ledger push` runs `dolt add -A` and `dolt commit`,
+then up to 5 attempts of `dolt pull` and `dolt push`. A merge conflict stops it with exit
+1 and names the conflicting tables. The local commit stays. `git.ledger.commit` in a
+continuation state entry holds the Dolt commit hash. An older `tsk` finds no
+`.tsk-ledger.toml` on the Dolt branch and stops before writing: update `tsk`.
 
 ### Threads
 
@@ -121,7 +136,7 @@ A continuation state entry holds `mission_link`, `task_id`, `whats_next`, a nest
 object, `timestamp` and `written_by`. The `git` object holds `ledger.commit`, `code.ref`
 and `code.commit`.
 
-`thread pause` records the commit the ledger worktree is at before the entry is appended,
+`thread pause` records the commit the ledger store is at before the entry is appended,
 and the managed repo's branch and `HEAD` commit. It refuses a `HEAD` that no branch on
 origin holds, because an actor resuming from another clone cannot see it.
 
