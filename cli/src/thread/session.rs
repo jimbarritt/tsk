@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use crate::ledger::location::{state_root_from_env, worktree_path, Repo};
+use crate::ledger::location::Repo;
+use crate::ledger::store::{self, LedgerStore, RefreshOutcome};
 use crate::ledger::{fetch_reporting, push_reporting};
 
 pub const CLOUD_SESSION_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
@@ -8,9 +9,9 @@ pub const MARKER_FILE: &str = "tsk-thread-id";
 
 pub struct Session {
     pub repo: Repo,
-    pub state_root: PathBuf,
     pub cloud_session: Option<String>,
     pub git_dir: PathBuf,
+    pub store: Box<dyn LedgerStore>,
 }
 
 impl Session {
@@ -18,7 +19,6 @@ impl Session {
         let cwd = std::env::current_dir()
             .map_err(|e| format!("error: could not read the current directory: {}", e))?;
         let repo = Repo::discover(&cwd)?;
-        let state_root = state_root_from_env()?;
         let git_dir = PathBuf::from(repo.git.run_line([
             "rev-parse",
             "--path-format=absolute",
@@ -27,28 +27,21 @@ impl Session {
         let cloud_session = std::env::var(CLOUD_SESSION_VAR)
             .ok()
             .filter(|v| !v.is_empty());
+        let store = store::open(&cwd)?;
         Ok(Session {
             repo,
-            state_root,
             cloud_session,
             git_dir,
+            store,
         })
     }
 
-    pub fn refresh(&self) -> Result<PathBuf, String> {
-        fetch_reporting(&self.repo, &self.state_root).map(|outcome| outcome.path)
-    }
-
-    pub fn existing_worktree(&self) -> Result<Option<PathBuf>, String> {
-        Ok(self
-            .repo
-            .read_clone_id()?
-            .map(|clone_id| worktree_path(&self.state_root, &clone_id))
-            .filter(|path| path.is_dir()))
+    pub fn refresh(&self) -> Result<RefreshOutcome, String> {
+        fetch_reporting(self.store.as_ref())
     }
 
     pub fn push(&self, message: &str) -> Result<(), String> {
-        push_reporting(&self.repo, &self.state_root, message).map(|_| ())
+        push_reporting(self.store.as_ref(), message).map(|_| ())
     }
 
     pub fn marker_path(&self) -> PathBuf {

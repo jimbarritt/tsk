@@ -2,7 +2,6 @@ use std::fmt;
 use std::path::Path;
 
 use super::clock::utc_now;
-use super::lookup::{lookup_path, CloudBinding, Lookup};
 use super::session::Session;
 
 pub const UNBOUND_PROMPT: &str = "No thread binding was found for this session or worktree. Use the AskUserQuestion tool to ask which mission to work: offer your best-inferred candidate (from index.md, the mission tree, or anything already said this session) as one selectable option, one or two other unblocked missions as alternatives, and leave free text open for anything else. Once answered, run /tsk:start-thread for it, or /tsk:resume-thread <thread-id> if an existing thread is named instead.";
@@ -30,19 +29,23 @@ impl fmt::Display for Binding {
     }
 }
 
-pub fn resolve_at(session: &Session, wt: &Path) -> Result<Option<Binding>, String> {
+pub fn resolve(session: &Session) -> Result<Option<Binding>, String> {
     match &session.cloud_session {
-        Some(cloud) => Ok(Lookup::read(&lookup_path(wt))?
-            .and_then(|lookup| lookup.thread_for(cloud).map(str::to_string))
+        Some(cloud) => Ok(session
+            .store
+            .cloud_lookup()?
+            .thread_for(cloud)
+            .map(str::to_string)
             .map(Binding::Cloud)),
         None => Ok(read_marker(&session.marker_path())?.map(Binding::Worktree)),
     }
 }
 
 pub fn resolve_local(session: &Session) -> Result<Option<Binding>, String> {
-    match session.existing_worktree()? {
-        Some(wt) => resolve_at(session, &wt),
-        None => Ok(None),
+    if session.store.exists_locally()? {
+        resolve(session)
+    } else {
+        Ok(None)
     }
 }
 
@@ -76,16 +79,13 @@ pub fn remove_marker(session: &Session) -> Result<(), String> {
     }
 }
 
-pub fn bind_cloud(cloud: &str, thread_id: &str, wt: &Path) -> Result<(), String> {
-    let path = lookup_path(wt);
-    let mut lookup = Lookup::read(&path)?.unwrap_or_default();
-    lookup.set(cloud, CloudBinding::new(thread_id, &utc_now()));
-    lookup.write(&path)
+pub fn bind_cloud(session: &Session, cloud: &str, thread_id: &str) -> Result<(), String> {
+    session.store.cloud_bind(cloud, thread_id, &utc_now())
 }
 
-pub fn bind_current(session: &Session, thread_id: &str, wt: &Path) -> Result<(), String> {
+pub fn bind_current(session: &Session, thread_id: &str) -> Result<(), String> {
     match &session.cloud_session {
-        Some(cloud) => bind_cloud(cloud, thread_id, wt),
+        Some(cloud) => bind_cloud(session, cloud, thread_id),
         None => write_marker(session, thread_id),
     }
 }
@@ -116,13 +116,5 @@ mod tests {
         assert_eq!(read_marker(&marker).unwrap(), None);
         std::fs::write(&marker, "1234abcd\n").unwrap();
         assert_eq!(read_marker(&marker).unwrap(), Some("1234abcd".to_string()));
-    }
-
-    #[test]
-    fn bind_cloud_creates_the_lookup_when_absent() {
-        let dir = tempfile::tempdir().unwrap();
-        bind_cloud("cse_a", "1234abcd", dir.path()).unwrap();
-        let lookup = Lookup::read(&lookup_path(dir.path())).unwrap().unwrap();
-        assert_eq!(lookup.thread_for("cse_a"), Some("1234abcd"));
     }
 }

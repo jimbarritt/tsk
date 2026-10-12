@@ -125,6 +125,30 @@ impl Fixture {
             .expect("failed to run tsk")
     }
 
+    fn tsk_stdin(&self, args: &[&str], input: &str) -> Output {
+        use std::io::Write;
+        let mut child = Command::new(env!("CARGO_BIN_EXE_tsk"))
+            .args(args)
+            .current_dir(self.work())
+            .envs(git_env())
+            .env("HOME", self.home())
+            .env("XDG_STATE_HOME", self.state())
+            .env("TSK_HOME", self.home().join(".tsk"))
+            .env("GIT_CEILING_DIRECTORIES", self.root.path())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("failed to run tsk");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        child.wait_with_output().unwrap()
+    }
+
     fn push(&self, message: &str) -> Output {
         self.tsk(&["ledger", "push", message])
     }
@@ -940,4 +964,149 @@ fn push_stops_on_an_unsupported_manifest_version_before_committing() {
     assert_eq!(head(&path), before);
     assert_eq!(fx.origin_ledger_sha(), remote);
     assert!(path.join("local.md").is_file());
+}
+
+#[test]
+fn doc_get_prints_the_body_exactly_with_no_added_newline() {
+    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let path = fx.fetch_ok();
+    std::fs::create_dir_all(path.join("missions")).unwrap();
+    write(&path.join("missions/m.md"), "no trailing newline");
+    let output = fx.tsk(&["ledger", "doc", "get", "missions/m.md"]);
+    assert_success(&output);
+    assert_eq!(stdout(&output), "no trailing newline");
+    let output = fx.tsk(&["ledger", "doc", "get", "index.md"]);
+    assert_eq!(stdout(&output), "# Ledger index\n");
+}
+
+#[test]
+fn doc_get_of_an_absent_document_fails_with_the_path() {
+    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    fx.fetch_ok();
+    let output = fx.tsk(&["ledger", "doc", "get", "missions/none.md"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stdout(&output), "");
+    assert_eq!(
+        stderr(&output),
+        "error: no such document: missions/none.md\n"
+    );
+}
+
+#[test]
+fn doc_put_from_stdin_or_a_file_writes_the_worktree_and_does_not_push() {
+    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let path = fx.fetch_ok();
+    let before = fx.origin_ledger_sha();
+
+    let output = fx.tsk_stdin(&["ledger", "doc", "put", "missions/new.md"], "from stdin\n");
+    assert_success(&output);
+    assert_eq!(stdout(&output), "");
+    assert_eq!(
+        std::fs::read_to_string(path.join("missions/new.md")).unwrap(),
+        "from stdin\n"
+    );
+
+    let source = fx.root.path().join("body.md");
+    write(&source, "from file");
+    let output = fx.tsk(&["ledger", "doc", "put", "index.md", source.to_str().unwrap()]);
+    assert_success(&output);
+    assert_eq!(
+        std::fs::read_to_string(path.join("index.md")).unwrap(),
+        "from file"
+    );
+    assert_eq!(fx.origin_ledger_sha(), before);
+
+    let output = fx.push("Record the documents");
+    assert_success(&output);
+    assert_eq!(
+        fx.origin_file(LEDGER_REF, "missions/new.md").unwrap(),
+        "from stdin\n"
+    );
+}
+
+#[test]
+fn doc_list_prints_sorted_paths_and_filters_by_prefix() {
+    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let path = fx.fetch_ok();
+    write(&path.join("future-missions-tbd.md"), "x");
+    std::fs::create_dir_all(path.join("missions/operational")).unwrap();
+    write(&path.join("missions/b.md"), "b");
+    write(&path.join("missions/operational/a.md"), "a");
+    std::fs::create_dir_all(path.join("threads/1234abcd")).unwrap();
+    std::fs::create_dir_all(path.join("external-events")).unwrap();
+    write(&path.join("threads/1234abcd/index.md"), "t");
+    write(&path.join("external-events/queue.ndjson"), "{}\n");
+
+    let output = fx.tsk(&["ledger", "doc", "list"]);
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        "future-missions-tbd.md\nindex.md\nmissions/b.md\nmissions/operational/a.md\n"
+    );
+    let output = fx.tsk(&["ledger", "doc", "list", "missions/"]);
+    assert_eq!(
+        stdout(&output),
+        "missions/b.md\nmissions/operational/a.md\n"
+    );
+    let output = fx.tsk(&["ledger", "doc", "list", "nothing"]);
+    assert_success(&output);
+    assert_eq!(stdout(&output), "");
+}
+
+#[test]
+fn doc_rm_removes_the_document_and_fails_when_it_is_absent() {
+    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let path = fx.fetch_ok();
+    std::fs::create_dir_all(path.join("missions")).unwrap();
+    write(&path.join("missions/m.md"), "m");
+
+    let output = fx.tsk(&["ledger", "doc", "rm", "missions/m.md"]);
+    assert_success(&output);
+    assert_eq!(stdout(&output), "");
+    assert!(!path.join("missions/m.md").exists());
+
+    let output = fx.tsk(&["ledger", "doc", "rm", "missions/m.md"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stderr(&output), "error: no such document: missions/m.md\n");
+}
+
+#[test]
+fn doc_commands_reject_paths_that_are_not_documents() {
+    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let path = fx.fetch_ok();
+    std::fs::create_dir_all(path.join("threads/1234abcd")).unwrap();
+    write(&path.join("threads/1234abcd/index.md"), "t");
+    for bad in [
+        "/etc/passwd",
+        "../outside.md",
+        "missions/../../outside.md",
+        "threads/1234abcd/index.md",
+        "external-events/queue.ndjson",
+        ".tsk-ledger.toml",
+    ] {
+        for args in [
+            vec!["ledger", "doc", "get", bad],
+            vec!["ledger", "doc", "rm", bad],
+        ] {
+            let output = fx.tsk(&args);
+            assert_eq!(output.status.code(), Some(1), "{:?}", args);
+            assert!(stderr(&output).starts_with("error: "), "{:?}", args);
+        }
+        let output = fx.tsk_stdin(&["ledger", "doc", "put", bad], "x");
+        assert_eq!(output.status.code(), Some(1), "put {}", bad);
+    }
+    assert_eq!(
+        std::fs::read_to_string(path.join("threads/1234abcd/index.md")).unwrap(),
+        "t"
+    );
+    assert!(!fx.root.path().join("outside.md").exists());
+}
+
+#[test]
+fn doc_commands_do_not_fetch_and_need_a_fetched_store() {
+    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let output = fx.tsk(&["ledger", "doc", "list"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("Run tsk ledger fetch first"));
+    assert!(!fx.state().join("tsk").exists());
 }

@@ -1,31 +1,26 @@
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::ledger::location::Repo;
+use crate::ledger::store::LedgerStore;
 use crate::ledger::{fetch_reporting, push_reporting};
 use crate::thread::clock::utc_now;
 
 use super::batch::BatchEvent;
 use super::json::first_value_or_null;
-use super::queue::{
-    envelope_line, new_events, parse_watermark, queue_path, render_watermark, watermark_path,
-    NewEnvelope, NewEvents,
-};
+use super::queue::{envelope_line, new_events, NewEnvelope, NewEvents};
 
 pub const ADVANCE_COMMAND: &str = "tsk events advance-watermark";
 
 pub struct Ledger<'a> {
-    pub repo: &'a Repo,
-    pub state_root: &'a Path,
+    pub store: &'a dyn LedgerStore,
 }
 
 impl Ledger<'_> {
-    fn refresh(&self) -> Result<PathBuf, String> {
-        fetch_reporting(self.repo, self.state_root).map(|outcome| outcome.path)
+    fn refresh(&self) -> Result<(), String> {
+        fetch_reporting(self.store).map(|_| ())
     }
 
     fn push(&self, message: &str) -> Result<(), String> {
-        push_reporting(self.repo, self.state_root, message).map(|_| ())
+        push_reporting(self.store, message).map(|_| ())
     }
 }
 
@@ -54,7 +49,7 @@ pub fn read_payload(file: &Path) -> Result<Box<serde_json::value::RawValue>, Str
 
 pub fn append(ledger: &Ledger, request: &AppendRequest) -> Result<(), String> {
     let payload = read_payload(request.payload_file)?;
-    let wt = ledger.refresh()?;
+    ledger.refresh()?;
     let received_at = utc_now();
     let line = envelope_line(
         &NewEnvelope {
@@ -66,7 +61,7 @@ pub fn append(ledger: &Ledger, request: &AppendRequest) -> Result<(), String> {
         },
         &payload,
     );
-    append_line(&queue_path(&wt), &line)?;
+    ledger.store.events_append(&line)?;
     ledger.push(&format!(
         "External event queue: {} {} ({}) on {}",
         request.source, request.event_type, request.action, request.repo
@@ -102,46 +97,23 @@ pub fn append_batch(ledger: &Ledger, events: &[BatchEvent]) -> Result<usize, Str
     if events.is_empty() {
         return Ok(0);
     }
-    let wt = ledger.refresh()?;
+    ledger.refresh()?;
     let lines = batch_lines(events, &utc_now())?;
-    append_line(&queue_path(&wt), &lines)?;
+    ledger.store.events_append(&lines)?;
     ledger.push(&batch_message(events.len()))?;
     Ok(events.len())
 }
 
-fn append_line(queue: &Path, line: &str) -> Result<(), String> {
-    if let Some(dir) = queue.parent() {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("error: could not create {}: {}", dir.display(), e))?;
-    }
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(queue)
-        .and_then(|mut file| file.write_all(line.as_bytes()))
-        .map_err(|e| format!("error: could not append to {}: {}", queue.display(), e))
-}
-
-fn read_optional(path: &Path) -> Result<Option<String>, String> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("error: could not read {}: {}", path.display(), e)),
-    }
-}
-
-pub fn processed_through(wt: &Path) -> Result<u64, String> {
-    match read_optional(&watermark_path(wt))? {
-        Some(text) => parse_watermark(&text),
-        None => Ok(0),
-    }
-}
-
 pub fn read_new(ledger: &Ledger) -> Result<NewEvents, String> {
-    let wt = ledger.refresh()?;
-    let queue = read_optional(&queue_path(&wt))?;
+    ledger.refresh()?;
+    let queue = ledger.store.events_list()?.map(|lines| {
+        lines
+            .iter()
+            .map(|line| format!("{}\n", line))
+            .collect::<String>()
+    });
     let mark = match queue {
-        Some(_) => processed_through(&wt)?,
+        Some(_) => ledger.store.watermark_get()?,
         None => 0,
     };
     new_events(queue.as_deref(), mark)
@@ -171,18 +143,12 @@ pub fn check_advance(current: u64, count: u64) -> Result<Option<u64>, String> {
 }
 
 pub fn advance(ledger: &Ledger, count: u64) -> Result<AdvanceOutcome, String> {
-    let wt = ledger.refresh()?;
-    let current = processed_through(&wt)?;
+    ledger.refresh()?;
+    let current = ledger.store.watermark_get()?;
     if check_advance(current, count)?.is_none() {
         return Ok(AdvanceOutcome::AlreadyAt(current));
     }
-    let path = watermark_path(&wt);
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("error: could not create {}: {}", dir.display(), e))?;
-    }
-    std::fs::write(&path, render_watermark(count, &utc_now()))
-        .map_err(|e| format!("error: could not write {}: {}", path.display(), e))?;
+    ledger.store.watermark_set(count, &utc_now())?;
     ledger.push(&format!(
         "External event queue: advance watermark {} -> {}",
         current, count
@@ -248,12 +214,6 @@ mod tests {
     }
 
     #[test]
-    fn processed_through_is_zero_without_a_watermark_file() {
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(processed_through(dir.path()).unwrap(), 0);
-    }
-
-    #[test]
     fn batch_lines_write_one_envelope_per_event_with_one_timestamp() {
         let event = |n: u8| BatchEvent {
             source: "github".to_string(),
@@ -278,18 +238,6 @@ mod tests {
         assert_eq!(
             batch_message(3),
             "External event queue: append batch of 3 events"
-        );
-    }
-
-    #[test]
-    fn append_line_creates_the_queue_and_appends() {
-        let dir = tempfile::tempdir().unwrap();
-        let queue = queue_path(dir.path());
-        append_line(&queue, "{\"n\":1}\n").unwrap();
-        append_line(&queue, "{\"n\":2}\n").unwrap();
-        assert_eq!(
-            std::fs::read_to_string(&queue).unwrap(),
-            "{\"n\":1}\n{\"n\":2}\n"
         );
     }
 }

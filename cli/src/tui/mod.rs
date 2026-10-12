@@ -3,8 +3,8 @@ pub mod threads_pane;
 
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind,
-        KeyModifiers, MouseEventKind,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+        MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -109,9 +109,10 @@ fn event_loop(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let zoom_slug: Option<String> = zoom_thread.as_ref().map(|t| t.slug.clone());
     let mut pane = match zoom_thread {
-        Some(ref z) => {
-            Pane::Tasks { thread_id: z.id, slug: z.slug.clone() }
-        }
+        Some(ref z) => Pane::Tasks {
+            thread_id: z.id,
+            slug: z.slug.clone(),
+        },
         None => Pane::Threads,
     };
     let mut threads: Vec<Thread> = fetch_threads(sock).unwrap_or_default();
@@ -150,10 +151,7 @@ fn event_loop(
                     show_help,
                 );
             }
-            Pane::Tasks {
-                thread_id,
-                slug,
-            } => {
+            Pane::Tasks { thread_id, slug } => {
                 tasks_pane::render(
                     frame,
                     &threads,
@@ -211,12 +209,12 @@ fn event_loop(
 
                                 KeyCode::Char('j') | KeyCode::Down => {
                                     if thread_count > 0 {
-                                        selected = (selected + 1).min(thread_count.saturating_sub(1));
+                                        selected =
+                                            (selected + 1).min(thread_count.saturating_sub(1));
                                     }
                                     // Auto-scroll to keep selection visible
                                     let row_count = threads_pane::count_rows(&threads);
-                                    scroll = scroll_down(scroll, row_count, height, 0)
-                                        .max(scroll);
+                                    scroll = scroll_down(scroll, row_count, height, 0).max(scroll);
                                 }
                                 KeyCode::Char('k') | KeyCode::Up => {
                                     selected = selected.saturating_sub(1);
@@ -244,8 +242,11 @@ fn event_loop(
                                 }
                                 KeyCode::Char('t') if g_pressed => {
                                     // gt → go to tasks for active thread
-                                    if let Some(active) = threads.iter().find(|t| t.state == ThreadState::Active) {
-                                        tasks = fetch_tasks(sock, &active.id.to_string()).unwrap_or_default();
+                                    if let Some(active) =
+                                        threads.iter().find(|t| t.state == ThreadState::Active)
+                                    {
+                                        tasks = fetch_tasks(sock, &active.id.to_string())
+                                            .unwrap_or_default();
                                         pane = Pane::Tasks {
                                             thread_id: active.id,
                                             slug: active.slug.clone(),
@@ -263,7 +264,8 @@ fn event_loop(
                                 KeyCode::Enter => {
                                     if !ordered.is_empty() && selected < ordered.len() {
                                         let thread = ordered[selected];
-                                        tasks = fetch_tasks(sock, &thread.id.to_string()).unwrap_or_default();
+                                        tasks = fetch_tasks(sock, &thread.id.to_string())
+                                            .unwrap_or_default();
                                         pane = Pane::Tasks {
                                             thread_id: thread.id,
                                             slug: thread.slug.clone(),
@@ -376,13 +378,24 @@ fn event_loop(
 fn row_to_thread_index(threads: &[Thread], row: usize) -> Option<usize> {
     let is_inactive =
         |t: &&Thread| matches!(t.state, ThreadState::Paused | ThreadState::Waiting { .. });
-    let active_count = threads.iter().filter(|t| t.state == ThreadState::Active).count();
-    let focus_count = threads.iter().filter(|t| {
-        is_inactive(t) && matches!(t.priority, tsk_core::Priority::Incident | tsk_core::Priority::Priority)
-    }).count();
-    let bg_count = threads.iter().filter(|t| {
-        is_inactive(t) && matches!(t.priority, tsk_core::Priority::Background)
-    }).count();
+    let active_count = threads
+        .iter()
+        .filter(|t| t.state == ThreadState::Active)
+        .count();
+    let focus_count = threads
+        .iter()
+        .filter(|t| {
+            is_inactive(t)
+                && matches!(
+                    t.priority,
+                    tsk_core::Priority::Incident | tsk_core::Priority::Priority
+                )
+        })
+        .count();
+    let bg_count = threads
+        .iter()
+        .filter(|t| is_inactive(t) && matches!(t.priority, tsk_core::Priority::Background))
+        .count();
 
     let sections = [active_count, focus_count, bg_count];
     let mut current_row = 0;

@@ -5,10 +5,13 @@ pub mod manifest;
 pub mod nexus;
 pub mod push;
 pub mod register;
+pub mod store;
 
 use clap::Subcommand;
+use std::io::{Read, Write};
+use std::path::PathBuf;
 
-use location::{state_root_from_env, worktree_path, Repo};
+use store::{LedgerStore, PushReport, RefreshOutcome};
 
 #[derive(Subcommand)]
 pub enum LedgerCommands {
@@ -25,68 +28,134 @@ pub enum LedgerCommands {
         #[arg(help = "Commit message for the worktree changes")]
         message: String,
     },
+    #[command(
+        about = "Read, write, list and remove ledger documents in the local store; none of them fetches or pushes"
+    )]
+    Doc {
+        #[command(subcommand)]
+        action: DocCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DocCommands {
+    #[command(
+        about = "Print a document exactly as stored, with no added newline; exit status 1 when it does not exist"
+    )]
+    Get {
+        #[arg(help = "Document path relative to the ledger root, for example index.md")]
+        path: String,
+    },
+    #[command(
+        about = "Write a document in the local store from a file or stdin; does not push; prints nothing"
+    )]
+    Put {
+        #[arg(help = "Document path relative to the ledger root")]
+        path: String,
+        #[arg(help = "File holding the body; reads stdin when omitted")]
+        file: Option<PathBuf>,
+    },
+    #[command(about = "List document paths that start with a prefix, one per line, sorted")]
+    List {
+        #[arg(help = "Path prefix, for example missions/; lists every document when omitted")]
+        prefix: Option<String>,
+    },
+    #[command(
+        about = "Remove a document from the local store; exit status 1 when it does not exist"
+    )]
+    Rm {
+        #[arg(help = "Document path relative to the ledger root")]
+        path: String,
+    },
 }
 
 pub fn run(action: LedgerCommands) -> Result<(), String> {
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
-    let repo = Repo::discover(&cwd)?;
+    let store = store::open(&cwd)?;
     match action {
         LedgerCommands::Fetch => {
-            let state_root = state_root_from_env()?;
-            let outcome = fetch_reporting(&repo, &state_root)?;
+            let outcome = fetch_reporting(store.as_ref())?;
             println!("{}", outcome.path.display());
             Ok(())
         }
         LedgerCommands::Path => {
-            let state_root = state_root_from_env()?;
-            let clone_id = repo.read_clone_id()?.ok_or_else(|| {
-                format!(
-                    "error: this clone has no clone id yet ({} is absent or empty).\n       Run tsk ledger fetch, which mints it.",
-                    repo.clone_id_file().display()
-                )
-            })?;
-            println!("{}", worktree_path(&state_root, &clone_id).display());
+            println!("{}", store.path()?.display());
             Ok(())
         }
         LedgerCommands::Push { message } => {
-            let state_root = state_root_from_env()?;
-            let outcome = push_reporting(&repo, &state_root, &message)?;
-            println!("{}", outcome.commit);
+            let report = push_reporting(store.as_ref(), &message)?;
+            println!("{}", report.head);
             Ok(())
+        }
+        LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
+    }
+}
+
+fn no_such_document(path: &str) -> String {
+    format!("error: no such document: {}", path)
+}
+
+fn run_doc(store: &dyn LedgerStore, action: DocCommands) -> Result<(), String> {
+    match action {
+        DocCommands::Get { path } => {
+            store::check_document_path(&path)?;
+            let body = store
+                .doc_get(&path)?
+                .ok_or_else(|| no_such_document(&path))?;
+            let mut out = std::io::stdout();
+            out.write_all(body.as_bytes())
+                .and_then(|()| out.flush())
+                .map_err(|e| format!("error: could not write to stdout: {}", e))
+        }
+        DocCommands::Put { path, file } => {
+            store::check_document_path(&path)?;
+            let body = match file {
+                Some(file) => std::fs::read_to_string(&file)
+                    .map_err(|e| format!("error: could not read {}: {}", file.display(), e))?,
+                None => {
+                    let mut text = String::new();
+                    std::io::stdin()
+                        .read_to_string(&mut text)
+                        .map_err(|e| format!("error: could not read stdin: {}", e))?;
+                    text
+                }
+            };
+            store.doc_put(&path, &body)
+        }
+        DocCommands::List { prefix } => {
+            for path in store.doc_list(prefix.as_deref().unwrap_or(""))? {
+                println!("{}", path);
+            }
+            Ok(())
+        }
+        DocCommands::Rm { path } => {
+            store::check_document_path(&path)?;
+            if store.doc_remove(&path)? {
+                Ok(())
+            } else {
+                Err(no_such_document(&path))
+            }
         }
     }
 }
 
-pub fn fetch_reporting(
-    repo: &Repo,
-    state_root: &std::path::Path,
-) -> Result<fetch::FetchOutcome, String> {
-    let outcome = fetch::fetch(repo, state_root)?;
-    if !outcome.pending.is_empty() {
-        eprintln!("{}", pending_note(&outcome));
+pub fn fetch_reporting(store: &dyn LedgerStore) -> Result<RefreshOutcome, String> {
+    let outcome = store.refresh()?;
+    if let Some(note) = &outcome.pending_note {
+        eprintln!("{}", note);
     }
-    if outcome.unpublished {
-        eprintln!("{}", unpublished_note(&outcome));
-    }
-    Ok(outcome)
-}
-
-pub fn push_reporting(
-    repo: &Repo,
-    state_root: &std::path::Path,
-    message: &str,
-) -> Result<push::PushOutcome, String> {
-    let outcome = push::push(repo, state_root, message, &mut |attempt, status| {
-        eprintln!("{}", retry_note(attempt, status));
-    })?;
-    for note in push_notes(&outcome) {
+    if let Some(note) = &outcome.unpublished_note {
         eprintln!("{}", note);
     }
     Ok(outcome)
 }
 
-fn retry_note(attempt: usize, status: &push::PushStatus) -> String {
+pub fn push_reporting(store: &dyn LedgerStore, message: &str) -> Result<PushReport, String> {
+    store.commit_and_push(message, &mut |note| eprintln!("{}", note))
+}
+
+pub(crate) fn retry_note(attempt: usize, status: &push::PushStatus) -> String {
     format!(
         "note: push rejected (attempt {}/{}): {}; fetching again and retrying",
         attempt,
@@ -95,7 +164,7 @@ fn retry_note(attempt: usize, status: &push::PushStatus) -> String {
     )
 }
 
-fn push_notes(outcome: &push::PushOutcome) -> Vec<String> {
+pub(crate) fn push_notes(outcome: &push::PushOutcome) -> Vec<String> {
     let mut notes = Vec::new();
     if !outcome.committed {
         notes.push(format!(
@@ -113,7 +182,7 @@ fn push_notes(outcome: &push::PushOutcome) -> Vec<String> {
     notes
 }
 
-fn unpublished_note(outcome: &fetch::FetchOutcome) -> String {
+pub(crate) fn unpublished_note(outcome: &fetch::FetchOutcome) -> String {
     format!(
         "note: {}'s {} does not exist yet; {} holds a new ledger.\n      The first tsk ledger push creates the branch",
         outcome.location.label(),
@@ -122,7 +191,7 @@ fn unpublished_note(outcome: &fetch::FetchOutcome) -> String {
     )
 }
 
-fn pending_note(outcome: &fetch::FetchOutcome) -> String {
+pub(crate) fn pending_note(outcome: &fetch::FetchOutcome) -> String {
     let location = &outcome.location;
     let mut note = format!(
         "note: {} holds a commit that is not on {}'s {}:\n",
