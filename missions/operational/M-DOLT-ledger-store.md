@@ -157,10 +157,10 @@ and a release at the end.
 | ID | Task | Status |
 |---|---|---|
 | T-01 | Spike: Dolt over `git+file://` and over the proxy, `--ref` on clone and remote, JSON output, the orphan first push | ✓ DONE |
-| T-02 | Add the `LedgerStore` trait and the git-file backend. Every command goes through it. Add `tsk ledger doc`. Every existing test passes unchanged | TODO |
+| T-02 | Add the `LedgerStore` trait and the git-file backend. Every command goes through it. Add `tsk ledger doc`. Every existing test passes unchanged | ✓ DONE, `dc1826b` |
 | T-03 | Add the Dolt backend and the conformance suite, one set of tests run against both backends | TODO |
 | T-04 | Backend selection, and `fetch`, `push`, `path`, `thread`, `events` and `session-start` working with Dolt, with the session start context naming `tsk ledger doc get index.md` | TODO |
 | T-05 | `tsk ledger migrate-to-dolt`, tested against a file ledger fixture | TODO |
-| T-06 | Install `dolt` in the repo `SessionStart` script, the plugin hook and the external events workflow. Update the plugin skills, `CLAUDE.md` with the migration note, `ledger-layout.md`, `persistence-and-sync.md` and the user guide | TODO |
+| T-06 | Install `dolt` in the repo `SessionStart` script, the plugin hook and the external events workflow. Update the plugin skills, `CLAUDE.md` with the migration note, `ledger-layout.md`, `persistence-and-sync.md` and the user guide | Committed `4ac20cc` on a side branch, merged at T-07 |
 | T-07 | Run the migration on this repo's ledger, check a fresh clone reads it, bump the version, tag the release | TODO |
 
