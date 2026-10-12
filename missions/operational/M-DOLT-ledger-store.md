@@ -152,15 +152,25 @@ and a release at the end.
   database in one Dolt commit, and pushes it to the ledger ref. It refuses a ledger ref
   that already holds Dolt data.
 
+### Changes from the design during the build
+
+- `tsk ledger push` with Dolt runs `dolt fetch` and `dolt merge origin/main`, not
+  `dolt pull`. `dolt pull` exits 0 on a merge conflict, so the binary reads
+  `dolt_conflicts` and `dolt_constraint_violations` after every merge.
+- A nexus ledger archives to `refs/heads/archive/ledgers/<repo-id>-files`.
+- `dolt init` makes its own first commit. The schema and every record follow in one
+  more commit.
+- The binary sets `DOLT_DISABLE_EVENT_FLUSH=1`: the proxy blocks Dolt's telemetry host.
+
 ### Tasks
 
 | ID | Task | Status |
 |---|---|---|
 | T-01 | Spike: Dolt over `git+file://` and over the proxy, `--ref` on clone and remote, JSON output, the orphan first push | ✓ DONE |
 | T-02 | Add the `LedgerStore` trait and the git-file backend. Every command goes through it. Add `tsk ledger doc`. Every existing test passes unchanged | ✓ DONE, `dc1826b` |
-| T-03 | Add the Dolt backend and the conformance suite, one set of tests run against both backends | TODO |
-| T-04 | Backend selection, and `fetch`, `push`, `path`, `thread`, `events` and `session-start` working with Dolt, with the session start context naming `tsk ledger doc get index.md` | TODO |
-| T-05 | `tsk ledger migrate-to-dolt`, tested against a file ledger fixture | TODO |
+| T-03 | Add the Dolt backend and the conformance suite, one set of tests run against both backends | ✓ DONE, `ab571e1` |
+| T-04 | Backend selection, and `fetch`, `push`, `path`, `thread`, `events` and `session-start` working with Dolt, with the session start context naming `tsk ledger doc get index.md` | ✓ DONE, `ab571e1` |
+| T-05 | `tsk ledger migrate-to-dolt`, tested against a file ledger fixture | ✓ DONE, `a2b8c26` |
 | T-06 | Install `dolt` in the repo `SessionStart` script, the plugin hook and the external events workflow. Update the plugin skills, `CLAUDE.md` with the migration note, `ledger-layout.md`, `persistence-and-sync.md` and the user guide | Committed `4ac20cc` on a side branch, merged at T-07 |
-| T-07 | Run the migration on this repo's ledger, check a fresh clone reads it, bump the version, tag the release | TODO |
+| T-07 | Run the migration on this repo's ledger, check a fresh clone reads it, bump the version, tag the release | IN PROGRESS |
 
