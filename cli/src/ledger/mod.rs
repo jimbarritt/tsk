@@ -3,6 +3,7 @@ pub mod fetch;
 pub mod git;
 pub mod location;
 pub mod manifest;
+pub mod migrate;
 pub mod nexus;
 pub mod push;
 pub mod register;
@@ -28,6 +29,17 @@ pub enum LedgerCommands {
     Push {
         #[arg(help = "Commit message for the worktree changes")]
         message: String,
+    },
+    #[command(
+        name = "migrate-to-dolt",
+        about = "Move a file ledger to Dolt in one Dolt commit on the same ledger ref; archives the file ledger's commit on refs/heads/archive/tsk-ledger-files first; prints migrated:<file-commit>:<dolt-head>"
+    )]
+    MigrateToDolt {
+        #[arg(
+            long,
+            help = "Read the file ledger and build the Dolt database in a temporary directory, check it, print the counts and dry-run:ok, and push nothing"
+        )]
+        dry_run: bool,
     },
     #[command(
         about = "Read, write, list and remove ledger documents in the local store; none of them fetches or pushes"
@@ -73,6 +85,9 @@ pub enum DocCommands {
 pub fn run(action: LedgerCommands) -> Result<(), String> {
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
+    if let LedgerCommands::MigrateToDolt { dry_run } = action {
+        return migrate::run(&cwd, dry_run);
+    }
     let store = store::open(&cwd)?;
     match action {
         LedgerCommands::Fetch => {
@@ -90,6 +105,7 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             Ok(())
         }
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
+        LedgerCommands::MigrateToDolt { .. } => unreachable!("handled before the store opens"),
     }
 }
 
