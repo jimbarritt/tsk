@@ -25,7 +25,7 @@ jobs:
     environment: "Repo Admin"
     steps:
       - name: Checkout tsk
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
