@@ -133,11 +133,17 @@ pub fn hook_output(context: &str) -> String {
     .unwrap_or_default()
 }
 
-pub fn fetched_context(path: &Path, pending: &PendingNote, thread_message: &str) -> String {
-    let wt = path.display();
+pub fn fetched_context(
+    path: &Path,
+    read_hint: &str,
+    pending: &PendingNote,
+    thread_message: &str,
+) -> String {
     let mut context = format!(
-        "The ledger was fetched and materialised at {} (also exported as ${}). Read {}/index.md next.",
-        wt, LEDGER_WT_VAR, wt
+        "The ledger was fetched and materialised at {} (also exported as ${}). {}",
+        path.display(),
+        LEDGER_WT_VAR,
+        read_hint
     );
     if !pending.lines.is_empty() {
         context.push(' ');
@@ -212,6 +218,7 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
     let binding = resolve(session).ok().flatten().map(|b| b.to_string());
     let mut context = fetched_context(
         &outcome.path,
+        &session.store.read_index_hint(&outcome.path),
         &PendingNote::from_outcome(
             &outcome,
             session
@@ -270,7 +277,12 @@ mod tests {
     #[test]
     fn fetched_context_names_the_path_and_the_next_read() {
         let path = PathBuf::from("/s/ledger");
-        let context = fetched_context(&path, &no_pending(), "Next.");
+        let context = fetched_context(
+            &path,
+            "Read /s/ledger/index.md next.",
+            &no_pending(),
+            "Next.",
+        );
         assert_eq!(
             context,
             "The ledger was fetched and materialised at /s/ledger (also exported as $TSK_LEDGER_WT). Read /s/ledger/index.md next. Next."
@@ -284,7 +296,7 @@ mod tests {
             lines: vec!["1111111 first".to_string(), "2222222 second".to_string()],
             ..no_pending()
         };
-        let context = fetched_context(&path, &pending, "Next.");
+        let context = fetched_context(&path, "Read /s/ledger/index.md next.", &pending, "Next.");
         assert!(context.contains(
             "WARNING: the ledger worktree holds a commit that is not on origin's refs/heads/tsk/ledger"
         ));

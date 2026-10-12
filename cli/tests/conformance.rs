@@ -808,6 +808,12 @@ fn dolt_session_start_exports_the_database_path_and_warns_about_pending_commits(
         .to_string();
     assert!(context.contains("WARNING"), "{}", context);
     assert!(
+        context.contains("Read the index next with `tsk ledger doc get index.md`."),
+        "{}",
+        context
+    );
+    assert!(!context.contains("/index.md next"), "{}", context);
+    assert!(
         context.contains("dolt log origin/main..main"),
         "{}",
         context
