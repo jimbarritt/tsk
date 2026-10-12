@@ -155,6 +155,9 @@ pub trait LedgerStore {
     /// for the session start warning. `remote_head` is the remote state the refresh
     /// fetched.
     fn pending_inspect_hint(&self, path: &Path, remote_head: &str) -> String;
+
+    /// The sentence the session start context uses to say how to read the index.
+    fn read_index_hint(&self, path: &Path) -> String;
 }
 
 /// Open the ledger store for the repository containing `dir`. The backend is `dolt` by
