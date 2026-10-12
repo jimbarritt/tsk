@@ -1,0 +1,328 @@
+//! A runner for the external `dolt` binary, shaped like [`super::git::Git`], plus the
+//! ledger's table definitions and the SQL literal helpers. tsk never links Dolt: every
+//! operation is a `dolt` process.
+
+use std::ffi::OsStr;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+
+use serde_json::Value;
+
+/// The branch every Dolt ledger database uses locally and on its remote.
+pub const BRANCH: &str = "main";
+/// The name of the remote inside the Dolt database.
+pub const REMOTE: &str = "origin";
+
+/// The Dolt remote branch name as `dolt_remote_branches` lists it.
+pub const REMOTE_BRANCH_NAME: &str = "remotes/origin/main";
+
+pub const NOT_INSTALLED: &str = "error: dolt is not installed.\n       \
+     The SessionStart hook (ops/local/claude-session-start.sh) installs it; \
+     otherwise download a release from https://github.com/dolthub/dolt/releases";
+
+/// The ledger tables, in the one form every writer uses: a new ledger, and the migration
+/// from a file ledger.
+pub const SCHEMA: &[&str] = &[
+    "create table manifest (k varchar(64) primary key, v text)",
+    "create table documents (path varchar(1024) primary key, body longtext not null)",
+    "create table threads (thread_id varchar(64) primary key, briefing_path varchar(1024) not null)",
+    "create table continuation_entries (thread_id varchar(64), seq int, entry longtext not null, primary key (thread_id, seq))",
+    "create table cloud_session_bindings (session_id varchar(255) primary key, thread_id varchar(64) not null, registered_at varchar(32) not null)",
+    "create table external_events (position bigint primary key, envelope longtext not null)",
+    "create table watermark (id int primary key, processed_through bigint not null, updated_at varchar(32) not null)",
+];
+
+/// The layout version a new Dolt ledger records.
+pub const LAYOUT_VERSION: i64 = 1;
+
+/// Statements that create every table and the manifest rows (`version`, and `repo_id`
+/// for a nexus ledger), separated by `;\n`.
+pub fn init_sql(repo_id: Option<&str>) -> String {
+    let mut sql = String::new();
+    for statement in SCHEMA {
+        sql.push_str(statement);
+        sql.push_str(";\n");
+    }
+    sql.push_str(&format!(
+        "insert into manifest (k, v) values ('version', '{}');\n",
+        LAYOUT_VERSION
+    ));
+    if let Some(id) = repo_id {
+        sql.push_str(&format!(
+            "insert into manifest (k, v) values ('repo_id', {});\n",
+            lit(id)
+        ));
+    }
+    sql
+}
+
+/// A SQL string literal that cannot carry an injection: the text is hex-encoded and
+/// converted, so no byte of it is ever parsed as SQL.
+pub fn lit(text: &str) -> String {
+    if text.is_empty() {
+        return "''".to_string();
+    }
+    let mut hex = String::with_capacity(text.len() * 2);
+    for byte in text.as_bytes() {
+        hex.push_str(&format!("{:02x}", byte));
+    }
+    format!("CONVERT(X'{}' USING utf8mb4)", hex)
+}
+
+#[derive(Clone)]
+pub struct Dolt {
+    dir: PathBuf,
+}
+
+impl Dolt {
+    pub fn new(dir: impl Into<PathBuf>) -> Self {
+        Dolt { dir: dir.into() }
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    fn command(&self) -> Command {
+        let mut command = Command::new("dolt");
+        command
+            .current_dir(&self.dir)
+            .env("DOLT_DISABLE_EVENT_FLUSH", "1");
+        command
+    }
+
+    fn spawn_error(e: std::io::Error) -> String {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            NOT_INSTALLED.to_string()
+        } else {
+            format!("error: could not run dolt: {}", e)
+        }
+    }
+
+    pub fn output<I, S>(&self, args: I) -> Result<(Vec<String>, Output), String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let args: Vec<String> = args
+            .into_iter()
+            .map(|a| a.as_ref().to_string_lossy().into_owned())
+            .collect();
+        let output = self
+            .command()
+            .args(&args)
+            .output()
+            .map_err(Self::spawn_error)?;
+        Ok((args, output))
+    }
+
+    pub fn run<I, S>(&self, args: I) -> Result<String, String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let (args, output) = self.output(args)?;
+        if !output.status.success() {
+            return Err(failure_message(&args, &output));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    /// Run one query with `dolt sql -r json` and return the rows of every result set.
+    /// The query is not passed on the command line, so its length is not limited by the
+    /// operating system.
+    pub fn rows(&self, sql: &str) -> Result<Vec<Value>, String> {
+        let args = vec!["sql".to_string(), "-r".to_string(), "json".to_string()];
+        let stdout = self.pipe(&args, sql)?;
+        parse_rows(&stdout)
+    }
+
+    /// Run write statements in one transaction: all of them apply, or none.
+    pub fn exec(&self, sql: &str) -> Result<(), String> {
+        let script = format!("start transaction;\n{}\ncommit;\n", sql);
+        let args = vec!["sql".to_string()];
+        self.pipe(&args, &script).map(|_| ())
+    }
+
+    fn pipe(&self, args: &[String], input: &str) -> Result<String, String> {
+        let mut child = self
+            .command()
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(Self::spawn_error)?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(input.as_bytes())
+                .map_err(|e| format!("error: could not write to dolt {}: {}", args.join(" "), e))?;
+        }
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("error: could not run dolt: {}", e))?;
+        if !output.status.success() {
+            return Err(failure_message(args, &output));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    /// The first column of the first row of a query, read as an integer.
+    pub fn count(&self, sql: &str) -> Result<i64, String> {
+        let rows = self.rows(sql)?;
+        Ok(rows
+            .first()
+            .and_then(|row| row.as_object())
+            .and_then(|map| map.values().next())
+            .and_then(Value::as_i64)
+            .unwrap_or(0))
+    }
+
+    /// The commit hash of `HEAD`.
+    pub fn head_hash(&self) -> Result<String, String> {
+        self.hash_of("HEAD")
+    }
+
+    /// The commit hash a revision names.
+    pub fn hash_of(&self, revision: &str) -> Result<String, String> {
+        let rows = self.rows(&format!("select hashof({}) as h", lit(revision)))?;
+        rows.first()
+            .and_then(|row| text(row, "h"))
+            .ok_or_else(|| format!("error: dolt could not resolve {}", revision))
+    }
+}
+
+/// Make sure Dolt has a commit identity. A machine with none gets `tsk <tsk@localhost>`
+/// globally; an identity the operator set is left alone.
+pub fn ensure_identity() -> Result<(), String> {
+    let here = Dolt::new(".");
+    let (_, output) = here.output(["config", "--global", "--get", "user.name"])?;
+    let name = String::from_utf8_lossy(&output.stdout);
+    if output.status.success() && !name.trim().is_empty() {
+        return Ok(());
+    }
+    here.run(["config", "--global", "--add", "user.name", "tsk"])?;
+    here.run(["config", "--global", "--add", "user.email", "tsk@localhost"])?;
+    Ok(())
+}
+
+/// The string in a row's column, or `None` when it is absent or NULL.
+pub fn text(row: &Value, column: &str) -> Option<String> {
+    row.get(column).and_then(Value::as_str).map(str::to_string)
+}
+
+pub fn integer(row: &Value, column: &str) -> Option<i64> {
+    row.get(column).and_then(Value::as_i64)
+}
+
+/// A boolean column, whether Dolt rendered it as `true` or as `1`.
+pub fn flag(row: &Value, column: &str) -> bool {
+    match row.get(column) {
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_i64() == Some(1),
+        _ => false,
+    }
+}
+
+fn parse_rows(stdout: &str) -> Result<Vec<Value>, String> {
+    let mut rows = Vec::new();
+    for result in serde_json::Deserializer::from_str(stdout).into_iter::<Value>() {
+        let result =
+            result.map_err(|e| format!("error: dolt printed output that is not JSON: {}", e))?;
+        if let Some(Value::Array(found)) = result.get("rows") {
+            rows.extend(found.iter().cloned());
+        }
+    }
+    Ok(rows)
+}
+
+pub fn failure_message(args: &[String], output: &Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let detail = if stderr.trim().is_empty() {
+        stdout.trim().to_string()
+    } else {
+        stderr.trim().to_string()
+    };
+    let status = match output.status.code() {
+        Some(code) => format!("exit status {}", code),
+        None => "terminated by a signal".to_string(),
+    };
+    let shown = args.join(" ");
+    let shown: String = shown.chars().take(200).collect();
+    if detail.is_empty() {
+        format!("error: dolt {} failed ({})", shown, status)
+    } else {
+        format!("error: dolt {} failed ({}):\n{}", shown, status, detail)
+    }
+}
+
+/// True when `dolt` can be started. Used by tests to skip when it is missing.
+#[allow(dead_code)]
+pub fn available() -> bool {
+    Command::new("dolt")
+        .arg("version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lit_hex_encodes_so_quotes_and_semicolons_stay_data() {
+        assert_eq!(lit(""), "''");
+        assert_eq!(lit("a"), "CONVERT(X'61' USING utf8mb4)");
+        let hostile = lit("x'); drop table documents; --");
+        assert!(!hostile.contains("drop"));
+        assert!(hostile.starts_with("CONVERT(X'"));
+    }
+
+    #[test]
+    fn rows_are_read_from_every_result_set() {
+        let rows =
+            parse_rows("{\"rows\": [{\"a\":1}]}\n{}\n{\"rows\": [{\"b\":\"x\"}]}\n").unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(integer(&rows[0], "a"), Some(1));
+        assert_eq!(text(&rows[1], "b").as_deref(), Some("x"));
+        assert!(parse_rows("{}\n").unwrap().is_empty());
+        assert!(parse_rows("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn init_sql_creates_every_table_and_the_manifest_rows() {
+        let sql = init_sql(Some("work-api"));
+        for table in [
+            "manifest",
+            "documents",
+            "threads",
+            "continuation_entries",
+            "cloud_session_bindings",
+            "external_events",
+            "watermark",
+        ] {
+            assert!(
+                sql.contains(&format!("create table {} ", table)),
+                "{}",
+                table
+            );
+        }
+        assert!(sql.contains("('version', '1')"));
+        assert!(sql.contains("'repo_id'"));
+        assert!(!init_sql(None).contains("repo_id"));
+    }
+
+    #[test]
+    fn flag_reads_booleans_and_ones() {
+        let row: Value = serde_json::from_str("{\"a\":true,\"b\":1,\"c\":0}").unwrap();
+        assert!(flag(&row, "a"));
+        assert!(flag(&row, "b"));
+        assert!(!flag(&row, "c"));
+        assert!(!flag(&row, "missing"));
+    }
+}

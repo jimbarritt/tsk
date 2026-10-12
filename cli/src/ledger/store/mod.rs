@@ -2,13 +2,14 @@
 //!
 //! Every command that reads or writes ledger content goes through [`LedgerStore`]. The
 //! git-file backend in [`files`] keeps the ledger as files in a detached git worktree.
-//! A second backend (Dolt, through an external `dolt` binary and SQL tables) implements
+//! The Dolt backend in [`dolt`] (an external `dolt` binary and SQL tables) implements
 //! the same trait. No method takes or returns a filesystem path as a way to reach
 //! content: documents, threads, continuation entries, cloud session bindings and
 //! external events are addressed by logical keys. The few paths in this module
 //! (`RefreshOutcome::path`, `LedgerStore::path`) name where the store lives, for the
 //! operator to read.
 
+pub mod dolt;
 pub mod files;
 
 use std::path::{Component, Path, PathBuf};
@@ -147,12 +148,26 @@ pub trait LedgerStore {
     fn describe_thread(&self, id: &str) -> String;
     /// A human-readable location of the thread collection. Also seeds ID minting.
     fn describe_threads(&self) -> String;
+
+    // --- Session start ---
+
+    /// The command an operator runs to read local changes that are not on the remote,
+    /// for the session start warning. `remote_head` is the remote state the refresh
+    /// fetched.
+    fn pending_inspect_hint(&self, path: &Path, remote_head: &str) -> String;
 }
 
-/// Open the ledger store for the repository containing `dir`. Only the git-file
-/// backend exists today.
+/// Open the ledger store for the repository containing `dir`. The backend is `dolt` by
+/// default; `[ledger] backend` in the user config or `TSK_LEDGER_BACKEND` selects `git`.
 pub fn open(dir: &Path) -> Result<Box<dyn LedgerStore>, String> {
-    files::FilesStore::open(dir).map(|store| Box::new(store) as Box<dyn LedgerStore>)
+    match crate::config::ledger_backend_from_env()? {
+        crate::config::LedgerBackend::Dolt => {
+            dolt::DoltStore::open(dir).map(|store| Box::new(store) as Box<dyn LedgerStore>)
+        }
+        crate::config::LedgerBackend::Git => {
+            files::FilesStore::open(dir).map(|store| Box::new(store) as Box<dyn LedgerStore>)
+        }
+    }
 }
 
 /// Paths a caller may name as documents. Rejects an empty path, an absolute path, a

@@ -50,11 +50,7 @@ fn cleanup(tsk_home: &Path, daemon: Child) {
 /// Start tskd with TSK_HOME set to the given directory and wait for its socket to appear.
 fn start_daemon(tsk_home: &Path) -> Child {
     let binary = tskd_binary();
-    assert!(
-        binary.exists(),
-        "tskd binary not found at {:?}",
-        binary
-    );
+    assert!(binary.exists(), "tskd binary not found at {:?}", binary);
 
     let child = Command::new(&binary)
         .env("TSK_HOME", tsk_home)

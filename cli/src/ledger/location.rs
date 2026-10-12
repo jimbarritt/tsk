@@ -8,6 +8,7 @@ use super::git::Git;
 pub const IN_REPO_REMOTE: &str = "origin";
 pub const IN_REPO_REF: &str = "refs/heads/tsk/ledger";
 pub const WORKTREE_DIR_NAME: &str = "ledger";
+pub const DOLT_DIR_NAME: &str = "ledger-db";
 pub const CLONE_ID_FILE: &str = "tsk-clone-id";
 const CLONE_ID_SUFFIX_LEN: usize = 8;
 
@@ -221,6 +222,11 @@ pub fn worktree_path(state_root: &Path, clone_id: &str) -> PathBuf {
         .join("repos")
         .join(clone_id)
         .join(WORKTREE_DIR_NAME)
+}
+
+/// Where the Dolt backend keeps its database, beside the files backend's worktree.
+pub fn dolt_db_path(state_root: &Path, clone_id: &str) -> PathBuf {
+    state_root.join("repos").join(clone_id).join(DOLT_DIR_NAME)
 }
 
 #[cfg(test)]

@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use tsk_core::{
     event_log_dir, event_log_path, index_path, socket_path, tasks_path, thread_dir, threads_dir,
     tsk_home, JsonRpcRequest, JsonRpcResponse, Priority, Task, TaskState, Thread,
-    ThreadCreatedEvent, ThreadResumedEvent, ThreadSwitchedEvent, ThreadUpdatedEvent,
-    ThreadWaitedEvent, ThreadState,
+    ThreadCreatedEvent, ThreadResumedEvent, ThreadState, ThreadSwitchedEvent, ThreadUpdatedEvent,
+    ThreadWaitedEvent,
 };
 
 fn main() {
@@ -71,10 +71,7 @@ fn run_daemon() {
     }
 }
 
-fn handle_connection(
-    stream: std::os::unix::net::UnixStream,
-    state: Arc<Mutex<Vec<Thread>>>,
-) {
+fn handle_connection(stream: std::os::unix::net::UnixStream, state: Arc<Mutex<Vec<Thread>>>) {
     let read_stream = match stream.try_clone() {
         Ok(s) => s,
         Err(e) => {
@@ -103,32 +100,31 @@ fn handle_connection(
     let _ = writeln!(&stream, "{}", serde_json::to_string(&response).unwrap());
 }
 
-fn handle_request(
-    request: JsonRpcRequest,
-    state: &Arc<Mutex<Vec<Thread>>>,
-) -> JsonRpcResponse {
+fn handle_request(request: JsonRpcRequest, state: &Arc<Mutex<Vec<Thread>>>) -> JsonRpcResponse {
     match request.method.as_str() {
-        "thread.create"       => handle_thread_create(request, state),
-        "thread.list"         => handle_thread_list(request, state),
-        "thread.switch_to"    => handle_thread_switch_to(request, state),
-        "thread.update"       => handle_thread_update(request, state),
-        "thread.wait"         => handle_thread_wait(request, state),
-        "thread.resume"       => handle_thread_resume(request, state),
+        "thread.create" => handle_thread_create(request, state),
+        "thread.list" => handle_thread_list(request, state),
+        "thread.switch_to" => handle_thread_switch_to(request, state),
+        "thread.update" => handle_thread_update(request, state),
+        "thread.wait" => handle_thread_wait(request, state),
+        "thread.resume" => handle_thread_resume(request, state),
         "thread.resolve_path" => handle_thread_resolve_path(request, state),
-        "task.create"         => handle_task_create(request, state),
-        "task.list"           => handle_task_list(request, state),
-        "task.start"          => handle_task_start(request, state),
-        "task.block"          => handle_task_block(request, state),
-        "task.complete"       => handle_task_complete(request, state),
-        "task.cancel"         => handle_task_cancel(request, state),
-        "task.update"         => handle_task_update(request, state),
+        "task.create" => handle_task_create(request, state),
+        "task.list" => handle_task_list(request, state),
+        "task.start" => handle_task_start(request, state),
+        "task.block" => handle_task_block(request, state),
+        "task.complete" => handle_task_complete(request, state),
+        "task.cancel" => handle_task_cancel(request, state),
+        "task.update" => handle_task_update(request, state),
         _ => JsonRpcResponse::error(request.id, -32601, "Method not found"),
     }
 }
 
 /// Resolve a thread index by numeric id (e.g. "1", "0001") or slug.
 fn resolve_thread_idx(locked: &[Thread], id_str: &str) -> Option<usize> {
-    if let Ok(n) = id_str.trim_start_matches('0').parse::<u32>()
+    if let Ok(n) = id_str
+        .trim_start_matches('0')
+        .parse::<u32>()
         .or_else(|_| id_str.parse::<u32>())
     {
         locked.iter().position(|t| t.id == n)
@@ -278,10 +274,7 @@ fn handle_thread_create(
     JsonRpcResponse::success(request.id, result)
 }
 
-fn handle_thread_list(
-    request: JsonRpcRequest,
-    state: &Arc<Mutex<Vec<Thread>>>,
-) -> JsonRpcResponse {
+fn handle_thread_list(request: JsonRpcRequest, state: &Arc<Mutex<Vec<Thread>>>) -> JsonRpcResponse {
     let locked = state.lock().unwrap();
     JsonRpcResponse::success(request.id, serde_json::json!({ "threads": *locked }))
 }
@@ -363,7 +356,7 @@ fn handle_thread_update(
         None => return JsonRpcResponse::error(request.id, -32602, "Missing id"),
     };
 
-    let new_slug        = params["slug"].as_str().map(|s| s.to_string());
+    let new_slug = params["slug"].as_str().map(|s| s.to_string());
     let new_description = params["description"].as_str().map(|s| s.to_string());
     let new_path = if params.get("path").is_some() {
         if params["path"].is_null() {
@@ -376,7 +369,7 @@ fn handle_thread_update(
     };
     let new_priority: Option<Priority> = match params["priority"].as_str() {
         Some(s) => match s.parse() {
-            Ok(p)  => Some(p),
+            Ok(p) => Some(p),
             Err(e) => return JsonRpcResponse::error(request.id, -32602, e),
         },
         None => None,
@@ -386,18 +379,28 @@ fn handle_thread_update(
 
     let idx = match resolve_thread_idx(&locked, &id_str) {
         Some(i) => i,
-        None => return JsonRpcResponse::error(request.id, -32604, format!("Thread not found: {}", id_str)),
+        None => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32604,
+                format!("Thread not found: {}", id_str),
+            )
+        }
     };
 
     // Reject slug collision with a different thread
     if let Some(ref slug) = new_slug {
-        if locked.iter().enumerate().any(|(i, t)| i != idx && &t.slug == slug) {
+        if locked
+            .iter()
+            .enumerate()
+            .any(|(i, t)| i != idx && &t.slug == slug)
+        {
             return JsonRpcResponse::error(request.id, -32600, "slug already exists");
         }
     }
 
     let old_slug = locked[idx].slug.clone();
-    let id       = locked[idx].id;
+    let id = locked[idx].id;
 
     // Rename directory if slug is changing
     if let Some(ref slug) = new_slug {
@@ -405,24 +408,41 @@ fn handle_thread_update(
             let old_dir = thread_dir(id, &old_slug);
             let new_dir = thread_dir(id, slug);
             if let Err(e) = fs::rename(&old_dir, &new_dir) {
-                return JsonRpcResponse::error(request.id, -32603, format!("Failed to rename thread dir: {}", e));
+                return JsonRpcResponse::error(
+                    request.id,
+                    -32603,
+                    format!("Failed to rename thread dir: {}", e),
+                );
             }
         }
     }
 
     // Apply updates
     let thread = &mut locked[idx];
-    if let Some(slug)        = new_slug        { thread.slug        = slug; }
-    if let Some(description) = new_description { thread.description = description; }
-    if let Some(priority)    = new_priority    { thread.priority    = priority; }
-    if let Some(path)        = new_path        { thread.path        = path; }
+    if let Some(slug) = new_slug {
+        thread.slug = slug;
+    }
+    if let Some(description) = new_description {
+        thread.description = description;
+    }
+    if let Some(priority) = new_priority {
+        thread.priority = priority;
+    }
+    if let Some(path) = new_path {
+        thread.path = path;
+    }
 
     // Update index.md header
     let dir = thread_dir(thread.id, &thread.slug);
     let index_md_path = dir.join("index.md");
     if index_md_path.exists() {
         if let Ok(content) = fs::read_to_string(&index_md_path) {
-            let updated = update_index_md(&content, &thread.slug, &thread.priority.to_string(), &thread.description);
+            let updated = update_index_md(
+                &content,
+                &thread.slug,
+                &thread.priority.to_string(),
+                &thread.description,
+            );
             let _ = fs::write(&index_md_path, updated);
         }
     }
@@ -477,10 +497,7 @@ fn update_index_md(content: &str, slug: &str, priority: &str, description: &str)
         .join("\n")
 }
 
-fn handle_thread_wait(
-    request: JsonRpcRequest,
-    state: &Arc<Mutex<Vec<Thread>>>,
-) -> JsonRpcResponse {
+fn handle_thread_wait(request: JsonRpcRequest, state: &Arc<Mutex<Vec<Thread>>>) -> JsonRpcResponse {
     let params = &request.params;
 
     let id_str = match params["id"].as_str() {
@@ -493,14 +510,22 @@ fn handle_thread_wait(
 
     let idx = match resolve_thread_idx(&locked, &id_str) {
         Some(i) => i,
-        None => return JsonRpcResponse::error(request.id, -32604, format!("Thread not found: {}", id_str)),
+        None => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32604,
+                format!("Thread not found: {}", id_str),
+            )
+        }
     };
 
     if matches!(locked[idx].state, ThreadState::Waiting { .. }) {
         return JsonRpcResponse::error(request.id, -32600, "Thread is already waiting");
     }
 
-    locked[idx].state = ThreadState::Waiting { reason: reason.clone() };
+    locked[idx].state = ThreadState::Waiting {
+        reason: reason.clone(),
+    };
 
     let event = ThreadWaitedEvent {
         event: "ThreadWaited".to_string(),
@@ -537,7 +562,13 @@ fn handle_thread_resume(
 
     let idx = match resolve_thread_idx(&locked, &id_str) {
         Some(i) => i,
-        None => return JsonRpcResponse::error(request.id, -32604, format!("Thread not found: {}", id_str)),
+        None => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32604,
+                format!("Thread not found: {}", id_str),
+            )
+        }
     };
 
     if !matches!(locked[idx].state, ThreadState::Waiting { .. }) {
@@ -575,9 +606,9 @@ fn handle_thread_resolve_path(
     };
 
     let locked = state.lock().unwrap();
-    let thread = locked.iter().find(|t| {
-        t.path.as_deref() == Some(path.as_str())
-    });
+    let thread = locked
+        .iter()
+        .find(|t| t.path.as_deref() == Some(path.as_str()));
 
     match thread {
         Some(t) => JsonRpcResponse::success(request.id, serde_json::to_value(t).unwrap()),
@@ -648,10 +679,7 @@ fn find_task_idx(tasks: &[Task], task_id: &str) -> Option<usize> {
 // task.create
 // ---------------------------------------------------------------------------
 
-fn handle_task_create(
-    request: JsonRpcRequest,
-    state: &Arc<Mutex<Vec<Thread>>>,
-) -> JsonRpcResponse {
+fn handle_task_create(request: JsonRpcRequest, state: &Arc<Mutex<Vec<Thread>>>) -> JsonRpcResponse {
     let params = &request.params;
 
     let description = match params["description"].as_str() {
@@ -669,7 +697,13 @@ fn handle_task_create(
 
     let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
-        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+        Err(e) => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32603,
+                format!("Failed to load tasks: {}", e),
+            )
+        }
     };
 
     let seq = tasks.iter().map(|t| t.seq).max().unwrap_or(0) + 1;
@@ -695,10 +729,7 @@ fn handle_task_create(
 // task.list
 // ---------------------------------------------------------------------------
 
-fn handle_task_list(
-    request: JsonRpcRequest,
-    state: &Arc<Mutex<Vec<Thread>>>,
-) -> JsonRpcResponse {
+fn handle_task_list(request: JsonRpcRequest, state: &Arc<Mutex<Vec<Thread>>>) -> JsonRpcResponse {
     let params = &request.params;
 
     let locked = state.lock().unwrap();
@@ -710,7 +741,13 @@ fn handle_task_list(
 
     let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
-        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+        Err(e) => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32603,
+                format!("Failed to load tasks: {}", e),
+            )
+        }
     };
     tasks.sort_by_key(|t| t.seq);
 
@@ -721,10 +758,7 @@ fn handle_task_list(
 // task.start
 // ---------------------------------------------------------------------------
 
-fn handle_task_start(
-    request: JsonRpcRequest,
-    state: &Arc<Mutex<Vec<Thread>>>,
-) -> JsonRpcResponse {
+fn handle_task_start(request: JsonRpcRequest, state: &Arc<Mutex<Vec<Thread>>>) -> JsonRpcResponse {
     let params = &request.params;
 
     let task_id = match params["id"].as_str() {
@@ -741,19 +775,35 @@ fn handle_task_start(
 
     let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
-        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+        Err(e) => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32603,
+                format!("Failed to load tasks: {}", e),
+            )
+        }
     };
 
     let idx = match find_task_idx(&tasks, &task_id) {
         Some(i) => i,
-        None => return JsonRpcResponse::error(request.id, -32604, format!("Task not found: {}", task_id)),
+        None => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32604,
+                format!("Task not found: {}", task_id),
+            )
+        }
     };
 
     match tasks[idx].state {
         TaskState::NotStarted | TaskState::Blocked => {}
-        _ => return JsonRpcResponse::error(request.id, -32600, format!(
-            "Cannot start task in state '{}'", tasks[idx].state
-        )),
+        _ => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32600,
+                format!("Cannot start task in state '{}'", tasks[idx].state),
+            )
+        }
     }
 
     tasks[idx].state = TaskState::InProgress;
@@ -771,10 +821,7 @@ fn handle_task_start(
 // task.block
 // ---------------------------------------------------------------------------
 
-fn handle_task_block(
-    request: JsonRpcRequest,
-    state: &Arc<Mutex<Vec<Thread>>>,
-) -> JsonRpcResponse {
+fn handle_task_block(request: JsonRpcRequest, state: &Arc<Mutex<Vec<Thread>>>) -> JsonRpcResponse {
     let params = &request.params;
 
     let task_id = match params["id"].as_str() {
@@ -795,18 +842,32 @@ fn handle_task_block(
 
     let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
-        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+        Err(e) => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32603,
+                format!("Failed to load tasks: {}", e),
+            )
+        }
     };
 
     let idx = match find_task_idx(&tasks, &task_id) {
         Some(i) => i,
-        None => return JsonRpcResponse::error(request.id, -32604, format!("Task not found: {}", task_id)),
+        None => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32604,
+                format!("Task not found: {}", task_id),
+            )
+        }
     };
 
     if tasks[idx].state != TaskState::InProgress {
-        return JsonRpcResponse::error(request.id, -32600, format!(
-            "Cannot block task in state '{}'", tasks[idx].state
-        ));
+        return JsonRpcResponse::error(
+            request.id,
+            -32600,
+            format!("Cannot block task in state '{}'", tasks[idx].state),
+        );
     }
 
     tasks[idx].state = TaskState::Blocked;
@@ -844,12 +905,24 @@ fn handle_task_complete(
 
     let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
-        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+        Err(e) => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32603,
+                format!("Failed to load tasks: {}", e),
+            )
+        }
     };
 
     let idx = match find_task_idx(&tasks, &task_id) {
         Some(i) => i,
-        None => return JsonRpcResponse::error(request.id, -32604, format!("Task not found: {}", task_id)),
+        None => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32604,
+                format!("Task not found: {}", task_id),
+            )
+        }
     };
 
     if tasks[idx].state == TaskState::Cancelled {
@@ -871,10 +944,7 @@ fn handle_task_complete(
 // task.cancel
 // ---------------------------------------------------------------------------
 
-fn handle_task_cancel(
-    request: JsonRpcRequest,
-    state: &Arc<Mutex<Vec<Thread>>>,
-) -> JsonRpcResponse {
+fn handle_task_cancel(request: JsonRpcRequest, state: &Arc<Mutex<Vec<Thread>>>) -> JsonRpcResponse {
     let params = &request.params;
 
     let task_id = match params["id"].as_str() {
@@ -891,12 +961,24 @@ fn handle_task_cancel(
 
     let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
-        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+        Err(e) => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32603,
+                format!("Failed to load tasks: {}", e),
+            )
+        }
     };
 
     let idx = match find_task_idx(&tasks, &task_id) {
         Some(i) => i,
-        None => return JsonRpcResponse::error(request.id, -32604, format!("Task not found: {}", task_id)),
+        None => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32604,
+                format!("Task not found: {}", task_id),
+            )
+        }
     };
 
     tasks[idx].state = TaskState::Cancelled;
@@ -914,10 +996,7 @@ fn handle_task_cancel(
 // task.update
 // ---------------------------------------------------------------------------
 
-fn handle_task_update(
-    request: JsonRpcRequest,
-    state: &Arc<Mutex<Vec<Thread>>>,
-) -> JsonRpcResponse {
+fn handle_task_update(request: JsonRpcRequest, state: &Arc<Mutex<Vec<Thread>>>) -> JsonRpcResponse {
     let params = &request.params;
 
     let task_id = match params["id"].as_str() {
@@ -926,8 +1005,8 @@ fn handle_task_update(
     };
 
     let new_description = params["description"].as_str().map(|s| s.to_string());
-    let new_due_by      = params["due_by"].as_str().map(|s| s.to_string());
-    let new_seq         = params["seq"].as_u64().map(|n| n as u32);
+    let new_due_by = params["due_by"].as_str().map(|s| s.to_string());
+    let new_seq = params["seq"].as_u64().map(|n| n as u32);
 
     let locked = state.lock().unwrap();
     let (thread_id, slug) = match resolve_target_thread(request.id, &locked, params) {
@@ -938,17 +1017,35 @@ fn handle_task_update(
 
     let mut tasks = match load_tasks(thread_id, &slug) {
         Ok(t) => t,
-        Err(e) => return JsonRpcResponse::error(request.id, -32603, format!("Failed to load tasks: {}", e)),
+        Err(e) => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32603,
+                format!("Failed to load tasks: {}", e),
+            )
+        }
     };
 
     let idx = match find_task_idx(&tasks, &task_id) {
         Some(i) => i,
-        None => return JsonRpcResponse::error(request.id, -32604, format!("Task not found: {}", task_id)),
+        None => {
+            return JsonRpcResponse::error(
+                request.id,
+                -32604,
+                format!("Task not found: {}", task_id),
+            )
+        }
     };
 
-    if let Some(desc) = new_description { tasks[idx].description = desc; }
-    if let Some(due)  = new_due_by      { tasks[idx].due_by = Some(due); }
-    if let Some(seq)  = new_seq         { tasks[idx].seq = seq; }
+    if let Some(desc) = new_description {
+        tasks[idx].description = desc;
+    }
+    if let Some(due) = new_due_by {
+        tasks[idx].due_by = Some(due);
+    }
+    if let Some(seq) = new_seq {
+        tasks[idx].seq = seq;
+    }
 
     if let Err(e) = save_tasks(thread_id, &slug, &mut tasks) {
         return JsonRpcResponse::error(request.id, -32603, format!("Failed to save tasks: {}", e));

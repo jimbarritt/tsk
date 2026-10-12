@@ -115,9 +115,9 @@ impl std::fmt::Display for TaskState {
         match self {
             TaskState::NotStarted => write!(f, "not-started"),
             TaskState::InProgress => write!(f, "in-progress"),
-            TaskState::Blocked    => write!(f, "blocked"),
-            TaskState::Done       => write!(f, "done"),
-            TaskState::Cancelled  => write!(f, "cancelled"),
+            TaskState::Blocked => write!(f, "blocked"),
+            TaskState::Done => write!(f, "done"),
+            TaskState::Cancelled => write!(f, "cancelled"),
         }
     }
 }
@@ -320,9 +320,8 @@ pub fn send_request(
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
 
-    let mut stream = UnixStream::connect(socket).map_err(|_| {
-        "tskd is not running. Start it with: tskd".to_string()
-    })?;
+    let mut stream = UnixStream::connect(socket)
+        .map_err(|_| "tskd is not running. Start it with: tskd".to_string())?;
 
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
@@ -350,8 +349,8 @@ pub fn send_request(
         .ok_or("No response from daemon")?
         .map_err(|e| format!("Read error: {}", e))?;
 
-    let response: JsonRpcResponse = serde_json::from_str(&response_line)
-        .map_err(|e| format!("Parse error: {}", e))?;
+    let response: JsonRpcResponse =
+        serde_json::from_str(&response_line).map_err(|e| format!("Parse error: {}", e))?;
 
     if let Some(err) = response.error {
         return Err(err.message);
@@ -533,7 +532,9 @@ mod tests {
 
     #[test]
     fn waiting_state_serialises_as_nested_object() {
-        let state = ThreadState::Waiting { reason: Some("waiting for PR review".to_string()) };
+        let state = ThreadState::Waiting {
+            reason: Some("waiting for PR review".to_string()),
+        };
         let v: serde_json::Value = serde_json::to_value(&state).unwrap();
         assert_eq!(v["waiting"]["reason"], "waiting for PR review");
     }
@@ -548,7 +549,9 @@ mod tests {
 
     #[test]
     fn waiting_state_roundtrips_via_json() {
-        let state = ThreadState::Waiting { reason: Some("blocked on deploy".to_string()) };
+        let state = ThreadState::Waiting {
+            reason: Some("blocked on deploy".to_string()),
+        };
         let s = serde_json::to_string(&state).unwrap();
         let back: ThreadState = serde_json::from_str(&s).unwrap();
         assert_eq!(back, state);
@@ -556,7 +559,9 @@ mod tests {
 
     #[test]
     fn waiting_state_display_shows_waiting() {
-        let state = ThreadState::Waiting { reason: Some("blocked".to_string()) };
+        let state = ThreadState::Waiting {
+            reason: Some("blocked".to_string()),
+        };
         assert_eq!(format!("{}", state), "waiting");
     }
 
@@ -565,7 +570,9 @@ mod tests {
         let thread = Thread {
             id: 1,
             slug: "fix-login".to_string(),
-            state: ThreadState::Waiting { reason: Some("waiting for review".to_string()) },
+            state: ThreadState::Waiting {
+                reason: Some("waiting for review".to_string()),
+            },
             priority: Priority::Priority,
             description: "Fix it".to_string(),
             path: None,
@@ -613,29 +620,56 @@ mod tests {
 
     #[test]
     fn task_state_serialises_with_kebab_case() {
-        assert_eq!(serde_json::to_string(&TaskState::NotStarted).unwrap(), "\"not-started\"");
-        assert_eq!(serde_json::to_string(&TaskState::InProgress).unwrap(), "\"in-progress\"");
-        assert_eq!(serde_json::to_string(&TaskState::Blocked).unwrap(), "\"blocked\"");
+        assert_eq!(
+            serde_json::to_string(&TaskState::NotStarted).unwrap(),
+            "\"not-started\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskState::InProgress).unwrap(),
+            "\"in-progress\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskState::Blocked).unwrap(),
+            "\"blocked\""
+        );
         assert_eq!(serde_json::to_string(&TaskState::Done).unwrap(), "\"done\"");
-        assert_eq!(serde_json::to_string(&TaskState::Cancelled).unwrap(), "\"cancelled\"");
+        assert_eq!(
+            serde_json::to_string(&TaskState::Cancelled).unwrap(),
+            "\"cancelled\""
+        );
     }
 
     #[test]
     fn task_state_deserialises_from_kebab_case() {
-        assert_eq!(serde_json::from_str::<TaskState>("\"not-started\"").unwrap(), TaskState::NotStarted);
-        assert_eq!(serde_json::from_str::<TaskState>("\"in-progress\"").unwrap(), TaskState::InProgress);
-        assert_eq!(serde_json::from_str::<TaskState>("\"blocked\"").unwrap(), TaskState::Blocked);
-        assert_eq!(serde_json::from_str::<TaskState>("\"done\"").unwrap(), TaskState::Done);
-        assert_eq!(serde_json::from_str::<TaskState>("\"cancelled\"").unwrap(), TaskState::Cancelled);
+        assert_eq!(
+            serde_json::from_str::<TaskState>("\"not-started\"").unwrap(),
+            TaskState::NotStarted
+        );
+        assert_eq!(
+            serde_json::from_str::<TaskState>("\"in-progress\"").unwrap(),
+            TaskState::InProgress
+        );
+        assert_eq!(
+            serde_json::from_str::<TaskState>("\"blocked\"").unwrap(),
+            TaskState::Blocked
+        );
+        assert_eq!(
+            serde_json::from_str::<TaskState>("\"done\"").unwrap(),
+            TaskState::Done
+        );
+        assert_eq!(
+            serde_json::from_str::<TaskState>("\"cancelled\"").unwrap(),
+            TaskState::Cancelled
+        );
     }
 
     #[test]
     fn task_state_display() {
         assert_eq!(format!("{}", TaskState::NotStarted), "not-started");
         assert_eq!(format!("{}", TaskState::InProgress), "in-progress");
-        assert_eq!(format!("{}", TaskState::Blocked),    "blocked");
-        assert_eq!(format!("{}", TaskState::Done),       "done");
-        assert_eq!(format!("{}", TaskState::Cancelled),  "cancelled");
+        assert_eq!(format!("{}", TaskState::Blocked), "blocked");
+        assert_eq!(format!("{}", TaskState::Done), "done");
+        assert_eq!(format!("{}", TaskState::Cancelled), "cancelled");
     }
 
     #[test]
@@ -664,7 +698,10 @@ mod tests {
             blocked_reason: None,
         };
         let v: serde_json::Value = serde_json::to_value(&task).unwrap();
-        assert!(v.get("due_by").is_none(), "due_by should be omitted when None");
+        assert!(
+            v.get("due_by").is_none(),
+            "due_by should be omitted when None"
+        );
     }
 
     #[test]
@@ -678,7 +715,10 @@ mod tests {
             blocked_reason: None,
         };
         let v: serde_json::Value = serde_json::to_value(&task).unwrap();
-        assert!(v.get("blocked_reason").is_none(), "blocked_reason should be omitted when None");
+        assert!(
+            v.get("blocked_reason").is_none(),
+            "blocked_reason should be omitted when None"
+        );
     }
 
     #[test]
@@ -722,7 +762,8 @@ mod tests {
 
     #[test]
     fn thread_without_path_field_deserialises_as_none() {
-        let json = r#"{"id":1,"slug":"test","state":"paused","priority":"BG","description":"Test"}"#;
+        let json =
+            r#"{"id":1,"slug":"test","state":"paused","priority":"BG","description":"Test"}"#;
         let thread: Thread = serde_json::from_str(json).unwrap();
         assert_eq!(thread.path, None);
     }

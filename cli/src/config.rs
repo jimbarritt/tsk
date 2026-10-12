@@ -76,6 +76,68 @@ pub fn read_nexus_url(file: &Path) -> Result<Option<String>, String> {
     }
 }
 
+/// Environment variable that overrides `[ledger] backend` in the user config.
+pub const BACKEND_ENV: &str = "TSK_LEDGER_BACKEND";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LedgerBackend {
+    Dolt,
+    Git,
+}
+
+fn parse_backend(value: &str, source: &str) -> Result<LedgerBackend, String> {
+    match value.trim() {
+        "dolt" => Ok(LedgerBackend::Dolt),
+        "git" => Ok(LedgerBackend::Git),
+        other => Err(format!(
+            "error: unknown ledger backend '{}' in {}; expected 'dolt' or 'git'",
+            other, source
+        )),
+    }
+}
+
+/// The `[ledger] backend` value in the config file, unvalidated. `None` when the file,
+/// the table or the key is absent.
+pub fn read_ledger_backend(file: &Path) -> Result<Option<String>, String> {
+    let table = read_table(file)?;
+    match table.get("ledger") {
+        None => Ok(None),
+        Some(toml::Value::Table(ledger)) => match ledger.get("backend") {
+            None => Ok(None),
+            Some(toml::Value::String(value)) => Ok(Some(value.clone())),
+            Some(_) => Err(format!(
+                "error: ledger.backend in {} must be a string",
+                file.display()
+            )),
+        },
+        Some(_) => Err(format!(
+            "error: ledger in {} must be a table with a backend key",
+            file.display()
+        )),
+    }
+}
+
+/// Choose the ledger backend. The environment value wins over the config file, and an
+/// empty value counts as unset. The default is Dolt.
+pub fn ledger_backend(env: Option<String>, file: Option<&Path>) -> Result<LedgerBackend, String> {
+    if let Some(value) = env.filter(|v| !v.trim().is_empty()) {
+        return parse_backend(&value, &format!("${}", BACKEND_ENV));
+    }
+    if let Some(file) = file {
+        if let Some(value) = read_ledger_backend(file)? {
+            return parse_backend(&value, &file.display().to_string());
+        }
+    }
+    Ok(LedgerBackend::Dolt)
+}
+
+pub fn ledger_backend_from_env() -> Result<LedgerBackend, String> {
+    ledger_backend(
+        std::env::var(BACKEND_ENV).ok(),
+        config_file_from_env().as_deref(),
+    )
+}
+
 pub fn attach_nexus(file: &Path, url: &str) -> Result<AttachOutcome, String> {
     let url = url.trim();
     if url.is_empty() {
@@ -169,6 +231,49 @@ mod tests {
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         std::fs::write(&file, "other = 1\n").unwrap();
         assert_eq!(read_nexus_url(&file).unwrap(), None);
+    }
+
+    #[test]
+    fn backend_defaults_to_dolt_and_the_environment_overrides_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("config.toml");
+        assert_eq!(
+            ledger_backend(None, Some(&file)).unwrap(),
+            LedgerBackend::Dolt
+        );
+        std::fs::write(&file, "[ledger]\nbackend = \"git\"\n").unwrap();
+        assert_eq!(
+            ledger_backend(None, Some(&file)).unwrap(),
+            LedgerBackend::Git
+        );
+        assert_eq!(
+            ledger_backend(Some("dolt".into()), Some(&file)).unwrap(),
+            LedgerBackend::Dolt
+        );
+        assert_eq!(
+            ledger_backend(Some("".into()), Some(&file)).unwrap(),
+            LedgerBackend::Git
+        );
+    }
+
+    #[test]
+    fn an_unknown_backend_is_named_in_the_error() {
+        let err = ledger_backend(Some("sqlite".into()), None).unwrap_err();
+        assert!(err.contains("'sqlite'"), "{}", err);
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("config.toml");
+        std::fs::write(&file, "[ledger]\nbackend = \"mongo\"\n").unwrap();
+        let err = ledger_backend(None, Some(&file)).unwrap_err();
+        assert!(err.contains("'mongo'"), "{}", err);
+    }
+
+    #[test]
+    fn attaching_a_nexus_keeps_the_ledger_backend() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("config.toml");
+        std::fs::write(&file, "[ledger]\nbackend = \"git\"\n").unwrap();
+        attach_nexus(&file, "https://a.test/n").unwrap();
+        assert_eq!(read_ledger_backend(&file).unwrap().as_deref(), Some("git"));
     }
 
     #[test]

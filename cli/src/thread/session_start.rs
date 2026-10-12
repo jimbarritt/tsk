@@ -141,7 +141,7 @@ pub fn fetched_context(path: &Path, pending: &PendingNote, thread_message: &str)
     );
     if !pending.lines.is_empty() {
         context.push(' ');
-        context.push_str(&pending_warning(path, pending));
+        context.push_str(&pending_warning(pending));
     }
     context.push(' ');
     context.push_str(thread_message);
@@ -150,27 +150,27 @@ pub fn fetched_context(path: &Path, pending: &PendingNote, thread_message: &str)
 
 pub struct PendingNote {
     pub remote_ref: String,
-    pub origin_commit: String,
+    /// The command that shows what the pending commits change, from the backend.
+    pub inspect_hint: String,
     pub lines: Vec<String>,
 }
 
 impl PendingNote {
-    pub fn from_outcome(outcome: &RefreshOutcome) -> PendingNote {
+    pub fn from_outcome(outcome: &RefreshOutcome, inspect_hint: String) -> PendingNote {
         PendingNote {
             remote_ref: outcome.remote_label.clone(),
-            origin_commit: outcome.remote_head.clone(),
+            inspect_hint,
             lines: outcome.pending.clone(),
         }
     }
 }
 
-fn pending_warning(path: &Path, pending: &PendingNote) -> String {
+fn pending_warning(pending: &PendingNote) -> String {
     format!(
-        "WARNING: the ledger worktree holds a commit that is not on {}, so it was left as it is rather than reset: {}. A worker restart can end a turn between a commit and its push, which leaves exactly this state, so this may be your own work from a turn you hold no record of making. Do not assume another actor made it, and do not discard it on that basis. Read what it changes first, with: git -C '{}' log -p {}..HEAD. Then push it with tsk ledger push, or discard it deliberately once you know what it is.",
+        "WARNING: the ledger worktree holds a commit that is not on {}, so it was left as it is rather than reset: {}. A worker restart can end a turn between a commit and its push, which leaves exactly this state, so this may be your own work from a turn you hold no record of making. Do not assume another actor made it, and do not discard it on that basis. Read what it changes first, with: {}. Then push it with tsk ledger push, or discard it deliberately once you know what it is.",
         pending.remote_ref,
         pending.lines.join(";"),
-        path.display(),
-        pending.origin_commit
+        pending.inspect_hint
     )
 }
 
@@ -212,7 +212,12 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
     let binding = resolve(session).ok().flatten().map(|b| b.to_string());
     let mut context = fetched_context(
         &outcome.path,
-        &PendingNote::from_outcome(&outcome),
+        &PendingNote::from_outcome(
+            &outcome,
+            session
+                .store
+                .pending_inspect_hint(&outcome.path, &outcome.remote_head),
+        ),
         &thread_message(binding.as_deref()),
     );
     if let Err(e) = export_to_env_file(&outcome.path) {
@@ -248,7 +253,7 @@ mod tests {
     fn no_pending() -> PendingNote {
         PendingNote {
             remote_ref: "origin's refs/heads/tsk/ledger".to_string(),
-            origin_commit: "abc123".to_string(),
+            inspect_hint: "git -C '/s/ledger' log -p abc123..HEAD".to_string(),
             lines: Vec::new(),
         }
     }
