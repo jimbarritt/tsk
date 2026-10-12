@@ -163,8 +163,10 @@ commit. It skips a crate whose version is already on crates.io, so a rerun publi
 what is missing. To publish an existing release, run the workflow from the Actions tab
 and give it the tag.
 
-The workflow needs the repository secret `CARGO_REGISTRY_TOKEN`, a crates.io API token
-with the publish-update scope.
+The workflow needs the secret `CARGO_REGISTRY_TOKEN`, a crates.io API token with the
+publish-update scope, in the GitHub environment `crates-io`. Only the publish job reads
+it. The environment's deployment rules admit `main`, for a run from the Actions tab, and
+tags matching `v*`, for a release.
 
 From a terminal, `just publish` publishes both crates by hand.
 
