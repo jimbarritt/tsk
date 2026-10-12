@@ -80,13 +80,17 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `key` varchar, primary key; `value` text | The `.tsk-ledger.toml` keys, for example `version` and `repo_id`. |
-| `documents` | `path` varchar, primary key; `body` longtext | `index.md`, `future-missions-tbd.md` and every file under `missions/`. |
-| `threads` | `thread_id` varchar, primary key; `briefing_path` text | One row per thread. `briefing_path` replaces `threads/<thread-id>/index.md`. |
-| `continuation_entries` | `thread_id` varchar; `seq` int; `entry` text. Primary key (`thread_id`, `seq`) | One row per continuation state entry. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
-| `cloud_session_bindings` | `session_id` varchar, primary key; `thread_id` varchar; `registered_at` text | One row per cloud session binding. It replaces `threads/lookup-by-cloud-session.json`. |
-| `external_events` | `position` bigint, primary key; `envelope` text | The external event queue. `envelope` is the JSON line, in the format of [`queue.ndjson`](#external-eventsqueuendjson). |
-| `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` text | One row, the processed position of the queue. It replaces `watermark.json`. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. |
+| `documents` | `path` varchar(1024), primary key; `body` longtext | `index.md`, `future-missions-tbd.md` and every file under `missions/`. |
+| `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024) | One row per thread. `briefing_path` replaces `threads/<thread-id>/index.md`. |
+| `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
+| `cloud_session_bindings` | `session_id` varchar(255), primary key; `thread_id` varchar(64); `registered_at` varchar(32) | One row per cloud session binding. It replaces `threads/lookup-by-cloud-session.json`. |
+| `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of [`queue.ndjson`](#external-eventsqueuendjson). |
+| `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` varchar(32) | One row, `id` 1, the processed position of the queue. No row reads as `0`. It replaces `watermark.json`. |
+
+The binary writes every text value as a hex literal, `CONVERT(X'...' USING utf8mb4)`,
+and sends SQL to `dolt sql` on stdin. It sets `DOLT_DISABLE_EVENT_FLUSH=1` on every
+`dolt` call, so Dolt sends no telemetry.
 
 `git.ledger.commit` in a continuation entry holds the Dolt commit hash with the Dolt
 backend.
@@ -110,29 +114,53 @@ backend.
 
 `tsk ledger push "<message>"` with the Dolt backend:
 
-1. Runs `dolt add -A`.
-2. Runs `dolt commit` with the caller's message.
-3. Makes up to 5 attempts of `dolt pull` followed by `dolt push`.
+1. Runs `dolt add -A`, then `dolt commit` with the caller's message when anything is
+   staged. With nothing staged it prints a note and continues.
+2. Makes up to 5 attempts:
+   1. `dolt fetch origin`. If `HEAD` already equals `origin/main` or is its ancestor,
+      the remote holds this state: exit 0.
+   2. `dolt merge origin/main`, then read `dolt_conflicts` and
+      `dolt_constraint_violations`. Any row aborts the merge with `dolt merge --abort`,
+      and the command exits 1 and names the conflicting tables.
+   3. `dolt push origin main`. A rejected push prints a note and goes to the next
+      attempt. Any other failure stops with exit 1.
 
-A merge conflict stops the push at once. The command aborts the merge, exits 1 and names
-the conflicting tables. The local commit stays in the database, and a later
+The local commit stays in the database after a conflict or a failure, and a later
 `tsk ledger push` sends it. Dolt merges by row and cell, so two writers that change
-different rows or different cells of one row do not conflict.
+different rows, or different cells of one row, do not conflict. Two writers that append
+an external event at the same moment take the same `position` and conflict, as two
+appends to `queue.ndjson` conflict in a rebase.
 
 On success, stdout carries the Dolt commit hash.
 
 ### Migration
 
-`tsk ledger migrate-to-dolt` moves a file ledger to the Dolt backend. It:
+`tsk ledger migrate-to-dolt` moves a file ledger to the Dolt backend. It runs with
+either backend selected. It:
 
-1. Fetches the file ledger.
-2. Pushes the file ledger's tip to `refs/heads/archive/tsk-ledger-files`.
-3. Writes every record into a new Dolt database in one Dolt commit.
-4. Pushes the database to the ledger ref.
+1. Fetches the file ledger ref and checks its manifest. It stops when the ref is absent
+   or already holds Dolt data.
+2. Reads every record from the fetched commit's tree, not from the ledger worktree.
+3. Builds a new Dolt database beside `ledger-db`, writes the schema and every record in
+   one Dolt commit after `dolt init`'s own initial commit, and reads every record back
+   through the `LedgerStore` trait to compare it with the tree. A difference stops the
+   command before anything is pushed.
+4. Pushes the file ledger's commit to `refs/heads/archive/tsk-ledger-files`, or
+   `refs/heads/archive/ledgers/<repo-id>-files` for a nexus ledger. The push only
+   creates the branch or moves it forward. A branch at an unrelated commit stops the
+   command.
+5. Checks that the ledger ref still holds the migrated commit, then pushes the database
+   to it with `dolt push`. A moved ref stops the command with `another writer pushed`.
+   Run it again.
+6. Moves the new database to `ledger-db`. An existing `ledger-db` is renamed to
+   `ledger-db.pre-migrate-<timestamp>` first.
+7. Prints `migrated:<file-commit>:<dolt-commit>`, with the record counts on stderr.
+
+`--dry-run` runs steps 1 to 3 in a temporary directory, deletes it, prints the counts and
+`dry-run:ok`, and pushes nothing.
 
 Dolt's first push to a git branch replaces the branch with an orphan history. The archive
-branch in step 2 keeps the file ledger's history. The command refuses a ledger ref that
-already holds Dolt data.
+branch keeps the file ledger's history.
 
 An older `tsk` binary that fetches the Dolt branch finds no `.tsk-ledger.toml` and stops
 before it writes. The binary needs updating.
