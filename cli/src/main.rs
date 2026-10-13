@@ -76,6 +76,11 @@ enum Commands {
         about = "Add the plugin marketplace, then install and update the tsk plugin through a coding agent's CLI"
     )]
     InstallPlugin(install_plugin::InstallPluginArgs),
+    #[command(
+        name = "self-update",
+        about = "Upgrade tsk to the latest release, by the method it was installed with (Homebrew, Cargo or a release binary)"
+    )]
+    SelfUpdate(self_update::SelfUpdateArgs),
     #[command(about = "Print guides for agents, such as importing an existing plan")]
     Guide {
         #[command(subcommand)]
@@ -120,6 +125,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
         Some(Commands::Config { action }) => config::run(action).map(|()| 0),
         Some(Commands::Nexus { action }) => nexus_cmd::run(action).map(|()| 0),
         Some(Commands::InstallPlugin(args)) => install_plugin::run(args).map(|()| 0),
+        Some(Commands::SelfUpdate(args)) => self_update::run(args).map(|()| 0),
         Some(Commands::Guide { action }) => guide::run(action).map(|()| 0),
         None => Ok(0),
     }
@@ -142,6 +148,8 @@ mod events;
 mod install_plugin;
 
 mod guide;
+
+mod self_update;
 
 mod nexus_cmd;
 
@@ -330,6 +338,25 @@ mod tests {
             Cli::try_parse_from(["tsk", "install-plugin", "claude-cli", "--scope", "team"])
                 .is_err()
         );
+    }
+
+    #[test]
+    fn self_update_parses_with_and_without_check() {
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "self-update"]).unwrap().command,
+            Some(Commands::SelfUpdate(self_update::SelfUpdateArgs {
+                check: false
+            }))
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "self-update", "--check"])
+                .unwrap()
+                .command,
+            Some(Commands::SelfUpdate(self_update::SelfUpdateArgs {
+                check: true
+            }))
+        ));
+        assert!(Cli::try_parse_from(["tsk", "self-update", "extra"]).is_err());
     }
 
     #[test]

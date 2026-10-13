@@ -166,12 +166,40 @@ the hook commands are tested on their own.
 ## Upgrading
 
 ```bash
-cargo install tsk-bin --locked
+tsk self-update
 ```
 
-`cargo install` replaces the installed binary with the latest version on crates.io. Add
-`--version <version>` to install a given version. The plugin's `SessionStart` hook also
-upgrades `tsk` when it is older than the version the plugin requires (`plugin/tsk-version`).
+`tsk self-update` finds the latest release tag on GitHub and compares it with the running
+version. When the running version is the latest, it prints that and exits 0. Otherwise it
+upgrades by the method the running binary was installed with:
+
+| Install method | How tsk detects it | What `self-update` runs |
+|---|---|---|
+| Homebrew | The binary path contains `/Cellar/`, `/homebrew/` or `/linuxbrew/`. | `brew upgrade jimbarritt/tap/tsk` |
+| Cargo | The binary is under `$CARGO_HOME/bin` or `~/.cargo/bin`. | `cargo install tsk-bin --locked --version <latest>` |
+| Release binary | Any other path. | Downloads the archive for the platform from the GitHub release, then replaces the running binary. |
+
+The release binary method needs `curl` and `tar`. It writes the new binary next to the old
+one and renames it over the old one. When the directory is not writable, the command names
+the path and asks you to rerun it with sufficient permissions, for example with `sudo`.
+
+`tsk self-update --check` only reports. It prints whether a newer release exists, and never
+installs.
+
+`tsk thread session-start` adds a sentence to the session context when a newer release
+exists: `tsk <new> is available (running <old>). Run `tsk self-update` to upgrade.` The
+lookup stops after 5 seconds, and a failure adds nothing. Set `TSK_NO_UPDATE_CHECK=1` to
+skip it.
+
+In a Claude Code cloud session, `tsk thread session-start --install-plugin claude-cli`
+runs the upgrade before it installs the plugin. A failed upgrade adds a warning to the
+context and the session still starts. The session in which tsk upgrades itself carries on
+with the old binary. The next command uses the new one. No upgrade runs outside cloud
+sessions.
+
+You can also upgrade with `cargo install tsk-bin --locked` or `brew upgrade jimbarritt/tap/tsk`
+directly. The plugin's `SessionStart` hook also upgrades `tsk` when it is older than the
+version the plugin requires (`plugin/tsk-version`).
 
 `tsk install-plugin claude-cli` updates the plugin. Claude Code loads plugin hooks and
 skills when its process starts, so a new plugin version takes effect in the next new

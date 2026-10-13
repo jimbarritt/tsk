@@ -176,8 +176,11 @@ and needs no command.
 
 ### Every later session
 
-Nothing. The hook installs the plugin in a cloud session and fetches the ledger, in any
-environment that has `tsk` and `dolt` on `PATH` (step 3).
+Nothing. In a cloud session the hook first upgrades `tsk` to the latest release with
+`tsk self-update`, so a cached setup result does not hold an old version. It then installs
+the plugin and fetches the ledger, in any environment that has `tsk` and `dolt` on `PATH`
+(step 3). A failed upgrade adds a warning to the session context and the session still
+starts.
 
 The binary claims each session start event by session ID and source. When the plugin's
 own `SessionStart` hook also runs, the second run prints nothing, so the context appears
@@ -247,6 +250,7 @@ The stamp shows reuse only when the cache keeps the container's filesystem.
 | `tsk ledger push` is rejected | The cloud sandbox proxy refuses writes outside `refs/heads/*`. | The ledger is the branch `tsk/ledger`, not a custom ref. See [ADR 0008](../adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md). |
 | `git merge-base` reports unrelated branches | The clone is shallow. | `git fetch --unshallow origin`. The hook does this at session start. |
 | A new `tsk` release is not picked up | The setup script result is cached for the environment. | Edit the script, for example by pinning `TSK_VERSION`, so the environment rebuilds. |
+| The context warns that `tsk` could not be upgraded | `github.com` is blocked, or the release asset is missing for the platform. | Allow `github.com`, then run `tsk self-update` in the session and read the error. |
 
 ## Observed
 
