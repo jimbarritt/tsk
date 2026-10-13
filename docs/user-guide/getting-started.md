@@ -9,6 +9,11 @@ client alone, with no daemon. The default ledger backend is Dolt and needs the `
 [ledger-layout.md](../domain/ledger-layout.md). Threads, bindings and continuation state
 are in [session-continuation-design.md](../domain/session-continuation-design.md).
 
+To bring an existing plan into a ledger, run `tsk guide import`. It prints a guide for an
+agent: what the ledger holds, the shape of a mission briefing, and the steps to map a
+plan in any format onto missions through `tsk ledger doc put`. The session start context
+names the command while the ledger holds no missions.
+
 **1. Fetch the ledger:**
 
 ```bash

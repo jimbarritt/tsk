@@ -254,6 +254,14 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
         ),
         &thread_message(binding.as_deref()),
     );
+    if session
+        .store
+        .doc_list("missions/")
+        .is_ok_and(|missions| missions.is_empty())
+    {
+        context.push(' ');
+        context.push_str(crate::guide::EMPTY_LEDGER_NOTE);
+    }
     if let Err(e) = export_to_env_file(&outcome.path) {
         context.push_str(&format!(
             " WARNING: {} was not exported ({}); use the path above.",

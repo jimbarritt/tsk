@@ -76,6 +76,11 @@ enum Commands {
         about = "Add the plugin marketplace, then install and update the tsk plugin through a coding agent's CLI"
     )]
     InstallPlugin(install_plugin::InstallPluginArgs),
+    #[command(about = "Print guides for agents, such as importing an existing plan")]
+    Guide {
+        #[command(subcommand)]
+        action: guide::GuideCommands,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +120,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
         Some(Commands::Config { action }) => config::run(action).map(|()| 0),
         Some(Commands::Nexus { action }) => nexus_cmd::run(action).map(|()| 0),
         Some(Commands::InstallPlugin(args)) => install_plugin::run(args).map(|()| 0),
+        Some(Commands::Guide { action }) => guide::run(action).map(|()| 0),
         None => Ok(0),
     }
 }
@@ -134,6 +140,8 @@ mod thread;
 mod events;
 
 mod install_plugin;
+
+mod guide;
 
 mod nexus_cmd;
 

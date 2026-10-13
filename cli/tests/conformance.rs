@@ -838,3 +838,47 @@ fn dolt_session_start_exports_the_database_path_and_warns_about_pending_commits(
     let fetch = fx.tsk(&a, &["ledger", "fetch"]);
     assert!(!stderr(&fetch).contains("holds a commit"));
 }
+
+#[test]
+fn session_start_names_the_import_guide_only_while_the_ledger_has_no_missions() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new(Backend::Dolt);
+    let a = fx.a();
+    fx.ok(&a, &["ledger", "fetch"]);
+    let session_start = |session: &str| {
+        let mut child = fx
+            .command(&a, "dolt", &["thread", "session-start"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(
+                format!("{{\"session_id\":\"{}\",\"source\":\"startup\"}}", session).as_bytes(),
+            )
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert_success(&output);
+        stdout(&output)
+    };
+    assert!(session_start("empty").contains("run `tsk guide import`"));
+
+    fx.put(&a, "missions/operational/M-X-x.md", "# Mission: X\n");
+    fx.ok(&a, &["ledger", "push", "Add M-X"]);
+    let with_mission = session_start("with-mission");
+    assert!(
+        !with_mission.contains("tsk guide import"),
+        "{}",
+        with_mission
+    );
+
+    let guide = fx.ok(&a, &["guide", "import"]);
+    assert!(guide.starts_with("# Importing an existing plan into tsk\n"));
+}

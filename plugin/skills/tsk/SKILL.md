@@ -103,6 +103,10 @@ Read and change documents with `tsk ledger doc`. Read the index with
 `tsk ledger doc put <path>` (body on stdin, or a file argument), then
 `tsk ledger push "<message>"`. `doc put` and `doc rm` change the local store only.
 
+To bring an existing plan, in any format, into the ledger, run `tsk guide import` and
+follow it. It explains what the ledger holds and how to map a plan onto missions. Do not
+read the tsk source code to learn the format.
+
 `tsk ledger fetch` and `path` print a bare path on stdout, so
 `WT="$(tsk ledger fetch)"` works. `tsk ledger push` runs `dolt add -A` and `dolt commit`,
 then up to 5 attempts of `dolt fetch`, `dolt merge` and `dolt push`. A merge conflict stops it with exit
