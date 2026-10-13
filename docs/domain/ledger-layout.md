@@ -72,7 +72,7 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
   ledger, or `--ref refs/heads/ledgers/<repo-id>` for a nexus ledger. Its URL is
   `git+<remote url>`, with the remote URL resolved as in
   [Location and ref](#location-and-ref).
-- The database needs the external `dolt` binary, version 1.88.2. The `SessionStart` hook
+- The database needs the external `dolt` binary, version 1.88.2 or later. The `SessionStart` hook
   installs it.
 - No file in `ledger-db` is edited by hand. The `tsk ledger` commands are the interface.
 

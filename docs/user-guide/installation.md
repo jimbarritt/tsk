@@ -1,5 +1,20 @@
 # Installation
 
+## Homebrew
+
+On macOS (Apple silicon or Intel) or Linux (x86_64 or arm64) with Homebrew:
+
+```bash
+brew install jimbarritt/tap/tsk
+```
+
+The formula installs a prebuilt `tsk` binary, with `dolt` and `jq` as dependencies. It
+needs no Rust toolchain. `brew upgrade tsk` upgrades it. The release workflow writes the
+formula, `Formula/tsk.rb` in `jimbarritt/homebrew-tap`, for every release.
+
+With Homebrew, skip the prerequisites and the `cargo install` step, and go to
+[Installation](#installation) for the plugin.
+
 ## Prerequisites
 
 - **git**, with credentials that can push to the repo whose ledger you keep.
@@ -23,10 +38,10 @@ brew install rust
 mise use -g rust@latest
 ```
 
-**dolt** (version 1.88.2): the default ledger backend stores the ledger in a Dolt
-database and runs the external `dolt` binary. Both `SessionStart` hooks install it when it
-is absent or another version: the plugin's hook in any repo, and the tsk repo's own
-script. Each runs `plugin/hooks/install-dolt.sh`, which installs to `/usr/local/bin` when
+**dolt** (version 1.88.2 or later): the default ledger backend stores the ledger in a Dolt
+database and runs the external `dolt` binary. Both `SessionStart` hooks install 1.88.2
+when no `dolt` 1.88.2 or later is installed: the plugin's hook in any repo, and the tsk
+repo's own script. Each runs `plugin/hooks/install-dolt.sh`, which installs to `/usr/local/bin` when
 that directory is writable, otherwise to `$HOME/.local/bin`, and sets a Dolt identity when
 none is set. By hand, download the archive for your platform from
 `https://github.com/dolthub/dolt/releases/download/v1.88.2/` (`dolt-linux-amd64.tar.gz`,

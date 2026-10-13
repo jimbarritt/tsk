@@ -1,0 +1,161 @@
+name: Binaries and Homebrew formula
+
+# Builds the tsk binary for macOS and Linux at a release tag, attaches one archive per
+# platform to the GitHub release, then writes Formula/tsk.rb in jimbarritt/homebrew-tap
+# so that `brew install jimbarritt/tap/tsk` installs that release.
+#
+# release.yml calls this workflow after it creates a release. The run from the Actions
+# tab takes a tag, for a release made before this workflow existed, or a run that failed.
+#
+# Archives: tsk-<version>-<target>.tar.gz, holding the `tsk` binary at the root.
+#
+# The formula job needs the secret HOMEBREW_TAP_TOKEN in the environment
+# `homebrew-tap`: a fine-grained personal access token with read and write access to
+# the contents of jimbarritt/homebrew-tap.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, for example v0.4.0"
+        required: true
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to build, for example v0.4.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      TAG: ${{ inputs.tag }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add "$TARGET"
+
+      - name: Build
+        run: cargo build --release --locked --package tsk-bin --target "$TARGET"
+
+      - name: Package and attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          archive="tsk-${TAG#v}-$TARGET.tar.gz"
+          tar -czf "$archive" -C "target/$TARGET/release" tsk
+          gh release upload "$TAG" "$archive" --clobber
+
+  formula:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: homebrew-tap
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check the token is set
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::error::the secret HOMEBREW_TAP_TOKEN is not set in the environment homebrew-tap"
+            exit 1
+          fi
+
+      - name: Download the archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'tsk-*.tar.gz' --dir archives
+          ls -l archives
+
+      - name: Write the formula
+        run: |
+          version="${TAG#v}"
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+          sha() {
+            sha256sum "archives/tsk-$version-$1.tar.gz" | cut -d ' ' -f 1
+          }
+          cat > tsk.rb <<RUBY
+          class Tsk < Formula
+            desc "Missions, threads and a Dolt ledger for agent sessions"
+            homepage "https://github.com/$GITHUB_REPOSITORY"
+            version "$version"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "$base/tsk-$version-aarch64-apple-darwin.tar.gz"
+                sha256 "$(sha aarch64-apple-darwin)"
+              end
+              on_intel do
+                url "$base/tsk-$version-x86_64-apple-darwin.tar.gz"
+                sha256 "$(sha x86_64-apple-darwin)"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "$base/tsk-$version-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "$(sha aarch64-unknown-linux-gnu)"
+              end
+              on_intel do
+                url "$base/tsk-$version-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "$(sha x86_64-unknown-linux-gnu)"
+              end
+            end
+
+            depends_on "dolt"
+            depends_on "jq"
+
+            def install
+              bin.install "tsk"
+            end
+
+            test do
+              assert_match "tsk #{version}", shell_output("#{bin}/tsk --version")
+            end
+          end
+          RUBY
+          cat tsk.rb
+
+      - name: Push the formula to the tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone --depth 1 "https://x-access-token:$HOMEBREW_TAP_TOKEN@github.com/jimbarritt/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp tsk.rb tap/Formula/tsk.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/tsk.rb
+          if git diff --cached --quiet; then
+            echo "Formula/tsk.rb already holds $TAG"
+            exit 0
+          fi
+          git commit -m "tsk ${TAG#v}"
+          git push origin HEAD

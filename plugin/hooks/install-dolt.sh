@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# Installs the dolt binary that tsk's default ledger backend runs, at the pinned
-# version. Does nothing when that version is already installed. Prints a
+# Installs the dolt binary that tsk's default ledger backend runs. Does nothing
+# when dolt DOLT_VERSION or later is installed, from Homebrew for example.
+# Otherwise it installs DOLT_VERSION from the GitHub release. Prints a
 # WARNING line on stdout when the install or the identity setup fails, and
 # nothing otherwise. Always exits 0, so a caller never stops on it.
 
 DOLT_VERSION="1.88.2"
 
 installed_is_current() {
-  command -v dolt >/dev/null 2>&1 &&
-    dolt version 2>/dev/null | grep -q "$DOLT_VERSION"
+  local installed
+  command -v dolt >/dev/null 2>&1 || return 1
+  installed="$(dolt version 2>/dev/null | sed -n 's/^dolt version \([0-9][0-9.]*\).*/\1/p' | head -n 1)"
+  [ -n "$installed" ] &&
+    [ "$(printf '%s\n%s\n' "$DOLT_VERSION" "$installed" | sort -V | head -n 1)" = "$DOLT_VERSION" ]
 }
 
 warn() {
