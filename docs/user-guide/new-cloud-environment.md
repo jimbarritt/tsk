@@ -13,8 +13,8 @@ API call creates one. See
 | Item | Provided by |
 |---|---|
 | The repo's code | The cloud session clones it from GitHub. |
-| `tsk` on `PATH` | The environment's setup script (step 3). |
-| Access to crates.io for the build | The environment's network access setting (step 2). |
+| `tsk` and `dolt` on `PATH` | The environment's setup script (step 3). |
+| Access to the GitHub release downloads | The environment's network access setting (step 2). |
 | The `tsk` plugin | The repo's `SessionStart` hook (step 4). |
 | `$TSK_LEDGER_WT` and the ledger worktree | `tsk thread session-start`, run by the same hook. |
 
@@ -43,14 +43,13 @@ The environment's network access setting has four levels:
 | Full | Unrestricted internet access for maximum flexibility. |
 | Custom | A list of allowed domains. |
 
-Select Trusted. The setup script's `cargo install` ran to completion at this level, so
-the crates.io hosts are allowed.
+Select Trusted.
 
 The script and the session hooks use these hosts:
 
-- `crates.io`, `index.crates.io` and `static.crates.io`, for `cargo install`.
-- `static.rust-lang.org` and `sh.rustup.rs`, only when `cargo` is missing from the image.
-- `github.com`, for the plugin marketplace and the ledger.
+- `github.com`, for the release downloads, the plugin marketplace and the ledger.
+- `release-assets.githubusercontent.com` and `objects.githubusercontent.com`, which
+  serve the release downloads after a redirect from `github.com`.
 
 If a host is blocked, use Custom and add it, or use Full.
 
@@ -62,44 +61,49 @@ Paste this into the environment's setup script field:
 #!/bin/bash
 set -euo pipefail
 
-CARGO_INSTALLED=no
-if ! command -v cargo >/dev/null 2>&1; then
-  CARGO_INSTALLED=yes
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
-  for tool in cargo rustc rustup; do
-    ln -sf "$HOME/.cargo/bin/$tool" "/usr/local/bin/$tool"
-  done
-fi
+case "$(uname -m)" in
+  x86_64) TSK_TARGET=x86_64-unknown-linux-gnu; DOLT_ARCH=amd64 ;;
+  aarch64) TSK_TARGET=aarch64-unknown-linux-gnu; DOLT_ARCH=arm64 ;;
+  *) echo "unsupported machine: $(uname -m)" >&2; exit 1 ;;
+esac
 
-cargo install tsk-bin --locked --root /usr/local
+# tsk: the prebuilt binary from the latest GitHub release.
+latest="$(curl -sSfLI -o /dev/null -w '%{url_effective}' https://github.com/jimbarritt/tsk/releases/latest)"
+TSK_VERSION="${latest##*/v}"
+curl -sSfL "https://github.com/jimbarritt/tsk/releases/download/v$TSK_VERSION/tsk-$TSK_VERSION-$TSK_TARGET.tar.gz" |
+  tar -xz --no-same-owner -C /usr/local/bin tsk
+
+# dolt: the ledger store.
+DOLT_VERSION=1.88.2
+tmp="$(mktemp -d)"
+curl -sSfL "https://github.com/dolthub/dolt/releases/download/v$DOLT_VERSION/dolt-linux-$DOLT_ARCH.tar.gz" |
+  tar -xz --no-same-owner -C "$tmp"
+cp "$tmp/dolt-linux-$DOLT_ARCH/bin/dolt" /usr/local/bin/dolt
+dolt config --global --get user.name >/dev/null 2>&1 || dolt config --global --add user.name tsk
+dolt config --global --get user.email >/dev/null 2>&1 || dolt config --global --add user.email tsk@localhost
 
 mkdir -p /usr/local/share/tsk-setup
-{
-  date -u +%Y-%m-%dT%H:%M:%SZ
-  echo "user=$(whoami) home=$HOME cargo_installed=$CARGO_INSTALLED"
-  cargo --version
-} > /usr/local/share/tsk-setup/last-run
+date -u +%Y-%m-%dT%H:%M:%SZ > /usr/local/share/tsk-setup/last-run
 tsk --version
+dolt version | head -n 1
 ```
 
-When `cargo` is missing, the script installs the Rust toolchain under `/root/.cargo` and
-links `cargo`, `rustc` and `rustup` into `/usr/local/bin`, so they are on `PATH` without
-sourcing `~/.cargo/env`. When `cargo` is already present, that block is skipped.
+The script reads the latest release from the redirect of
+`github.com/jimbarritt/tsk/releases/latest`, downloads the prebuilt `tsk` for the
+machine, and installs it to `/usr/local/bin`, which is on `PATH`. It installs `dolt`
+1.88.2 beside it and sets a Dolt identity when none is set. It needs no Rust toolchain.
+Measured in a cloud session on 2026-10-13: about 6 seconds.
 
-Setup scripts and sessions both run as root, observed on 2026-10-08, so the toolchain
-and the binary are readable in the session.
+The plugin's own `SessionStart` hook also installs `dolt`, but a plugin installed during
+startup has no hooks in that session (step 4), so the setup script installs it.
 
-`--root /usr/local` writes the binary to `/usr/local/bin/tsk`, which is on `PATH`.
+Setup scripts and sessions both run as root, observed on 2026-10-08, so the binaries
+are readable in the session.
 
-The last lines write the run time, the user, whether the script had to install cargo
-(`cargo_installed=yes` or `no`) and the cargo version to
-`/usr/local/share/tsk-setup/last-run`. They support the cache test below and can be
-removed afterwards.
+The `last-run` lines write the run time to `/usr/local/share/tsk-setup/last-run`. They
+support the cache test below and can be removed afterwards.
 
-To pin a version, add `--version <version>` to the `cargo install` line. Without it,
-`cargo install` takes the latest published `tsk-bin`.
-
-The build compiles from source. The first session in a new environment waits for it.
+To pin a version, set `TSK_VERSION=<version>` in place of the two `latest` lines.
 
 ## 4. Make the plugin install on session start
 
@@ -135,33 +139,21 @@ session start command.
 }
 ```
 
-`.claude/hooks/session-start.sh`, marked executable:
+`.claude/hooks/session-start.sh`, marked executable (`chmod +x`):
 
 ```bash
 #!/usr/bin/env bash
 set -uo pipefail
 
-claude plugin marketplace add jimbarritt/claude-plugins >&2 || true
-claude plugin install tsk@jimbarritt-claude-plugins --scope project -y >&2 || true
-claude plugin marketplace update jimbarritt-claude-plugins >&2 || true
-claude plugin update tsk@jimbarritt-claude-plugins --scope project >&2 || true
+tsk install-plugin claude-cli >&2 || true
 
 INPUT="$(cat)"
-OUTPUT="$(printf '%s' "$INPUT" | tsk thread session-start)"
-printf '%s' "$OUTPUT"
+printf '%s' "$INPUT" | tsk thread session-start
 ```
 
-With a released `tsk` that has the `install-plugin` command, the four `claude plugin`
-lines become one:
-
-```bash
-tsk install-plugin claude-cli >&2 || true
-```
-
-It runs the same four steps, in the same order, at project scope. See
-[installation.md](installation.md#installation). A `tsk` release without the command
-exits with a usage error, so keep the four lines until the setup script installs a
-release that has it.
+`tsk install-plugin claude-cli` adds the `jimbarritt/claude-plugins` marketplace, then
+installs and updates the `tsk` plugin at project scope. See
+[installation.md](installation.md#installation).
 
 The script runs the session start command itself because Claude Code reads plugin hooks
 once, when its process starts. A plugin installed during startup has no hooks in that
@@ -180,13 +172,14 @@ Start a session in the new environment, selecting your repo. In the session, run
 
 ```bash
 tsk --version
+dolt version
 echo "$TSK_LEDGER_WT"
 claude plugin list
 ```
 
 Expected:
 
-- `tsk --version` prints the installed version.
+- `tsk --version` prints the installed version, and `dolt version` prints 1.88.2.
 - `$TSK_LEDGER_WT` names a directory that exists.
 - `claude plugin list` shows `tsk@jimbarritt-claude-plugins` enabled.
 
@@ -211,20 +204,19 @@ Compare two separate sessions:
 6. Edit the script, for example by adding a comment line, and start session C. A
    `last-run` time later than B's confirms that an edit invalidates the result.
 
-The stamp shows reuse only when the cache keeps the container's filesystem. The time the
-session takes to start is a second signal: a full `cargo install` takes minutes.
+The stamp shows reuse only when the cache keeps the container's filesystem.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `tsk: command not found` | The setup script failed before the `cargo install` line. | Run the setup script's commands in the session and read the error. |
-| `cargo install` fails to resolve or download | A crates.io host is blocked by the network access level. | Set the level to Trusted, add the hosts under Custom, or use Full. |
+| `tsk: command not found` or `dolt is not installed` | The setup script failed. | Run the setup script's commands in the session and read the error. |
+| A download in the setup script fails | A GitHub download host is blocked by the network access level. | Add the hosts in step 2 under Custom, or use Full. |
 | The `SessionStart` context reports `WARNING: adding the ... marketplace failed` | `github.com` is blocked, or the marketplace repo is not readable. | Allow `github.com`. Confirm `jimbarritt/claude-plugins` is readable from the session. |
 | `$TSK_LEDGER_WT` is empty | The hook did not run, or `tsk thread session-start` failed. | Run `WT="${TSK_LEDGER_WT:-$(tsk ledger fetch)}"` and read any error. |
 | `tsk ledger push` is rejected | The cloud sandbox proxy refuses writes outside `refs/heads/*`. | The ledger is the branch `tsk/ledger`, not a custom ref. See [ADR 0008](../adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md). |
 | `git merge-base` reports unrelated branches | The clone is shallow. | `git fetch --unshallow origin`. The hook does this at session start. |
-| A new `tsk` release is not picked up | The setup script result is cached for the environment. | Edit the script, for example by pinning `--version`, so the environment rebuilds. |
+| A new `tsk` release is not picked up | The setup script result is cached for the environment. | Edit the script, for example by pinning `TSK_VERSION`, so the environment rebuilds. |
 
 ## Observed
 
@@ -240,10 +232,6 @@ On 2026-10-08, with the script in step 3:
 
 ## Not verified
 
-- Whether the Trusted level allows `static.rust-lang.org`, `sh.rustup.rs` and `github.com`.
-  The run on 2026-10-08 did not need the rustup hosts, and the plugin steps were not
-  checked.
+- Whether the Trusted level allows the GitHub release download hosts. The run on
+  2026-10-13 was in a session with a wider network policy.
 - How long the setup result is kept, and whether editing the script invalidates it.
-- That `cargo` is present in the default cloud image. Read `cargo_installed=` in
-  `/usr/local/share/tsk-setup/last-run` after the first run with this script: `no` means
-  the image has it.
