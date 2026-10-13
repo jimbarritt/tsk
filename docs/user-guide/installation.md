@@ -2,8 +2,11 @@
 
 ## Prerequisites
 
-tsk is written in Rust. You need the Rust toolchain installed before building or
-installing.
+- **git**, with credentials that can push to the repo whose ledger you keep.
+- **curl**, **tar** and **jq**. The `SessionStart` hooks use `curl` and `tar` to install
+  `dolt`, and `jq` to read the hook input and write the hook output.
+- **Claude Code**, for the plugin.
+- **The Rust toolchain**, to install `tsk` with `cargo install`. Install it with one of:
 
 **rustup** (recommended: official installer, works everywhere):
 ```bash
@@ -21,8 +24,11 @@ mise use -g rust@latest
 ```
 
 **dolt** (version 1.88.2): the default ledger backend stores the ledger in a Dolt
-database and runs the external `dolt` binary. The Claude Code `SessionStart` hook installs
-it. By hand, download the archive for your platform from
+database and runs the external `dolt` binary. Both `SessionStart` hooks install it when it
+is absent or another version: the plugin's hook in any repo, and the tsk repo's own
+script. Each runs `plugin/hooks/install-dolt.sh`, which installs to `/usr/local/bin` when
+that directory is writable, otherwise to `$HOME/.local/bin`, and sets a Dolt identity when
+none is set. By hand, download the archive for your platform from
 `https://github.com/dolthub/dolt/releases/download/v1.88.2/` (`dolt-linux-amd64.tar.gz`,
 `dolt-linux-arm64.tar.gz`, `dolt-darwin-amd64.tar.gz` or `dolt-darwin-arm64.tar.gz`),
 unpack it and copy `bin/dolt` to a directory on your `PATH`. Then set an identity:
@@ -87,8 +93,26 @@ from that source tree with `cargo install --path`.
 
 ## Upgrading
 
-Run the install command again with the new tag: `cargo install` replaces the existing
-binary.
+```bash
+cargo install tsk-bin --locked
+```
+
+`cargo install` replaces the installed binary with the latest version on crates.io. Add
+`--version <version>` to install a given version. The plugin's `SessionStart` hook also
+upgrades `tsk` when it is older than the version the plugin requires (`plugin/tsk-version`).
+
+`tsk install-plugin claude-cli` updates the plugin. Claude Code loads plugin hooks and
+skills when its process starts, so a new plugin version takes effect in the next new
+session, not after `/clear`.
+
+## First session in a repo
+
+1. In the repo's root, run `tsk install-plugin claude-cli`.
+2. Start `claude`. The plugin's `SessionStart` hook installs `dolt` and `tsk` when needed,
+   then runs `tsk thread session-start`.
+3. With no `tsk/ledger` branch on `origin`, the fetch creates a new, local ledger and
+   prints a note that the branch does not exist yet. The first `tsk ledger push` creates
+   the branch.
 
 ## CI
 
