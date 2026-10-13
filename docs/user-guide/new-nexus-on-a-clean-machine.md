@@ -16,8 +16,11 @@ You need push access to the nexus repo. You do not need push access to the manag
 ## 1. Install the prerequisites
 
 - git, with credentials that can push to the host the nexus lives on.
+- curl, tar and jq. The `SessionStart` hooks use them.
 - The Rust toolchain. See [installation.md](installation.md#prerequisites).
 - Claude Code.
+
+The plugin's `SessionStart` hook installs `dolt`, which the default ledger backend needs.
 
 ## 2. Install tsk
 
