@@ -16,6 +16,13 @@ impl Fixture {
         for dir in ["home", "bin", "empty", "work"] {
             std::fs::create_dir_all(fixture.root.path().join(dir)).unwrap();
         }
+        let init = Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(fixture.root.path().join("work"))
+            .env("GIT_CEILING_DIRECTORIES", fixture.root.path())
+            .output()
+            .expect("failed to run git");
+        assert!(init.status.success());
         fixture
     }
 
@@ -62,7 +69,8 @@ impl Fixture {
             .env("HOME", self.root.path().join("home"))
             .env("XDG_STATE_HOME", self.root.path().join("home/state"))
             .env("XDG_CONFIG_HOME", self.root.path().join("home/config"))
-            .env("PATH", path)
+            .env("PATH", self.path_with_git(path))
+            .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove("TSK_CLAUDE_BIN")
             .env_remove("TSK_COPILOT_BIN");
         if let Some(bin) = claude_bin {
@@ -76,6 +84,30 @@ impl Fixture {
             );
         }
         command.output().expect("failed to run tsk")
+    }
+
+    /// `path` plus a directory holding only a link to git, so the lookup of
+    /// `claude` still sees just `path`.
+    fn path_with_git(&self, path: &Path) -> std::ffi::OsString {
+        let dir = self.root.path().join("gitbin");
+        let link = dir.join("git");
+        if !link.exists() {
+            std::fs::create_dir_all(&dir).unwrap();
+            let git = String::from_utf8(
+                Command::new("sh")
+                    .args(["-c", "command -v git"])
+                    .output()
+                    .unwrap()
+                    .stdout,
+            )
+            .unwrap();
+            std::os::unix::fs::symlink(git.trim(), &link).unwrap();
+        }
+        std::env::join_paths([path, dir.as_path()]).unwrap()
+    }
+
+    fn settings(&self) -> PathBuf {
+        self.root.path().join("work/.claude/settings.json")
     }
 
     fn bin_dir(&self) -> PathBuf {
@@ -127,7 +159,7 @@ fn install_plugin_runs_the_four_steps_through_the_override_binary() {
     assert_eq!(fx.logged(), DEFAULT_STEPS);
     let text = stdout(&output);
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 4);
+    assert_eq!(lines.len(), 6);
     assert_eq!(
         lines[1],
         "install tsk@jimbarritt-claude-plugins at project scope: claude plugin install tsk@jimbarritt-claude-plugins --scope project -y"
@@ -251,6 +283,7 @@ fn copilot_cli_runs_the_four_steps_through_the_override_binary() {
     assert_eq!(fx.logged(), COPILOT_STEPS);
     let text = stdout(&output);
     assert_eq!(text.lines().count(), 4);
+    assert!(!fx.settings().exists());
     assert_eq!(
         text.lines().nth(1).unwrap(),
         "install tsk@tsk: copilot plugin install tsk@tsk"
@@ -378,4 +411,130 @@ fn copilot_cli_treats_already_registered_and_installed_as_success() {
     assert!(lines[0].ends_with("(already done, continuing)"), "{}", text);
     assert!(lines[1].ends_with("(already done, continuing)"), "{}", text);
     assert!(!lines[2].contains("already"));
+}
+
+const HOOK_TEXT: &str = r#"{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "tsk thread session-start --install-plugin claude-cli"
+          }
+        ]
+      }
+    ]
+  }
+}
+"#;
+
+#[test]
+fn claude_cli_writes_the_hook_into_an_empty_repo() {
+    let fx = Fixture::new();
+    let claude = fx.fake_claude(None);
+
+    let output = fx.tsk(
+        &fx.empty_dir(),
+        Some(&claude),
+        &["install-plugin", "claude-cli"],
+    );
+
+    assert_success(&output);
+    assert_eq!(std::fs::read_to_string(fx.settings()).unwrap(), HOOK_TEXT);
+    let text = stdout(&output);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 6);
+    assert_eq!(
+        lines[4],
+        "wrote the SessionStart hook to .claude/settings.json"
+    );
+    assert!(lines[5].starts_with("commit .claude/settings.json"));
+}
+
+#[test]
+fn a_second_run_leaves_the_hook_alone() {
+    let fx = Fixture::new();
+    let claude = fx.fake_claude(None);
+    let args = ["install-plugin", "claude-cli"];
+    assert_success(&fx.tsk(&fx.empty_dir(), Some(&claude), &args));
+
+    let output = fx.tsk(&fx.empty_dir(), Some(&claude), &args);
+
+    assert_success(&output);
+    assert_eq!(std::fs::read_to_string(fx.settings()).unwrap(), HOOK_TEXT);
+    let text = stdout(&output);
+    assert_eq!(
+        text.lines().last().unwrap(),
+        "hook already present: .claude/settings.json"
+    );
+    assert!(!text.contains("commit .claude"));
+}
+
+#[test]
+fn no_hook_writes_no_settings_file() {
+    let fx = Fixture::new();
+    let claude = fx.fake_claude(None);
+
+    let output = fx.tsk(
+        &fx.empty_dir(),
+        Some(&claude),
+        &["install-plugin", "claude-cli", "--no-hook"],
+    );
+
+    assert_success(&output);
+    assert!(!fx.settings().exists());
+    assert_eq!(stdout(&output).lines().count(), 4);
+}
+
+#[test]
+fn user_scope_writes_no_hook_and_says_so() {
+    let fx = Fixture::new();
+    let claude = fx.fake_claude(None);
+
+    let output = fx.tsk(
+        &fx.empty_dir(),
+        Some(&claude),
+        &["install-plugin", "claude-cli", "--scope", "user"],
+    );
+
+    assert_success(&output);
+    assert!(!fx.settings().exists());
+    assert!(stdout(&output).contains("skipped the SessionStart hook"));
+}
+
+#[test]
+fn a_malformed_settings_file_is_an_error_and_stays_as_it_was() {
+    let fx = Fixture::new();
+    let claude = fx.fake_claude(None);
+    std::fs::create_dir_all(fx.settings().parent().unwrap()).unwrap();
+    std::fs::write(fx.settings(), "{oops").unwrap();
+
+    let output = fx.tsk(
+        &fx.empty_dir(),
+        Some(&claude),
+        &["install-plugin", "claude-cli"],
+    );
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("malformed"), "{}", stderr(&output));
+    assert_eq!(std::fs::read_to_string(fx.settings()).unwrap(), "{oops");
+}
+
+#[test]
+fn an_existing_settings_file_keeps_its_other_keys() {
+    let fx = Fixture::new();
+    let claude = fx.fake_claude(None);
+    std::fs::create_dir_all(fx.settings().parent().unwrap()).unwrap();
+    std::fs::write(fx.settings(), "{\"model\":\"x\",\"env\":{}}").unwrap();
+
+    assert_success(&fx.tsk(
+        &fx.empty_dir(),
+        Some(&claude),
+        &["install-plugin", "claude-cli"],
+    ));
+
+    let text = std::fs::read_to_string(fx.settings()).unwrap();
+    let at = |key: &str| text.find(&format!("\n  \"{}\"", key)).unwrap();
+    assert!(at("model") < at("env") && at("env") < at("hooks"));
 }

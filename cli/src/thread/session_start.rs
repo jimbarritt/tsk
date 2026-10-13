@@ -263,7 +263,33 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
     Ok(context)
 }
 
-pub fn run(format: HookFormat) -> i32 {
+pub const REMOTE_VAR: &str = "CLAUDE_CODE_REMOTE";
+
+pub fn is_remote() -> bool {
+    std::env::var(REMOTE_VAR).is_ok_and(|v| v == "true")
+}
+
+pub fn install_warning(error: &str) -> String {
+    format!(
+        "Warning: the tsk plugin could not be installed at session start ({}). Run `tsk install-plugin claude-cli` manually.",
+        error.replace('\n', " ").trim()
+    )
+}
+
+/// Runs the plugin install for a cloud session. Step lines go to stderr. Returns the
+/// warning sentence when a step fails.
+fn install_plugin_warning() -> Option<String> {
+    let args = crate::install_plugin::InstallPluginArgs::claude_defaults();
+    match crate::install_plugin::install(&args, &mut |line| eprintln!("{}", line)) {
+        Ok(()) => None,
+        Err(e) => {
+            eprintln!("{}", e);
+            Some(install_warning(&e))
+        }
+    }
+}
+
+pub fn run(format: HookFormat, install_plugin: bool) -> i32 {
     let mut bytes = Vec::new();
     let _ = std::io::stdin().read_to_end(&mut bytes);
     let input = HookInput::parse(&bytes);
@@ -272,9 +298,18 @@ pub fn run(format: HookFormat) -> i32 {
             return 0;
         }
     }
-    let context = Session::discover()
+    let warning = if install_plugin && is_remote() {
+        install_plugin_warning()
+    } else {
+        None
+    };
+    let mut context = Session::discover()
         .and_then(|session| context_after_fetch(&session))
         .unwrap_or_else(|e| failure_context(&e));
+    if let Some(warning) = warning {
+        context.push(' ');
+        context.push_str(&warning);
+    }
     println!("{}", format_output(format, &context));
     0
 }
