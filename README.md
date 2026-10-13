@@ -1,8 +1,8 @@
 # tsk - work with a clear context
 
 tsk holds a repo's missions, threads and continuation state in a ledger, and connects
-Claude Code sessions to it. The ledger is a Dolt database, synced over git on the branch
-`tsk/ledger`.
+Claude Code and GitHub Copilot CLI sessions to it. The ledger is a Dolt database, synced
+over git on the branch `tsk/ledger`.
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ Install these first, on macOS or Linux:
   ```bash
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
   ```
-- **Claude Code**, signed in.
+- **Claude Code** or **GitHub Copilot CLI**, signed in.
 
 The `SessionStart` hooks install the rest: the `tsk` binary when it is missing or out of
 date, and `dolt` 1.88.2. See
@@ -27,18 +27,26 @@ date, and `dolt` 1.88.2. See
 cargo install tsk-bin --locked
 ```
 
-**2. Install the Claude Code plugin, from your repo's root.**
+**2. Install the plugin, from your repo's root.**
+
+For Claude Code:
 ```bash
 cd your-repo
 tsk install-plugin claude-cli
 ```
 
-**3. Start Claude Code.**
+For GitHub Copilot CLI:
 ```bash
-claude
+cd your-repo
+tsk install-plugin copilot-cli
 ```
 
-The plugin's `SessionStart` hook installs `dolt`, creates a new ledger for the repo and
+**3. Start the agent.**
+```bash
+claude    # or: copilot
+```
+
+The plugin's session start hook installs `dolt`, creates a new ledger for the repo and
 asks which mission to work. The first `tsk ledger push` creates the `tsk/ledger` branch on
 `origin`.
 

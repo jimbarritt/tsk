@@ -5,7 +5,7 @@
 - **git**, with credentials that can push to the repo whose ledger you keep.
 - **curl**, **tar** and **jq**. The `SessionStart` hooks use `curl` and `tar` to install
   `dolt`, and `jq` to read the hook input and write the hook output.
-- **Claude Code**, for the plugin.
+- **Claude Code** or **GitHub Copilot CLI**, for the plugin.
 - **The Rust toolchain**, to install `tsk` with `cargo install`. Install it with one of:
 
 **rustup** (recommended: official installer, works everywhere):
@@ -90,6 +90,45 @@ not on `PATH`, or a step fails, it exits 1 and names the step with the step's st
 The plugin's `SessionStart` hook installs the `tsk` version the plugin requires when
 `tsk` is missing or older than that version. A newer `tsk` is accepted. With `TSK_SOURCE` set to a path, it installs
 from that source tree with `cargo install --path`.
+
+### GitHub Copilot CLI
+
+The same plugin runs in GitHub Copilot CLI. Copilot installs it from the marketplace file
+in the tsk repo, `.github/plugin/marketplace.json`, named `tsk`:
+
+```bash
+copilot plugin marketplace add jimbarritt/tsk
+copilot plugin install tsk@tsk
+```
+
+With `tsk` 0.4.0 or later installed, one command runs the same steps, then refreshes the
+marketplace and updates the plugin:
+
+```bash
+tsk install-plugin copilot-cli
+```
+
+It runs, through the `copilot` binary on `PATH`:
+
+1. `copilot plugin marketplace add jimbarritt/tsk`
+2. `copilot plugin install tsk@tsk`
+3. `copilot plugin marketplace update tsk`
+4. `copilot plugin update tsk`
+
+Copilot installs plugins per user, so `--scope` is refused for `copilot-cli`.
+`TSK_COPILOT_BIN` set to a path runs that binary in place of the one on `PATH`.
+
+Copilot runs the plugin's hooks from `plugin/hooks.json`:
+
+- `sessionStart` installs `dolt` and `tsk` when needed and prints the ledger context, as
+  the Claude Code hook does.
+- `agentStop` blocks the end of a turn when the session has no thread binding.
+
+Copilot loads plugins and hooks only in a folder you have trusted. Outside a Claude
+cloud session, a thread binds to the code worktree through `.git/tsk-thread-id`.
+
+The Copilot hooks are untested in a live Copilot session. The install, the skills and
+the hook commands are tested on their own.
 
 ## Upgrading
 
