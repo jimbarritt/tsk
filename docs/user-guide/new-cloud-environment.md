@@ -220,7 +220,7 @@ The stamp shows reuse only when the cache keeps the container's filesystem.
 
 ## Observed
 
-On 2026-10-08, with the script in step 3:
+On 2026-10-08, with the earlier script that built `tsk` with `cargo install`:
 
 - The setup script and the session both run as root, with `HOME=/root`.
 - A new session reuses the setup result. A session whose container booted at
