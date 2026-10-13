@@ -105,22 +105,19 @@ support the cache test below and can be removed afterwards.
 
 To pin a version, set `TSK_VERSION=<version>` in place of the two `latest` lines.
 
-## 4. Make the plugin install on session start
+## 4. Add the session start hook to the repo
 
-For the tsk repo, nothing more is needed. `.claude/settings.json` runs
-`ops/local/claude-session-start.sh` on `SessionStart`. The script:
+### Why a cloud session needs a hook in the repo
 
-1. Unshallows the clone.
-2. Adds the `jimbarritt/claude-plugins` marketplace, installs and updates the `swe` and
-   `tsk` plugins at project scope.
-3. Builds `tsk` from `cli/` if the installed binary is not at the workspace version.
-4. Runs `tsk thread session-start`, which fetches the ledger, exports `$TSK_LEDGER_WT`
-   and prints the thread binding prompt.
+Each cloud session runs in a new container. Claude Code installs plugins under
+`~/.claude/` in the container, so a plugin installed in one session is gone in the next.
+A cloud session also ignores the plugins installed on your own machine, and the plugins
+that `enabledPlugins` in the repo's `.claude/settings.json` turns on (see
+[claude-code-plugin-packaging.md](../kb/claude-code-plugin-packaging.md#where-plugins-load)).
 
-For another repo, run `tsk install-plugin claude-cli` in the repo and commit
-`.claude/settings.json`. The command adds the `jimbarritt/claude-plugins` marketplace,
-installs and updates the `tsk` plugin at project scope, then writes this hook into
-`.claude/settings.json`:
+The repo's own files are the one thing every cloud session has. So the repo holds a
+`SessionStart` hook in `.claude/settings.json`, and Claude Code runs it at the start of
+every session:
 
 ```json
 {
@@ -139,16 +136,58 @@ installs and updates the `tsk` plugin at project scope, then writes this hook in
 }
 ```
 
-The hook installs the plugin only when `CLAUDE_CODE_REMOTE` is `true`, which Claude Code
-sets in a cloud session. In a local session the flag does nothing. The install runs
-before the session start steps, and its step lines go to stderr. A failed step adds a
-warning to the session context and does not stop the session start. See
-[installation.md](installation.md#installation).
+At each session start the hook:
 
-The hook runs the install itself because Claude Code reads plugin hooks once, when its
-process starts. A plugin installed during startup has no hooks in that process. The
-binary claims each event by session ID and source, so when the plugin's own hook also
-runs, the second run exits with no output and installs nothing.
+1. Installs the `tsk` plugin, only in a cloud session (`CLAUDE_CODE_REMOTE` is `true`).
+   On your own machine the plugin stays installed, so the hook skips this step.
+2. Fetches the ledger, exports `$TSK_LEDGER_WT`, and prints the thread binding context.
+   This step runs in every session, local and cloud.
+
+`tsk thread session-start` without `--install-plugin` never installs the plugin. A
+failed install adds a warning to the session context and does not stop step 2.
+
+### Add the hook once per repo
+
+The hook is committed to the repo, so it is added once per repo, not once per session or
+per environment. Use either way.
+
+**From a session in the repo.** In the first session, the repo has no hook yet, so the
+session start ran nothing. Run:
+
+```bash
+tsk install-plugin claude-cli
+tsk thread session-start </dev/null
+git add .claude/settings.json && git commit -m "Add the tsk session start hook" && git push
+```
+
+1. `tsk install-plugin claude-cli` installs the plugin and writes the hook into
+   `.claude/settings.json`. It keeps any other settings in the file, and a second run
+   changes nothing.
+2. `tsk thread session-start </dev/null` gives this session the ledger context, which a
+   hook would have given at its start.
+3. The commit puts the hook in the repo for every later session.
+
+The plugin's slash commands, such as `/tsk:start-thread`, can stay absent until the
+next session, because Claude Code reads plugin skills when its process starts.
+
+**Before the first session.** Add `.claude/settings.json` with the content above to the
+repo, for example in the GitHub web editor. The first cloud session then runs the hook,
+and needs no command.
+
+### Every later session
+
+Nothing. The hook installs the plugin in a cloud session and fetches the ledger, in any
+environment that has `tsk` and `dolt` on `PATH` (step 3).
+
+The binary claims each session start event by session ID and source. When the plugin's
+own `SessionStart` hook also runs, the second run prints nothing, so the context appears
+once.
+
+### The tsk repo
+
+The tsk repo has its own hook, `ops/local/claude-session-start.sh`, which also builds
+`tsk` from `cli/` when the installed binary is not at the workspace version. It needs
+nothing from this step.
 
 A repo that keeps its ledger in a nexus needs the nexus attached in the environment.
 Set the nexus URL in `~/.config/tsk/config.toml` from the setup script or the hook, with
@@ -203,6 +242,7 @@ The stamp shows reuse only when the cache keeps the container's filesystem.
 | `tsk: command not found` or `dolt is not installed` | The setup script failed. | Run the setup script's commands in the session and read the error. |
 | A download in the setup script fails | A GitHub download host is blocked by the network access level. | Add the hosts in step 2 under Custom, or use Full. |
 | The `SessionStart` context reports `WARNING: adding the ... marketplace failed` | `github.com` is blocked, or the marketplace repo is not readable. | Allow `github.com`. Confirm `jimbarritt/claude-plugins` is readable from the session. |
+| A session starts with no tsk context, and `/tsk:` commands are missing | The repo has no `SessionStart` hook yet. | Add it once, see [step 4](#add-the-hook-once-per-repo). |
 | `$TSK_LEDGER_WT` is empty | The hook did not run, or `tsk thread session-start` failed. | Run `WT="${TSK_LEDGER_WT:-$(tsk ledger fetch)}"` and read any error. |
 | `tsk ledger push` is rejected | The cloud sandbox proxy refuses writes outside `refs/heads/*`. | The ledger is the branch `tsk/ledger`, not a custom ref. See [ADR 0008](../adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md). |
 | `git merge-base` reports unrelated branches | The clone is shallow. | `git fetch --unshallow origin`. The hook does this at session start. |

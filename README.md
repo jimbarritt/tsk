@@ -30,6 +30,19 @@ To hold the ledger in a separate nexus repo instead, for a repo you cannot push 
 branch to, follow
 [docs/user-guide/new-nexus-on-a-clean-machine.md](docs/user-guide/new-nexus-on-a-clean-machine.md).
 
+## Use tsk in Claude Code cloud sessions
+
+A cloud session starts in a new container, with no plugin installed. Two things make tsk
+work there:
+
+1. **Once per environment:** a setup script that installs `tsk` and `dolt`.
+2. **Once per repo:** a `SessionStart` hook in the repo's `.claude/settings.json`, which
+   installs the plugin at the start of every cloud session. `tsk install-plugin
+   claude-cli` writes it. Commit the file.
+
+Follow [docs/user-guide/new-cloud-environment.md](docs/user-guide/new-cloud-environment.md)
+for both.
+
 ## Install without Homebrew
 
 Install these first:
