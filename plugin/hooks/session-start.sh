@@ -1,11 +1,36 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+# The SessionStart hook for Claude Code and the sessionStart hook for GitHub
+# Copilot CLI. `--format copilot` prints Copilot's output shape,
+# {"additionalContext": "..."}. Without it, the output is Claude Code's,
+# {"hookSpecificOutput": {...}}. The script finds the plugin directory from its
+# own path, so it needs no harness-specific variable such as CLAUDE_PLUGIN_ROOT.
+FORMAT="claude"
+if [ "${1:-}" = "--format" ] && [ -n "${2:-}" ]; then
+  FORMAT="$2"
+fi
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Prints one hook output object for the context in $1, in the harness's shape.
+emit() {
+  if [ "$FORMAT" = "copilot" ]; then
+    jq -cn --arg context "$1" '{additionalContext: $context}'
+  else
+    jq -cn --arg context "$1" '{
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: $context
+      }
+    }'
+  fi
+}
+
 # The default ledger backend runs the dolt binary. Install it first. A failure
 # is a warning in the session context and does not stop session start.
-DOLT_MSG="$("${CLAUDE_PLUGIN_ROOT}/hooks/install-dolt.sh" | tr '\n' ' ' | sed 's/ *$//')"
+DOLT_MSG="$("$PLUGIN_DIR/hooks/install-dolt.sh" | tr '\n' ' ' | sed 's/ *$//')"
 
-REQUIRED="$(tr -d '[:space:]' <"${CLAUDE_PLUGIN_ROOT}/tsk-version")"
+REQUIRED="$(tr -d '[:space:]' <"$PLUGIN_DIR/tsk-version")"
 
 installed_version() {
   command -v tsk >/dev/null 2>&1 && tsk --version 2>/dev/null | awk '{print $NF}'
@@ -34,23 +59,17 @@ if ! installed_is_current; then
 fi
 
 if ! installed_is_current; then
-  MESSAGE="tsk $REQUIRED or later is required and could not be installed automatically. Run \`$INSTALL_CMD\`, then run \`tsk thread session-start </dev/null\` (or restart the session) to complete session start. $DOLT_MSG"
-  ESCAPED="$(printf '%s' "$MESSAGE" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$ESCAPED"
+  emit "tsk $REQUIRED or later is required and could not be installed automatically. Run \`$INSTALL_CMD\`, then run \`tsk thread session-start </dev/null\` (or restart the session) to complete session start. $DOLT_MSG"
   exit 0
 fi
 
-if [ -n "$DOLT_MSG" ]; then
-  # Add the dolt warning to the context that tsk prints.
-  TSK_OUTPUT="$(tsk thread session-start)"
-  TSK_MSG="$(printf '%s' "$TSK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
-  jq -n --arg context "$TSK_MSG $DOLT_MSG" '{
-    hookSpecificOutput: {
-      hookEventName: "SessionStart",
-      additionalContext: $context
-    }
-  }'
-  exit 0
+if [ -z "$DOLT_MSG" ] && [ "$FORMAT" != "copilot" ]; then
+  exec tsk thread session-start
 fi
 
-exec tsk thread session-start
+# Add the dolt warning to the context that tsk prints, and convert it to the
+# harness's shape. tsk prints nothing when another hook already claimed the event.
+TSK_OUTPUT="$(tsk thread session-start)"
+[ -n "$TSK_OUTPUT" ] || exit 0
+TSK_MSG="$(printf '%s' "$TSK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+emit "$(printf '%s %s' "$TSK_MSG" "$DOLT_MSG" | sed 's/^ *//; s/ *$//')"
