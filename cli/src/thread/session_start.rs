@@ -16,8 +16,15 @@ pub const CLAIM_DIR: &str = "session-start";
 pub const CLAIM_WINDOW: Duration = Duration::from_secs(300);
 pub const CLAIM_PRUNE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum HookFormat {
+    Claude,
+    Copilot,
+}
+
 #[derive(Deserialize, Default)]
 pub struct HookInput {
+    #[serde(alias = "sessionId")]
     pub session_id: Option<String>,
     pub source: Option<String>,
 }
@@ -133,6 +140,26 @@ pub fn hook_output(context: &str) -> String {
     .unwrap_or_default()
 }
 
+#[derive(Serialize)]
+struct CopilotOutput<'a> {
+    #[serde(rename = "additionalContext")]
+    additional_context: &'a str,
+}
+
+pub fn copilot_output(context: &str) -> String {
+    serde_json::to_string(&CopilotOutput {
+        additional_context: context,
+    })
+    .unwrap_or_default()
+}
+
+pub fn format_output(format: HookFormat, context: &str) -> String {
+    match format {
+        HookFormat::Claude => hook_output(context),
+        HookFormat::Copilot => copilot_output(context),
+    }
+}
+
 pub fn fetched_context(
     path: &Path,
     read_hint: &str,
@@ -236,7 +263,7 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
     Ok(context)
 }
 
-pub fn run() -> i32 {
+pub fn run(format: HookFormat) -> i32 {
     let mut bytes = Vec::new();
     let _ = std::io::stdin().read_to_end(&mut bytes);
     let input = HookInput::parse(&bytes);
@@ -248,7 +275,7 @@ pub fn run() -> i32 {
     let context = Session::discover()
         .and_then(|session| context_after_fetch(&session))
         .unwrap_or_else(|e| failure_context(&e));
-    println!("{}", hook_output(&context));
+    println!("{}", format_output(format, &context));
     0
 }
 
@@ -272,6 +299,31 @@ mod tests {
             text,
             "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"a \\\"b\\\"\"}}"
         );
+    }
+
+    #[test]
+    fn copilot_output_is_one_compact_object_with_only_the_context() {
+        assert_eq!(
+            copilot_output("a \"b\""),
+            "{\"additionalContext\":\"a \\\"b\\\"\"}"
+        );
+        assert_eq!(
+            format_output(HookFormat::Copilot, "x"),
+            "{\"additionalContext\":\"x\"}"
+        );
+        assert_eq!(format_output(HookFormat::Claude, "x"), hook_output("x"));
+    }
+
+    #[test]
+    fn hook_input_accepts_the_copilot_camel_case_session_id() {
+        let parsed = HookInput::parse(
+            b"{\"sessionId\":\"abc-1\",\"timestamp\":1760000000000,\"cwd\":\"/x\",\"source\":\"new\",\"initialPrompt\":null}",
+        );
+        assert_eq!(parsed.session_id.as_deref(), Some("abc-1"));
+        assert_eq!(parsed.source.as_deref(), Some("new"));
+        assert_eq!(parsed.claim_name().as_deref(), Some("abc-1.new"));
+        let unsafe_id = HookInput::parse(b"{\"sessionId\":\"../x\"}");
+        assert!(unsafe_id.claim_name().is_none());
     }
 
     #[test]

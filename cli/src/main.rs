@@ -180,9 +180,13 @@ mod tests {
             vec!["tsk", "thread", "list"],
             vec!["tsk", "thread", "guard"],
             vec!["tsk", "thread", "session-start"],
+            vec!["tsk", "thread", "session-start", "--format", "copilot"],
         ] {
             assert!(Cli::try_parse_from(&args).is_ok(), "{:?}", args);
         }
+        assert!(
+            Cli::try_parse_from(["tsk", "thread", "session-start", "--format", "gemini"]).is_err()
+        );
         assert!(Cli::try_parse_from(["tsk", "thread", "pause", "1234abcd"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "thread", "resume"]).is_err());
     }
@@ -274,10 +278,10 @@ mod tests {
         {
             Some(Commands::InstallPlugin(args)) => {
                 assert_eq!(args.target, install_plugin::Target::ClaudeCli);
-                assert_eq!(args.scope, install_plugin::Scope::Project);
+                assert_eq!(args.scope, None);
                 assert_eq!(args.plugins, vec!["tsk".to_string()]);
-                assert_eq!(args.marketplace, "jimbarritt/claude-plugins");
-                assert_eq!(args.marketplace_name, "jimbarritt-claude-plugins");
+                assert_eq!(args.marketplace_source(), "jimbarritt/claude-plugins");
+                assert_eq!(args.marketplace_name(), "jimbarritt-claude-plugins");
             }
             _ => panic!("install-plugin did not parse"),
         }
@@ -296,8 +300,19 @@ mod tests {
         .command
         {
             Some(Commands::InstallPlugin(args)) => {
-                assert_eq!(args.scope, install_plugin::Scope::Local);
+                assert_eq!(args.scope, Some(install_plugin::Scope::Local));
                 assert_eq!(args.plugins, vec!["swe".to_string(), "tsk".to_string()]);
+            }
+            _ => panic!("install-plugin did not parse"),
+        }
+        match Cli::try_parse_from(["tsk", "install-plugin", "copilot-cli"])
+            .unwrap()
+            .command
+        {
+            Some(Commands::InstallPlugin(args)) => {
+                assert_eq!(args.target, install_plugin::Target::CopilotCli);
+                assert_eq!(args.marketplace_source(), "jimbarritt/tsk");
+                assert_eq!(args.marketplace_name(), "tsk");
             }
             _ => panic!("install-plugin did not parse"),
         }
