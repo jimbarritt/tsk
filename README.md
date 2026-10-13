@@ -4,55 +4,56 @@ tsk holds a repo's missions, threads and continuation state in a ledger, and con
 Claude Code and GitHub Copilot CLI sessions to it. The ledger is a Dolt database, synced
 over git on the branch `tsk/ledger`.
 
-## Prerequisites
+## Install with Homebrew
 
-Install these first, on macOS or Linux:
+On macOS or Linux with [Homebrew](https://brew.sh):
+
+```bash
+brew install jimbarritt/tap/tsk
+```
+
+Homebrew installs `dolt` and `jq` with it. Then, from your repo's root, install the plugin
+for your agent and start it:
+
+```bash
+cd your-repo
+tsk install-plugin claude-cli    # or: tsk install-plugin copilot-cli
+claude                           # or: copilot
+```
+
+The plugin's session start hook creates a new ledger for the repo and asks which mission
+to work. The first `tsk ledger push` creates the `tsk/ledger` branch on `origin`. You
+also need git, with credentials that can push to the repo, and Claude Code or GitHub
+Copilot CLI, signed in.
+
+To hold the ledger in a separate nexus repo instead, for a repo you cannot push a ledger
+branch to, follow
+[docs/user-guide/new-nexus-on-a-clean-machine.md](docs/user-guide/new-nexus-on-a-clean-machine.md).
+
+## Install without Homebrew
+
+Install these first:
 
 - **git**, with credentials that can push to the repo you work in.
-- **curl**, **tar** and **jq**. The `SessionStart` hooks use them.
+- **curl**, **tar** and **jq**. The session start hooks use them.
 - **Rust**, through rustup:
   ```bash
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
   ```
 - **Claude Code** or **GitHub Copilot CLI**, signed in.
 
-The `SessionStart` hooks install the rest: the `tsk` binary when it is missing or out of
-date, and `dolt` 1.88.2. See
-[docs/user-guide/installation.md](docs/user-guide/installation.md) for each step by hand.
+Then:
 
-## Use tsk in your own repo
-
-**1. Install tsk.**
 ```bash
 cargo install tsk-bin --locked
-```
-
-**2. Install the plugin, from your repo's root.**
-
-For Claude Code:
-```bash
 cd your-repo
-tsk install-plugin claude-cli
+tsk install-plugin claude-cli    # or: tsk install-plugin copilot-cli
+claude                           # or: copilot
 ```
 
-For GitHub Copilot CLI:
-```bash
-cd your-repo
-tsk install-plugin copilot-cli
-```
-
-**3. Start the agent.**
-```bash
-claude    # or: copilot
-```
-
-The plugin's session start hook installs `dolt`, creates a new ledger for the repo and
-asks which mission to work. The first `tsk ledger push` creates the `tsk/ledger` branch on
-`origin`.
-
-To hold the ledger in a separate nexus repo instead, for a repo you cannot push a ledger
-branch to, follow
-[docs/user-guide/new-nexus-on-a-clean-machine.md](docs/user-guide/new-nexus-on-a-clean-machine.md).
+The plugin's session start hook installs `dolt` 1.88.2 when no `dolt` 1.88.2 or later is
+installed. See [docs/user-guide/installation.md](docs/user-guide/installation.md) for each
+step by hand.
 
 ## Work on tsk itself
 

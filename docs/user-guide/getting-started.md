@@ -4,7 +4,7 @@
 
 Run `tsk` from inside any working tree of a repository whose `origin` holds a ledger
 branch, `refs/heads/tsk/ledger`. The `ledger`, `thread` and `events` commands run in the `tsk`
-client alone, with no daemon. The default ledger backend is Dolt and needs the `dolt` binary, version 1.88.2 (see
+client alone, with no daemon. The default ledger backend is Dolt and needs the `dolt` binary, version 1.88.2 or later (see
 [installation.md](installation.md)). The ledger's tables, files and formats are in
 [ledger-layout.md](../domain/ledger-layout.md). Threads, bindings and continuation state
 are in [session-continuation-design.md](../domain/session-continuation-design.md).
@@ -161,6 +161,12 @@ tag yet. The workflow `.github/workflows/release.yml`:
    generates.
 3. Calls `.github/workflows/publish-crates.yml`, which publishes `tsk-core`, then
    `tsk-bin`, to crates.io.
+4. Calls `.github/workflows/binaries.yml`, which builds `tsk` for macOS (arm64 and
+   x86_64) and Linux (x86_64 and arm64), attaches one archive per platform to the
+   release, and writes `Formula/tsk.rb` in `jimbarritt/homebrew-tap`. It needs the secret
+   `HOMEBREW_TAP_TOKEN` in the GitHub environment `homebrew-tap`: a fine-grained personal
+   access token with read and write access to the contents of `jimbarritt/homebrew-tap`.
+   Run it from the Actions tab with a tag to build an earlier release.
 
 To release:
 
