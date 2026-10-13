@@ -152,6 +152,7 @@ impl Fixture {
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
             .env("TSK_HOME", self.home().join(".tsk"))
+            .env("TSK_NO_UPDATE_CHECK", "1")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove(SESSION_VAR);
         if let Some(session) = cloud {

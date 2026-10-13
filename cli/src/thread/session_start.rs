@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ledger::location::state_root_from_env;
 use crate::ledger::store::RefreshOutcome;
+use crate::self_update::{session_notice, upgrade_for_cloud, CloudUpgrade};
 
 use super::binding::{resolve, UNBOUND_PROMPT};
 use super::session::Session;
@@ -284,6 +285,13 @@ pub fn install_warning(error: &str) -> String {
     )
 }
 
+pub fn upgrade_warning(error: &str) -> String {
+    format!(
+        "Warning: tsk could not be upgraded at session start ({}). Run `tsk self-update` manually.",
+        error.replace('\n', " ").trim()
+    )
+}
+
 /// Runs the plugin install for a cloud session. Step lines go to stderr. Returns the
 /// warning sentence when a step fails.
 fn install_plugin_warning() -> Option<String> {
@@ -306,15 +314,27 @@ pub fn run(format: HookFormat, install_plugin: bool) -> i32 {
             return 0;
         }
     }
-    let warning = if install_plugin && is_remote() {
-        install_plugin_warning()
-    } else {
-        None
-    };
+    let cloud_install = install_plugin && is_remote();
+    let mut warnings = Vec::new();
+    if cloud_install {
+        // A cloud session reuses a cached setup result, so the installed tsk can be
+        // old. Upgrade it before the plugin install. This run goes on with the old
+        // binary already in memory, and the next command finds the new one.
+        if let CloudUpgrade::Failed(e) = upgrade_for_cloud() {
+            warnings.push(upgrade_warning(&e));
+        }
+        warnings.extend(install_plugin_warning());
+    }
     let mut context = Session::discover()
         .and_then(|session| context_after_fetch(&session))
         .unwrap_or_else(|e| failure_context(&e));
-    if let Some(warning) = warning {
+    if !cloud_install {
+        if let Some(notice) = session_notice() {
+            context.push(' ');
+            context.push_str(&notice);
+        }
+    }
+    for warning in warnings {
         context.push(' ');
         context.push_str(&warning);
     }
@@ -499,6 +519,13 @@ mod tests {
         );
         assert!(!old.exists());
         assert!(dir.path().join("new.startup").exists());
+    }
+
+    #[test]
+    fn upgrade_warning_names_the_manual_command() {
+        let warning = upgrade_warning("error: curl failed\nexit 22");
+        assert!(warning.contains("(error: curl failed exit 22)"));
+        assert!(warning.ends_with("Run `tsk self-update` manually."));
     }
 
     #[test]

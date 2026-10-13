@@ -33,6 +33,12 @@ A **binding** ties the current session or code worktree to a thread:
 More than one session or code worktree can bind to the same thread. Resuming a thread that
 another actor wrote to binds anyway, and prints a warning.
 
+## Upgrading tsk
+
+`tsk self-update` upgrades the binary to the latest release by the method it was installed
+with (Homebrew, Cargo or a release binary). `tsk self-update --check` only reports. When
+the session context says a newer tsk is available, run `tsk self-update`.
+
 ## Nexus ledgers
 
 `tsk nexus add <url>`, or `tsk config attach-nexus <url>`, writes the nexus URL to
