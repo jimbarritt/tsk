@@ -955,7 +955,18 @@ fn thread_commands_refuse_an_invalid_thread_id() {
 }
 
 fn session_start(fx: &Fixture, input: &str, env_file: Option<&Path>) -> Output {
-    let mut command = fx.command(&["thread", "session-start"], None);
+    session_start_with(fx, &[], input, env_file)
+}
+
+fn session_start_with(
+    fx: &Fixture,
+    extra: &[&str],
+    input: &str,
+    env_file: Option<&Path>,
+) -> Output {
+    let mut base = vec!["thread", "session-start"];
+    base.extend_from_slice(extra);
+    let mut command = fx.command(&base, None);
     if let Some(file) = env_file {
         command.env("CLAUDE_ENV_FILE", file);
     } else {
@@ -1010,6 +1021,38 @@ fn session_start_fetches_exports_the_path_and_prints_the_unbound_prompt() {
         std::fs::read_to_string(&env_file).unwrap(),
         format!("export TSK_LEDGER_WT=\"{}\"\n", wt.display())
     );
+}
+
+#[test]
+fn session_start_copilot_format_prints_only_additional_context() {
+    let fx = Fixture::new();
+
+    let output = session_start_with(
+        &fx,
+        &["--format", "copilot"],
+        "{\"sessionId\":\"cop-1\",\"timestamp\":1760000000000,\"cwd\":\"/x\",\"source\":\"new\"}",
+        None,
+    );
+
+    assert_success(&output);
+    assert_eq!(stdout(&output).lines().count(), 1);
+    let value = json(&stdout(&output));
+    assert_eq!(value.as_object().unwrap().len(), 1);
+    let context = value["additionalContext"].as_str().unwrap();
+    assert!(context.starts_with(&format!(
+        "The ledger was fetched and materialised at {} (also exported as $TSK_LEDGER_WT).",
+        fx.ledger_path().display()
+    )));
+    assert!(context.contains("No thread binding was found for this session or worktree."));
+
+    let again = session_start_with(
+        &fx,
+        &["--format", "copilot"],
+        "{\"sessionId\":\"cop-1\",\"source\":\"new\"}",
+        None,
+    );
+    assert_success(&again);
+    assert_eq!(stdout(&again), "");
 }
 
 #[test]

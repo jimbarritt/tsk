@@ -84,9 +84,17 @@ pub enum ThreadCommands {
     )]
     Guard,
     #[command(
-        about = "SessionStart hook: reads the session ID and source from stdin, exits with no output when another run already claimed that event, fetches the ledger, exports TSK_LEDGER_WT to CLAUDE_ENV_FILE when set, and prints the hook JSON with the session context; exits 0 even when the fetch fails"
+        about = "SessionStart hook: reads the session ID and source from stdin, exits with no output when another run already claimed that event, fetches the ledger, exports TSK_LEDGER_WT to CLAUDE_ENV_FILE when set, and prints the hook JSON with the session context in the --format shape (claude by default, or copilot); accepts session_id or sessionId on stdin; exits 0 even when the fetch fails"
     )]
-    SessionStart,
+    SessionStart {
+        #[arg(
+            long,
+            value_enum,
+            default_value = "claude",
+            help = "Hook output format: claude (hookSpecificOutput JSON) or copilot (additionalContext JSON)"
+        )]
+        format: session_start::HookFormat,
+    },
 }
 
 #[derive(Serialize)]
@@ -116,8 +124,8 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
         return Ok(0);
     }
 
-    if let ThreadCommands::SessionStart = action {
-        return Ok(session_start::run());
+    if let ThreadCommands::SessionStart { format } = action {
+        return Ok(session_start::run(format));
     }
 
     let session = Session::discover()?;
@@ -185,7 +193,7 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                 None => Ok(1),
             }
         }
-        ThreadCommands::Guard | ThreadCommands::SessionStart => Ok(0),
+        ThreadCommands::Guard | ThreadCommands::SessionStart { .. } => Ok(0),
     }
 }
 
