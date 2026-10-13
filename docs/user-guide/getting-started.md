@@ -163,9 +163,7 @@ tag yet. The workflow `.github/workflows/release.yml`:
    `tsk-bin`, to crates.io.
 4. Calls `.github/workflows/binaries.yml`, which builds `tsk` for macOS (arm64 and
    x86_64) and Linux (x86_64 and arm64), attaches one archive per platform to the
-   release, and writes `Formula/tsk.rb` in `jimbarritt/homebrew-tap`. It needs the secret
-   `HOMEBREW_TAP_TOKEN` in the GitHub environment `homebrew-tap`: a fine-grained personal
-   access token with read and write access to the contents of `jimbarritt/homebrew-tap`.
+   release, and writes `Formula/tsk.rb` in `jimbarritt/homebrew-tap`.
    Run it from the Actions tab with a tag to build an earlier release.
 
 To release:
@@ -181,10 +179,16 @@ A push that leaves the version unchanged releases nothing.
 from the Actions tab with a tag. It skips a crate whose version is already on crates.io,
 so a rerun publishes only what is missing.
 
-The publish needs the secret `CARGO_REGISTRY_TOKEN`, a crates.io API token with the
-publish-update scope, in the GitHub environment `crates-io`. Only the publish job reads
-it. The environment's deployment rules admit `main`, for the release workflow and a run
-from the Actions tab, and tags matching `v*`, for a release published by hand.
+The release secrets are in the GitHub environment `release`:
+
+| Secret | Read by | Value |
+|---|---|---|
+| `CARGO_REGISTRY_TOKEN` | the publish job in `publish-crates.yml` | A crates.io API token with the publish-update scope for `tsk-core` and `tsk-bin`. |
+| `HOMEBREW_TAP_TOKEN` | the formula job in `binaries.yml` | A fine-grained personal access token with read and write access to the contents of `jimbarritt/homebrew-tap`. |
+
+Only a job that names the environment can read its secrets. The environment's deployment
+rules admit `main`, for the release workflow and a run from the Actions tab, and tags
+matching `v*`, for a release published by hand.
 
 From a terminal, `just publish` publishes both crates by hand.
 

@@ -9,9 +9,9 @@ name: Binaries and Homebrew formula
 #
 # Archives: tsk-<version>-<target>.tar.gz, holding the `tsk` binary at the root.
 #
-# The formula job needs the secret HOMEBREW_TAP_TOKEN in the environment
-# `homebrew-tap`: a fine-grained personal access token with read and write access to
-# the contents of jimbarritt/homebrew-tap.
+# The formula job needs the secret HOMEBREW_TAP_TOKEN in the environment `release`: a
+# fine-grained personal access token with read and write access to the contents of
+# jimbarritt/homebrew-tap.
 
 on:
   workflow_dispatch:
@@ -72,7 +72,7 @@ jobs:
   formula:
     needs: build
     runs-on: ubuntu-latest
-    environment: homebrew-tap
+    environment: release
     env:
       TAG: ${{ inputs.tag }}
     steps:
@@ -81,7 +81,7 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
-            echo "::error::the secret HOMEBREW_TAP_TOKEN is not set in the environment homebrew-tap"
+            echo "::error::the secret HOMEBREW_TAP_TOKEN is not set in the environment release"
             exit 1
           fi
 
