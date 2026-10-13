@@ -85,7 +85,7 @@ dolt config --global --get user.email >/dev/null 2>&1 || dolt config --global --
 mkdir -p /usr/local/share/tsk-setup
 date -u +%Y-%m-%dT%H:%M:%SZ > /usr/local/share/tsk-setup/last-run
 tsk --version
-dolt version | head -n 1
+dolt version
 ```
 
 The script reads the latest release from the redirect of
