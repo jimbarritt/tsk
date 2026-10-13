@@ -94,6 +94,13 @@ pub enum ThreadCommands {
             help = "Hook output format: claude (hookSpecificOutput JSON) or copilot (additionalContext JSON)"
         )]
         format: session_start::HookFormat,
+        #[arg(
+            long,
+            value_enum,
+            value_name = "TARGET",
+            help = "In a Claude Code cloud session (CLAUDE_CODE_REMOTE=true), install the tsk plugin first, as tsk install-plugin does; only claude-cli is accepted. Step lines go to stderr. A failure adds a warning to the context"
+        )]
+        install_plugin: Option<crate::install_plugin::Target>,
     },
 }
 
@@ -124,8 +131,18 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
         return Ok(0);
     }
 
-    if let ThreadCommands::SessionStart { format } = action {
-        return Ok(session_start::run(format));
+    if let ThreadCommands::SessionStart {
+        format,
+        install_plugin,
+    } = action
+    {
+        if install_plugin == Some(crate::install_plugin::Target::CopilotCli) {
+            return Err(
+                "error: --install-plugin accepts only claude-cli: GitHub Copilot CLI reads plugin hooks itself"
+                    .to_string(),
+            );
+        }
+        return Ok(session_start::run(format, install_plugin.is_some()));
     }
 
     let session = Session::discover()?;

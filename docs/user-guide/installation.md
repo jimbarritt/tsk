@@ -101,6 +101,24 @@ not on `PATH`, or a step fails, it exits 1 and names the step with the step's st
 | `--plugin <name>` | `tsk` | A plugin to install and update. Repeat it for more than one: `--plugin swe --plugin tsk`. |
 | `--marketplace <source>` | `jimbarritt/claude-plugins` | The marketplace source passed to `marketplace add`. |
 | `--marketplace-name <name>` | `jimbarritt-claude-plugins` | The name the marketplace is registered under. |
+| `--no-hook` | off | Skip writing the `SessionStart` hook into the repo. |
+
+After the four steps succeed, the command writes the repo's `SessionStart` hook into
+`<repo root>/.claude/settings.json`. The repo root comes from
+`git rev-parse --show-toplevel`, so the command must run inside a git repo, or take
+`--no-hook`. The hook runs `tsk thread session-start --install-plugin claude-cli`. The
+command creates the file and `.claude/` when absent, keeps every other key and hook
+entry, and does not add a second hook when a `SessionStart` command already contains
+`tsk thread session-start`. A settings file that is not valid JSON is an error, and the
+command leaves it as it was. Commit `.claude/settings.json` so every clone and every
+cloud session of the repo has the hook.
+
+The hook installs the plugin only when `CLAUDE_CODE_REMOTE` is `true`, which is the case
+in a Claude Code cloud session. In any other session the flag does nothing. A failed
+install step does not stop the session start. It adds a warning to the session context.
+
+`--scope user` does not write the hook, because a user-scope install is not about one
+repo. `copilot-cli` does not write it either, because Copilot reads the plugin's hooks.
 
 The plugin's `SessionStart` hook installs the `tsk` version the plugin requires when
 `tsk` is missing or older than that version. A newer `tsk` is accepted. With `TSK_SOURCE` set to a path, it installs

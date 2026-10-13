@@ -1202,6 +1202,164 @@ fn session_start_exits_0_with_a_warning_outside_a_repository() {
     assert!(session_context(&output).contains("Run `tsk ledger fetch` manually"));
 }
 
+fn fake_claude(fx: &Fixture, fail: bool) -> (PathBuf, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = fx.root.path().join("fake-claude");
+    let log = fx.root.path().join("claude.log");
+    let failure = if fail {
+        "echo \"step failed: $*\" >&2\nexit 4\n"
+    } else {
+        "exit 0\n"
+    };
+    std::fs::write(
+        &bin,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> \"{}\"\n{}",
+            log.display(),
+            failure
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (bin, log)
+}
+
+fn installing_session_start(
+    fx: &Fixture,
+    claude: &Path,
+    remote: Option<&str>,
+    input: &str,
+) -> Output {
+    let mut command = fx.command(
+        &["thread", "session-start", "--install-plugin", "claude-cli"],
+        None,
+    );
+    command
+        .env("TSK_CLAUDE_BIN", claude)
+        .env_remove("CLAUDE_ENV_FILE");
+    match remote {
+        Some(value) => command.env("CLAUDE_CODE_REMOTE", value),
+        None => command.env_remove("CLAUDE_CODE_REMOTE"),
+    };
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to run tsk");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+fn logged_calls(log: &Path) -> Vec<String> {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn session_start_install_plugin_runs_no_claude_outside_a_cloud_session() {
+    let fx = Fixture::new();
+    let (claude, log) = fake_claude(&fx, false);
+
+    for remote in [None, Some("false"), Some("")] {
+        let output = installing_session_start(&fx, &claude, remote, "{}");
+        assert_success(&output);
+        session_context(&output);
+        assert_eq!(stderr(&output), "");
+    }
+    assert!(logged_calls(&log).is_empty());
+}
+
+#[test]
+fn session_start_install_plugin_runs_the_four_steps_in_a_cloud_session() {
+    let fx = Fixture::new();
+    let (claude, log) = fake_claude(&fx, false);
+
+    let output = installing_session_start(&fx, &claude, Some("true"), "{\"session_id\":\"s-1\"}");
+
+    assert_success(&output);
+    let context = session_context(&output);
+    assert!(!context.contains("could not be installed"));
+    assert_eq!(logged_calls(&log).len(), 4);
+    assert_eq!(
+        logged_calls(&log)[1],
+        "plugin install tsk@jimbarritt-claude-plugins --scope project -y"
+    );
+    assert_eq!(stderr(&output).lines().count(), 4);
+}
+
+#[test]
+fn session_start_install_plugin_warns_in_the_context_when_a_step_fails() {
+    let fx = Fixture::new();
+    let (claude, _log) = fake_claude(&fx, true);
+
+    let output = installing_session_start(&fx, &claude, Some("true"), "{}");
+
+    assert_exit(&output, 0);
+    let context = session_context(&output);
+    assert!(context.contains("The ledger was fetched"));
+    assert!(
+        context.contains("Warning: the tsk plugin could not be installed at session start (error: could not add the jimbarritt/claude-plugins marketplace"),
+        "{}",
+        context
+    );
+    assert!(context.ends_with("Run `tsk install-plugin claude-cli` manually."));
+}
+
+#[test]
+fn session_start_install_plugin_installs_nothing_for_a_claimed_event() {
+    let fx = Fixture::new();
+    let (claude, log) = fake_claude(&fx, false);
+    let event = "{\"session_id\":\"s-9\",\"source\":\"startup\"}";
+
+    assert_success(&installing_session_start(&fx, &claude, Some("true"), event));
+    assert_eq!(logged_calls(&log).len(), 4);
+    let second = installing_session_start(&fx, &claude, Some("true"), event);
+
+    assert_exit(&second, 0);
+    assert_eq!(stdout(&second), "");
+    assert_eq!(stderr(&second), "");
+    assert_eq!(logged_calls(&log).len(), 4);
+}
+
+#[test]
+fn session_start_install_plugin_works_with_the_copilot_format_and_rejects_copilot_cli() {
+    let fx = Fixture::new();
+    let (claude, log) = fake_claude(&fx, false);
+    let mut command = fx.command(
+        &[
+            "thread",
+            "session-start",
+            "--format",
+            "copilot",
+            "--install-plugin",
+            "claude-cli",
+        ],
+        None,
+    );
+    let output = command
+        .env("TSK_CLAUDE_BIN", &claude)
+        .env("CLAUDE_CODE_REMOTE", "true")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert!(json(&stdout(&output))["additionalContext"].is_string());
+    assert_eq!(logged_calls(&log).len(), 4);
+
+    let rejected = fx.tsk(&["thread", "session-start", "--install-plugin", "copilot-cli"]);
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(stderr(&rejected).contains("accepts only claude-cli"));
+}
+
 #[test]
 fn version_prints_the_workspace_version() {
     let fx = Fixture::new();

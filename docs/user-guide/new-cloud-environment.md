@@ -117,9 +117,9 @@ For the tsk repo, nothing more is needed. `.claude/settings.json` runs
 4. Runs `tsk thread session-start`, which fetches the ledger, exports `$TSK_LEDGER_WT`
    and prints the thread binding prompt.
 
-For another repo, add a `SessionStart` hook that runs the same plugin steps and the same
-session start command.
-
+For another repo, run `tsk install-plugin claude-cli` in the repo and commit
+`.claude/settings.json`. The command adds the `jimbarritt/claude-plugins` marketplace,
+installs and updates the `tsk` plugin at project scope, then writes this hook into
 `.claude/settings.json`:
 
 ```json
@@ -130,7 +130,7 @@ session start command.
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+            "command": "tsk thread session-start --install-plugin claude-cli"
           }
         ]
       }
@@ -139,26 +139,16 @@ session start command.
 }
 ```
 
-`.claude/hooks/session-start.sh`, marked executable (`chmod +x`):
-
-```bash
-#!/usr/bin/env bash
-set -uo pipefail
-
-tsk install-plugin claude-cli >&2 || true
-
-INPUT="$(cat)"
-printf '%s' "$INPUT" | tsk thread session-start
-```
-
-`tsk install-plugin claude-cli` adds the `jimbarritt/claude-plugins` marketplace, then
-installs and updates the `tsk` plugin at project scope. See
+The hook installs the plugin only when `CLAUDE_CODE_REMOTE` is `true`, which Claude Code
+sets in a cloud session. In a local session the flag does nothing. The install runs
+before the session start steps, and its step lines go to stderr. A failed step adds a
+warning to the session context and does not stop the session start. See
 [installation.md](installation.md#installation).
 
-The script runs the session start command itself because Claude Code reads plugin hooks
-once, when its process starts. A plugin installed during startup has no hooks in that
-process. The binary claims each event by session ID and source, so when the plugin's own
-hook also runs, the second run exits with no output.
+The hook runs the install itself because Claude Code reads plugin hooks once, when its
+process starts. A plugin installed during startup has no hooks in that process. The
+binary claims each event by session ID and source, so when the plugin's own hook also
+runs, the second run exits with no output and installs nothing.
 
 A repo that keeps its ledger in a nexus needs the nexus attached in the environment.
 Set the nexus URL in `~/.config/tsk/config.toml` from the setup script or the hook, with
