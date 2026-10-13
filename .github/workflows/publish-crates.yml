@@ -6,7 +6,9 @@ name: Publish to crates.io
 # skipped, so a rerun after a partial failure publishes only what is missing.
 #
 # The run from the Actions tab (workflow_dispatch) takes a tag, for a release that was
-# published before this workflow existed, or a run that failed.
+# published before this workflow existed, or a run that failed. release.yml calls this
+# workflow (workflow_call) after it creates a release, because a release created with
+# GITHUB_TOKEN starts no other workflow.
 #
 # Needs the secret CARGO_REGISTRY_TOKEN in the environment `crates-io`: a crates.io API
 # token with the publish-update scope for tsk-core and tsk-bin. Only a job that names the
@@ -21,6 +23,12 @@ on:
       tag:
         description: "Release tag to publish, for example v0.3.1"
         required: true
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to publish, for example v0.3.1"
+        required: true
+        type: string
 
 permissions:
   contents: read

@@ -149,24 +149,36 @@ just test            # run all tests
 just publish         # publish all crates to crates.io
 ```
 
-## Publishing to crates.io
+## Releasing
 
-The workflow `.github/workflows/publish-crates.yml` publishes `tsk-core`, then `tsk-bin`,
-when a GitHub release is published. Steps:
+A push to `main` releases when the workspace version in `Cargo.toml` has no `v<version>`
+tag yet. The workflow `.github/workflows/release.yml`:
+
+1. Creates the tag `v<version>` on the pushed commit and the GitHub release
+   `tsk <version>`.
+2. Writes the notes: `docs/releases/v<version>.md` when that file exists, then the
+   subject of every commit since the previous `v*` tag, then the compare link GitHub
+   generates.
+3. Calls `.github/workflows/publish-crates.yml`, which publishes `tsk-core`, then
+   `tsk-bin`, to crates.io.
+
+To release:
 
 1. Bump the workspace version with `just bump <version>` (requires cargo-edit:
-   `cargo install cargo-edit`), commit, and push to `main`.
-2. On GitHub, publish a release with the tag `v<version>`, targeting that commit.
+   `cargo install cargo-edit`).
+2. Optional: write a summary in `docs/releases/v<version>.md`.
+3. Commit and push to `main`.
 
-The workflow stops when the tag does not match the workspace version at the tagged
-commit. It skips a crate whose version is already on crates.io, so a rerun publishes only
-what is missing. To publish an existing release, run the workflow from the Actions tab
-and give it the tag.
+A push that leaves the version unchanged releases nothing.
 
-The workflow needs the secret `CARGO_REGISTRY_TOKEN`, a crates.io API token with the
+`publish-crates.yml` also runs when someone publishes a release on GitHub by hand, and
+from the Actions tab with a tag. It skips a crate whose version is already on crates.io,
+so a rerun publishes only what is missing.
+
+The publish needs the secret `CARGO_REGISTRY_TOKEN`, a crates.io API token with the
 publish-update scope, in the GitHub environment `crates-io`. Only the publish job reads
-it. The environment's deployment rules admit `main`, for a run from the Actions tab, and
-tags matching `v*`, for a release.
+it. The environment's deployment rules admit `main`, for the release workflow and a run
+from the Actions tab, and tags matching `v*`, for a release published by hand.
 
 From a terminal, `just publish` publishes both crates by hand.
 
