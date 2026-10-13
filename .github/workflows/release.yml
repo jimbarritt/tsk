@@ -1,0 +1,90 @@
+name: Release
+
+# Creates a release when a push to main carries a workspace version with no release
+# yet. To release, bump the version in Cargo.toml (`just bump <version>`), commit and
+# push to main. The workflow:
+#
+# 1. Reads the workspace version from Cargo.toml. When the tag `v<version>` already
+#    exists, it stops: the push is not a release.
+# 2. Creates the tag on the pushed commit and the GitHub release `tsk <version>`. The
+#    notes are `docs/releases/v<version>.md` when that file exists, then the subject of
+#    every commit since the previous `v*` tag, then the compare link GitHub generates.
+# 3. Calls publish-crates.yml to publish tsk-core and tsk-bin to crates.io, in the
+#    environment `crates-io`.
+#
+# A release created with GITHUB_TOKEN starts no other workflow, so step 3 calls the
+# publish workflow directly rather than waiting for its `release` trigger.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      created: ${{ steps.create.outputs.created }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Read the workspace version
+        id: version
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          if [ -z "$version" ]; then
+            echo "::error::no workspace version in Cargo.toml"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Create the tag and the release
+        id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists, nothing to release"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          previous="$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)"
+          {
+            if [ -f "docs/releases/$TAG.md" ]; then
+              cat "docs/releases/$TAG.md"
+              echo
+            fi
+            echo "## Commits"
+            echo
+            if [ -n "$previous" ]; then
+              git log --no-merges --format='- %s (%h)' "$previous..HEAD"
+            else
+              git log --no-merges --format='- %s (%h)' HEAD
+            fi
+          } > notes.md
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "tsk $VERSION" \
+            --notes-file notes.md \
+            --generate-notes
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: release
+    if: needs.release.outputs.created == 'true'
+    uses: ./.github/workflows/publish-crates.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets: inherit
