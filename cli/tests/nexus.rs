@@ -5,6 +5,7 @@ use tempfile::TempDir;
 
 const IN_REPO_REF: &str = "refs/heads/tsk/ledger";
 const NEXUS_REF: &str = "refs/heads/ledgers/work-api";
+const NEXUS_DOCS_REF: &str = "refs/heads/ledgers/work-api-docs";
 const ORIGIN_URL: &str = "https://example.test/acme/work-api";
 const BRIEFING: &str = "missions/operational/M-TEST-01-example.md";
 const WORK_API_ENTRY: &str =
@@ -150,6 +151,24 @@ impl Fixture {
             .env("XDG_STATE_HOME", self.root.path().join("state"))
             .env("XDG_CONFIG_HOME", self.root.path().join("config"))
             .env("TSK_MACHINE_NAME", machine)
+            .env("TSK_HOME", self.root.path().join("home/.tsk"))
+            .env("GIT_CEILING_DIRECTORIES", self.root.path())
+            .env_remove("CLAUDE_CODE_REMOTE_SESSION_ID")
+            .output()
+            .expect("failed to run tsk")
+    }
+
+    /// Like [`Fixture::tsk`], with the Dolt backend.
+    fn tsk_dolt(&self, args: &[&str]) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_tsk"))
+            .args(args)
+            .current_dir(self.work())
+            .envs(git_env())
+            .env("TSK_LEDGER_BACKEND", "dolt")
+            .env("HOME", self.root.path().join("home"))
+            .env("XDG_STATE_HOME", self.root.path().join("state"))
+            .env("XDG_CONFIG_HOME", self.root.path().join("config"))
+            .env("TSK_MACHINE_NAME", "laptop")
             .env("TSK_HOME", self.root.path().join("home/.tsk"))
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove("CLAUDE_CODE_REMOTE_SESSION_ID")
@@ -783,4 +802,53 @@ fn a_nexus_ledger_is_created_when_the_first_command_is_a_thread_start() {
     let output = fx.tsk(&["thread", "start", "M-TEST-01", BRIEFING]);
 
     assert_failure_mentioning(&output, BRIEFING);
+}
+
+#[test]
+fn a_dolt_nexus_ledger_keeps_its_documents_on_the_id_docs_branch() {
+    let dolt = Command::new("dolt")
+        .arg("version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !dolt {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new();
+    fx.set_nexus_json(WORK_API_ENTRY);
+    fx.attach();
+
+    let fetch = fx.tsk_dolt(&["ledger", "fetch"]);
+    assert_success(&fetch);
+    let doc = fx.root.path().join("doc.md");
+    write(&doc, "in the nexus\n");
+    assert_success(&fx.tsk_dolt(&[
+        "ledger",
+        "doc",
+        "put",
+        "missions/M-1.md",
+        doc.to_str().unwrap(),
+    ]));
+    let pushed = fx.tsk_dolt(&["ledger", "push", "First commit"]);
+    assert_success(&pushed);
+
+    // The ref is `ledgers/<id>-docs`, never `ledgers/<id>/docs`, which cannot exist
+    // beside the ledger ref `ledgers/<id>`.
+    assert!(fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    assert!(fx.ref_exists(&fx.nexus(), NEXUS_DOCS_REF));
+    assert!(!fx.ref_exists(&fx.nexus(), "refs/heads/ledgers/work-api/docs"));
+    assert!(!fx.ref_exists(&fx.managed(), "refs/heads/tsk/docs"));
+    assert_eq!(
+        fx.file_on(&fx.nexus(), NEXUS_DOCS_REF, "missions/M-1.md")
+            .as_deref(),
+        Some("in the nexus\n")
+    );
+    assert_eq!(
+        fx.file_on(&fx.nexus(), NEXUS_DOCS_REF, ".tsk-ledger.toml"),
+        None
+    );
+    assert!(fx.file_on(&fx.nexus(), NEXUS_REF, "manifest").is_some());
+    let get = fx.tsk_dolt(&["ledger", "doc", "get", "missions/M-1.md"]);
+    assert_eq!(stdout(&get), "in the nexus\n");
 }

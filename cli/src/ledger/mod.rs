@@ -1,9 +1,11 @@
+pub mod docs;
 pub mod dolt;
 pub mod fetch;
 pub mod git;
 pub mod location;
 pub mod manifest;
 pub mod migrate;
+pub mod migrate_docs;
 pub mod nexus;
 pub mod push;
 pub mod register;
@@ -42,6 +44,17 @@ pub enum LedgerCommands {
         dry_run: bool,
     },
     #[command(
+        name = "migrate-docs",
+        about = "Move the documents of a version 1 Dolt ledger from the documents table to the tsk/docs branch; prints migrated-docs:<count>"
+    )]
+    MigrateDocs {
+        #[arg(
+            long,
+            help = "Do everything except the drop and the pushes: write and check the files, print the counts and dry-run:ok"
+        )]
+        dry_run: bool,
+    },
+    #[command(
         about = "Read, write, list and remove ledger documents in the local store; none of them fetches or pushes"
     )]
     Doc {
@@ -52,6 +65,13 @@ pub enum LedgerCommands {
 
 #[derive(Subcommand)]
 pub enum DocCommands {
+    #[command(
+        about = "Print the absolute path of a document's file, for opening it in another tool; exit status 1 when it does not exist"
+    )]
+    Path {
+        #[arg(help = "Document path relative to the ledger root")]
+        path: String,
+    },
     #[command(
         about = "Print a document exactly as stored, with no added newline; exit status 1 when it does not exist"
     )]
@@ -85,13 +105,15 @@ pub enum DocCommands {
 pub fn run(action: LedgerCommands) -> Result<(), String> {
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
-    if let LedgerCommands::MigrateToDolt { dry_run } = action {
-        return migrate::run(&cwd, dry_run);
+    match action {
+        LedgerCommands::MigrateToDolt { dry_run } => return migrate::run(&cwd, dry_run),
+        LedgerCommands::MigrateDocs { dry_run } => return migrate_docs::run(&cwd, dry_run),
+        _ => {}
     }
     let store = store::open(&cwd)?;
     match action {
         LedgerCommands::Fetch => {
-            let outcome = fetch_reporting(store.as_ref())?;
+            let outcome = report_refresh(store.refresh_for_fetch()?);
             println!("{}", outcome.path.display());
             Ok(())
         }
@@ -105,7 +127,9 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             Ok(())
         }
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
-        LedgerCommands::MigrateToDolt { .. } => unreachable!("handled before the store opens"),
+        LedgerCommands::MigrateToDolt { .. } | LedgerCommands::MigrateDocs { .. } => {
+            unreachable!("handled before the store opens")
+        }
     }
 }
 
@@ -115,8 +139,15 @@ fn no_such_document(path: &str) -> String {
 
 fn run_doc(store: &dyn LedgerStore, action: DocCommands) -> Result<(), String> {
     match action {
+        DocCommands::Path { path } => {
+            let file = store
+                .doc_path(&path)?
+                .ok_or_else(|| no_such_document(&path))?;
+            let file = std::fs::canonicalize(&file).unwrap_or(file);
+            println!("{}", file.display());
+            Ok(())
+        }
         DocCommands::Get { path } => {
-            store::check_document_path(&path)?;
             let body = store
                 .doc_get(&path)?
                 .ok_or_else(|| no_such_document(&path))?;
@@ -126,7 +157,6 @@ fn run_doc(store: &dyn LedgerStore, action: DocCommands) -> Result<(), String> {
                 .map_err(|e| format!("error: could not write to stdout: {}", e))
         }
         DocCommands::Put { path, file } => {
-            store::check_document_path(&path)?;
             let body = match file {
                 Some(file) => std::fs::read_to_string(&file)
                     .map_err(|e| format!("error: could not read {}: {}", file.display(), e))?,
@@ -147,7 +177,6 @@ fn run_doc(store: &dyn LedgerStore, action: DocCommands) -> Result<(), String> {
             Ok(())
         }
         DocCommands::Rm { path } => {
-            store::check_document_path(&path)?;
             if store.doc_remove(&path)? {
                 Ok(())
             } else {
@@ -158,14 +187,18 @@ fn run_doc(store: &dyn LedgerStore, action: DocCommands) -> Result<(), String> {
 }
 
 pub fn fetch_reporting(store: &dyn LedgerStore) -> Result<RefreshOutcome, String> {
-    let outcome = store.refresh()?;
+    Ok(report_refresh(store.refresh()?))
+}
+
+/// Print the notes of a refresh to stderr and hand the outcome back.
+pub(crate) fn report_refresh(outcome: RefreshOutcome) -> RefreshOutcome {
     if let Some(note) = &outcome.pending_note {
         eprintln!("{}", note);
     }
     if let Some(note) = &outcome.unpublished_note {
         eprintln!("{}", note);
     }
-    Ok(outcome)
+    outcome
 }
 
 pub fn push_reporting(store: &dyn LedgerStore, message: &str) -> Result<PushReport, String> {

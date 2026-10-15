@@ -1,7 +1,11 @@
 use serde::Deserialize;
 
 pub const MANIFEST_FILE: &str = ".tsk-ledger.toml";
+/// The versions a file ledger's `.tsk-ledger.toml` may hold.
 pub const SUPPORTED_VERSIONS: &[i64] = &[1];
+/// The versions a Dolt ledger's `manifest` table may hold. Version 1 keeps its documents
+/// in a `documents` table. Version 2 keeps them as files on the `tsk/docs` branch.
+pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2];
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
@@ -52,6 +56,7 @@ pub fn check(text: &str, expected_repo_id: Option<&str>) -> Result<i64, String> 
         manifest.repo_id.as_deref(),
         expected_repo_id,
         MANIFEST_FILE,
+        SUPPORTED_VERSIONS,
     )
 }
 
@@ -62,13 +67,14 @@ pub fn check_values(
     found_repo_id: Option<&str>,
     expected_repo_id: Option<&str>,
     source: &str,
+    supported: &[i64],
 ) -> Result<i64, String> {
-    if !SUPPORTED_VERSIONS.contains(&version) {
+    if !supported.contains(&version) {
         return Err(format!(
-            "error: unsupported ledger version {} in {}; this tsk supports version {}",
+            "error: unsupported ledger version {} in {}; this tsk supports version {}. Update tsk",
             version,
             source,
-            supported_list()
+            supported_list(supported)
         ));
     }
     if let (Some(expected), Some(found)) = (expected_repo_id, found_repo_id) {
@@ -82,8 +88,8 @@ pub fn check_values(
     Ok(version)
 }
 
-fn supported_list() -> String {
-    SUPPORTED_VERSIONS
+fn supported_list(supported: &[i64]) -> String {
+    supported
         .iter()
         .map(|v| v.to_string())
         .collect::<Vec<_>>()
@@ -113,6 +119,36 @@ mod tests {
         let err = check_v("version = 2\n").unwrap_err();
         assert!(err.contains("unsupported ledger version 2"), "{}", err);
         assert!(err.contains("supports version 1"), "{}", err);
+    }
+
+    #[test]
+    fn a_binary_that_knows_only_version_one_stops_at_a_version_two_ledger() {
+        // What an older tsk does with a Dolt ledger at version 2.
+        let err = check_values(2, None, None, "the manifest table", &[1]).unwrap_err();
+        assert!(err.contains("unsupported ledger version 2"), "{}", err);
+        assert!(err.contains("supports version 1"), "{}", err);
+        assert!(err.contains("Update tsk"), "{}", err);
+    }
+
+    #[test]
+    fn the_dolt_list_accepts_versions_one_and_two_and_rejects_three() {
+        for ok in [1, 2] {
+            assert_eq!(
+                check_values(
+                    ok,
+                    None,
+                    None,
+                    "the manifest table",
+                    DOLT_SUPPORTED_VERSIONS
+                )
+                .unwrap(),
+                ok
+            );
+        }
+        let err =
+            check_values(3, None, None, "the manifest table", DOLT_SUPPORTED_VERSIONS).unwrap_err();
+        assert!(err.contains("unsupported ledger version 3"), "{}", err);
+        assert!(err.contains("supports version 1, 2"), "{}", err);
     }
 
     #[test]

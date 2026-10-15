@@ -158,7 +158,7 @@ pub fn check_manifest(git: &Git, commit: &str, location: &LedgerLocation) -> Res
     manifest::check(&text, location.repo_id())
 }
 
-fn add_worktree(repo: &Repo, path: &Path, commit: &str) -> Result<(), String> {
+pub(crate) fn add_worktree(repo: &Repo, path: &Path, commit: &str) -> Result<(), String> {
     if worktree_registered(&repo.git, path)? {
         repo.git.run(["worktree", "prune"])?;
     }
@@ -178,7 +178,11 @@ fn add_worktree(repo: &Repo, path: &Path, commit: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn refresh_worktree(repo: &Repo, path: &Path, commit: &str) -> Result<Vec<String>, String> {
+pub(crate) fn refresh_worktree(
+    repo: &Repo,
+    path: &Path,
+    commit: &str,
+) -> Result<Vec<String>, String> {
     let wt = Git::new(path);
     ensure_worktree_of_repo(&wt, &repo.common_dir)?;
 

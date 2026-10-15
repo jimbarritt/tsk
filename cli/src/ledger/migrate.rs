@@ -6,20 +6,23 @@
 //! archive branch first, because Dolt's first push replaces the git branch with its own
 //! history. A new database is built beside the target, read back through the Dolt
 //! backend and compared with what the tree held, and only then published and moved into
-//! place.
+//! place. The documents do not go into the database: they are written as files on the
+//! `tsk/docs` branch, in a temporary worktree that is checked the same way and then
+//! pushed first and moved into place.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::events::queue::{parse_watermark, QUEUE_FILE, WATERMARK_FILE};
+use crate::ledger::docs;
 use crate::ledger::dolt::{self, lit, Dolt, BRANCH, REMOTE};
 use crate::ledger::fetch::{check_manifest, fetch_tip, ref_kind, RefKind};
 use crate::ledger::git::{split_nul, Git};
 use crate::ledger::location::{
-    dolt_db_path, mint_token, state_root_from_env, LedgerLocation, Repo,
+    docs_worktree_path, dolt_db_path, mint_token, state_root_from_env, LedgerLocation, Repo,
 };
 use crate::ledger::manifest::{self, MANIFEST_FILE};
-use crate::ledger::push::parse_push_status;
+use crate::ledger::push::{commit_changes, parse_push_status};
 use crate::ledger::store::dolt::{create_database_with, remote_tip, remote_url, DoltStore};
 use crate::ledger::store::{check_document_path, LedgerStore};
 use crate::thread::entry::STORE_FILE;
@@ -70,6 +73,27 @@ impl Records {
             self.bindings.len(),
             self.events.len()
         )
+    }
+}
+
+/// Removes a half-built linked worktree unless it is kept.
+pub(crate) struct TempWorktree {
+    pub(crate) git: Git,
+    pub(crate) path: PathBuf,
+    pub(crate) keep: bool,
+}
+
+impl Drop for TempWorktree {
+    fn drop(&mut self) {
+        if self.keep {
+            return;
+        }
+        let path = self.path.to_string_lossy().into_owned();
+        let _ = self
+            .git
+            .output(["worktree", "remove", "--force", path.as_str()]);
+        let _ = std::fs::remove_dir_all(&self.path);
+        let _ = self.git.output(["worktree", "prune"]);
     }
 }
 
@@ -142,6 +166,14 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "ledger-db".to_string());
 
+    let docs_target = docs_worktree_path(&state_root, &clone_id);
+    if docs_target.exists() {
+        return Err(format!(
+            "error: {} exists already; move it aside and re-run tsk ledger migrate-to-dolt",
+            docs_target.display()
+        ));
+    }
+
     let url = remote_url(&repo, &location)?;
     let mut temp = TempDir {
         path: parent.join(format!("{}.migrate-{}", name, mint_token(8, &commit))),
@@ -153,7 +185,6 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
         &url,
         location.ref_name(),
         records.repo_id.as_deref(),
-        false,
         &insert_sql(&records),
         &message,
     )?;
@@ -161,6 +192,17 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
     let store = DoltStore::open(cwd)?.with_db(temp.path.clone());
     verify(&store, &records)?;
     eprintln!("note: the Dolt database reads back identical to the file ledger");
+
+    let mut temp_docs = TempWorktree {
+        git: repo.git.clone(),
+        path: parent.join(format!("docs.migrate-{}", mint_token(8, &commit))),
+        keep: false,
+    };
+    stage_documents(&repo, &location, &temp_docs.path, &records, &message)?;
+    eprintln!(
+        "note: the documents read back identical from the {} branch",
+        location.docs_ref_name()
+    );
 
     if dry_run {
         println!("dry-run:ok");
@@ -182,6 +224,22 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
         ));
     }
 
+    // The documents go first, so no record names a document the remote lacks.
+    {
+        let mut on_retry = |attempt: usize, status: &crate::ledger::push::PushStatus| {
+            eprintln!("{}", crate::ledger::retry_note(attempt, status))
+        };
+        docs::push(&repo, &location, &temp_docs.path, &message, &mut on_retry).map_err(|e| {
+            format!(
+                "{}\n       The file ledger is safe on {} and {} is unchanged.\n       \
+                 Re-run tsk ledger migrate-to-dolt",
+                e,
+                archive,
+                location.ref_name()
+            )
+        })?;
+    }
+
     let db = Dolt::new(&temp.path);
     let head = db.head_hash()?;
     db.run(["push", REMOTE, BRANCH]).map_err(|e| {
@@ -197,6 +255,20 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
 
     temp.keep = true;
     install(&temp.path, &target, &name, &parent)?;
+    temp_docs.keep = true;
+    let moved = temp_docs.path.to_string_lossy().into_owned();
+    let docs_target_arg = docs_target.to_string_lossy().into_owned();
+    repo.git
+        .run(["worktree", "move", moved.as_str(), docs_target_arg.as_str()])
+        .map_err(|e| {
+            format!(
+                "{}\n       The ledger is already migrated; move {} to {} yourself",
+                e,
+                temp_docs.path.display(),
+                docs_target.display()
+            )
+        })?;
+    eprintln!("note: the documents are at {}", docs_target.display());
     eprintln!("note: pushed the Dolt ledger to {}", location.ref_name());
     eprintln!(
         "note: archived the file ledger at {} on {}",
@@ -321,6 +393,43 @@ fn install(temp: &Path, target: &Path, name: &str, parent: &Path) -> Result<(), 
             e
         )
     })
+}
+
+/// Write every document as a file in a new worktree of the documents branch, commit it,
+/// and check what the commit holds against the records. The worktree starts from the
+/// remote's documents branch when there is one, or from the orphan commit of a new one.
+fn stage_documents(
+    repo: &Repo,
+    location: &LedgerLocation,
+    path: &Path,
+    records: &Records,
+    message: &str,
+) -> Result<(), String> {
+    docs::fetch_at(repo, location, path)?;
+    let wt = Git::new(path);
+    for (doc, body) in &records.documents {
+        let file = path.join(doc);
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| format!("error: could not create {}: {}", dir.display(), e))?;
+        }
+        std::fs::write(&file, body)
+            .map_err(|e| format!("error: could not write {}: {}", file.display(), e))?;
+    }
+    commit_changes(&wt, message)?;
+    for (doc, body) in &records.documents {
+        let spec = format!("HEAD:{}", doc);
+        let (args, output) = wt.output(["cat-file", "blob", spec.as_str()])?;
+        if !output.status.success() {
+            return Err(crate::ledger::git::failure_message(&args, &output));
+        }
+        expect(
+            &format!("document {} on the documents branch", doc),
+            Some(body.clone()),
+            String::from_utf8(output.stdout).ok(),
+        )?;
+    }
+    Ok(())
 }
 
 fn utf8(bytes: Vec<u8>, path: &str) -> Result<String, String> {
@@ -519,15 +628,6 @@ fn insert_sql(records: &Records) -> String {
         }
     };
     batch(
-        "documents",
-        "path, body",
-        records
-            .documents
-            .iter()
-            .map(|(path, body)| format!("({}, {})", lit(path), lit(body)))
-            .collect(),
-    );
-    batch(
         "threads",
         "thread_id, briefing_path",
         records
@@ -595,25 +695,20 @@ fn expect<T: PartialEq + std::fmt::Debug>(what: &str, expected: T, found: T) -> 
 }
 
 /// Read the whole ledger back through the store trait and compare it with the records
-/// parsed from the tree, using the rules the file backend applies when it reads.
+/// parsed from the tree, using the rules the file backend applies when it reads. The
+/// documents are not in the database: [`stage_documents`] checks them.
 fn verify(store: &dyn LedgerStore, records: &Records) -> Result<(), String> {
     let info = store.manifest()?;
-    expect("the manifest version", 1, info.version)?;
+    expect(
+        "the manifest version",
+        crate::ledger::dolt::LAYOUT_VERSION,
+        info.version,
+    )?;
     expect(
         "the manifest repo_id",
         records.repo_id.clone(),
         info.repo_id,
     )?;
-
-    let paths: Vec<String> = records.documents.iter().map(|(p, _)| p.clone()).collect();
-    expect("the document list", paths, store.doc_list("")?)?;
-    for (path, body) in &records.documents {
-        expect(
-            &format!("document {}", path),
-            Some(body.clone()),
-            store.doc_get(path)?,
-        )?;
-    }
 
     let ids: Vec<String> = records.threads.iter().map(|t| t.id.clone()).collect();
     expect("the thread list", ids, store.thread_ids()?)?;
@@ -690,7 +785,7 @@ mod tests {
         assert!(sql.contains(", 1, CONVERT") && sql.contains(", 2, CONVERT"));
         assert!(sql.contains("insert into external_events (position, envelope) values (1, "));
         assert!(sql.contains("insert into watermark"));
-        assert!(!sql.contains("insert into documents"));
+        assert!(!sql.contains("documents"));
     }
 
     #[test]

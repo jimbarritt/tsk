@@ -1,25 +1,35 @@
 //! The Dolt backend: the ledger is a Dolt database in a directory beside the managed
 //! repo's other state, published to the same git ref the file backend uses through
-//! Dolt's `git+` remotes. Every operation runs the external `dolt` binary. Documents,
-//! threads, continuation entries, bindings and events are rows in the tables defined in
-//! [`crate::ledger::dolt`].
+//! Dolt's `git+` remotes. Every operation runs the external `dolt` binary. Threads,
+//! continuation entries, bindings and events are rows in the tables defined in
+//! [`crate::ledger::dolt`]. Documents are not rows: they are Markdown files on a second
+//! branch, `tsk/docs`, checked out as a worktree beside the database (see
+//! [`crate::ledger::docs`]). A version 1 ledger still keeps them in a `documents` table
+//! until `tsk ledger migrate-docs` moves them.
 
 use std::path::{Path, PathBuf};
 
+use crate::ledger::docs;
 use crate::ledger::dolt::{
-    self, flag, integer, lit, text, Dolt, BRANCH, REMOTE, REMOTE_BRANCH_NAME,
+    self, flag, integer, lit, text, Dolt, BRANCH, LEGACY_LAYOUT_VERSION, REMOTE, REMOTE_BRANCH_NAME,
 };
-use crate::ledger::fetch::{fetch_tip, ref_kind, RefKind};
+use crate::ledger::fetch::{fetch_tip, ref_kind, FetchOutcome, RefKind};
 use crate::ledger::git::Git;
-use crate::ledger::location::{dolt_db_path, state_root_from_env, LedgerLocation, Repo};
-use crate::ledger::manifest::{self, ManifestInfo};
+use crate::ledger::location::{
+    docs_worktree_path, dolt_db_path, state_root_from_env, LedgerLocation, Repo,
+};
+use crate::ledger::manifest::{self, ManifestInfo, DOLT_SUPPORTED_VERSIONS};
 use crate::ledger::push::{PushOutcome, PushResult, PushStatus, MAX_ATTEMPTS};
 use crate::thread::lookup::{CloudBinding, Lookup};
 
+use super::files::FileTree;
 use super::{LedgerStore, PushReport, RefreshOutcome};
 
-const INITIAL_INDEX: &str = crate::ledger::fetch::INITIAL_INDEX;
 const MANIFEST_SOURCE: &str = "the manifest table";
+
+/// What every command except `tsk ledger fetch` and `tsk ledger migrate-docs` says about
+/// a version 1 ledger.
+pub const VERSION_1_REFUSAL: &str = "error: this ledger stores its documents in Dolt (version 1). Run tsk ledger migrate-docs to move them to the tsk/docs branch.";
 
 pub struct DoltStore {
     repo: Repo,
@@ -108,6 +118,8 @@ impl DoltStore {
         })
     }
 
+    /// The manifest check every Dolt command makes. Versions 1 and 2 pass: it returns the
+    /// version, and the caller decides what a version 1 ledger may do.
     fn check_manifest_of(&self, db: &Dolt, location: &LedgerLocation) -> Result<i64, String> {
         let info = self.manifest_rows(db)?;
         manifest::check_values(
@@ -115,7 +127,199 @@ impl DoltStore {
             info.repo_id.as_deref(),
             location.repo_id(),
             MANIFEST_SOURCE,
+            DOLT_SUPPORTED_VERSIONS,
         )
+    }
+
+    /// The manifest check of a command that needs the documents on the branch: a version
+    /// 1 ledger is refused with the way out.
+    fn check_current(&self, db: &Dolt, location: &LedgerLocation) -> Result<i64, String> {
+        let version = self.check_manifest_of(db, location)?;
+        if version == LEGACY_LAYOUT_VERSION {
+            return Err(VERSION_1_REFUSAL.to_string());
+        }
+        Ok(version)
+    }
+
+    /// The worktree of the documents branch, when this clone has an id.
+    fn docs_hint(&self) -> Option<PathBuf> {
+        self.repo
+            .read_clone_id()
+            .ok()
+            .flatten()
+            .map(|id| docs_worktree_path(&self.state_root, &id))
+    }
+
+    /// The documents of an already materialised ledger.
+    fn docs_tree(&self) -> Result<FileTree, String> {
+        let missing = |what: String| {
+            // A version 1 ledger has no documents worktree. Say so, not "fetch first".
+            if let Ok(db) = self.db() {
+                if self
+                    .manifest_rows(&db)
+                    .is_ok_and(|info| info.version == LEGACY_LAYOUT_VERSION)
+                {
+                    return VERSION_1_REFUSAL.to_string();
+                }
+            }
+            format!(
+                "error: {}. Run tsk ledger fetch first, which creates the documents worktree",
+                what
+            )
+        };
+        let clone_id = self.repo.read_clone_id()?.ok_or_else(|| {
+            missing(format!(
+                "this clone has no clone id yet ({} is absent or empty)",
+                self.repo.clone_id_file().display()
+            ))
+        })?;
+        let root = docs_worktree_path(&self.state_root, &clone_id);
+        if !root.is_dir() {
+            return Err(missing(format!("{} does not exist", root.display())));
+        }
+        Ok(FileTree { root, docs: true })
+    }
+
+    /// [`LedgerStore::refresh`], or the lenient refresh of `tsk ledger fetch` and
+    /// `tsk ledger migrate-docs` when `lenient` is set: a version 1 ledger refreshes its
+    /// Dolt database only and gets a note instead of the refusal.
+    fn refresh_with(&self, lenient: bool) -> Result<RefreshOutcome, String> {
+        let (mut outcome, version) = self.refresh_data()?;
+        if version == LEGACY_LAYOUT_VERSION {
+            if !lenient {
+                return Err(VERSION_1_REFUSAL.to_string());
+            }
+            let note = "note: this ledger stores its documents in Dolt (version 1). Run tsk ledger migrate-docs to move them to the tsk/docs branch.".to_string();
+            outcome.pending_note = Some(join_notes(outcome.pending_note.take(), note));
+            return Ok(outcome);
+        }
+        let location = self.repo.location(&self.state_root)?;
+        let fetched = docs::fetch(&self.repo, &self.state_root, &location)?;
+        let dolt_unpublished = outcome.unpublished;
+        for line in &fetched.pending {
+            outcome.pending.push(format!("documents: {}", line));
+        }
+        let docs_outcome = FetchOutcome {
+            location: fetched.location,
+            path: fetched.path,
+            commit: fetched.commit,
+            pending: fetched.pending,
+            unpublished: fetched.unpublished,
+        };
+        if !docs_outcome.pending.is_empty() {
+            let note = crate::ledger::pending_note(&docs_outcome);
+            outcome.pending_note = Some(join_notes(outcome.pending_note.take(), note));
+        }
+        // A new ledger says once that nothing is published. The documents branch is
+        // named separately only when the ledger is published and its documents are not.
+        if docs_outcome.unpublished && !dolt_unpublished {
+            let note = crate::ledger::unpublished_note(&docs_outcome);
+            outcome.unpublished_note = Some(join_notes(outcome.unpublished_note.take(), note));
+            outcome.unpublished = true;
+        }
+        Ok(outcome)
+    }
+
+    /// Commit nothing more and push the Dolt data: fetch, merge a newer remote tip, push,
+    /// with a bounded retry. `committed` says whether the caller committed local changes
+    /// to the database first. `docs_changed` says the documents already moved in this
+    /// push, which silences the notes that say nothing happened.
+    fn push_data(
+        &self,
+        location: &LedgerLocation,
+        db: &Dolt,
+        committed: bool,
+        docs_changed: bool,
+        notes: &mut dyn FnMut(&str),
+    ) -> Result<PushReport, String> {
+        let path = db.dir().to_path_buf();
+        let outcome = |result: PushResult, commit: String| PushOutcome {
+            location: location.clone(),
+            path: path.clone(),
+            committed,
+            commit,
+            result,
+        };
+        let finish = |outcome: PushOutcome, notes: &mut dyn FnMut(&str)| {
+            // The "nothing to commit" and "nothing to push" notes say the whole push did
+            // nothing, which is untrue when the documents moved.
+            if !docs_changed {
+                for note in crate::ledger::push_notes(&outcome) {
+                    notes(&note);
+                }
+            }
+            PushReport {
+                committed: outcome.committed,
+                head: outcome.commit.clone(),
+                already_on_remote: outcome.result == PushResult::AlreadyOnRemote,
+            }
+        };
+
+        let remote_ref = format!("{}/{}", REMOTE, BRANCH);
+        for attempt in 1..=MAX_ATTEMPTS {
+            db.run(["fetch", REMOTE])?;
+            if remote_branch_exists(db)? {
+                let rows = db.rows(&format!(
+                    "select dolt_merge_base('HEAD', {r}) = hashof('HEAD') as head_in_remote, \
+                     dolt_merge_base('HEAD', {r}) = hashof({r}) as remote_in_head",
+                    r = lit(&remote_ref)
+                ));
+                let (head_in_remote, remote_in_head) = match rows {
+                    Ok(rows) => rows
+                        .first()
+                        .map(|row| (flag(row, "head_in_remote"), flag(row, "remote_in_head")))
+                        .unwrap_or((false, false)),
+                    Err(_) => (false, false),
+                };
+                if head_in_remote {
+                    let tip = db.hash_of(&remote_ref)?;
+                    return Ok(finish(outcome(PushResult::AlreadyOnRemote, tip), notes));
+                }
+                if !remote_in_head {
+                    merge_remote(db, &remote_ref)?;
+                }
+            }
+
+            let (args, pushed) = db.output(["push", REMOTE, BRANCH])?;
+            if pushed.status.success() {
+                let head = db.head_hash()?;
+                return Ok(finish(
+                    outcome(PushResult::Pushed { attempts: attempt }, head),
+                    notes,
+                ));
+            }
+            let stderr = String::from_utf8_lossy(&pushed.stderr).to_lowercase();
+            let stale = ["rejected", "behind", "non-fast-forward"]
+                .iter()
+                .any(|word| stderr.contains(word));
+            if !stale {
+                return Err(dolt::failure_message(&args, &pushed));
+            }
+            if attempt < MAX_ATTEMPTS {
+                notes(&crate::ledger::retry_note(
+                    attempt,
+                    &PushStatus {
+                        flag: '!',
+                        summary: "[rejected] (non-fast-forward)".to_string(),
+                    },
+                ));
+            }
+        }
+        Err(format!(
+            "error: {} on {} rejected the push {} times; it moved between each fetch and push.\n       \
+             The commit stays in {}. Re-run tsk ledger push to try again",
+            location.ref_name(),
+            location.label(),
+            MAX_ATTEMPTS,
+            path.display()
+        ))
+    }
+}
+
+fn join_notes(existing: Option<String>, note: String) -> String {
+    match existing {
+        Some(first) => format!("{}\n{}", first, note),
+        None => note,
     }
 }
 
@@ -205,26 +409,16 @@ pub(crate) fn remote_tip(git: &Git, location: &LedgerLocation) -> Result<Option<
     }
 }
 
-/// Create a new ledger database at `path`: the schema, the manifest rows and, when
-/// `seed_index` is set, an `index.md` document holding the same text a new file ledger
-/// starts with. The result is committed and has the remote configured, so the first
-/// push creates the branch. The directory is removed again when any step fails.
+/// Create a new ledger database at `path`: the schema and the manifest rows. The result
+/// is committed and has the remote configured, so the first push creates the branch. The
+/// directory is removed again when any step fails.
 pub fn create_database(
     path: &Path,
     url: &str,
     ref_name: &str,
     repo_id: Option<&str>,
-    seed_index: bool,
 ) -> Result<(), String> {
-    create_database_with(
-        path,
-        url,
-        ref_name,
-        repo_id,
-        seed_index,
-        "",
-        "Create the ledger",
-    )
+    create_database_with(path, url, ref_name, repo_id, "", "Create the ledger")
 }
 
 /// [`create_database`] with `extra_sql` run in the same transaction as the schema, and
@@ -234,7 +428,6 @@ pub(crate) fn create_database_with(
     url: &str,
     ref_name: &str,
     repo_id: Option<&str>,
-    seed_index: bool,
     extra_sql: &str,
     message: &str,
 ) -> Result<(), String> {
@@ -244,13 +437,6 @@ pub(crate) fn create_database_with(
         let db = Dolt::new(path);
         db.run(["init", "--initial-branch", BRANCH])?;
         let mut sql = dolt::init_sql(repo_id);
-        if seed_index {
-            sql.push_str(&format!(
-                "insert into documents (path, body) values ({}, {});\n",
-                lit("index.md"),
-                lit(INITIAL_INDEX)
-            ));
-        }
         sql.push_str(extra_sql);
         db.exec(&sql)?;
         db.run(["add", "-A"])?;
@@ -330,8 +516,9 @@ fn dirty_error(path: &Path) -> String {
     )
 }
 
-impl LedgerStore for DoltStore {
-    fn refresh(&self) -> Result<RefreshOutcome, String> {
+impl DoltStore {
+    /// Refresh the Dolt database, and return the manifest version it holds.
+    pub(crate) fn refresh_data(&self) -> Result<(RefreshOutcome, i64), String> {
         dolt::ensure_identity()?;
         let location = self.repo.location(&self.state_root)?;
         let clone_id = self.repo.ensure_clone_id()?;
@@ -347,27 +534,31 @@ impl LedgerStore for DoltStore {
         }
 
         if remote_tip(&self.repo.git, &location)?.is_none() {
-            if present {
+            let version = if present {
                 let db = Dolt::new(&path);
                 verify_remote(&db, &url, &location)?;
-                self.check_manifest_of(&db, &location)?;
+                self.check_manifest_of(&db, &location)?
             } else {
-                create_database(&path, &url, location.ref_name(), location.repo_id(), true)?;
-            }
+                create_database(&path, &url, location.ref_name(), location.repo_id())?;
+                dolt::LAYOUT_VERSION
+            };
             let head = Dolt::new(&path).head_hash()?;
-            return Ok(RefreshOutcome {
-                unpublished_note: Some(crate::ledger::unpublished_text(
-                    location.label(),
-                    location.ref_name(),
-                    &path,
-                )),
-                path,
-                remote_label,
-                remote_head: head,
-                pending: Vec::new(),
-                unpublished: true,
-                pending_note: None,
-            });
+            return Ok((
+                RefreshOutcome {
+                    unpublished_note: Some(crate::ledger::unpublished_text(
+                        location.label(),
+                        location.ref_name(),
+                        &path,
+                    )),
+                    path,
+                    remote_label,
+                    remote_head: head,
+                    pending: Vec::new(),
+                    unpublished: true,
+                    pending_note: None,
+                },
+                version,
+            ));
         }
 
         let db;
@@ -408,7 +599,7 @@ impl LedgerStore for DoltStore {
                 db.run(["reset", "--hard", &format!("{}/{}", REMOTE, BRANCH)])?;
             }
         }
-        self.check_manifest_of(&db, &location)?;
+        let version = self.check_manifest_of(&db, &location)?;
         let pending_note = (!pending.is_empty()).then(|| {
             let mut note = format!(
                 "note: {} holds a commit that is not on {}:\n",
@@ -428,15 +619,28 @@ impl LedgerStore for DoltStore {
             ));
             note
         });
-        Ok(RefreshOutcome {
-            path,
-            remote_label,
-            remote_head,
-            pending,
-            unpublished: false,
-            pending_note,
-            unpublished_note: None,
-        })
+        Ok((
+            RefreshOutcome {
+                path,
+                remote_label,
+                remote_head,
+                pending,
+                unpublished: false,
+                pending_note,
+                unpublished_note: None,
+            },
+            version,
+        ))
+    }
+}
+
+impl LedgerStore for DoltStore {
+    fn refresh(&self) -> Result<RefreshOutcome, String> {
+        self.refresh_with(false)
+    }
+
+    fn refresh_for_fetch(&self) -> Result<RefreshOutcome, String> {
+        self.refresh_with(true)
     }
 
     fn path(&self) -> Result<PathBuf, String> {
@@ -461,8 +665,8 @@ impl LedgerStore for DoltStore {
         dolt::ensure_identity()?;
         let location = self.repo.location(&self.state_root)?;
         let db = self.db()?;
-        let path = db.dir().to_path_buf();
-        self.check_manifest_of(&db, &location)?;
+        self.check_current(&db, &location)?;
+        let docs_path = self.docs_tree()?.root;
 
         db.run(["add", "-A"])?;
         let committed = db.count("select count(*) as c from dolt_status where staged = 1")? > 0;
@@ -470,82 +674,33 @@ impl LedgerStore for DoltStore {
             db.run(["commit", "-m", message])?;
         }
 
-        let outcome = |result: PushResult, commit: String| PushOutcome {
-            location: location.clone(),
-            path: path.clone(),
-            committed,
-            commit,
-            result,
+        // The documents go first, then the Dolt data. A record must never name a document
+        // the remote lacks: a reader who finds the record can then always open the
+        // document. The reverse, a document the remote holds and no record names, is
+        // harmless. So when the documents push fails (rejected after the retries, or a
+        // rebase conflict), this stops here and the Dolt data is not pushed. Both sides
+        // keep their local commits, and the next tsk ledger push resumes. Each side
+        // pushes only when it has a change or an unpushed commit: a side that is already
+        // on the remote sends nothing.
+        let docs_outcome = {
+            let mut on_retry = |attempt: usize, status: &PushStatus| {
+                notes(&crate::ledger::retry_note(attempt, status))
+            };
+            docs::push(&self.repo, &location, &docs_path, message, &mut on_retry)?
         };
-        let finish = |outcome: PushOutcome, notes: &mut dyn FnMut(&str)| {
-            for note in crate::ledger::push_notes(&outcome) {
-                notes(&note);
-            }
-            PushReport {
-                committed: outcome.committed,
-                head: outcome.commit.clone(),
-                already_on_remote: outcome.result == PushResult::AlreadyOnRemote,
-            }
-        };
+        let docs_changed =
+            docs_outcome.committed || matches!(docs_outcome.result, PushResult::Pushed { .. });
 
-        let remote_ref = format!("{}/{}", REMOTE, BRANCH);
-        for attempt in 1..=MAX_ATTEMPTS {
-            db.run(["fetch", REMOTE])?;
-            if remote_branch_exists(&db)? {
-                let rows = db.rows(&format!(
-                    "select dolt_merge_base('HEAD', {r}) = hashof('HEAD') as head_in_remote, \
-                     dolt_merge_base('HEAD', {r}) = hashof({r}) as remote_in_head",
-                    r = lit(&remote_ref)
-                ));
-                let (head_in_remote, remote_in_head) = match rows {
-                    Ok(rows) => rows
-                        .first()
-                        .map(|row| (flag(row, "head_in_remote"), flag(row, "remote_in_head")))
-                        .unwrap_or((false, false)),
-                    Err(_) => (false, false),
-                };
-                if head_in_remote {
-                    let tip = db.hash_of(&remote_ref)?;
-                    return Ok(finish(outcome(PushResult::AlreadyOnRemote, tip), notes));
-                }
-                if !remote_in_head {
-                    merge_remote(&db, &remote_ref)?;
-                }
-            }
-
-            let (args, pushed) = db.output(["push", REMOTE, BRANCH])?;
-            if pushed.status.success() {
-                let head = db.head_hash()?;
-                return Ok(finish(
-                    outcome(PushResult::Pushed { attempts: attempt }, head),
-                    notes,
-                ));
-            }
-            let stderr = String::from_utf8_lossy(&pushed.stderr).to_lowercase();
-            let stale = ["rejected", "behind", "non-fast-forward"]
-                .iter()
-                .any(|word| stderr.contains(word));
-            if !stale {
-                return Err(dolt::failure_message(&args, &pushed));
-            }
-            if attempt < MAX_ATTEMPTS {
-                notes(&crate::ledger::retry_note(
-                    attempt,
-                    &PushStatus {
-                        flag: '!',
-                        summary: "[rejected] (non-fast-forward)".to_string(),
-                    },
-                ));
+        let mut report = self.push_data(&location, &db, committed, docs_changed, notes)?;
+        if docs_changed {
+            report.committed = report.committed || docs_outcome.committed;
+            if report.already_on_remote {
+                // Only the documents changed: the commit the remote now holds is theirs.
+                report.head = docs_outcome.commit;
+                report.already_on_remote = false;
             }
         }
-        Err(format!(
-            "error: {} on {} rejected the push {} times; it moved between each fetch and push.\n       \
-             The commit stays in {}. Re-run tsk ledger push to try again",
-            location.ref_name(),
-            location.label(),
-            MAX_ATTEMPTS,
-            path.display()
-        ))
+        Ok(report)
     }
 
     fn head_id(&self) -> Result<String, String> {
@@ -558,56 +713,39 @@ impl LedgerStore for DoltStore {
 
     fn check_manifest(&self) -> Result<i64, String> {
         let location = self.repo.location(&self.state_root)?;
-        self.check_manifest_of(&self.db()?, &location)
+        self.check_current(&self.db()?, &location)
     }
 
     fn doc_get(&self, path: &str) -> Result<Option<String>, String> {
-        super::check_document_path(path)?;
-        let rows = self.db()?.rows(&format!(
-            "select body from documents where path = {}",
-            lit(path)
-        ))?;
-        Ok(rows.first().and_then(|row| text(row, "body")))
+        let path = super::check_docs_path(path)?;
+        self.docs_tree()?.doc_get(&path)
     }
 
     fn doc_put(&self, path: &str, body: &str) -> Result<(), String> {
-        super::check_document_path(path)?;
-        self.db()?.exec(&format!(
-            "replace into documents (path, body) values ({}, {});",
-            lit(path),
-            lit(body)
-        ))
+        let path = super::check_docs_path(path)?;
+        self.docs_tree()?.doc_put(&path, body)
     }
 
     fn doc_list(&self, prefix: &str) -> Result<Vec<String>, String> {
-        let rows = self.db()?.rows("select path from documents")?;
-        let mut paths: Vec<String> = rows
-            .iter()
-            .filter_map(|row| text(row, "path"))
-            .filter(|path| path.starts_with(prefix))
-            .collect();
-        paths.sort();
-        Ok(paths)
+        self.docs_tree()?.doc_list(prefix)
     }
 
     fn doc_remove(&self, path: &str) -> Result<bool, String> {
-        super::check_document_path(path)?;
-        let db = self.db()?;
-        if !self.doc_exists(path)? {
-            return Ok(false);
-        }
-        db.exec(&format!(
-            "delete from documents where path = {};",
-            lit(path)
-        ))?;
-        Ok(true)
+        let path = super::check_docs_path(path)?;
+        self.docs_tree()?.doc_remove(&path)
     }
 
     fn doc_exists(&self, path: &str) -> Result<bool, String> {
-        Ok(self.db()?.count(&format!(
-            "select count(*) as c from documents where path = {}",
-            lit(path)
-        ))? > 0)
+        match super::check_docs_path(path) {
+            Ok(path) => Ok(self.docs_tree()?.doc_path(&path).is_file()),
+            Err(_) => Ok(false),
+        }
+    }
+
+    fn doc_path(&self, path: &str) -> Result<Option<PathBuf>, String> {
+        let path = super::check_docs_path(path)?;
+        let file = self.docs_tree()?.doc_path(&path);
+        Ok(file.is_file().then_some(file))
     }
 
     fn thread_exists(&self, id: &str) -> Result<bool, String> {
@@ -800,7 +938,10 @@ impl LedgerStore for DoltStore {
     }
 
     fn describe_document(&self, path: &str) -> String {
-        self.describe(&format!("document {}", path))
+        match self.docs_hint() {
+            Some(root) => root.join(path).display().to_string(),
+            None => format!("document {}", path),
+        }
     }
 
     fn describe_thread(&self, id: &str) -> String {
@@ -812,12 +953,20 @@ impl LedgerStore for DoltStore {
     }
 
     fn pending_inspect_hint(&self, path: &Path, _remote_head: &str) -> String {
-        format!(
+        let data = format!(
             "cd '{}' && dolt log {r}/{b}..{b} && dolt diff {r}/{b} {b}",
             path.display(),
             r = REMOTE,
             b = BRANCH
-        )
+        );
+        match self.docs_hint() {
+            Some(docs) => format!(
+                "{}; for the documents: git -C '{}' log -p",
+                data,
+                docs.display()
+            ),
+            None => data,
+        }
     }
 
     fn read_index_hint(&self, _path: &Path) -> String {

@@ -59,7 +59,7 @@ impl FilesStore {
         if !root.is_dir() {
             return Err(missing(format!("{} does not exist", root.display())));
         }
-        Ok(FileTree { root })
+        Ok(FileTree { root, docs: false })
     }
 
     fn describe(&self, rel: &str) -> String {
@@ -165,6 +165,12 @@ impl LedgerStore for FilesStore {
         Ok(self.tree()?.doc_path(path).is_file())
     }
 
+    fn doc_path(&self, path: &str) -> Result<Option<PathBuf>, String> {
+        super::check_document_path(path)?;
+        let file = self.tree()?.doc_path(path);
+        Ok(file.is_file().then_some(file))
+    }
+
     fn thread_exists(&self, id: &str) -> Result<bool, String> {
         Ok(self.tree()?.thread_dir(id).is_dir())
     }
@@ -262,6 +268,10 @@ impl LedgerStore for FilesStore {
 /// File operations on a materialised ledger worktree.
 pub struct FileTree {
     pub root: PathBuf,
+    /// True for the documents branch of a Dolt ledger: every top-level name is a
+    /// document, and a file name that is not valid UTF-8 is an error. False for the file
+    /// ledger, whose `threads/`, `external-events/` and manifest are not documents.
+    pub docs: bool,
 }
 
 fn read_optional(path: &Path) -> Result<Option<String>, String> {
@@ -281,7 +291,7 @@ fn ensure_parent(path: &Path) -> Result<(), String> {
 }
 
 impl FileTree {
-    fn doc_path(&self, path: &str) -> PathBuf {
+    pub(crate) fn doc_path(&self, path: &str) -> PathBuf {
         self.root.join(path)
     }
 
@@ -316,7 +326,7 @@ impl FileTree {
         manifest::read(&self.manifest_text()?)
     }
 
-    fn doc_get(&self, path: &str) -> Result<Option<String>, String> {
+    pub(crate) fn doc_get(&self, path: &str) -> Result<Option<String>, String> {
         let file = self.doc_path(path);
         if !file.is_file() {
             return Ok(None);
@@ -324,14 +334,14 @@ impl FileTree {
         read_optional(&file)
     }
 
-    fn doc_put(&self, path: &str, body: &str) -> Result<(), String> {
+    pub(crate) fn doc_put(&self, path: &str, body: &str) -> Result<(), String> {
         let file = self.doc_path(path);
         ensure_parent(&file)?;
         std::fs::write(&file, body)
             .map_err(|e| format!("error: could not write {}: {}", file.display(), e))
     }
 
-    fn doc_remove(&self, path: &str) -> Result<bool, String> {
+    pub(crate) fn doc_remove(&self, path: &str) -> Result<bool, String> {
         let file = self.doc_path(path);
         if !file.is_file() {
             return Ok(false);
@@ -341,7 +351,7 @@ impl FileTree {
         Ok(true)
     }
 
-    fn doc_list(&self, prefix: &str) -> Result<Vec<String>, String> {
+    pub(crate) fn doc_list(&self, prefix: &str) -> Result<Vec<String>, String> {
         let mut found = Vec::new();
         self.walk(&self.root, "", &mut found)?;
         found.retain(|path| path.starts_with(prefix));
@@ -355,13 +365,23 @@ impl FileTree {
         for entry in entries {
             let entry =
                 entry.map_err(|e| format!("error: could not read {}: {}", dir.display(), e))?;
-            let name = entry.file_name().to_string_lossy().into_owned();
+            let name = match entry.file_name().to_str() {
+                Some(name) => name.to_string(),
+                None if self.docs => {
+                    return Err(format!(
+                        "error: {} holds a file whose name is not valid UTF-8: {}",
+                        dir.display(),
+                        entry.file_name().to_string_lossy()
+                    ))
+                }
+                None => entry.file_name().to_string_lossy().into_owned(),
+            };
             let path = if rel.is_empty() {
                 name.clone()
             } else {
                 format!("{}/{}", rel, name)
             };
-            if name == ".git" || (rel.is_empty() && is_reserved_top(&name)) {
+            if name == ".git" || (!self.docs && rel.is_empty() && is_reserved_top(&name)) {
                 continue;
             }
             if entry.path().is_dir() {
@@ -523,6 +543,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let tree = FileTree {
             root: dir.path().to_path_buf(),
+            docs: false,
         };
         (dir, tree)
     }
@@ -596,6 +617,27 @@ mod tests {
         );
         assert!(tree.doc_remove("missions/a.md").unwrap());
         assert!(!tree.doc_remove("missions/a.md").unwrap());
+    }
+
+    #[test]
+    fn a_docs_tree_lists_every_top_level_name_and_a_files_tree_hides_the_managed_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let docs = FileTree {
+            root: dir.path().to_path_buf(),
+            docs: true,
+        };
+        docs.doc_put("threads/note.md", "t").unwrap();
+        docs.doc_put("external-events/e.md", "e").unwrap();
+        docs.doc_put("a.md", "a").unwrap();
+        assert_eq!(
+            docs.doc_list("").unwrap(),
+            vec!["a.md", "external-events/e.md", "threads/note.md"]
+        );
+        let files = FileTree {
+            root: dir.path().to_path_buf(),
+            docs: false,
+        };
+        assert_eq!(files.doc_list("").unwrap(), vec!["a.md"]);
     }
 
     #[test]

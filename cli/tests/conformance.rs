@@ -10,6 +10,7 @@ use std::process::{Command, Output, Stdio};
 use tempfile::TempDir;
 
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
+const DOCS_REF: &str = "refs/heads/tsk/docs";
 const BRIEFING: &str = "missions/M-CONF-01.md";
 const CLOUD_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 
@@ -25,6 +26,33 @@ impl Backend {
             Backend::Git => "git",
             Backend::Dolt => "dolt",
         }
+    }
+
+    /// Every branch a ledger with documents publishes. The Dolt backend publishes its
+    /// documents on a second branch.
+    fn published_branches(self) -> Vec<String> {
+        let mut refs = vec!["refs/heads/main".to_string(), LEDGER_REF.to_string()];
+        if self == Backend::Dolt {
+            refs.push(DOCS_REF.to_string());
+        }
+        refs.sort();
+        refs
+    }
+
+    /// The documents a new ledger holds before anyone writes one.
+    fn seed_documents(self) -> &'static [&'static str] {
+        match self {
+            Backend::Git => &["index.md"],
+            Backend::Dolt => &["README.md", "index.md"],
+        }
+    }
+
+    /// What `tsk ledger doc list` prints for the seed documents and `extra`, sorted.
+    fn listing(self, extra: &[&str]) -> String {
+        let mut paths: Vec<&str> = self.seed_documents().to_vec();
+        paths.extend_from_slice(extra);
+        paths.sort();
+        paths.iter().map(|p| format!("{}\n", p)).collect()
     }
 
     fn available(self) -> bool {
@@ -202,6 +230,57 @@ impl Fixture {
         PathBuf::from(self.ok(dir, &["ledger", "path"]).trim_end())
     }
 
+    /// Run SQL against the clone's Dolt database. The change stays in the working set
+    /// until a `tsk ledger push` commits it.
+    fn dolt_sql(&self, dir: &Path, sql: &str) -> String {
+        let out = Command::new("dolt")
+            .args(["sql", "-r", "csv", "-q", sql])
+            .current_dir(self.ledger_path(dir))
+            .env("HOME", self.home())
+            .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        stdout(&out)
+    }
+
+    /// A data row no document touches, to give the Dolt side a change of its own.
+    fn add_binding(&self, dir: &Path, session: &str) {
+        self.dolt_sql(
+            dir,
+            &format!(
+                "insert into cloud_session_bindings (session_id, thread_id, registered_at) values ('{}', 't', '2026-01-01T00:00:00Z')",
+                session
+            ),
+        );
+    }
+
+    fn binding_count(&self, dir: &Path) -> String {
+        self.dolt_sql(dir, "select count(*) as c from cloud_session_bindings")
+            .lines()
+            .nth(1)
+            .unwrap_or("")
+            .to_string()
+    }
+
+    fn remote_docs(&self) -> Option<String> {
+        let out = git(&self.origin(), &["ls-remote", ".", DOCS_REF]);
+        out.split_whitespace().next().map(str::to_string)
+    }
+
+    /// The files of a branch of the origin, as `ls-tree -r` lists them.
+    fn origin_files(&self, reference: &str) -> Vec<String> {
+        git(&self.origin(), &["ls-tree", "-r", "--name-only", reference])
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// The documents worktree of a clone, which the Dolt backend keeps beside the database.
+    fn docs_path(&self, dir: &Path) -> PathBuf {
+        self.ledger_path(dir).parent().unwrap().join("docs")
+    }
+
     /// A ledger with the briefing published from clone A.
     fn with_briefing(backend: Backend) -> Fixture {
         let fx = Fixture::new(backend);
@@ -304,10 +383,7 @@ mod cases {
         assert_success(&push);
         assert!(!stdout(&push).trim().is_empty());
         assert!(fx.remote_ledger().is_some());
-        assert_eq!(
-            fx.remote_branches(),
-            vec!["refs/heads/main".to_string(), LEDGER_REF.to_string()]
-        );
+        assert_eq!(fx.remote_branches(), b.published_branches());
 
         let second = fx.b();
         let fetch = fx.tsk(&second, &["ledger", "fetch"]);
@@ -323,7 +399,7 @@ mod cases {
         );
         assert_eq!(
             fx.ok(&second, &["ledger", "doc", "list"]),
-            "index.md\nmissions/M-X.md\n"
+            b.listing(&["missions/M-X.md"])
         );
 
         let nothing = fx.tsk(&a, &["ledger", "push", "Nothing"]);
@@ -374,7 +450,7 @@ mod cases {
         assert_eq!(fx.ok(&other, &["ledger", "doc", "get", "notes/n.md"]), "");
         assert_eq!(
             fx.ok(&other, &["ledger", "doc", "list"]),
-            "index.md\nmissions/a.md\nmissions/b.md\nnotes/n.md\n"
+            b.listing(&["missions/a.md", "missions/b.md", "notes/n.md"])
         );
 
         assert_success(&fx.tsk(&other, &["ledger", "doc", "rm", "missions/a.md"]));
@@ -557,7 +633,7 @@ mod cases {
         fx.ok(&a, &["ledger", "fetch"]);
         assert_eq!(
             fx.ok(&a, &["ledger", "doc", "list"]),
-            "base.md\nfrom-a.md\nfrom-b.md\nindex.md\n"
+            b.listing(&["base.md", "from-a.md", "from-b.md"])
         );
         assert_eq!(fx.ok(&other, &["ledger", "doc", "get", "from-a.md"]), "a\n");
         assert!(!pushed.is_empty());
@@ -581,9 +657,74 @@ mod cases {
         let message = stderr(&conflict);
         assert!(message.contains("conflicted"), "{}", message);
         if b == Backend::Dolt {
-            assert!(message.contains("documents"), "{}", message);
+            // The documents are files on their own branch: the conflict names the file.
+            assert!(message.contains("shared.md"), "{}", message);
+            assert!(message.contains("refs/heads/tsk/docs"), "{}", message);
         }
         assert_eq!(fx.remote_ledger(), before);
+    }
+
+    pub fn doc_path_prints_the_file_and_bad_paths_are_refused(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.put(&a, "missions/p.md", "x\n");
+
+        let printed = fx.ok(&a, &["ledger", "doc", "path", "missions/p.md"]);
+        let file = PathBuf::from(printed.trim_end());
+        assert!(file.is_absolute(), "{}", printed);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "x\n");
+        // The file sits in the worktree of the store that holds documents: the ledger
+        // worktree for the file ledger, the documents worktree for Dolt.
+        let root = match b {
+            Backend::Git => fx.ledger_path(&a),
+            Backend::Dolt => fx.docs_path(&a),
+        };
+        assert_eq!(
+            std::fs::canonicalize(&file).unwrap(),
+            std::fs::canonicalize(root.join("missions/p.md")).unwrap()
+        );
+
+        let missing = fx.tsk(&a, &["ledger", "doc", "path", "missions/none.md"]);
+        assert_exit(&missing, 1);
+        assert_eq!(
+            stderr(&missing).trim_end(),
+            "error: no such document: missions/none.md"
+        );
+        assert_success(&fx.tsk(&a, &["ledger", "doc", "rm", "missions/p.md"]));
+        assert_exit(&fx.tsk(&a, &["ledger", "doc", "path", "missions/p.md"]), 1);
+
+        for bad in [
+            "../x.md",
+            "/abs.md",
+            ".git/config",
+            "a/.git/x",
+            "a/../../x.md",
+        ] {
+            assert_exit(&fx.tsk_stdin(&a, &["ledger", "doc", "put", bad], "x"), 1);
+            assert_exit(&fx.get(&a, bad), 1);
+            assert_exit(&fx.tsk(&a, &["ledger", "doc", "rm", bad]), 1);
+            assert_exit(&fx.tsk(&a, &["ledger", "doc", "path", bad]), 1);
+        }
+    }
+
+    pub fn documents_that_the_ledger_does_not_reserve_follow_the_backend(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        // The file ledger keeps threads/ for itself. Documents on the docs branch have
+        // no reserved names.
+        let put = fx.tsk_stdin(&a, &["ledger", "doc", "put", "threads/note.md"], "n\n");
+        match b {
+            Backend::Git => assert_exit(&put, 1),
+            Backend::Dolt => {
+                assert_success(&put);
+                assert_eq!(
+                    fx.ok(&a, &["ledger", "doc", "get", "threads/note.md"]),
+                    "n\n"
+                );
+            }
+        }
     }
 }
 
@@ -615,6 +756,8 @@ conformance!(
     events_append_read_new_and_advance_the_watermark,
     a_stale_push_is_merged_when_different_rows_changed,
     a_same_row_conflict_stops_and_leaves_the_remote_unchanged,
+    doc_path_prints_the_file_and_bad_paths_are_refused,
+    documents_that_the_ledger_does_not_reserve_follow_the_backend,
 );
 
 conformance!(
@@ -626,6 +769,8 @@ conformance!(
     events_append_read_new_and_advance_the_watermark,
     a_stale_push_is_merged_when_different_rows_changed,
     a_same_row_conflict_stops_and_leaves_the_remote_unchanged,
+    doc_path_prints_the_file_and_bad_paths_are_refused,
+    documents_that_the_ledger_does_not_reserve_follow_the_backend,
 );
 
 // --- Backend selection and mismatch ---
@@ -799,7 +944,8 @@ fn dolt_session_start_exports_the_database_path_and_warns_about_pending_commits(
             .unwrap();
         assert!(out.status.success(), "{}", stderr(&out));
     };
-    fx.put(&a, "pending.md", "pending\n");
+    // A data change, committed in the database and never pushed.
+    fx.add_binding(&a, "pending");
     db(&["add", "-A"]);
     db(&["commit", "-m", "Pending local work"]);
 
@@ -811,10 +957,7 @@ fn dolt_session_start_exports_the_database_path_and_warns_about_pending_commits(
         stderr(&fetch)
     );
     assert!(stderr(&fetch).contains("Pending local work"));
-    assert_eq!(
-        fx.ok(&a, &["ledger", "doc", "get", "pending.md"]),
-        "pending\n"
-    );
+    assert_eq!(fx.binding_count(&a), "1");
 
     let output = session_start("{\"session_id\":\"s2\",\"source\":\"startup\"}");
     assert_success(&output);
@@ -882,4 +1025,304 @@ fn session_start_names_the_import_guide_only_while_the_ledger_has_no_missions() 
 
     let guide = fx.ok(&a, &["guide", "import"]);
     assert!(guide.starts_with("# Importing an existing plan into tsk\n"));
+}
+
+// --- Documents on the tsk/docs branch (Dolt backend) ---
+
+const AWKWARD: &str = "no newline at end \"quoted\" 'single' \\ back\n\ttab; drop table documents; -- \u{e9} \u{65e5}\u{672c} \u{1f600}\r\nlast";
+
+fn install_hook(origin: &Path, name: &str, script: &str) -> PathBuf {
+    let hook = origin.join("hooks").join(name);
+    std::fs::write(&hook, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    hook
+}
+
+#[test]
+fn dolt_documents_are_plain_files_on_the_docs_branch_and_dolt_files_on_the_ledger_branch() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new(Backend::Dolt);
+    let (a, other) = (fx.a(), fx.b());
+    fx.ok(&a, &["ledger", "fetch"]);
+    fx.put(&a, "missions/M-X.md", AWKWARD);
+    fx.put(&a, "notes/empty.md", "");
+    let pushed = fx.ok(&a, &["ledger", "push", "Add documents"]);
+    assert!(!pushed.trim().is_empty());
+
+    assert_eq!(fx.remote_branches(), Backend::Dolt.published_branches());
+
+    // The docs branch: real files, one blob each, byte for byte, and no manifest.
+    let files = fx.origin_files(DOCS_REF);
+    assert_eq!(
+        files,
+        vec!["README.md", "index.md", "missions/M-X.md", "notes/empty.md"]
+    );
+    assert!(!files
+        .iter()
+        .any(|f| f.contains("tsk-ledger") || f == "manifest"));
+    let blob = |path: &str| {
+        let out = Command::new("git")
+            .args(["cat-file", "blob", &format!("{}:{}", DOCS_REF, path)])
+            .current_dir(fx.origin())
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", path);
+        String::from_utf8(out.stdout).unwrap()
+    };
+    assert_eq!(blob("missions/M-X.md"), AWKWARD);
+    assert_eq!(blob("notes/empty.md"), "");
+    assert_eq!(
+        blob("README.md"),
+        "Documents of the tsk ledger. Written by tsk ledger doc put.\n"
+    );
+    let mode = git(&fx.origin(), &["ls-tree", DOCS_REF, "README.md"]);
+    assert!(mode.starts_with("100644 blob "), "{}", mode);
+
+    // The ledger branch: Dolt's files only. No Markdown, no file ledger manifest.
+    let ledger_files = fx.origin_files(LEDGER_REF);
+    assert!(
+        ledger_files.iter().any(|f| f == "manifest"),
+        "{:?}",
+        ledger_files
+    );
+    assert!(
+        !ledger_files.iter().any(|f| f.ends_with(".md")),
+        "{:?}",
+        ledger_files
+    );
+    assert!(!ledger_files.iter().any(|f| f == ".tsk-ledger.toml"));
+
+    // A fresh clone gets the document through fetch and doc get.
+    let fetch = fx.tsk(&other, &["ledger", "fetch"]);
+    assert_success(&fetch);
+    assert!(stdout(&fetch).trim_end().ends_with("/ledger-db"));
+    assert_eq!(
+        fx.ok(&other, &["ledger", "doc", "get", "missions/M-X.md"]),
+        AWKWARD
+    );
+    assert_eq!(
+        fx.ok(&other, &["ledger", "doc", "get", "notes/empty.md"]),
+        ""
+    );
+    assert_eq!(
+        fx.ok(&other, &["ledger", "doc", "list", "notes/"]),
+        "notes/empty.md\n"
+    );
+    // The documents worktree is a linked worktree of the clone, beside the database.
+    let docs = fx.docs_path(&other);
+    assert!(docs.join("missions/M-X.md").is_file());
+    let listing = git(&other, &["worktree", "list", "--porcelain", "-z"]);
+    let canonical = std::fs::canonicalize(&docs).unwrap();
+    assert!(listing
+        .split('\0')
+        .filter_map(|f| f.strip_prefix("worktree "))
+        .any(|p| std::fs::canonicalize(p).ok() == Some(canonical.clone())));
+}
+
+#[test]
+fn dolt_push_prints_the_dolt_commit_or_the_docs_commit_when_only_documents_changed() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing(Backend::Dolt);
+    let a = fx.a();
+    let docs_before = fx.remote_docs();
+    let ledger_before = fx.remote_ledger();
+
+    fx.put(&a, "only-docs.md", "d\n");
+    let push = fx.tsk(&a, &["ledger", "push", "Only documents"]);
+    assert_success(&push);
+    let docs_after = fx.remote_docs();
+    assert_ne!(docs_after, docs_before);
+    assert_eq!(fx.remote_ledger(), ledger_before);
+    assert_eq!(stdout(&push).trim_end(), docs_after.unwrap());
+    assert!(
+        !stderr(&push).contains("nothing to push"),
+        "{}",
+        stderr(&push)
+    );
+
+    // A data change alone leaves the docs branch where it is.
+    fx.add_binding(&a, "only-data");
+    let docs_now = fx.remote_docs();
+    let push = fx.tsk(&a, &["ledger", "push", "Only data"]);
+    assert_success(&push);
+    assert_eq!(fx.remote_docs(), docs_now);
+    assert_ne!(fx.remote_ledger(), ledger_before);
+    assert!(!stdout(&push).trim().is_empty());
+}
+
+#[test]
+fn a_rejected_docs_push_stops_before_the_dolt_push_and_the_next_push_delivers_both() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing(Backend::Dolt);
+    let (a, other) = (fx.a(), fx.b());
+    let ledger_before = fx.remote_ledger();
+    let docs_before = fx.remote_docs();
+
+    let hook = install_hook(
+        &fx.origin(),
+        "pre-receive",
+        "#!/bin/sh\nwhile read old new ref; do\n  if [ \"$ref\" = refs/heads/tsk/docs ]; then\n    echo 'docs are closed' >&2\n    exit 1\n  fi\ndone\n",
+    );
+
+    fx.put(&a, "late.md", "late\n");
+    fx.add_binding(&a, "late");
+    let failed = fx.tsk(&a, &["ledger", "push", "Both change"]);
+    assert_exit(&failed, 1);
+    assert!(
+        stderr(&failed).contains("refs/heads/tsk/docs"),
+        "{}",
+        stderr(&failed)
+    );
+    // The Dolt data did not go: a record must never name a document the remote lacks.
+    assert_eq!(fx.remote_ledger(), ledger_before);
+    assert_eq!(fx.remote_docs(), docs_before);
+    // Both sides keep their local state. The reader on the other clone sees neither.
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_exit(&fx.get(&other, "late.md"), 1);
+    assert_eq!(fx.binding_count(&other), "0");
+
+    std::fs::remove_file(&hook).unwrap();
+    let delivered = fx.tsk(&a, &["ledger", "push", "Retry"]);
+    assert_success(&delivered);
+    assert_ne!(fx.remote_docs(), docs_before);
+    assert_ne!(fx.remote_ledger(), ledger_before);
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(
+        fx.ok(&other, &["ledger", "doc", "get", "late.md"]),
+        "late\n"
+    );
+    assert_eq!(fx.binding_count(&other), "1");
+}
+
+#[test]
+fn a_stale_docs_push_is_rebased_for_different_files_and_refused_for_the_same_file() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new(Backend::Dolt);
+    let (a, other) = (fx.a(), fx.b());
+    fx.ok(&a, &["ledger", "fetch"]);
+    fx.put(&a, "base.md", "base\n");
+    fx.ok(&a, &["ledger", "push", "Base"]);
+    fx.ok(&other, &["ledger", "fetch"]);
+
+    // Different files: the second push rebases and goes.
+    fx.put(&a, "from-a.md", "a\n");
+    fx.ok(&a, &["ledger", "push", "From A"]);
+    fx.put(&other, "from-b.md", "b\n");
+    fx.ok(&other, &["ledger", "push", "From B"]);
+    let files = fx.origin_files(DOCS_REF);
+    for expected in ["base.md", "from-a.md", "from-b.md"] {
+        assert!(files.iter().any(|f| f == expected), "{:?}", files);
+    }
+    // Rebased, not merged: the docs history stays linear.
+    assert_eq!(
+        git(&fx.origin(), &["rev-list", "--merges", "--count", DOCS_REF]),
+        "0"
+    );
+
+    // The same file: stop, name it, and leave the remote alone.
+    fx.ok(&a, &["ledger", "fetch"]);
+    fx.put(&a, "same.md", "from a\n");
+    fx.ok(&a, &["ledger", "push", "A writes same"]);
+    let docs_before = fx.remote_docs();
+    fx.put(&other, "same.md", "from b\n");
+    let conflict = fx.tsk(&other, &["ledger", "push", "B writes same"]);
+    assert_exit(&conflict, 1);
+    assert!(
+        stderr(&conflict).contains("same.md"),
+        "{}",
+        stderr(&conflict)
+    );
+    assert!(
+        stderr(&conflict).contains("conflicted"),
+        "{}",
+        stderr(&conflict)
+    );
+    assert_eq!(fx.remote_docs(), docs_before);
+}
+
+#[test]
+fn unpushed_documents_commits_are_noted_by_fetch_and_a_dirty_docs_worktree_is_refused() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing(Backend::Dolt);
+    let a = fx.a();
+    let docs = fx.docs_path(&a);
+    fx.put(&a, "local.md", "local\n");
+    git(&docs, &["add", "-A"]);
+    git(&docs, &["commit", "--quiet", "-m", "Local document commit"]);
+
+    let fetch = fx.tsk(&a, &["ledger", "fetch"]);
+    assert_success(&fetch);
+    assert!(
+        stderr(&fetch).contains("holds a commit that is not on origin's refs/heads/tsk/docs"),
+        "{}",
+        stderr(&fetch)
+    );
+    assert!(stderr(&fetch).contains("Local document commit"));
+    assert_eq!(fx.ok(&a, &["ledger", "doc", "get", "local.md"]), "local\n");
+
+    fx.put(&a, "dirty.md", "dirty\n");
+    let dirty = fx.tsk(&a, &["ledger", "fetch"]);
+    assert_exit(&dirty, 1);
+    assert!(
+        stderr(&dirty).contains("uncommitted changes"),
+        "{}",
+        stderr(&dirty)
+    );
+    assert_success(&fx.tsk(&a, &["ledger", "doc", "rm", "dirty.md"]));
+
+    fx.ok(&a, &["ledger", "push", "Publish local"]);
+    let fetch = fx.tsk(&a, &["ledger", "fetch"]);
+    assert!(
+        !stderr(&fetch).contains("holds a commit"),
+        "{}",
+        stderr(&fetch)
+    );
+}
+
+#[test]
+fn thread_commands_work_on_a_version_two_ledger() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing(Backend::Dolt);
+    let a = fx.a();
+    let events = json(&fx.ok(&a, &["events", "read-new"]));
+    assert_eq!(events["total_count"], 0);
+
+    let start = fx.ok(&a, &["thread", "start", "M-CONF-01", BRIEFING]);
+    assert!(start.starts_with("started:"), "{}", start);
+    assert!(fx.ok(&a, &["thread", "detach"]).starts_with("detached:"));
+    let missing = fx.tsk(&a, &["thread", "start", "M-CONF-01", "missions/none.md"]);
+    assert_exit(&missing, 1);
+    assert!(
+        stderr(&missing).contains("mission briefing not found"),
+        "{}",
+        stderr(&missing)
+    );
+    // The briefing path in the message points at the documents worktree.
+    assert!(
+        stderr(&missing).contains("/docs/missions/none.md"),
+        "{}",
+        stderr(&missing)
+    );
 }

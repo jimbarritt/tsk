@@ -22,8 +22,11 @@ WT="$(tsk ledger fetch)"
 
 It clones the ledger as a Dolt database, the ledger store, outside the repository
 (`.../tsk/repos/<clone-id>/ledger-db`) and prints its path. `tsk ledger path` prints the
-same path without fetching. Do not open files in it. Read and write documents with
-`tsk ledger doc`:
+same path without fetching. Do not open files in it.
+
+The ledger has a second branch, `tsk/docs`, that holds the documents as plain Markdown
+files. `tsk ledger fetch` checks it out beside the database, at
+`.../tsk/repos/<clone-id>/docs`. Read and write documents with `tsk ledger doc`:
 
 ```bash
 tsk ledger doc get index.md                      # print the index
@@ -31,10 +34,19 @@ tsk ledger doc list missions/                    # list the briefings
 tsk ledger doc get missions/operational/M-BOOT-04-official-ledger.md
 tsk ledger doc put index.md updated-index.md     # or pipe the body on stdin
 tsk ledger doc rm missions/operational/old.md
+tsk ledger doc path index.md                     # print the file's absolute path, to open it elsewhere
 tsk ledger push "Update the index"               # commit and push the change
 ```
 
-`doc put` and `doc rm` change the local store only. `tsk ledger push` sends the change.
+`doc put` and `doc rm` change the local worktree only. `tsk ledger push` sends the change.
+It pushes the documents branch first and the Dolt data second, so a record never names a
+document the remote lacks. If the documents push fails, the Dolt data stays unpushed and
+the next `tsk ledger push` tries both again. `doc path` exits 1 when the document does not
+exist.
+
+A ledger created before version 0.8.0 keeps its documents in a Dolt table. Run
+`tsk ledger migrate-docs` once to move them to `tsk/docs`. Until then every command
+except `tsk ledger fetch` stops and says so.
 
 **2. Start a thread for a mission:**
 
