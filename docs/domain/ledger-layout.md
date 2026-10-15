@@ -34,12 +34,13 @@ continuation state), `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-cu
 
 ## Dolt backend
 
-The default ledger backend stores the ledger in a Dolt database, synced over git. The
-decision is in
+The default ledger backend stores the ledger's data in a Dolt database and its documents
+as Markdown files on a second branch, both synced over git. The decision is in
 [ADR 0014](../adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md). The rest of
 this document, from [Location and ref](#location-and-ref) on, describes the file layout of
 the `git` backend. The Dolt backend keeps the same records in tables, and the same ledger
-refs, nexus rules and local-only files apply to both.
+refs, nexus rules and local-only files apply to both. The documents are the exception:
+they are files on the branch `tsk/docs` (see [Documents](#documents)).
 
 ### Backend selection
 
@@ -75,18 +76,22 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 - The database needs the external `dolt` binary, version 1.88.2 or later. The `SessionStart` hook
   installs it.
 - No file in `ledger-db` is edited by hand. The `tsk ledger` commands are the interface.
+- The documents have their own worktree, `docs`, beside `ledger-db` (see
+  [Documents](#documents)).
 
 ### Tables
 
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. |
-| `documents` | `path` varchar(1024), primary key; `body` longtext | `index.md`, `future-missions-tbd.md` and every file under `missions/`. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `2`. |
 | `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024) | One row per thread. `briefing_path` replaces `threads/<thread-id>/index.md`. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
 | `cloud_session_bindings` | `session_id` varchar(255), primary key; `thread_id` varchar(64); `registered_at` varchar(32) | One row per cloud session binding. It replaces `threads/lookup-by-cloud-session.json`. |
 | `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of [`queue.ndjson`](#external-eventsqueuendjson). |
 | `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` varchar(32) | One row, `id` 1, the processed position of the queue. No row reads as `0`. It replaces `watermark.json`. |
+
+There is no `documents` table. A version 1 ledger had one, and
+[`tsk ledger migrate-docs`](#moving-the-documents-out-of-dolt) moves its rows to files.
 
 The binary writes every text value as a hex literal, `CONVERT(X'...' USING utf8mb4)`,
 and sends SQL to `dolt sql` on stdin. It sets two environment variables on every `dolt`
@@ -105,18 +110,49 @@ backend.
 
 ### Documents
 
-`index.md`, `future-missions-tbd.md` and everything under `missions/` are rows in
-`documents`. An agent does not open them as files. Four commands read and write them:
+Documents are plain Markdown files on a second branch, `tsk/docs`. The rule: structured
+data goes in Dolt as typed rows, and free text goes on `tsk/docs` as files. Dolt owns the
+whole tree of the ledger branch, and each `dolt push` writes a git tree of Dolt's own
+files. A Markdown file on that branch would be dropped at the next push, so the documents
+need a branch of their own. Any tool can open them: GitHub, an editor, `marq`.
+
+| Item | Value |
+|---|---|
+| Ref, in-repo ledger | `refs/heads/tsk/docs` on the same remote as `refs/heads/tsk/ledger` |
+| Ref, nexus ledger | `refs/heads/ledgers/<repo-id>-docs` on the nexus remote |
+| Local checkout | `${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/docs`, a detached linked worktree of the managed clone |
+| First commit | An orphan commit holding `README.md` ("Documents of the tsk ledger. Written by tsk ledger doc put.") and the seed `index.md`, made with git plumbing |
+| Manifest | None. The documents branch has no `.tsk-ledger.toml` |
+
+The nexus ref ends in `-docs` and not `/docs`. Git cannot hold both `ledgers/<repo-id>`
+and `ledgers/<repo-id>/docs` as refs, because one would be a file and the other a
+directory.
+
+The worktree, the refresh and the compare-and-swap push are the ones the `git` backend
+uses for a whole ledger, run with the documents ref. The path rules are those of a file in
+git: no absolute path, no `..`, no `.git` component. The reserved names of the file ledger
+(`threads/`, `external-events/` and the manifest) do not apply here.
+
+Five commands read and write the documents:
 
 | Command | Effect |
 |---|---|
 | `tsk ledger doc get <path>` | Prints the body of the document at `<path>`. |
-| `tsk ledger doc put <path> [<file>]` | Stores the content of `<file>`, or stdin when no file is given, as the document at `<path>`. Writes the local store only. |
+| `tsk ledger doc put <path> [<file>]` | Stores the content of `<file>`, or stdin when no file is given, as the document at `<path>`. Writes the documents worktree only. |
 | `tsk ledger doc list [<prefix>]` | Prints the document paths, limited to those under `<prefix>` when given. |
-| `tsk ledger doc rm <path>` | Removes the document. Writes the local store only. |
+| `tsk ledger doc rm <path>` | Removes the document. Writes the documents worktree only. |
+| `tsk ledger doc path <path>` | Prints the absolute path of the document's file, for opening it in another tool. Exits 1 with `error: no such document: <path>` when it is absent. |
+
+With the `git` backend, `doc path` prints the file in the ledger worktree. The other four
+commands behave the same with both backends.
 
 `doc put` and `doc rm` do not reach the remote. `tsk ledger push "<message>"` does.
-`tsk thread start` refuses a briefing path that has no row in `documents`.
+`tsk thread start` refuses a briefing path that has no file in the documents worktree.
+
+`tsk ledger fetch` refreshes both stores: the Dolt database, then the documents
+worktree. It creates the worktree when it is absent. It refuses a worktree with
+uncommitted changes, as it does for the database, and notes a local commit that is not on
+the remote. It still prints the path of the Dolt database.
 
 ### Push
 
@@ -124,7 +160,11 @@ backend.
 
 1. Runs `dolt add -A`, then `dolt commit` with the caller's message when anything is
    staged. With nothing staged it prints a note and continues.
-2. Makes up to 5 attempts:
+2. Pushes the documents. It commits the changes in the documents worktree, then pushes
+   `HEAD` to the documents ref with a compare and swap, and rebases onto a newer remote
+   tip, up to 5 attempts. A rebase conflict exits 1 and names the files both sides
+   changed. A side that has no change and no unpushed commit sends nothing.
+3. Makes up to 5 attempts at the Dolt data:
    1. `dolt fetch origin`. If `HEAD` already equals `origin/main` or is its ancestor,
       the remote holds this state: exit 0.
    2. `dolt merge origin/main`, then read `dolt_conflicts` and
@@ -133,38 +173,62 @@ backend.
    3. `dolt push origin main`. A rejected push prints a note and goes to the next
       attempt. Any other failure stops with exit 1.
 
+The documents go first, and the Dolt data only after them. A record must never name a
+document the remote lacks. A document that no record names is harmless. So when the
+documents push fails, because the remote rejects it after the retries or the rebase
+conflicts, `tsk ledger push` exits 1 and does not push the Dolt data. Both sides keep
+their local commits, and the next `tsk ledger push` resumes.
+
 The local commit stays in the database after a conflict or a failure, and a later
 `tsk ledger push` sends it. Dolt merges by row and cell, so two writers that change
 different rows, or different cells of one row, do not conflict. Two writers that append
 an external event at the same moment take the same `position` and conflict, as two
 appends to `queue.ndjson` conflict in a rebase.
 
-On success, stdout carries the Dolt commit hash.
+On success, stdout carries the Dolt commit hash, or the documents commit when only the
+documents changed. Notes go to stderr.
+
+### Manifest version
+
+The `version` row of the `manifest` table is `2` for a ledger whose documents are files on
+`tsk/docs`. The Dolt backend accepts versions 1 and 2. Version 1 is a ledger that still
+keeps its documents in a `documents` table.
+
+- A version 1 ledger is refused by every command except `tsk ledger fetch`,
+  `tsk ledger path` and `tsk ledger migrate-docs`. The refusal reads: `error: this ledger
+  stores its documents in Dolt (version 1). Run tsk ledger migrate-docs to move them to the
+  tsk/docs branch.` `tsk ledger fetch` refreshes the database only and prints a note.
+- A `tsk` binary from before version 2 does not know the version. It stops at its manifest
+  check with `unsupported ledger version 2`, before it writes. The binary needs updating.
 
 ### Migration
 
 `tsk ledger migrate-to-dolt` moves a file ledger to the Dolt backend. It runs with
-either backend selected. It:
+either backend selected. The new ledger is version 2: it has no `documents` table, and
+its documents are written as files on `tsk/docs`. It:
 
 1. Fetches the file ledger ref and checks its manifest. It stops when the ref is absent
    or already holds Dolt data.
 2. Reads every record from the fetched commit's tree, not from the ledger worktree.
 3. Builds a new Dolt database beside `ledger-db`, writes the schema and every record in
    one Dolt commit after `dolt init`'s own initial commit, and reads every record back
-   through the `LedgerStore` trait to compare it with the tree. A difference stops the
-   command before anything is pushed.
+   through the `LedgerStore` trait to compare it with the tree. It also writes every
+   document as a file in a temporary worktree of the documents branch, commits it, and
+   reads each file back from the commit. A difference stops the command before anything
+   is pushed.
 4. Pushes the file ledger's commit to `refs/heads/archive/tsk-ledger-files`, or
    `refs/heads/archive/ledgers/<repo-id>-files` for a nexus ledger. The push only
    creates the branch or moves it forward. A branch at an unrelated commit stops the
    command.
-5. Checks that the ledger ref still holds the migrated commit, then pushes the database
-   to it with `dolt push`. A moved ref stops the command with `another writer pushed`.
-   Run it again.
-6. Moves the new database to `ledger-db`. An existing `ledger-db` is renamed to
-   `ledger-db.pre-migrate-<timestamp>` first.
+5. Checks that the ledger ref still holds the migrated commit, then pushes the documents
+   branch, then pushes the database to the ledger ref with `dolt push`. A moved ref stops
+   the command with `another writer pushed`. Run it again.
+6. Moves the new database to `ledger-db` and the temporary worktree to `docs`. An existing
+   `ledger-db` is renamed to `ledger-db.pre-migrate-<timestamp>` first. An existing `docs`
+   stops the command in step 1.
 7. Prints `migrated:<file-commit>:<dolt-commit>`, with the record counts on stderr.
 
-`--dry-run` runs steps 1 to 3 in a temporary directory, deletes it, prints the counts and
+`--dry-run` runs steps 1 to 3 in temporary directories, deletes them, prints the counts and
 `dry-run:ok`, and pushes nothing.
 
 Dolt's first push to a git branch replaces the branch with an orphan history. The archive
@@ -172,6 +236,34 @@ branch keeps the file ledger's history.
 
 An older `tsk` binary that fetches the Dolt branch finds no `.tsk-ledger.toml` and stops
 before it writes. The binary needs updating.
+
+### Moving the documents out of Dolt
+
+`tsk ledger migrate-docs` moves a version 1 Dolt ledger's documents from the `documents`
+table to files on `tsk/docs`. It steps through:
+
+1. Refreshes the database without the version 1 refusal. A version 2 ledger stops here
+   with `the documents are already on the tsk/docs branch`.
+2. Reads every row of `documents` with `select path, body`. A path that cannot be a file
+   (absolute, `..`, `.git`), two rows that name one file, a file that is also a directory
+   and a path or body that is not valid UTF-8 stop the command, naming the path. Nothing
+   is changed.
+3. Creates or refreshes the documents worktree and writes each row as a file at its path.
+   A file that already holds the body is left alone. One that holds a seed file of a new
+   branch is replaced. One that holds anything else stops the command before any file is
+   written, so a rerun after a partial failure compares and then goes on.
+4. Commits on the documents branch with the message `Move the documents out of Dolt`, and
+   reads every file back from that commit to compare it with the rows. A difference stops
+   the command before any push.
+5. Checks the ledger ref has not moved. In the database, drops the `documents` table and
+   sets the `version` row to `2` in one Dolt commit, `Move the documents to the tsk/docs
+   branch`.
+6. Pushes the documents branch, checks the ledger ref again, then pushes the Dolt data.
+7. Prints `migrated-docs:<count>`, with counts on stderr.
+
+`--dry-run` does steps 1 to 4, removes the documents worktree it created, prints
+`dry-run:ok`, and drops and pushes nothing. When a push fails after step 5, the drop stays
+committed locally, and `tsk ledger push` publishes both branches in the right order.
 
 ## File layout (`git` backend)
 

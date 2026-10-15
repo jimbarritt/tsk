@@ -22,10 +22,11 @@ pub const NOT_INSTALLED: &str = "error: dolt is not installed.\n       \
      otherwise download a release from https://github.com/dolthub/dolt/releases";
 
 /// The ledger tables, in the one form every writer uses: a new ledger, and the migration
-/// from a file ledger.
+/// from a file ledger. There is no documents table: documents are files on the `tsk/docs`
+/// branch from layout version 2. A version 1 ledger still holds the table
+/// ([`LEGACY_DOCUMENTS_TABLE`]).
 pub const SCHEMA: &[&str] = &[
     "create table manifest (k varchar(64) primary key, v text)",
-    "create table documents (path varchar(1024) primary key, body longtext not null)",
     "create table threads (thread_id varchar(64) primary key, briefing_path varchar(1024) not null)",
     "create table continuation_entries (thread_id varchar(64), seq int, entry longtext not null, primary key (thread_id, seq))",
     "create table cloud_session_bindings (session_id varchar(255) primary key, thread_id varchar(64) not null, registered_at varchar(32) not null)",
@@ -33,8 +34,16 @@ pub const SCHEMA: &[&str] = &[
     "create table watermark (id int primary key, processed_through bigint not null, updated_at varchar(32) not null)",
 ];
 
-/// The layout version a new Dolt ledger records.
-pub const LAYOUT_VERSION: i64 = 1;
+/// The table a version 1 ledger holds its documents in. A new ledger does not create it.
+/// Only `tsk ledger migrate-docs` reads it, with a plain `select path, body`, and drops it.
+#[allow(dead_code)]
+pub const LEGACY_DOCUMENTS_TABLE: &str =
+    "create table documents (path varchar(1024) primary key, body longtext not null)";
+
+/// The layout version a new Dolt ledger records: documents live on the `tsk/docs` branch.
+pub const LAYOUT_VERSION: i64 = 2;
+/// The layout version whose documents are rows in the `documents` table.
+pub const LEGACY_LAYOUT_VERSION: i64 = 1;
 
 /// Statements that create every table and the manifest rows (`version`, and `repo_id`
 /// for a nexus ledger), separated by `;\n`.
@@ -280,7 +289,7 @@ mod tests {
     fn lit_hex_encodes_so_quotes_and_semicolons_stay_data() {
         assert_eq!(lit(""), "''");
         assert_eq!(lit("a"), "CONVERT(X'61' USING utf8mb4)");
-        let hostile = lit("x'); drop table documents; --");
+        let hostile = lit("x'); drop table threads; --");
         assert!(!hostile.contains("drop"));
         assert!(hostile.starts_with("CONVERT(X'"));
     }
@@ -301,7 +310,6 @@ mod tests {
         let sql = init_sql(Some("work-api"));
         for table in [
             "manifest",
-            "documents",
             "threads",
             "continuation_entries",
             "cloud_session_bindings",
@@ -314,7 +322,8 @@ mod tests {
                 table
             );
         }
-        assert!(sql.contains("('version', '1')"));
+        assert!(!sql.contains("documents"));
+        assert!(sql.contains("('version', '2')"));
         assert!(sql.contains("'repo_id'"));
         assert!(!init_sql(None).contains("repo_id"));
     }

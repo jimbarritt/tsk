@@ -103,11 +103,22 @@ on `refs/heads/tsk/ledger`. `$TSK_LEDGER_WT` names it. Do not open files in it a
 run `dolt` against it by hand. The `git` backend (the file ledger) is selected with
 `[ledger] backend = "git"` in the user config or `TSK_LEDGER_BACKEND=git`.
 
-Read and change documents with `tsk ledger doc`. Read the index with
-`tsk ledger doc get index.md` and a briefing with
+Documents are plain Markdown files on a second branch, `refs/heads/tsk/docs` (on a nexus
+ledger, `refs/heads/ledgers/<repo-id>-docs`). They are checked out as a worktree beside the
+database, at `.../tsk/repos/<clone-id>/docs`. Read and change them with `tsk ledger doc`.
+Read the index with `tsk ledger doc get index.md` and a briefing with
 `tsk ledger doc get missions/<group>/<file>.md`. To change one, run
 `tsk ledger doc put <path>` (body on stdin, or a file argument), then
-`tsk ledger push "<message>"`. `doc put` and `doc rm` change the local store only.
+`tsk ledger push "<message>"`. `doc put` and `doc rm` change the local worktree only.
+`tsk ledger doc path <path>` prints the absolute path of the document's file, to open it
+in another tool. `tsk ledger push` pushes the documents first and the Dolt data second, so
+a record never names a document the remote lacks. A rejected documents push stops it
+with exit 1 and the Dolt data stays unpushed. Run it again.
+
+A ledger at version 1 still keeps its documents in a Dolt table. Every command except
+`tsk ledger fetch` refuses it with `this ledger stores its documents in Dolt (version 1)`.
+Run `tsk ledger migrate-docs` once. It moves the documents to `tsk/docs` and prints
+`migrated-docs:<count>`. `--dry-run` checks the move and pushes nothing.
 
 To bring an existing plan, in any format, into the ledger, run `tsk guide import` and
 follow it. It explains what the ledger holds and how to map a plan onto missions. Do not

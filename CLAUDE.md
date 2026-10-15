@@ -15,6 +15,10 @@ The file ledger's full history is on the branch `archive/tsk-ledger-files`. An o
 binary that fetches the Dolt branch finds no `.tsk-ledger.toml` and stops with a missing
 `.tsk-ledger.toml` error before it writes. That error means the binary needs updating.
 
+A ledger at manifest version 1 keeps its documents in a Dolt table. Run
+`tsk ledger migrate-docs` once to move them to `tsk/docs`. Until then every command except
+`tsk ledger fetch` stops and names this command.
+
 ## Task and mission tracking
 
 This repo's own task and mission tracking lives in the ledger: a Dolt database synced
@@ -62,7 +66,11 @@ the clone directory being renamed or moved. See
 `.git/`.
 
 **The ledger store is a Dolt database, not a directory of files.** Do not open files in
-it. Read and write documents with `tsk ledger doc` (below). The backend is `dolt` by
+it. Read and write documents with `tsk ledger doc` (below). The documents themselves are
+Markdown files on a second branch, `refs/heads/tsk/docs`, checked out as a worktree beside
+the database. Write them with `tsk ledger doc put`, and find a file on disk with
+`tsk ledger doc path <path>`. `tsk ledger push` pushes the documents first and the Dolt
+data second. The backend is `dolt` by
 default. `[ledger] backend = "git"` in `${XDG_CONFIG_HOME:-$HOME/.config}/tsk/config.toml`,
 or `TSK_LEDGER_BACKEND=git`, selects the file ledger. This repo uses the default.
 

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::fetch::{check_manifest, ensure_worktree_of_repo, fetch_tip};
-use super::git::{failure_message, Git};
+use super::git::{failure_message, split_nul, Git};
 use super::location::{worktree_path, LedgerLocation, Repo};
 
 pub const MAX_ATTEMPTS: usize = 5;
@@ -40,18 +40,39 @@ pub fn push(
 ) -> Result<PushOutcome, String> {
     let location = repo.location(state_root)?;
     let path = existing_worktree(repo, state_root)?;
+    push_worktree(repo, &location, &path, message, true, on_retry)
+}
+
+/// Commit every change in the worktree at `path` and push `HEAD` to `location`'s ref
+/// with a compare and swap, rebasing onto a newer remote tip. The same machinery serves
+/// the file ledger (`check_manifest` set, so each remote tip is checked for a
+/// `.tsk-ledger.toml`) and the documents branch (no manifest on it).
+pub fn push_worktree(
+    repo: &Repo,
+    location: &LedgerLocation,
+    path: &Path,
+    message: &str,
+    check_manifest_file: bool,
+    on_retry: &mut dyn FnMut(usize, &PushStatus),
+) -> Result<PushOutcome, String> {
+    let location = location.clone();
+    let path = path.to_path_buf();
     let wt = Git::new(&path);
     ensure_worktree_of_repo(&wt, &repo.common_dir)?;
 
     let mut tip = fetch_tip(&wt, &location)?;
-    check_manifest(&wt, tip.as_deref().unwrap_or("HEAD"), &location)?;
+    if check_manifest_file {
+        check_manifest(&wt, tip.as_deref().unwrap_or("HEAD"), &location)?;
+    }
 
     let committed = commit_changes(&wt, message)?;
 
     for attempt in 1..=MAX_ATTEMPTS {
         if attempt > 1 {
             tip = fetch_tip(&wt, &location)?;
-            check_manifest(&wt, tip.as_deref().unwrap_or("HEAD"), &location)?;
+            if check_manifest_file {
+                check_manifest(&wt, tip.as_deref().unwrap_or("HEAD"), &location)?;
+            }
         }
 
         if let Some(remote_tip) = &tip {
@@ -116,7 +137,7 @@ fn existing_worktree(repo: &Repo, state_root: &Path) -> Result<PathBuf, String> 
     Ok(path)
 }
 
-fn commit_changes(wt: &Git, message: &str) -> Result<bool, String> {
+pub(crate) fn commit_changes(wt: &Git, message: &str) -> Result<bool, String> {
     wt.run(["add", "-A"])?;
     let args = ["diff", "--cached", "--quiet"];
     let (args, output) = wt.output(args)?;
@@ -144,14 +165,29 @@ fn rebase_onto(wt: &Git, tip: &str, location: &LedgerLocation) -> Result<(), Str
     if output.status.success() {
         return Ok(());
     }
+    let conflicted = wt
+        .run(["diff", "--name-only", "--diff-filter=U", "-z"])
+        .map(|names| {
+            split_nul(&names)
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     let _ = wt.output(["rebase", "--abort"])?;
+    let files = if conflicted.is_empty() {
+        String::new()
+    } else {
+        format!("\n       Both sides changed: {}", conflicted.join(", "))
+    };
     Err(format!(
-        "error: rebase onto {}'s {} ({}) conflicted; the rebase is aborted.\n       \
+        "error: rebase onto {}'s {} ({}) conflicted; the rebase is aborted.{}\n       \
          Resolve it in {}: git rebase {}, fix the conflicts,\n       \
          git rebase --continue, then re-run tsk ledger push",
         location.label(),
         location.ref_name(),
         tip,
+        files,
         wt.dir().display(),
         tip
     ))

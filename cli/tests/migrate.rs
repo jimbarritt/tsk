@@ -9,7 +9,9 @@ use std::process::{Command, Output, Stdio};
 use tempfile::TempDir;
 
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
+const DOCS_REF: &str = "refs/heads/tsk/docs";
 const ARCHIVE_REF: &str = "refs/heads/archive/tsk-ledger-files";
+const VERSION_1_MESSAGE: &str = "error: this ledger stores its documents in Dolt (version 1). Run tsk ledger migrate-docs to move them to the tsk/docs branch.";
 const BRIEFING: &str = "missions/operational/M-MIG-01.md";
 const CLOUD_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 const AWKWARD: &str = "no newline at end \"quoted\" 'single' \\ back\\n literal\n\ttab; drop table documents; -- \u{e9} \u{65e5}\u{672c} \u{1f600}\r\nlast";
@@ -157,6 +159,101 @@ impl Fixture {
         out.split_whitespace().next().map(str::to_string)
     }
 
+    /// The files of the docs branch on the origin.
+    fn docs_files(&self) -> Vec<String> {
+        git(&self.origin(), &["ls-tree", "-r", "--name-only", DOCS_REF])
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn docs_blob(&self, path: &str) -> String {
+        let out = Command::new("git")
+            .args(["cat-file", "blob", &format!("{}:{}", DOCS_REF, path)])
+            .current_dir(self.origin())
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", path);
+        String::from_utf8(out.stdout).unwrap()
+    }
+
+    /// Build a version 1 Dolt ledger by hand, as an older tsk wrote it: the documents are
+    /// rows of a `documents` table and the manifest says version 1 (or `version`). It is
+    /// pushed to the origin's ledger ref through a `git+file` remote. `extra_sql` runs in
+    /// the same commit.
+    fn old_ledger(&self, version: &str, documents: &[(&str, &str)], extra_sql: &str) {
+        let dir = self.root.path().join("v1-db");
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |args: &[&str]| {
+            let out = Command::new("dolt")
+                .args(args)
+                .current_dir(&dir)
+                .env("HOME", self.home())
+                .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+                .env("DOLT_REMOTE_INFO_BRANCH", "")
+                .output()
+                .expect("failed to run dolt");
+            assert!(
+                out.status.success(),
+                "dolt {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        run(&["config", "--global", "--add", "user.name", "old tsk"]);
+        run(&["config", "--global", "--add", "user.email", "old@localhost"]);
+        run(&["init", "--initial-branch", "main"]);
+        let mut sql = String::from(
+            "create table manifest (k varchar(64) primary key, v text);\n\
+             create table documents (path varchar(1024) primary key, body longtext not null);\n\
+             create table threads (thread_id varchar(64) primary key, briefing_path varchar(1024) not null);\n\
+             create table continuation_entries (thread_id varchar(64), seq int, entry longtext not null, primary key (thread_id, seq));\n\
+             create table cloud_session_bindings (session_id varchar(255) primary key, thread_id varchar(64) not null, registered_at varchar(32) not null);\n\
+             create table external_events (position bigint primary key, envelope longtext not null);\n\
+             create table watermark (id int primary key, processed_through bigint not null, updated_at varchar(32) not null);\n",
+        );
+        sql.push_str(&format!(
+            "insert into manifest (k, v) values ('version', '{}');\n",
+            version
+        ));
+        for (path, body) in documents {
+            sql.push_str(&format!(
+                "insert into documents (path, body) values ({}, {});\n",
+                sql_text(path),
+                sql_text(body)
+            ));
+        }
+        sql.push_str(extra_sql);
+        std::fs::write(dir.join("build.sql"), &sql).unwrap();
+        run(&["sql", "--file", "build.sql"]);
+        std::fs::remove_file(dir.join("build.sql")).unwrap();
+        run(&["add", "-A"]);
+        run(&["commit", "-m", "Create the ledger"]);
+        run(&[
+            "remote",
+            "add",
+            "--ref",
+            LEDGER_REF,
+            "origin",
+            &format!("git+file://{}", self.origin().display()),
+        ]);
+        run(&["push", "origin", "main"]);
+    }
+
+    /// Run SQL against the database of a clone and return the CSV it prints.
+    fn dolt_sql(&self, clone: &Path, sql: &str) -> String {
+        let path = self.ok(clone, "dolt", &["ledger", "path"]);
+        let out = Command::new("dolt")
+            .args(["sql", "-r", "csv", "-q", sql])
+            .current_dir(path.trim_end())
+            .env("HOME", self.home())
+            .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        stdout(&out)
+    }
+
     fn tree_names(&self, name: &str) -> Vec<String> {
         git(&self.origin(), &["ls-tree", "--name-only", name])
             .lines()
@@ -249,6 +346,15 @@ struct Before {
     events: String,
 }
 
+/// A SQL string literal that carries any text: hex-encoded, so no byte is parsed.
+fn sql_text(text: &str) -> String {
+    if text.is_empty() {
+        return "''".to_string();
+    }
+    let hex: String = text.bytes().map(|b| format!("{:02x}", b)).collect();
+    format!("CONVERT(X'{}' USING utf8mb4)", hex)
+}
+
 fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .args(args)
@@ -322,6 +428,7 @@ fn a_file_ledger_migrates_and_reads_back_identically_from_a_fresh_clone() {
     );
     assert_eq!(fx.remote_ref(LEDGER_REF).as_deref(), Some(old.as_str()));
     assert_eq!(fx.remote_ref(ARCHIVE_REF), None);
+    assert_eq!(fx.remote_ref(DOCS_REF), None);
     let repos = fx.state().join("tsk").join("repos");
     let leftovers: Vec<String> = std::fs::read_dir(
         std::fs::read_dir(&repos)
@@ -339,6 +446,10 @@ fn a_file_ledger_migrates_and_reads_back_identically_from_a_fresh_clone() {
         "{:?}",
         leftovers
     );
+    // A dry run leaves no documents worktree and no linked worktree behind.
+    assert!(!leftovers.iter().any(|n| n == "docs"), "{:?}", leftovers);
+    let linked = git(&fx.a(), &["worktree", "list", "--porcelain"]);
+    assert!(!linked.contains("docs"), "{}", linked);
 
     let run = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-to-dolt"]);
     assert_success(&run);
@@ -356,6 +467,37 @@ fn a_file_ledger_migrates_and_reads_back_identically_from_a_fresh_clone() {
     let names = fx.tree_names(LEDGER_REF);
     assert!(names.contains(&"manifest".to_string()), "{:?}", names);
     assert!(!names.contains(&".tsk-ledger.toml".to_string()));
+    assert!(!names.iter().any(|n| n.ends_with(".md")), "{:?}", names);
+
+    // The documents are plain files on the docs branch, byte for byte.
+    assert!(fx.remote_ref(DOCS_REF).is_some());
+    assert_eq!(
+        fx.docs_files(),
+        vec![
+            "README.md",
+            "index.md",
+            "missions/operational/M-MIG-01.md",
+            "notes/awkward.md",
+            "notes/empty.md"
+        ]
+    );
+    assert_eq!(fx.docs_blob("notes/awkward.md"), AWKWARD);
+    assert_eq!(fx.docs_blob("notes/empty.md"), "");
+    assert_eq!(fx.docs_blob("index.md"), "# Ledger index\n\nOne mission.\n");
+    assert!(
+        stderr(&run).contains("read back identical"),
+        "{}",
+        stderr(&run)
+    );
+    // The migrating clone keeps its documents worktree.
+    assert_eq!(
+        fx.ok(
+            &fx.a(),
+            "dolt",
+            &["ledger", "doc", "get", "notes/awkward.md"]
+        ),
+        AWKWARD
+    );
 
     let c = fx.fresh();
     let fetch = fx.tsk(&c, "dolt", &["ledger", "fetch"]);
@@ -375,7 +517,7 @@ fn a_file_ledger_migrates_and_reads_back_identically_from_a_fresh_clone() {
     }
     assert_eq!(
         fx.ok(&c, "dolt", &["ledger", "doc", "list"]),
-        "index.md\nmissions/operational/M-MIG-01.md\nnotes/awkward.md\nnotes/empty.md\n"
+        "README.md\nindex.md\nmissions/operational/M-MIG-01.md\nnotes/awkward.md\nnotes/empty.md\n"
     );
     assert_eq!(fx.ok(&c, "dolt", &["thread", "list"]), before.list);
     assert_eq!(
@@ -506,6 +648,8 @@ fn another_writer_pushing_during_the_migration_aborts_it_and_a_rerun_succeeds() 
 
     let out = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-to-dolt"]);
     assert_fails(&out, "another writer pushed");
+    // The documents are pushed only after the check, so nothing reached the docs branch.
+    assert_eq!(fx.remote_ref(DOCS_REF), None);
     let moved = fx.remote_ref(LEDGER_REF).unwrap();
     assert_ne!(moved, old);
     assert!(fx
@@ -519,4 +663,434 @@ fn another_writer_pushing_during_the_migration_aborts_it_and_a_rerun_succeeds() 
     assert!(stdout(&rerun).starts_with(&format!("migrated:{}:", moved)));
     assert_eq!(fx.remote_ref(ARCHIVE_REF).as_deref(), Some(moved.as_str()));
     assert!(fx.tree_names(LEDGER_REF).contains(&"manifest".to_string()));
+}
+
+// --- Version 1 ledgers and `tsk ledger migrate-docs` ---
+
+/// Documents with awkward text: quotes, backslashes, newlines, emoji, an empty body.
+const OLD_DOCUMENTS: &[(&str, &str)] = &[
+    ("index.md", "# Ledger index\n\nOne mission.\n"),
+    (BRIEFING, "# Mission: migrate\n"),
+    ("notes/awkward.md", AWKWARD),
+    ("notes/empty.md", ""),
+    (
+        "notes/quotes.md",
+        "\"double\" 'single' \\ back \\n literal\n\n\n",
+    ),
+    ("notes/no-newline.md", "ends without one \u{1f600}"),
+];
+
+fn thread_sql() -> String {
+    format!(
+        "insert into threads (thread_id, briefing_path) values ('aaaa1111', {});\n\
+         insert into continuation_entries (thread_id, seq, entry) values ('aaaa1111', 1, {});\n",
+        sql_text(BRIEFING),
+        sql_text("{\"task_id\":\"T-01\",\"whats_next\":\"go\"}")
+    )
+}
+
+#[test]
+fn a_version_one_ledger_is_refused_by_every_command_except_fetch_path_and_migrate_docs() {
+    need_dolt!();
+    let fx = Fixture::new();
+    fx.old_ledger("1", OLD_DOCUMENTS, &thread_sql());
+    let a = fx.a();
+
+    let fetch = fx.tsk(&a, "dolt", &["ledger", "fetch"]);
+    assert_success(&fetch);
+    assert!(
+        stdout(&fetch).trim_end().ends_with("/ledger-db"),
+        "{}",
+        stdout(&fetch)
+    );
+    assert!(stderr(&fetch).contains("version 1"), "{}", stderr(&fetch));
+    assert!(
+        stderr(&fetch).contains("tsk ledger migrate-docs"),
+        "{}",
+        stderr(&fetch)
+    );
+    assert_success(&fx.tsk(&a, "dolt", &["ledger", "path"]));
+
+    for args in [
+        vec!["ledger", "doc", "get", "index.md"],
+        vec!["ledger", "doc", "list"],
+        vec!["ledger", "doc", "path", "index.md"],
+        vec!["ledger", "doc", "rm", "index.md"],
+        vec!["ledger", "push", "Try"],
+        vec!["thread", "list"],
+        vec!["thread", "binding"],
+        vec!["thread", "start", "M-MIG-01", BRIEFING],
+        vec!["events", "read-new"],
+    ] {
+        let out = fx.tsk(&a, "dolt", &args);
+        assert_fails(&out, VERSION_1_MESSAGE);
+        assert!(stdout(&out).is_empty(), "{:?}: {}", args, stdout(&out));
+    }
+    let mut put = fx
+        .command(&a, "dolt", &["ledger", "doc", "put", "x.md"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    put.stdin.take().unwrap().write_all(b"x").unwrap();
+    assert_fails(&put.wait_with_output().unwrap(), VERSION_1_MESSAGE);
+
+    // The session start hook says why the ledger is not usable.
+    let mut hook = fx
+        .command(&a, "dolt", &["thread", "session-start"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    hook.stdin
+        .take()
+        .unwrap()
+        .write_all(b"{\"session_id\":\"v1\",\"source\":\"startup\"}")
+        .unwrap();
+    let hook = hook.wait_with_output().unwrap();
+    assert_success(&hook);
+    assert!(stdout(&hook).contains("migrate-docs"), "{}", stdout(&hook));
+}
+
+#[test]
+fn migrate_docs_dry_run_pushes_nothing_and_leaves_the_table_in_place() {
+    need_dolt!();
+    let fx = Fixture::new();
+    fx.old_ledger("1", OLD_DOCUMENTS, &thread_sql());
+    let ledger_before = fx.remote_ref(LEDGER_REF).unwrap();
+    let a = fx.a();
+
+    let dry = fx.tsk(&a, "dolt", &["ledger", "migrate-docs", "--dry-run"]);
+    assert_success(&dry);
+    assert_eq!(stdout(&dry), "dry-run:ok\n");
+    assert!(
+        stderr(&dry).contains("read 6 documents"),
+        "{}",
+        stderr(&dry)
+    );
+    assert!(
+        stderr(&dry).contains("read back identical"),
+        "{}",
+        stderr(&dry)
+    );
+    assert_eq!(fx.remote_ref(DOCS_REF), None);
+    assert_eq!(
+        fx.remote_ref(LEDGER_REF).as_deref(),
+        Some(ledger_before.as_str())
+    );
+    // Still version 1 in the database, with the table and its rows.
+    assert_eq!(
+        fx.dolt_sql(&a, "select count(*) as c from documents"),
+        "c\n6\n"
+    );
+    assert_fails(
+        &fx.tsk(&a, "dolt", &["ledger", "doc", "list"]),
+        VERSION_1_MESSAGE,
+    );
+
+    // A dry run can be repeated, and the real run follows it.
+    assert_success(&fx.tsk(&a, "dolt", &["ledger", "migrate-docs", "--dry-run"]));
+    let run = fx.tsk(&a, "dolt", &["ledger", "migrate-docs"]);
+    assert_success(&run);
+    assert_eq!(stdout(&run), "migrated-docs:6\n");
+}
+
+#[test]
+fn migrate_docs_moves_every_document_byte_for_byte_and_a_fresh_clone_reads_them() {
+    need_dolt!();
+    let fx = Fixture::new();
+    fx.old_ledger("1", OLD_DOCUMENTS, &thread_sql());
+    let old_ledger = fx.remote_ref(LEDGER_REF).unwrap();
+    let a = fx.a();
+
+    let run = fx.tsk(&a, "dolt", &["ledger", "migrate-docs"]);
+    assert_success(&run);
+    assert_eq!(stdout(&run), "migrated-docs:6\n");
+    assert!(
+        stderr(&run).contains("read 6 documents"),
+        "{}",
+        stderr(&run)
+    );
+
+    // Both branches are pushed. The ledger branch holds Dolt's files and no Markdown.
+    assert!(fx.remote_ref(DOCS_REF).is_some());
+    assert_ne!(fx.remote_ref(LEDGER_REF).unwrap(), old_ledger);
+    let names = fx.tree_names(LEDGER_REF);
+    assert!(names.contains(&"manifest".to_string()), "{:?}", names);
+    assert!(!names.iter().any(|n| n.ends_with(".md")), "{:?}", names);
+    let mut expected: Vec<String> = OLD_DOCUMENTS.iter().map(|(p, _)| p.to_string()).collect();
+    expected.push("README.md".to_string());
+    expected.sort();
+    assert_eq!(fx.docs_files(), expected);
+    for (path, body) in OLD_DOCUMENTS {
+        assert_eq!(&fx.docs_blob(path), body, "{}", path);
+    }
+    assert_eq!(
+        fx.docs_blob("README.md"),
+        "Documents of the tsk ledger. Written by tsk ledger doc put.\n"
+    );
+
+    // The database: no table, version 2, and one Dolt commit for the change.
+    assert_eq!(
+        fx.dolt_sql(&a, "select v from manifest where k = 'version'"),
+        "v\n2\n"
+    );
+    let tables = fx.dolt_sql(&a, "show tables");
+    assert!(!tables.contains("documents"), "{}", tables);
+    assert!(tables.contains("threads"), "{}", tables);
+    let log = fx.dolt_sql(&a, "select message from dolt_log limit 2");
+    assert_eq!(
+        log,
+        "message\nMove the documents to the tsk/docs branch\nCreate the ledger\n"
+    );
+    // The migrating clone reads its documents from the worktree.
+    for (path, body) in OLD_DOCUMENTS {
+        assert_eq!(
+            &fx.ok(&a, "dolt", &["ledger", "doc", "get", path]),
+            body,
+            "{}",
+            path
+        );
+    }
+
+    // A rerun is an error, not a second migration.
+    let again = fx.tsk(&a, "dolt", &["ledger", "migrate-docs"]);
+    assert_fails(&again, "the documents are already on the tsk/docs branch");
+
+    // A fresh clone reads everything, and the thread records came across.
+    let c = fx.fresh();
+    assert_success(&fx.tsk(&c, "dolt", &["ledger", "fetch"]));
+    for (path, body) in OLD_DOCUMENTS {
+        assert_eq!(
+            &fx.ok(&c, "dolt", &["ledger", "doc", "get", path]),
+            body,
+            "{}",
+            path
+        );
+    }
+    assert_eq!(
+        fx.ok(&c, "dolt", &["ledger", "doc", "list", "notes/"]),
+        "notes/awkward.md\nnotes/empty.md\nnotes/no-newline.md\nnotes/quotes.md\n"
+    );
+    let list = fx.ok(&c, "dolt", &["thread", "list"]);
+    assert!(list.contains("aaaa1111"), "{}", list);
+    assert_fails(
+        &fx.tsk(&c, "dolt", &["ledger", "migrate-docs"]),
+        "already on the tsk/docs branch",
+    );
+
+    // And it writes: a document and a push from the new clone reach the old one.
+    fx.put(&c, "dolt", "after.md", "after\n");
+    fx.ok(&c, "dolt", &["ledger", "push", "After migration"]);
+    fx.ok(&a, "dolt", &["ledger", "fetch"]);
+    assert_eq!(
+        fx.ok(&a, "dolt", &["ledger", "doc", "get", "after.md"]),
+        "after\n"
+    );
+}
+
+#[test]
+fn an_older_tsk_stops_at_the_manifest_check_of_a_version_it_does_not_know() {
+    need_dolt!();
+    let fx = Fixture::new();
+    // A version this tsk does not know stands in for what an older tsk meets at 2.
+    fx.old_ledger("3", &[], "");
+    let out = fx.tsk(&fx.a(), "dolt", &["ledger", "fetch"]);
+    assert_fails(&out, "unsupported ledger version 3");
+    assert!(
+        stderr(&out).contains("supports version 1, 2"),
+        "{}",
+        stderr(&out)
+    );
+    let out = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-docs"]);
+    assert_fails(&out, "unsupported ledger version 3");
+    assert_eq!(fx.remote_ref(DOCS_REF), None);
+}
+
+#[test]
+fn migrate_docs_refuses_a_path_that_cannot_be_a_file_and_names_it() {
+    need_dolt!();
+    for (bad, needle) in [
+        ("../escape.md", "../escape.md"),
+        (".git/config", ".git/config"),
+        ("/abs.md", "/abs.md"),
+    ] {
+        let fx = Fixture::new();
+        fx.old_ledger("1", &[("index.md", "# i\n"), (bad, "x")], "");
+        let out = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-docs"]);
+        assert_fails(&out, needle);
+        assert!(
+            stderr(&out).contains("nothing was changed"),
+            "{}",
+            stderr(&out)
+        );
+        assert_eq!(fx.remote_ref(DOCS_REF), None);
+        assert_eq!(
+            fx.dolt_sql(&fx.a(), "select count(*) as c from documents"),
+            "c\n2\n"
+        );
+    }
+
+    // A file that is also a directory.
+    let fx = Fixture::new();
+    fx.old_ledger("1", &[("a", "x"), ("a/b.md", "y")], "");
+    let out = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-docs"]);
+    assert_fails(&out, "cannot be a file");
+    assert_eq!(fx.remote_ref(DOCS_REF), None);
+}
+
+#[test]
+fn a_rerun_compares_the_files_the_docs_branch_already_holds_and_goes_on() {
+    need_dolt!();
+    let fx = Fixture::new();
+    fx.old_ledger("1", OLD_DOCUMENTS, &thread_sql());
+
+    // An earlier run pushed the documents and stopped before the Dolt data: the same
+    // files are on the docs branch, but the ledger is still version 1.
+    let scratch = fx.root.path().join("scratch");
+    git(fx.root.path(), &["init", "--quiet", "-b", "x", "scratch"]);
+    for (path, body) in OLD_DOCUMENTS {
+        let file = scratch.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, body).unwrap();
+    }
+    std::fs::write(
+        scratch.join("README.md"),
+        "Documents of the tsk ledger. Written by tsk ledger doc put.\n",
+    )
+    .unwrap();
+    git(&scratch, &["add", "-A"]);
+    git(&scratch, &["commit", "--quiet", "-m", "An earlier run"]);
+    git(
+        &scratch,
+        &[
+            "push",
+            "--quiet",
+            fx.origin().to_str().unwrap(),
+            &format!("HEAD:{}", DOCS_REF),
+        ],
+    );
+    let docs_before = fx.remote_ref(DOCS_REF).unwrap();
+
+    let run = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-docs"]);
+    assert_success(&run);
+    assert_eq!(stdout(&run), "migrated-docs:6\n");
+    assert!(
+        stderr(&run).contains("6 already on the branch"),
+        "{}",
+        stderr(&run)
+    );
+    // Nothing new to commit on the docs branch: the remote already held every file.
+    assert_eq!(
+        fx.remote_ref(DOCS_REF).as_deref(),
+        Some(docs_before.as_str())
+    );
+    fx.ok(&fx.fresh(), "dolt", &["ledger", "fetch"]);
+    assert_eq!(
+        fx.ok(
+            &fx.fresh(),
+            "dolt",
+            &["ledger", "doc", "get", "notes/awkward.md"]
+        ),
+        AWKWARD
+    );
+}
+
+#[test]
+fn a_docs_branch_file_that_differs_from_its_row_stops_migrate_docs_before_any_push() {
+    need_dolt!();
+    let fx = Fixture::new();
+    fx.old_ledger("1", OLD_DOCUMENTS, "");
+    let ledger_before = fx.remote_ref(LEDGER_REF).unwrap();
+    let scratch = fx.root.path().join("scratch");
+    git(fx.root.path(), &["init", "--quiet", "-b", "x", "scratch"]);
+    std::fs::write(scratch.join("index.md"), "# Someone else's index\n").unwrap();
+    git(&scratch, &["add", "-A"]);
+    git(&scratch, &["commit", "--quiet", "-m", "A different index"]);
+    git(
+        &scratch,
+        &[
+            "push",
+            "--quiet",
+            fx.origin().to_str().unwrap(),
+            &format!("HEAD:{}", DOCS_REF),
+        ],
+    );
+    let docs_before = fx.remote_ref(DOCS_REF).unwrap();
+
+    let out = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-docs"]);
+    assert_fails(&out, "index.md");
+    assert!(
+        stderr(&out).contains("different content"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(
+        fx.remote_ref(DOCS_REF).as_deref(),
+        Some(docs_before.as_str())
+    );
+    assert_eq!(
+        fx.remote_ref(LEDGER_REF).as_deref(),
+        Some(ledger_before.as_str())
+    );
+    assert_eq!(
+        fx.dolt_sql(&fx.a(), "select count(*) as c from documents"),
+        "c\n6\n"
+    );
+}
+
+#[test]
+fn a_rejected_docs_push_leaves_the_dolt_data_unpushed_and_tsk_ledger_push_resumes() {
+    need_dolt!();
+    let fx = Fixture::new();
+    fx.old_ledger("1", OLD_DOCUMENTS, "");
+    let ledger_before = fx.remote_ref(LEDGER_REF).unwrap();
+    let hook = fx.origin().join("hooks").join("pre-receive");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\nwhile read old new ref; do\n  if [ \"$ref\" = refs/heads/tsk/docs ]; then\n    exit 1\n  fi\ndone\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let a = fx.a();
+    let out = fx.tsk(&a, "dolt", &["ledger", "migrate-docs"]);
+    assert_fails(&out, "tsk ledger push");
+    assert_eq!(fx.remote_ref(DOCS_REF), None);
+    assert_eq!(
+        fx.remote_ref(LEDGER_REF).as_deref(),
+        Some(ledger_before.as_str())
+    );
+
+    std::fs::remove_file(&hook).unwrap();
+    let resumed = fx.tsk(&a, "dolt", &["ledger", "push", "Resume the migration"]);
+    assert_success(&resumed);
+    assert!(fx.remote_ref(DOCS_REF).is_some());
+    assert_ne!(fx.remote_ref(LEDGER_REF).unwrap(), ledger_before);
+    assert_eq!(fx.docs_blob("notes/awkward.md"), AWKWARD);
+    let c = fx.fresh();
+    fx.ok(&c, "dolt", &["ledger", "fetch"]);
+    assert_eq!(
+        fx.ok(&c, "dolt", &["ledger", "doc", "get", "notes/awkward.md"]),
+        AWKWARD
+    );
+}
+
+#[test]
+fn migrate_docs_on_a_version_two_ledger_says_the_documents_are_already_moved() {
+    need_dolt!();
+    let fx = Fixture::new();
+    fx.ok(&fx.a(), "dolt", &["ledger", "fetch"]);
+    fx.put(&fx.a(), "dolt", "x.md", "x\n");
+    fx.ok(&fx.a(), "dolt", &["ledger", "push", "Publish"]);
+    let out = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-docs"]);
+    assert_fails(&out, "the documents are already on the tsk/docs branch");
+    let dry = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-docs", "--dry-run"]);
+    assert_fails(&dry, "the documents are already on the tsk/docs branch");
 }

@@ -56,6 +56,13 @@ pub trait LedgerStore {
     /// nothing: the caller reports `pending_note` and `unpublished_note`.
     fn refresh(&self) -> Result<RefreshOutcome, String>;
 
+    /// [`refresh`](LedgerStore::refresh) for `tsk ledger fetch`. The Dolt backend lets a
+    /// version 1 ledger through, which every other command refuses until its documents
+    /// are moved. Other backends refresh as usual.
+    fn refresh_for_fetch(&self) -> Result<RefreshOutcome, String> {
+        self.refresh()
+    }
+
     /// Where the local store lives. Has no side effects. Fails when the store has no
     /// identity yet (git backend: no clone id).
     fn path(&self) -> Result<PathBuf, String>;
@@ -95,6 +102,8 @@ pub trait LedgerStore {
     /// Remove a document. Returns false when it did not exist.
     fn doc_remove(&self, path: &str) -> Result<bool, String>;
     fn doc_exists(&self, path: &str) -> Result<bool, String>;
+    /// The absolute path of a document's file, or `None` when the document does not exist.
+    fn doc_path(&self, path: &str) -> Result<Option<PathBuf>, String>;
 
     // --- Threads ---
 
@@ -173,9 +182,9 @@ pub fn open(dir: &Path) -> Result<Box<dyn LedgerStore>, String> {
     }
 }
 
-/// Paths a caller may name as documents. Rejects an empty path, an absolute path, a
-/// path with a `..` component, and the parts of the ledger that are not documents.
-pub fn check_document_path(path: &str) -> Result<(), String> {
+/// The components of a relative document path, with `.` dropped. Rejects an empty path,
+/// an absolute path and a path with a `..` component.
+fn relative_parts(path: &str) -> Result<Vec<String>, String> {
     let p = Path::new(path);
     let mut parts = Vec::new();
     for component in p.components() {
@@ -188,6 +197,14 @@ pub fn check_document_path(path: &str) -> Result<(), String> {
     if path.is_empty() || parts.is_empty() {
         return Err(not_relative(path));
     }
+    Ok(parts)
+}
+
+/// Paths a caller may name as documents in the file ledger. Rejects an empty path, an
+/// absolute path, a path with a `..` component, and the parts of the ledger that are not
+/// documents.
+pub fn check_document_path(path: &str) -> Result<(), String> {
+    let parts = relative_parts(path)?;
     let first = parts[0].as_str();
     let reserved = first == "threads"
         || first == "external-events"
@@ -200,6 +217,20 @@ pub fn check_document_path(path: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Paths a caller may name as documents on the `tsk/docs` branch, as the normalised
+/// relative path. Only the rules of a file in git apply: no absolute path, no `..`, no
+/// `.git` component. A path that is not valid UTF-8 cannot reach here as a `&str`.
+pub fn check_docs_path(path: &str) -> Result<String, String> {
+    let parts = relative_parts(path)?;
+    if parts.iter().any(|part| part == ".git") {
+        return Err(format!(
+            "error: '{}' is not a document: .git is managed by git",
+            path
+        ));
+    }
+    Ok(parts.join("/"))
 }
 
 fn not_relative(path: &str) -> String {
@@ -238,6 +269,34 @@ mod tests {
             "a/.git/config",
         ] {
             assert!(check_document_path(bad).is_err(), "{}", bad);
+        }
+    }
+
+    #[test]
+    fn docs_paths_apply_only_the_git_rules() {
+        for (given, normal) in [
+            ("index.md", "index.md"),
+            ("./missions/M-X.md", "missions/M-X.md"),
+            // Reserved for the file ledger only.
+            ("threads/1234abcd/index.md", "threads/1234abcd/index.md"),
+            (
+                "external-events/queue.ndjson",
+                "external-events/queue.ndjson",
+            ),
+            (".tsk-ledger.toml", ".tsk-ledger.toml"),
+        ] {
+            assert_eq!(check_docs_path(given).unwrap(), normal, "{}", given);
+        }
+        for bad in [
+            "",
+            ".",
+            "/etc/passwd",
+            "../x.md",
+            "a/../../x.md",
+            ".git",
+            "a/.git/config",
+        ] {
+            assert!(check_docs_path(bad).is_err(), "{}", bad);
         }
     }
 }

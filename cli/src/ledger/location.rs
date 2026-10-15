@@ -7,7 +7,9 @@ use super::git::Git;
 
 pub const IN_REPO_REMOTE: &str = "origin";
 pub const IN_REPO_REF: &str = "refs/heads/tsk/ledger";
+pub const IN_REPO_DOCS_REF: &str = "refs/heads/tsk/docs";
 pub const WORKTREE_DIR_NAME: &str = "ledger";
+pub const DOCS_DIR_NAME: &str = "docs";
 pub const DOLT_DIR_NAME: &str = "ledger-db";
 pub const CLONE_ID_FILE: &str = "tsk-clone-id";
 const CLONE_ID_SUFFIX_LEN: usize = 8;
@@ -49,6 +51,26 @@ impl LedgerLocation {
 
     pub fn repo_id(&self) -> Option<&str> {
         self.repo_id.as_deref()
+    }
+
+    /// The ref that holds the ledger's documents, on the same remote. A nexus ref ends in
+    /// `-docs` rather than `/docs`, because git cannot hold both `ledgers/<id>` and
+    /// `ledgers/<id>/docs` as refs: one would be a file and the other a directory.
+    pub fn docs_ref_name(&self) -> String {
+        match &self.repo_id {
+            Some(id) => format!("{}{}-docs", NEXUS_REF_PREFIX, id),
+            None => IN_REPO_DOCS_REF.to_string(),
+        }
+    }
+
+    /// The location of the documents branch: this location's remote and label, with the
+    /// docs ref in place of the ledger ref.
+    pub fn docs(&self) -> LedgerLocation {
+        LedgerLocation {
+            remote: self.remote.clone(),
+            ref_name: self.docs_ref_name(),
+            repo_id: self.repo_id.clone(),
+        }
     }
 
     pub fn label(&self) -> &str {
@@ -224,6 +246,11 @@ pub fn worktree_path(state_root: &Path, clone_id: &str) -> PathBuf {
         .join(WORKTREE_DIR_NAME)
 }
 
+/// Where the Dolt backend keeps the worktree of its documents branch.
+pub fn docs_worktree_path(state_root: &Path, clone_id: &str) -> PathBuf {
+    state_root.join("repos").join(clone_id).join(DOCS_DIR_NAME)
+}
+
 /// Where the Dolt backend keeps its database, beside the files backend's worktree.
 pub fn dolt_db_path(state_root: &Path, clone_id: &str) -> PathBuf {
     state_root.join("repos").join(clone_id).join(DOLT_DIR_NAME)
@@ -250,6 +277,33 @@ mod tests {
         assert_eq!(location.ref_name(), "refs/heads/ledgers/work-api");
         assert_eq!(location.label(), "the nexus");
         assert_eq!(location.repo_id(), Some("work-api"));
+    }
+
+    #[test]
+    fn the_docs_ref_is_tsk_docs_in_the_repo_and_id_docs_on_the_nexus() {
+        let in_repo = LedgerLocation::in_repo();
+        assert_eq!(in_repo.docs_ref_name(), "refs/heads/tsk/docs");
+        assert_eq!(in_repo.docs().ref_name(), "refs/heads/tsk/docs");
+        assert_eq!(in_repo.docs().remote(), "origin");
+
+        let nexus = LedgerLocation::nexus("https://example.test/o/nexus", "work-api");
+        assert_eq!(nexus.docs_ref_name(), "refs/heads/ledgers/work-api-docs");
+        let docs = nexus.docs();
+        assert_eq!(docs.ref_name(), "refs/heads/ledgers/work-api-docs");
+        assert_eq!(docs.remote(), "https://example.test/o/nexus");
+        assert_eq!(docs.label(), "the nexus");
+        // The two refs can coexist: neither is a path prefix of the other.
+        assert!(!docs
+            .ref_name()
+            .starts_with(&format!("{}/", nexus.ref_name())));
+    }
+
+    #[test]
+    fn docs_worktree_path_is_docs_under_clone_id() {
+        assert_eq!(
+            docs_worktree_path(Path::new("/s/tsk"), "tsk-180ae86e"),
+            PathBuf::from("/s/tsk/repos/tsk-180ae86e/docs")
+        );
     }
 
     #[test]
