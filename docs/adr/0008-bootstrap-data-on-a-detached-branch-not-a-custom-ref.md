@@ -117,3 +117,23 @@ scratch.
 
 Investigated and decided in a 2026-09-15 session. Precedent:
 [anthropics/claude-code#61307](https://github.com/anthropics/claude-code/issues/61307).
+
+## Re-test, 2026-10-15
+
+A Claude Code cloud session pushed the same commit, `322106e`, to six targets on
+`jimbarritt/tsk`. The same proxy applied.
+
+| Target | Result |
+|---|---|
+| `refs/tsk/push-test-2026-10-15`, a custom ref | HTTP 403 |
+| `refs/experiments/push-test`, a second custom namespace | HTTP 403 |
+| `refs/tags/push-test-2026-10-15`, a tag | HTTP 403 |
+| `refs/heads/push-test-2026-10-15`, a new branch | Pushed |
+| Delete `push-test-2026-10-15` | HTTP 403 |
+| Delete `experiment/dolt-ledger` | Not tested: the branch was already gone on origin |
+
+Creating a branch under `refs/heads/*` is the only ref operation that worked. A custom
+ref, a tag and a branch deletion were refused. The decision stands, and ADR 0014's use of
+`dolt remote add --ref refs/heads/<branch>` rests on the same rule. Two branches from
+this experiment, `push-test-2026-10-15` and the earlier `experiment/dolt-ledger`, needed
+deleting by hand.
