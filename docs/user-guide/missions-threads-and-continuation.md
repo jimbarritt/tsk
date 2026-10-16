@@ -185,6 +185,8 @@ warning tells you who else has worked it.
   `tsk/ledger` by hand**, including for a read-only check. To check the branch
   directly, spell it out: `git fetch origin refs/heads/tsk/ledger`, then read
   `FETCH_HEAD`.
+- **To undo local ledger changes that are not pushed, run `tsk ledger status` to see
+  them and `tsk ledger discard`.** Never `dolt reset` or `git reset` by hand.
 - **A script that needs to push to `tsk/ledger` calls `tsk ledger push`**
   rather than inlining the same git sequence. One copy of that logic, in one place.
 - **Code work goes to `main` directly.** No development branch, no pull request unless

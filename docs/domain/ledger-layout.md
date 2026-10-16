@@ -231,7 +231,7 @@ docs	remote	up to date
 
 - `data` and `docs` each print `clean` or `local changes`, then one line per change. A
   Dolt table line is `data`, the table, and the counts of rows added, modified and
-  deleted. A table with only a schema change prints counts of 0. A document line is
+  deleted. A table whose schema changed but whose rows did not prints `schema changed` in place of the counts (`data<TAB>missions<TAB>schema changed`); one that changed both prints the counts, then `schema changed`. A document line is
   `docs`, `A`, `M` or `D`, and the path, sorted by path.
 - A change is a difference between the working state and the merge base of the local and
   remote branches. A local commit that origin lacks is listed as well as an uncommitted

@@ -3909,3 +3909,38 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
         );
     }
 }
+
+#[test]
+fn dolt_status_marks_a_table_whose_schema_changed_and_rows_did_not() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing(Backend::Dolt);
+    let a = fx.a();
+    fx.dolt_sql(&a, "alter table watermark add column note int null");
+    let out = fx.ok(&a, &["ledger", "status"]);
+    assert!(
+        out.lines().any(|l| l == "data\twatermark\tschema changed"),
+        "{}",
+        out
+    );
+    fx.add_binding(&a, "s1");
+    fx.dolt_sql(
+        &a,
+        "alter table cloud_session_bindings add column note2 int null",
+    );
+    let out = fx.ok(&a, &["ledger", "status"]);
+    assert!(
+        out.lines()
+            .any(|l| l
+                == "data\tcloud_session_bindings\tadded 1\tmodified 0\tdeleted 0\tschema changed"),
+        "{}",
+        out
+    );
+    assert_eq!(fx.ok(&a, &["ledger", "discard", "--yes"]), "discarded\n");
+    assert_eq!(
+        fx.ok(&a, &["ledger", "status"]).lines().next(),
+        Some("data\tclean")
+    );
+}

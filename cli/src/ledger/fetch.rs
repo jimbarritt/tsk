@@ -197,9 +197,8 @@ pub(crate) fn refresh_worktree(
         }
         return Err(format!(
             "error: {} holds uncommitted changes; refusing to reset over them.\n       \
-             Push them with tsk ledger push, or discard them deliberately with: git -C \"{}\" reset --hard\n       \
-             To read the path without refreshing, use tsk ledger path",
-            path.display(),
+             Push them with tsk ledger push, or drop them deliberately with tsk ledger discard\n       \
+             (tsk ledger status shows what would go). To read the path without refreshing, use tsk ledger path",
             path.display()
         ));
     }

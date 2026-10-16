@@ -315,12 +315,10 @@ pub(crate) fn pending_note(outcome: &fetch::FetchOutcome) -> String {
         note.push_str(&format!("        {}\n", line));
     }
     note.push_str("      Leaving the worktree as it is rather than resetting over it.\n");
-    note.push_str("      Push it with tsk ledger push, or discard it\n");
-    note.push_str(&format!(
-        "      deliberately with: git -C \"{}\" reset --hard {}",
-        outcome.path.display(),
-        outcome.commit
-    ));
+    note.push_str(
+        "      Push it with tsk ledger push. To see what would be lost, run tsk ledger status.\n",
+    );
+    note.push_str("      To drop it deliberately, run tsk ledger discard.");
     note
 }
 
@@ -343,7 +341,9 @@ mod tests {
         assert!(note.contains("refs/heads/tsk/ledger"));
         assert!(note.contains("        1111111 first\n"));
         assert!(note.contains("        2222222 second\n"));
-        assert!(note.ends_with("reset --hard abc123"));
+        assert!(note.contains("run tsk ledger status"));
+        assert!(note.ends_with("To drop it deliberately, run tsk ledger discard."));
+        assert!(!note.contains("reset --hard"));
     }
 
     #[test]
