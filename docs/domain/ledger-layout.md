@@ -1244,6 +1244,12 @@ Standard output on success:
    and offers them; it does not mention `index.md`. Both prompts end by naming
    `tsk thread skip` as the choice for no thread. When this session or code worktree
    skipped a thread, the context says so in place of the prompt.
+   When the ledger store holds local changes that are not committed (records or documents
+   written since the last push), the fetch leaves them in place and does not reset or
+   merge. The context adds `The ledger store holds local changes that are not pushed
+   (records or documents written since the last push). The refresh left them as they are.
+   A thread command pushes them with its own change, or run `tsk ledger push`.` The
+   `thread` commands refresh the same way. The merge with the remote happens at the push.
 4. When the ledger has no mission records and no mission documents, the note that names
    `tsk guide import`.
 

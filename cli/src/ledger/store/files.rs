@@ -75,9 +75,9 @@ impl FilesStore {
     }
 }
 
-impl LedgerStore for FilesStore {
-    fn refresh(&self) -> Result<RefreshOutcome, String> {
-        let outcome = fetch::fetch(&self.repo, &self.state_root)?;
+impl FilesStore {
+    fn refresh_with(&self, keep_local: bool) -> Result<RefreshOutcome, String> {
+        let outcome = fetch::fetch(&self.repo, &self.state_root, keep_local)?;
         let pending_note =
             (!outcome.pending.is_empty()).then(|| crate::ledger::pending_note(&outcome));
         let unpublished_note = outcome
@@ -96,6 +96,21 @@ impl LedgerStore for FilesStore {
             pending_note,
             unpublished_note,
         })
+    }
+}
+
+impl LedgerStore for FilesStore {
+    fn refresh(&self) -> Result<RefreshOutcome, String> {
+        self.refresh_with(false)
+    }
+
+    fn refresh_keeping_local(&self) -> Result<RefreshOutcome, String> {
+        self.refresh_with(true)
+    }
+
+    fn has_local_changes(&self) -> Result<bool, String> {
+        let wt = Git::new(&self.tree()?.root);
+        Ok(!wt.run(["status", "--porcelain=v2", "-z"])?.is_empty())
     }
 
     fn path(&self) -> Result<PathBuf, String> {

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::ledger::location::Repo;
 use crate::ledger::store::{self, LedgerStore, RefreshOutcome};
-use crate::ledger::{fetch_reporting, push_reporting};
+use crate::ledger::{fetch_keeping_local_reporting, push_reporting};
 
 pub const CLOUD_SESSION_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 pub const MARKER_FILE: &str = "tsk-thread-id";
@@ -37,7 +37,7 @@ impl Session {
     }
 
     pub fn refresh(&self) -> Result<RefreshOutcome, String> {
-        fetch_reporting(self.store.as_ref())
+        fetch_keeping_local_reporting(self.store.as_ref())
     }
 
     pub fn push(&self, message: &str) -> Result<(), String> {

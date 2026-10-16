@@ -407,7 +407,7 @@ fn stage_documents(
     records: &Records,
     message: &str,
 ) -> Result<(), String> {
-    docs::fetch_at(repo, location, path)?;
+    docs::fetch_at(repo, location, path, false)?;
     let wt = Git::new(path);
     for (doc, body) in &records.documents {
         let file = path.join(doc);

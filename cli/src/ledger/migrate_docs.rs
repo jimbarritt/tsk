@@ -35,7 +35,7 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
 
     // Refresh the database without the version 2 refusal. The documents worktree is not
     // touched here: a version 1 ledger has none.
-    let (outcome, version) = store.refresh_data()?;
+    let (outcome, version) = store.refresh_data(false)?;
     let outcome = report_refresh(outcome);
     if version != dolt::LEGACY_LAYOUT_VERSION {
         return Err("error: the documents are already on the tsk/docs branch".to_string());
@@ -54,7 +54,7 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
     // on that. A worktree this run creates is therefore removed again unless the table
     // is dropped: on a dry run, and on any failure before the drop.
     let created_worktree = !docs::worktree_path(&repo, &state_root)?.exists();
-    let fetched = docs::fetch(&repo, &state_root, &location)?;
+    let fetched = docs::fetch(&repo, &state_root, &location, false)?;
     let mut guard = TempWorktree {
         git: repo.git.clone(),
         path: fetched.path.clone(),

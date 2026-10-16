@@ -72,6 +72,19 @@ pub trait LedgerStore {
         self.refresh()
     }
 
+    /// [`refresh`](LedgerStore::refresh) for the thread commands. Local changes that are
+    /// not committed are left as they are instead of refused, because a thread command
+    /// pushes them with its own change, and the push merges the remote state into them.
+    fn refresh_keeping_local(&self) -> Result<RefreshOutcome, String> {
+        self.refresh()
+    }
+
+    /// True when the local store holds changes that are not committed: records or
+    /// documents written since the last push.
+    fn has_local_changes(&self) -> Result<bool, String> {
+        Ok(false)
+    }
+
     /// Where the local store lives. Has no side effects. Fails when the store has no
     /// identity yet (git backend: no clone id).
     fn path(&self) -> Result<PathBuf, String>;
