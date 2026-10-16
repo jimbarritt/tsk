@@ -18,6 +18,7 @@ use crate::mission::model::Mission;
 use crate::thread::lookup::Lookup;
 
 use super::manifest::ManifestInfo;
+use super::status::LedgerStatus;
 
 /// What a refresh found. The notes are ready to print to stderr, or `None`.
 #[derive(Debug, Clone)]
@@ -84,6 +85,18 @@ pub trait LedgerStore {
     fn has_local_changes(&self) -> Result<bool, String> {
         Ok(false)
     }
+
+    /// What the local store holds that origin does not, and how its committed state
+    /// stands against origin. Fetches the remote refs into the store's remote-tracking
+    /// state and nothing else: it does not merge, reset or touch the working set. When the
+    /// fetch fails, `fetch_note` says so and the report comes from what is local.
+    fn status(&self) -> Result<LedgerStatus, String>;
+
+    /// Drop every local change not yet pushed, in the data and the documents: uncommitted
+    /// changes and local commits origin lacks. Fetches first and resets both sides to
+    /// origin's state; when the fetch fails nothing is discarded. Leaves thread state
+    /// kept outside the ledger alone.
+    fn discard(&self) -> Result<(), String>;
 
     /// Where the local store lives. Has no side effects. Fails when the store has no
     /// identity yet (git backend: no clone id).

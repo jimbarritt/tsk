@@ -82,6 +82,10 @@ impl LedgerLocation {
     }
 }
 
+/// What every command that needs the repository says, once, when it runs outside one.
+pub const NOT_IN_REPO: &str =
+    "error: not inside a git repository. Run tsk from inside the repository whose ledger you want.";
+
 #[derive(Clone)]
 pub struct Repo {
     pub git: Git,
@@ -91,14 +95,18 @@ pub struct Repo {
 impl Repo {
     pub fn discover(dir: &Path) -> Result<Repo, String> {
         let git = Git::new(dir);
-        let common_dir = git
-            .run_line(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-            .map_err(|e| {
-                format!(
-                    "error: not inside a git repository ({})",
-                    e.trim_start_matches("error: ")
-                )
-            })?;
+        let (args, output) =
+            git.output(["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("not a git repository") {
+                return Err(NOT_IN_REPO.to_string());
+            }
+            return Err(super::git::failure_message(&args, &output));
+        }
+        let common_dir = String::from_utf8_lossy(&output.stdout)
+            .trim_end_matches(['\n', '\r'])
+            .to_string();
         Ok(Repo {
             git,
             common_dir: PathBuf::from(common_dir),

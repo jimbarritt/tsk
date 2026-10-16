@@ -70,6 +70,41 @@ fn check_line(what: &str, text: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// A real calendar date written `YYYY-MM-DD`: four digits, two, two, and a day that the
+/// month has in that year. `2026-02-30` is refused.
+pub fn check_date(date: &str) -> Result<(), String> {
+    let bad = || {
+        format!(
+            "error: '{}' is not a date; a date is written YYYY-MM-DD, for example 2026-03-14",
+            date
+        )
+    };
+    let b = date.as_bytes();
+    let shaped = b.len() == 10
+        && b.iter().enumerate().all(|(i, c)| match i {
+            4 | 7 => *c == b'-',
+            _ => c.is_ascii_digit(),
+        });
+    if !shaped {
+        return Err(bad());
+    }
+    let year: u32 = date[0..4].parse().map_err(|_| bad())?;
+    let month: u32 = date[5..7].parse().map_err(|_| bad())?;
+    let day: u32 = date[8..10].parse().map_err(|_| bad())?;
+    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return Err(bad()),
+    };
+    if year == 0 || day == 0 || day > days {
+        return Err(bad());
+    }
+    Ok(())
+}
+
 fn check_who(who: &str) -> Result<(), String> {
     check_line("the name given to --by", who)?;
     if who.chars().count() > 255 {
@@ -245,6 +280,7 @@ pub fn decision_add(
     let mut mission = model::find(missions, id)?.clone();
     check_line("a decision", text)?;
     check_who(by)?;
+    check_date(today)?;
     let task = match task {
         Some(label) => {
             let seq = parse_task(label)?;
@@ -539,6 +575,12 @@ pub enum DecisionCommands {
         by: String,
         #[arg(long, help = "ID of a task of the mission, for example T-01")]
         task: Option<String>,
+        #[arg(
+            long,
+            value_name = "YYYY-MM-DD",
+            help = "The date of the decision, a real calendar date; today (UTC) when omitted"
+        )]
+        on: Option<String>,
     },
     #[command(about = "List the decisions of a mission, oldest first: date, who, task, text")]
     List { mission: String },
@@ -630,8 +672,10 @@ pub fn run_decision_with(store: &dyn LedgerStore, action: DecisionCommands) -> R
             text,
             by,
             task,
+            on,
         } => {
-            let date = today();
+            let date = on.unwrap_or_else(today);
+            check_date(&date)?;
             change(store, |all| {
                 decision_add(all, &mission, &text, &by, task.as_deref(), &date)
             })?;
@@ -810,6 +854,36 @@ mod tests {
                 .unwrap_err()
                 .contains("Q-02")
         );
+    }
+
+    #[test]
+    fn a_date_is_a_real_calendar_date() {
+        for ok in ["2026-01-31", "2024-02-29", "2000-02-29", "2026-12-01"] {
+            assert!(check_date(ok).is_ok(), "{}", ok);
+        }
+        for bad in [
+            "2026-02-30",
+            "2026-02-29",
+            "1900-02-29",
+            "2026-04-31",
+            "2026-13-01",
+            "2026-00-10",
+            "2026-01-00",
+            "0000-01-01",
+            "2026-1-01",
+            "26-01-01",
+            "2026/01/01",
+            "2026-01-011",
+            "",
+            "tomorrow",
+            "２０２６-01-01",
+        ] {
+            assert!(check_date(bad).is_err(), "{}", bad);
+        }
+        let all = one_mission();
+        assert!(decision_add(&all, "M-A", "Use Dolt", "jim", None, "2026-02-30").is_err());
+        let m = decision_add(&all, "M-A", "Use Dolt", "jim", None, "2026-02-27").unwrap();
+        assert_eq!(m.decisions[0].decided_on, "2026-02-27");
     }
 
     #[test]

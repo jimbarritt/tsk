@@ -2459,6 +2459,334 @@ mod cases {
         assert!(context.contains("works without a thread"), "{}", context);
         assert!(!context.contains("No thread binding"), "{}", context);
     }
+
+    // --- Status, discard and decision dates ---
+
+    /// The change line `status` prints for a mission record written locally.
+    fn mission_change(b: Backend, id: &str) -> String {
+        match b {
+            Backend::Dolt => "data\tmissions\tadded 1\tmodified 0\tdeleted 0".to_string(),
+            Backend::Git => format!("data\tA\trecords/missions/{}.json", id),
+        }
+    }
+
+    fn status_lines(fx: &Fixture, dir: &Path) -> Vec<String> {
+        fx.ok(dir, &["ledger", "status"])
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn clean_status(remote: &str) -> Vec<String> {
+        vec![
+            "data\tclean".to_string(),
+            "docs\tclean".to_string(),
+            format!("data\tremote\t{}", remote),
+            format!("docs\tremote\t{}", remote),
+        ]
+    }
+
+    pub fn status_and_discard_report_and_drop_local_changes(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(status_lines(&fx, &a), clean_status("up to date"));
+        let ledger_before = fx.remote_ledger();
+        let docs_before = fx.remote_docs();
+
+        fx.ok(&a, &["mission", "create", "M-LOCAL", "Local only"]);
+        fx.ok(&a, &["task", "add", "M-LOCAL", "A task"]);
+        fx.put(&a, "local-note.md", "local\n");
+        fx.put(&a, "index.md", "# Changed\n");
+        fx.ok(&a, &["ledger", "doc", "rm", BRIEFING]);
+
+        let mut expected = vec!["data\tlocal changes".to_string()];
+        match b {
+            Backend::Dolt => {
+                expected.push("data\tmissions\tadded 1\tmodified 0\tdeleted 0".to_string());
+                expected.push("data\ttasks\tadded 1\tmodified 0\tdeleted 0".to_string());
+            }
+            Backend::Git => expected.push(mission_change(b, "M-LOCAL")),
+        }
+        expected.push("docs\tlocal changes".to_string());
+        // Sorted by path.
+        expected.push("docs\tM\tindex.md".to_string());
+        expected.push("docs\tA\tlocal-note.md".to_string());
+        expected.push(format!("docs\tD\t{}", BRIEFING));
+        expected.push("data\tremote\tup to date".to_string());
+        expected.push("docs\tremote\tup to date".to_string());
+        assert_eq!(status_lines(&fx, &a), expected);
+        // Status wrote nothing: the changes are all still there.
+        assert_eq!(status_lines(&fx, &a), expected);
+        assert!(fx.ok(&a, &["mission", "list"]).contains("M-LOCAL"));
+
+        // The other clone never saw any of it.
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(fx.ok(&other, &["mission", "list"]), "");
+        assert_exit(&fx.get(&other, "local-note.md"), 1);
+
+        // Without --yes: the same summary, no remote lines, exit 1, nothing changes.
+        let dry = fx.tsk(&a, &["ledger", "discard"]);
+        assert_exit(&dry, 1);
+        assert_eq!(
+            stdout(&dry).lines().collect::<Vec<_>>(),
+            expected[..expected.len() - 2].to_vec()
+        );
+        assert_eq!(
+            stderr(&dry),
+            "error: this would discard the local changes above. Rerun with --yes to discard them.\n"
+        );
+        assert_eq!(status_lines(&fx, &a), expected);
+        assert!(fx.ok(&a, &["mission", "list"]).contains("M-LOCAL"));
+        assert_eq!(
+            fx.ok(&a, &["ledger", "doc", "get", "local-note.md"]),
+            "local\n"
+        );
+
+        assert_eq!(fx.ok(&a, &["ledger", "discard", "--yes"]), "discarded\n");
+        assert_eq!(status_lines(&fx, &a), clean_status("up to date"));
+        assert_eq!(fx.ok(&a, &["mission", "list"]), "");
+        assert_exit(&fx.get(&a, "local-note.md"), 1);
+        assert_eq!(
+            fx.ok(&a, &["ledger", "doc", "get", BRIEFING]),
+            "# Mission: conformance\n"
+        );
+        assert_ne!(
+            fx.ok(&a, &["ledger", "doc", "get", "index.md"]),
+            "# Changed\n"
+        );
+        // Origin was not touched, and a second discard is harmless.
+        assert_eq!(fx.remote_ledger(), ledger_before);
+        assert_eq!(fx.remote_docs(), docs_before);
+        assert_eq!(fx.ok(&a, &["ledger", "discard", "--yes"]), "discarded\n");
+        assert_eq!(status_lines(&fx, &other), clean_status("up to date"));
+        // A clean store has nothing to confirm.
+        assert_eq!(
+            fx.ok(&a, &["ledger", "discard"]),
+            "data\tclean\ndocs\tclean\n"
+        );
+        // The ledger still works after a discard.
+        fx.ok(&a, &["mission", "create", "M-AFTER", "After"]);
+        fx.ok(&a, &["ledger", "push", "After the discard"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert!(fx.ok(&other, &["mission", "list"]).contains("M-AFTER"));
+    }
+
+    pub fn status_counts_commits_ahead_and_behind_origin(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&other, &["ledger", "fetch"]);
+
+        // Behind: the other clone pushes a record and a document. What it pushed is not
+        // reported as a local change here.
+        fx.ok(
+            &other,
+            &["mission", "create", "M-OTHER", "From the other clone"],
+        );
+        fx.put(&other, "other.md", "other\n");
+        fx.ok(&other, &["ledger", "push", "Other change"]);
+        assert_eq!(status_lines(&fx, &a), clean_status("behind 1"));
+        fx.ok(&a, &["ledger", "fetch"]);
+        assert_eq!(status_lines(&fx, &a), clean_status("up to date"));
+
+        // Ahead: a push that origin refuses leaves a commit that is not pushed.
+        let hook = install_hook(
+            &fx.origin(),
+            "pre-receive",
+            "#!/bin/sh\nwhile read old new ref; do\n  case \"$ref\" in\n    refs/heads/tsk/*) echo 'closed' >&2; exit 1;;\n  esac\ndone\n",
+        );
+        fx.ok(
+            &a,
+            &["mission", "create", "M-AHEAD", "Committed, not pushed"],
+        );
+        fx.put(&a, "ahead.md", "ahead\n");
+        assert_exit(&fx.tsk(&a, &["ledger", "push", "Refused"]), 1);
+        let lines = status_lines(&fx, &a);
+        assert_eq!(lines[0], "data\tlocal changes");
+        assert!(lines.contains(&mission_change(b, "M-AHEAD")), "{:?}", lines);
+        assert!(
+            lines.contains(&"docs\tA\tahead.md".to_string()),
+            "{:?}",
+            lines
+        );
+        assert_eq!(
+            lines[lines.len() - 2..],
+            ["data\tremote\tahead 1", "docs\tremote\tahead 1"]
+        );
+        // The committed work is what the dry run lists too.
+        let dry = fx.tsk(&a, &["ledger", "discard"]);
+        assert_exit(&dry, 1);
+        assert!(stdout(&dry).contains("ahead.md"), "{}", stdout(&dry));
+
+        // Diverged: the other clone pushes while this one holds its commit.
+        std::fs::remove_file(&hook).unwrap();
+        fx.ok(&other, &["mission", "create", "M-OTHER-2", "Second"]);
+        fx.put(&other, "other-2.md", "other 2\n");
+        fx.ok(&other, &["ledger", "push", "Second other change"]);
+        let lines = status_lines(&fx, &a);
+        assert_eq!(
+            lines[lines.len() - 2..],
+            [
+                "data\tremote\tdiverged ahead 1 behind 1",
+                "docs\tremote\tdiverged ahead 1 behind 1"
+            ]
+        );
+        assert!(lines.contains(&mission_change(b, "M-AHEAD")), "{:?}", lines);
+        assert!(
+            !lines.iter().any(|l| l.contains("M-OTHER-2")),
+            "{:?}",
+            lines
+        );
+        assert!(
+            !lines.iter().any(|l| l.contains("other-2.md")),
+            "{:?}",
+            lines
+        );
+
+        // Discard drops the commit and lands on origin's state.
+        assert_eq!(fx.ok(&a, &["ledger", "discard", "--yes"]), "discarded\n");
+        assert_eq!(status_lines(&fx, &a), clean_status("up to date"));
+        let missions = fx.ok(&a, &["mission", "list"]);
+        assert!(!missions.contains("M-AHEAD"), "{}", missions);
+        assert!(missions.contains("M-OTHER-2"), "{}", missions);
+        assert_exit(&fx.get(&a, "ahead.md"), 1);
+        assert_eq!(
+            fx.ok(&a, &["ledger", "doc", "get", "other-2.md"]),
+            "other 2\n"
+        );
+    }
+
+    pub fn status_works_offline_and_discard_then_changes_nothing(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let a = fx.a();
+        fx.ok(&a, &["mission", "create", "M-OFF", "Offline"]);
+        fx.put(&a, "off.md", "off\n");
+        let moved = fx.root.path().join("origin-away.git");
+        std::fs::rename(fx.origin(), &moved).unwrap();
+
+        let status = fx.tsk(&a, &["ledger", "status"]);
+        assert_success(&status);
+        let note = stderr(&status);
+        assert_eq!(note.lines().count(), 1, "{}", note);
+        assert!(
+            note.starts_with("note: could not fetch ")
+                && note.trim_end().ends_with("reporting from what is local"),
+            "{}",
+            note
+        );
+        let lines: Vec<String> = stdout(&status).lines().map(str::to_string).collect();
+        assert!(lines.contains(&mission_change(b, "M-OFF")), "{:?}", lines);
+        assert!(
+            lines.contains(&"docs\tA\toff.md".to_string()),
+            "{:?}",
+            lines
+        );
+        assert_eq!(
+            lines[lines.len() - 2..],
+            ["data\tremote\tunknown", "docs\tremote\tunknown"]
+        );
+
+        // Discard cannot reset to a state it could not fetch, so it changes nothing.
+        let refused = fx.tsk(&a, &["ledger", "discard", "--yes"]);
+        assert_exit(&refused, 1);
+        assert!(
+            stderr(&refused).contains("Nothing was discarded"),
+            "{}",
+            stderr(&refused)
+        );
+        assert!(fx.ok(&a, &["mission", "list"]).contains("M-OFF"));
+        assert_eq!(fx.ok(&a, &["ledger", "doc", "get", "off.md"]), "off\n");
+
+        std::fs::rename(&moved, fx.origin()).unwrap();
+        assert_eq!(
+            status_lines(&fx, &a).last().unwrap(),
+            "docs\tremote\tup to date"
+        );
+    }
+
+    pub fn status_and_discard_need_a_ledger_store(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        for args in [
+            &["ledger", "status"][..],
+            &["ledger", "discard", "--yes"][..],
+        ] {
+            let out = fx.tsk(&a, args);
+            assert_exit(&out, 1);
+            assert!(stderr(&out).starts_with("error: "), "{}", stderr(&out));
+            assert!(
+                stderr(&out).contains("tsk ledger fetch"),
+                "{}",
+                stderr(&out)
+            );
+            assert_eq!(stdout(&out), "");
+        }
+    }
+
+    pub fn a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real(b: Backend) {
+        let (fx, a) = mission_with_tasks(b, 1);
+        fx.ok(
+            &a,
+            &[
+                "decision",
+                "add",
+                "M-T",
+                "Old call",
+                "--by",
+                "Jim",
+                "--on",
+                "2026-02-27",
+            ],
+        );
+        fx.ok(
+            &a,
+            &[
+                "decision",
+                "add",
+                "M-T",
+                "Leap day",
+                "--by",
+                "Jim",
+                "--task",
+                "T-01",
+                "--on",
+                "2024-02-29",
+            ],
+        );
+        fx.ok(&a, &["decision", "add", "M-T", "Today", "--by", "Jim"]);
+        let rows = lines(&fx.ok(&a, &["decision", "list", "M-T"]));
+        assert_eq!(rows[0], ["2026-02-27", "Jim", "-", "Old call"]);
+        assert_eq!(rows[1], ["2024-02-29", "Jim", "T-01", "Leap day"]);
+        assert!(is_date(&rows[2][0]), "{:?}", rows[2]);
+        assert_ne!(rows[2][0], "2026-02-27");
+
+        let before = fx.ok(&a, &["decision", "list", "M-T"]);
+        for bad in [
+            "2026-02-30",
+            "2026-02-29",
+            "2026-13-01",
+            "2026-00-10",
+            "27-02-2026",
+            "2026-2-7",
+            "yesterday",
+            "",
+        ] {
+            fails(
+                &fx,
+                &a,
+                &["decision", "add", "M-T", "x", "--by", "Jim", "--on", bad],
+                "YYYY-MM-DD",
+            );
+        }
+        assert_eq!(fx.ok(&a, &["decision", "list", "M-T"]), before);
+        // The date survives a push and a fetch on the other clone.
+        fx.ok(&a, &["ledger", "push", "Decisions"]);
+        let other = fx.b();
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(fx.ok(&other, &["decision", "list", "M-T"]), before);
+        let record = mission_json(&fx, &other, "M-T");
+        assert_eq!(record["decisions"][0]["decided_on"], "2026-02-27");
+    }
 }
 
 macro_rules! conformance {
@@ -2516,6 +2844,11 @@ conformance!(
     session_start_shows_the_empty_ledger_note_only_without_records_and_documents,
     session_start_says_a_skipped_session_works_without_a_thread,
     thread_commands_carry_local_record_and_document_changes_to_the_remote,
+    status_and_discard_report_and_drop_local_changes,
+    status_counts_commits_ahead_and_behind_origin,
+    status_works_offline_and_discard_then_changes_nothing,
+    status_and_discard_need_a_ledger_store,
+    a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
 );
 
 conformance!(
@@ -2554,6 +2887,11 @@ conformance!(
     session_start_shows_the_empty_ledger_note_only_without_records_and_documents,
     session_start_says_a_skipped_session_works_without_a_thread,
     thread_commands_carry_local_record_and_document_changes_to_the_remote,
+    status_and_discard_report_and_drop_local_changes,
+    status_counts_commits_ahead_and_behind_origin,
+    status_works_offline_and_discard_then_changes_nothing,
+    status_and_discard_need_a_ledger_store,
+    a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
 );
 
 // --- Backend selection and mismatch ---

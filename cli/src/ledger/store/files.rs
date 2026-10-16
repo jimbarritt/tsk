@@ -13,6 +13,7 @@ use crate::events::queue::{
 use crate::ledger::git::Git;
 use crate::ledger::location::{state_root_from_env, worktree_path, Repo};
 use crate::ledger::manifest::{self, ManifestInfo, MANIFEST_FILE};
+use crate::ledger::status::{self, LedgerStatus, SideStatus};
 use crate::ledger::{fetch, push};
 use crate::mission::model::{self, Mission};
 use crate::thread::entry::STORE_FILE;
@@ -26,6 +27,13 @@ const THREADS_DIR: &str = "threads";
 /// `records/missions/`, so git merges two missions without a conflict.
 pub const RECORDS_DIR: &str = "records";
 const MISSIONS_DIR: &str = "missions";
+
+/// True for the parts of the file ledger that are data: records, threads, the event
+/// queue and the manifest. Every other file is a document.
+pub fn is_data_path(path: &str) -> bool {
+    let first = path.split('/').next().unwrap_or("");
+    first == RECORDS_DIR || first == THREADS_DIR || first == EVENTS_DIR || path == MANIFEST_FILE
+}
 
 pub struct FilesStore {
     repo: Repo,
@@ -111,6 +119,51 @@ impl LedgerStore for FilesStore {
     fn has_local_changes(&self) -> Result<bool, String> {
         let wt = Git::new(&self.tree()?.root);
         Ok(!wt.run(["status", "--porcelain=v2", "-z"])?.is_empty())
+    }
+
+    fn status(&self) -> Result<LedgerStatus, String> {
+        let wt = Git::new(&self.tree()?.root);
+        let location = self.repo.location(&self.state_root)?;
+        let fetched = fetch::fetch_tip(&self.repo.git, &location);
+        let side = status::worktree_side(&wt, &fetched)?;
+        let (mut data, mut docs) = (Vec::new(), Vec::new());
+        for (letter, path) in side.files {
+            let line = format!("{}\t{}", letter, path);
+            if is_data_path(&path) {
+                data.push(line);
+            } else {
+                docs.push(line);
+            }
+        }
+        // One branch holds both, so both stand the same against origin.
+        Ok(LedgerStatus {
+            data: SideStatus {
+                changes: data,
+                remote: side.remote.clone(),
+            },
+            docs: SideStatus {
+                changes: docs,
+                remote: side.remote,
+            },
+            fetch_note: fetched.err().map(|e| {
+                status::fetch_failed_note(
+                    &format!("{}'s {}", location.label(), location.ref_name()),
+                    &e,
+                )
+            }),
+        })
+    }
+
+    fn discard(&self) -> Result<(), String> {
+        let wt = Git::new(&self.tree()?.root);
+        let location = self.repo.location(&self.state_root)?;
+        let tip = fetch::fetch_tip(&self.repo.git, &location).map_err(|e| {
+            format!(
+                "{}\n       Nothing was discarded: the ledger cannot be reset to a state that was not fetched",
+                e
+            )
+        })?;
+        status::discard_worktree(&wt, tip.as_deref())
     }
 
     fn path(&self) -> Result<PathBuf, String> {

@@ -198,6 +198,76 @@ appends to `queue.ndjson` conflict in a rebase.
 On success, stdout carries the Dolt commit hash, or the documents commit when only the
 documents changed. Notes go to stderr.
 
+### Status and discard
+
+`tsk ledger status` prints what the local store holds that origin does not. It is
+read-only. It runs a fetch of the ledger and documents refs (`dolt fetch origin`, and a
+`git fetch` of the documents ref) and never merges, resets or changes the working set. It
+exits 0 whatever it finds. When the ledger store does not exist, it exits 1 and names
+`tsk ledger fetch`.
+
+The output is one fact per line, tab-separated where a line has columns, with no header:
+
+```
+data	clean
+docs	clean
+data	remote	up to date
+docs	remote	up to date
+```
+
+With local changes:
+
+```
+data	local changes
+data	missions	added 1	modified 0	deleted 0
+data	tasks	added 1	modified 0	deleted 0
+docs	local changes
+docs	M	index.md
+docs	A	notes.md
+docs	D	missions/operational/M-OLD.md
+data	remote	ahead 1
+docs	remote	up to date
+```
+
+- `data` and `docs` each print `clean` or `local changes`, then one line per change. A
+  Dolt table line is `data`, the table, and the counts of rows added, modified and
+  deleted. A table with only a schema change prints counts of 0. A document line is
+  `docs`, `A`, `M` or `D`, and the path, sorted by path.
+- A change is a difference between the working state and the merge base of the local and
+  remote branches. A local commit that origin lacks is listed as well as an uncommitted
+  change. What only origin changed is not listed.
+- `data<TAB>remote` and `docs<TAB>remote` count commits of the local committed state
+  against origin: `up to date`, `ahead N`, `behind N` or `diverged ahead N behind N`. A
+  local commit that is not pushed counts as ahead. `unknown` means origin could not be
+  fetched. `unpublished` means origin holds no such branch yet.
+- When the fetch fails, one line on stderr says so (`note: could not fetch ...; reporting
+  from what is local`). Changes are then read from the remote-tracking state the last
+  fetch left for the data (none for the documents: they compare with `HEAD`), and both
+  `remote` lines say `unknown`.
+
+The `git` backend keeps data and documents on one branch. `status` sorts the changed files
+into `data` (`records/`, `threads/`, `external-events/` and `.tsk-ledger.toml`) and `docs`
+(everything else), prints a file line for each (`data<TAB>A<TAB>records/missions/M-X.json`),
+and prints the same remote state for both.
+
+`tsk ledger discard` drops every local change that is not pushed, in the data and the
+documents, so a trial mission can be undone without `dolt reset`. It is destructive.
+
+- Without `--yes` it changes nothing. It prints the `data` and `docs` lines of `status`
+  (no `remote` lines) and exits 1 with
+  `error: this would discard the local changes above. Rerun with --yes to discard them.`
+  When both sides are clean it prints the two `clean` lines and exits 0.
+- With `--yes` it fetches both remote states first. If a fetch fails it exits 1 with
+  `Nothing was discarded` and changes nothing. Otherwise, with the Dolt backend, it runs
+  `dolt reset --hard origin/main` and `dolt clean` (which drops a table that was never
+  committed), and in the documents worktree `git reset --hard <fetched tip>` and
+  `git clean -fd`. The `git` backend resets its one worktree the same way. When origin
+  holds no such branch, the reset target is the local `HEAD`. It prints `discarded`.
+- It does not touch thread state that lives outside the ledger: `tsk-thread-id` and
+  `tsk-thread-skip` in the git directory.
+
+Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::discard`).
+
 ### Manifest version
 
 The `version` row of the `manifest` table is `5` for a ledger whose `threads` table has
@@ -381,7 +451,7 @@ tsk task set <mission> <task> <field> <value>
 tsk task block <mission> <task> <by>
 tsk task unblock <mission> <task> <by>
 tsk task list <mission>
-tsk decision add <mission> <text> --by <who> [--task <T-nn>]
+tsk decision add <mission> <text> --by <who> [--task <T-nn>] [--on <YYYY-MM-DD>]
 tsk decision list <mission>
 tsk question add <mission> <text>
 tsk question answer <mission> <question> <text> --by <who>
@@ -403,8 +473,10 @@ Rules:
   pair that is not blocked is an error.
 - Blocked is never stored. A task is blocked when any task it names in `block` is not
   `done`.
-- `decision add` records the UTC date of the command. `--task` must name a task of the
-  mission. A decision has no label.
+- `decision add` records the UTC date of the command, or the date given to `--on`. `--on`
+  takes `YYYY-MM-DD` and must be a real calendar date: `2026-02-30` is an error, and so is a
+  date written any other way. `--task` must name a task of the mission. A decision has no
+  label.
 - `question answer` records the answer, the name after `--by` and the UTC date, and the
   question is no longer open. A question is answered once: a second answer is an error.
 - An unknown mission, task or question is an error that names the ID.
@@ -1010,6 +1082,18 @@ without a thread. Never in the ledger and never pushed.
 `tsk ledger fetch` replaces `fetch-bootstrap-ref.sh`. `tsk ledger path` replaces
 `bootstrap-wt-path.sh`. Both run in the `tsk` client alone, with no `tskd`, from inside
 any working tree of the managed repo.
+
+### Outside a git repository
+
+Every command that needs the clone's git directory (`ledger`, `mission`, `task`,
+`decision`, `question`, `events` and the `thread` commands) stops outside a git repository
+with exit 1 and one line on stderr:
+`error: not inside a git repository. Run tsk from inside the repository whose ledger you want.`
+The check is made once, where the repository is discovered. `tsk --version`,
+`tsk self-update`, `tsk guide`, `tsk install-plugin`, `tsk config` and `tsk nexus list`
+need no repository and run anywhere. The hooks `tsk thread session-start` and
+`tsk thread guard` do not exit 1: a hook must produce its JSON, so `session-start` reports
+the problem in its context message.
 
 ### `tsk ledger path`
 
