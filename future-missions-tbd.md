@@ -856,3 +856,26 @@ the ledger crosses hops in a similar way.
 
 Captured as an idea only. Nothing is decided. Which command, and whether it applies to
 existing commands or to a new one, are open.
+
+## Pi Durable: durable and proactive agents, and a replay-safe statement per command
+
+Raised during the Pi Durable research, 2026-10-16. Jim agreed to capture two items as ideas:
+
+> Yes capture it.
+
+Context from `docs/kb/orchestration-ecosystem/pi-durable.md` and
+`docs/kb/orchestration-ecosystem/durable-and-proactive-agents-provenance.md` in the tsk
+repo.
+
+- **Replay-safe statement.** Pi Durable lets each tool declare `replay: "safe"`. After a
+  crash, a safe tool reruns. Any other tool returns an interrupted result to the model. A
+  `tsk` command could carry the same statement: whether a second call is harmless. The
+  Efrit channel contract idea above is the natural place to design it.
+- **Terms.** "Durable agents" is a 2025 vendor label for a checkpointed agent loop, from
+  durable execution (Temporal, Microsoft, Inngest). "Proactive agents" is an agent that
+  starts from an event, not a prompt (1995 agent theory; LangChain's ambient agents,
+  2025; the `durable-pi` README). tsk's thread continuation covers the durable property
+  across actors and machines. An event that starts work from the ledger's event queue is
+  the proactive pattern. No tsk document uses either label.
+
+Captured as an idea only. Nothing is decided.
