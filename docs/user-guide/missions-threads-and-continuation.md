@@ -109,11 +109,11 @@ Actor entries in `docs/domain/ubiquitous-language.md`.
 code worktree to it. If a binding already exists, it says so and points you at
 `/resume-thread` instead, because that case is a resume, not a start.
 
-**`/pause-thread`** writes one continuation state entry: the mission briefing, the task in
+**`/pause-thread`** writes one continuation state entry: the mission, the task in
 progress, a short account of where things stand, plus the commit on `tsk/ledger`,
 the commit on `main`, a timestamp, and which actor wrote it. Run it before `/clear`.
-The commit hashes and timestamp come from `tsk thread pause`; the three judgement fields
-come from the agent.
+The mission, the commit hashes and the timestamp come from `tsk thread pause`; the two
+judgement fields, the task and the account, come from the agent.
 
 **`/resume-thread <thread-id>`** loads the latest continuation state entry, binds the current
 session or code worktree to that thread, and reports:

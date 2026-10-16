@@ -95,6 +95,14 @@ fn task_mut(mission: &mut Mission, seq: i64) -> Result<&mut Task, String> {
         .ok_or_else(|| format!("error: {} has no task {}", id, task_label(seq)))
 }
 
+/// The label of a task of `mission` named by `label`, which may leave out the leading
+/// zero: `T-1` is `T-01`. Fails when the label is not a task ID or the mission has no
+/// such task.
+pub fn resolve_task(mission: &Mission, label: &str) -> Result<String, String> {
+    let seq = parse_task(label)?;
+    task_ref(mission, seq).map(|task| task_label(task.seq))
+}
+
 // --- Operations. Each returns the changed mission to save. ---
 
 pub fn task_add(missions: &[Mission], id: &str, description: &str) -> Result<Mission, String> {

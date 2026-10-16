@@ -27,7 +27,7 @@ pub const NOT_INSTALLED: &str = "error: dolt is not installed.\n       \
 /// ([`LEGACY_DOCUMENTS_TABLE`]).
 pub const SCHEMA: &[&str] = &[
     "create table manifest (k varchar(64) primary key, v text)",
-    "create table threads (thread_id varchar(64) primary key, briefing_path varchar(1024) not null)",
+    "create table threads (thread_id varchar(64) primary key, briefing_path varchar(1024) null, mission_id varchar(64) null)",
     "create table continuation_entries (thread_id varchar(64), seq int, entry longtext not null, primary key (thread_id, seq))",
     "create table cloud_session_bindings (session_id varchar(255) primary key, thread_id varchar(64) not null, registered_at varchar(32) not null)",
     "create table external_events (position bigint primary key, envelope longtext not null)",
@@ -121,9 +121,13 @@ pub const TASK_SCHEMA: &[&str] = &[
      constraint questions_mission_fk foreign key (mission_id) references missions (id))",
 ];
 
-/// The layout version a new Dolt ledger records: documents live on the `tsk/docs` branch
-/// and missions, tasks, decisions and questions are rows.
-pub const LAYOUT_VERSION: i64 = 4;
+/// The layout version a new Dolt ledger records: documents live on the `tsk/docs` branch,
+/// missions, tasks, decisions and questions are rows, and a thread names its mission in
+/// `threads.mission_id`.
+pub const LAYOUT_VERSION: i64 = 5;
+/// The layout version with the task, decision and question tables and a `threads` table
+/// that holds only `briefing_path`.
+pub const TASKS_LAYOUT_VERSION: i64 = 4;
 /// The layout version with the mission tables and no task, decision or question tables.
 pub const MISSIONS_LAYOUT_VERSION: i64 = 3;
 /// The layout version with documents on the `tsk/docs` branch and no mission tables.
@@ -131,29 +135,35 @@ pub const DOCS_LAYOUT_VERSION: i64 = 2;
 /// The layout version whose documents are rows in the `documents` table.
 pub const LEGACY_LAYOUT_VERSION: i64 = 1;
 
-/// Statements that create the mission, task, decision and question tables and record the
-/// current layout version. Run on a version 1 ledger after its documents move, and on a
-/// version 2 ledger at the first mission write.
-pub fn mission_upgrade_sql() -> String {
+/// Statements that take a ledger at `from` (2 to 4, or 1 once its documents have moved,
+/// which counts as 2) to the current version, then record it. Version 2 gains the
+/// mission, task, decision and question tables. Version 3 gains the counters on
+/// `missions` and the task, decision and question tables. Version 4 gains
+/// `threads.mission_id`, and `threads.briefing_path` becomes nullable. Run at the first
+/// write that needs the new layout, and when `tsk ledger migrate-docs` moves a version 1
+/// ledger.
+pub fn upgrade_sql(from: i64) -> String {
     let mut sql = String::new();
-    for statement in MISSION_SCHEMA.iter().chain(TASK_SCHEMA) {
-        sql.push_str(statement);
-        sql.push_str(";\n");
+    if from <= DOCS_LAYOUT_VERSION {
+        for statement in MISSION_SCHEMA.iter().chain(TASK_SCHEMA) {
+            sql.push_str(statement);
+            sql.push_str(";\n");
+        }
+    } else if from == MISSIONS_LAYOUT_VERSION {
+        sql.push_str(
+            "alter table missions add column next_task int not null default 1;\n\
+             alter table missions add column next_question int not null default 1;\n",
+        );
+        for statement in TASK_SCHEMA {
+            sql.push_str(statement);
+            sql.push_str(";\n");
+        }
     }
-    sql.push_str(&version_sql());
-    sql
-}
-
-/// Statements that take a version 3 ledger to the current version: the counters on
-/// `missions`, the task, decision and question tables, and the manifest row.
-pub fn task_upgrade_sql() -> String {
-    let mut sql = String::from(
-        "alter table missions add column next_task int not null default 1;\n\
-         alter table missions add column next_question int not null default 1;\n",
-    );
-    for statement in TASK_SCHEMA {
-        sql.push_str(statement);
-        sql.push_str(";\n");
+    if from < LAYOUT_VERSION {
+        sql.push_str(
+            "alter table threads modify column briefing_path varchar(1024) null;\n\
+             alter table threads add column mission_id varchar(64) null;\n",
+        );
     }
     sql.push_str(&version_sql());
     sql
@@ -452,9 +462,30 @@ mod tests {
             );
         }
         assert!(!sql.contains("create table documents"));
-        assert!(sql.contains("('version', '4')"));
+        assert!(sql.contains("('version', '5')"));
+        assert!(sql.contains("mission_id varchar(64) null"));
+        assert!(sql.contains("briefing_path varchar(1024) null"));
         assert!(sql.contains("'repo_id'"));
         assert!(!init_sql(None).contains("repo_id"));
+    }
+
+    #[test]
+    fn the_upgrade_from_each_older_version_ends_at_the_current_one() {
+        let from_four = upgrade_sql(4);
+        assert!(from_four.contains("alter table threads add column mission_id"));
+        assert!(from_four.contains("modify column briefing_path varchar(1024) null"));
+        assert!(!from_four.contains("create table"));
+        assert!(from_four.ends_with("('version', '5');\n"));
+        let from_three = upgrade_sql(3);
+        assert!(from_three.contains("alter table missions add column next_task"));
+        assert!(from_three.contains("create table tasks "));
+        assert!(!from_three.contains("create table missions "));
+        assert!(from_three.contains("alter table threads add column mission_id"));
+        let from_two = upgrade_sql(2);
+        assert!(from_two.contains("create table missions "));
+        assert!(from_two.contains("create table questions "));
+        assert!(from_two.contains("alter table threads add column mission_id"));
+        assert_eq!(upgrade_sql(1), from_two);
     }
 
     #[test]

@@ -751,7 +751,28 @@ fn a_version_one_ledger_is_refused_by_every_command_except_fetch_path_and_migrat
         .unwrap();
     let hook = hook.wait_with_output().unwrap();
     assert_success(&hook);
-    assert!(stdout(&hook).contains("migrate-docs"), "{}", stdout(&hook));
+    let context = serde_json::from_str::<serde_json::Value>(&stdout(&hook)).unwrap()
+        ["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        context.contains("is at layout version 1: its documents are still in Dolt."),
+        "{}",
+        context
+    );
+    assert!(
+        context.contains("Run `tsk ledger migrate-docs` once to move them to the tsk/docs branch."),
+        "{}",
+        context
+    );
+    assert!(
+        context.contains("every tsk command except `tsk ledger fetch` stops"),
+        "{}",
+        context
+    );
+    assert!(!context.contains("could not be fetched"), "{}", context);
+    assert!(!context.contains("No thread binding"), "{}", context);
 }
 
 #[test]
@@ -832,10 +853,15 @@ fn migrate_docs_moves_every_document_byte_for_byte_and_a_fresh_clone_reads_them(
         "Documents of the tsk ledger. Written by tsk ledger doc put.\n"
     );
 
-    // The database: no table, version 4, and one Dolt commit for the change.
+    // The database: no table, version 5, and one Dolt commit for the change.
     assert_eq!(
         fx.dolt_sql(&a, "select v from manifest where k = 'version'"),
-        "v\n4\n"
+        "v\n5\n"
+    );
+    // The migrated thread gained the mission column, still null.
+    assert_eq!(
+        fx.dolt_sql(&a, "select thread_id, mission_id from threads"),
+        "thread_id,mission_id\naaaa1111,\n"
     );
     let tables = fx.dolt_sql(&a, "show tables");
     assert!(!tables.lines().any(|t| t == "documents"), "{}", tables);
@@ -899,16 +925,16 @@ fn an_older_tsk_stops_at_the_manifest_check_of_a_version_it_does_not_know() {
     need_dolt!();
     let fx = Fixture::new();
     // A version this tsk does not know stands in for what this tsk meets in a later release.
-    fx.old_ledger("5", &[], "");
+    fx.old_ledger("6", &[], "");
     let out = fx.tsk(&fx.a(), "dolt", &["ledger", "fetch"]);
-    assert_fails(&out, "unsupported ledger version 5");
+    assert_fails(&out, "unsupported ledger version 6");
     assert!(
-        stderr(&out).contains("supports version 1, 2, 3, 4"),
+        stderr(&out).contains("supports version 1, 2, 3, 4, 5"),
         "{}",
         stderr(&out)
     );
     let out = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-docs"]);
-    assert_fails(&out, "unsupported ledger version 5");
+    assert_fails(&out, "unsupported ledger version 6");
     assert_eq!(fx.remote_ref(DOCS_REF), None);
 }
 

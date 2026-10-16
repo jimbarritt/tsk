@@ -51,21 +51,24 @@ except `tsk ledger fetch` stops and says so.
 **2. Start a thread for a mission:**
 
 ```bash
-tsk thread start M-BOOT-04 missions/operational/M-BOOT-04-official-ledger.md
+tsk thread start M-BOOT-04
 ```
 
-The briefing path is relative to the ledger root. The command mints a thread ID, writes
-`threads/<thread-id>/` on the ledger, binds the current code worktree (or cloud session) to
-it, pushes, and prints `started:<thread-id>`. With a binding already in place it prints
-`resume-required:<thread-id>` and exits with status 2.
+The mission has a record (see `tsk mission list`), or a briefing document at
+`missions/<category>/M-BOOT-04-<slug>.md`. The command mints a thread ID, stores the thread
+and its mission on the ledger, binds the current code worktree (or cloud session) to
+it, pushes, and prints `started:<thread-id>`. It refuses an unknown mission ID. With a
+binding already in place it prints `resume-required:<thread-id>` and exits with status 2.
+To work without a thread, run `tsk thread skip`.
 
 **3. Pause a thread before the session ends:**
 
 ```bash
-tsk thread pause <thread-id> missions/operational/M-BOOT-04-official-ledger.md T-05 "Thread commands done; next: T-06"
+tsk thread pause <thread-id> T-05 "Thread commands done; next: T-06"
 ```
 
-It appends a continuation state entry, pushes, and prints `paused:<thread-id>`. It
+The mission comes from the thread. When the mission has a record, the task must be one of
+its tasks. The command appends a continuation state entry, pushes, and prints `paused:<thread-id>`. It
 refuses when the repository's `HEAD` is not on origin's default branch (for example
 `main`, `master` or `trunk`).
 

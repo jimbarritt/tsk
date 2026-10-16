@@ -1,13 +1,17 @@
 use std::collections::BTreeSet;
-use std::path::{Component, Path};
+use std::path::Path;
 
 use serde::Serialize;
 
 use crate::ledger::git::Git;
 use crate::ledger::location::mint_token;
-use crate::ledger::store::LedgerStore;
+use crate::ledger::store::{LedgerStore, ThreadInfo};
+use crate::mission::model::Mission;
+use crate::mission::records::resolve_task;
 
-use super::binding::{bind_cloud, bind_current, remove_marker, resolve, Binding};
+use super::binding::{
+    bind_cloud, bind_current, clear_skip, remove_marker, resolve, write_marker, Binding,
+};
 use super::clock::utc_now;
 use super::entry::{self, parse_store, CodeState, GitState, LedgerState, NewEntry};
 use super::session::Session;
@@ -29,6 +33,7 @@ pub struct ResumeOutcome {
 #[derive(Debug, PartialEq, Serialize)]
 pub struct ListRow {
     pub id: String,
+    pub mission_id: Option<String>,
     pub mission_link: String,
     pub latest_whats_next: Option<String>,
     pub latest_timestamp: Option<String>,
@@ -45,21 +50,6 @@ fn check_thread_id(id: &str) -> Result<(), String> {
         Err(format!(
             "error: invalid thread id '{}': expected {} characters from [0-9a-z]",
             id, THREAD_ID_LEN
-        ))
-    }
-}
-
-pub fn check_briefing_path(path: &str) -> Result<(), String> {
-    let p = Path::new(path);
-    let inside = !path.is_empty()
-        && p.components()
-            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
-    if inside {
-        Ok(())
-    } else {
-        Err(format!(
-            "error: mission briefing path '{}' must be relative to the ledger root, with no '..'",
-            path
         ))
     }
 }
@@ -86,18 +76,69 @@ fn entries_of(store: &dyn LedgerStore, id: &str) -> Result<Vec<entry::StoredEntr
     parse_store(&lines.join("\n"), &store.describe_thread(id))
 }
 
-pub fn index_md(id: &str, briefing_path: &str) -> String {
+/// The file ledger's `threads/<id>/index.md`. A thread names its mission on a `Mission:`
+/// line. A thread for a mission with no record also links the mission's briefing.
+pub fn index_md(id: &str, mission_id: &str, briefing_path: Option<&str>) -> String {
+    let mut text = format!("# Thread {}\n\nMission: {}\n", id, mission_id);
+    if let Some(path) = briefing_path {
+        text.push_str(&format!("Mission briefing: [{}]({})\n", path, path));
+    }
+    text
+}
+
+/// The mission ID on the `Mission:` line of a thread's `index.md`, if it has one.
+pub fn index_mission(index_md: &str) -> Option<String> {
+    index_md
+        .lines()
+        .find_map(|line| line.strip_prefix("Mission: "))
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+}
+
+/// The mission ID at the start of a briefing's file name: `M-` and the groups of capitals
+/// and digits that follow, up to the slug. `M-BOOT-04-official-ledger.md` is `M-BOOT-04`.
+pub fn mission_id_of_file(path: &str) -> Option<String> {
+    let name = Path::new(path).file_name()?.to_str()?;
+    let stem = name.strip_suffix(".md").unwrap_or(name);
+    let groups: Vec<&str> = stem
+        .split('-')
+        .take_while(|part| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        })
+        .collect();
+    (groups.len() >= 2 && groups[0] == "M").then(|| groups.join("-"))
+}
+
+/// The mission a thread works: the stored ID, else the ID in the file name of its
+/// briefing path. A thread made before layout version 5 stores only the briefing path.
+/// The derived ID is never written back.
+pub fn thread_mission(info: &ThreadInfo) -> Option<String> {
+    info.mission_id
+        .clone()
+        .or_else(|| info.briefing_path.as_deref().and_then(mission_id_of_file))
+}
+
+/// The briefing document of a mission that has no record: a document at
+/// `missions/<category>/<ID>-<slug>.md` or `missions/<category>/<ID>.md`. The first in
+/// path order when several match.
+pub fn find_briefing(store: &dyn LedgerStore, mission_id: &str) -> Result<Option<String>, String> {
+    Ok(store.doc_list("missions/")?.into_iter().find(|path| {
+        let parts: Vec<&str> = path.split('/').collect();
+        parts.len() == 3 && mission_id_of_file(parts[2]).as_deref() == Some(mission_id)
+    }))
+}
+
+pub fn no_such_mission(mission_id: &str) -> String {
     format!(
-        "# Thread {}\n\nMission briefing: [{}]({})\n",
-        id, briefing_path, briefing_path
+        "error: no such mission: {} (it has no mission record and no briefing document at missions/<category>/{}-<slug>.md)",
+        mission_id, mission_id
     )
 }
 
-pub fn start(
-    session: &Session,
-    mission_id: &str,
-    briefing_path: &str,
-) -> Result<StartOutcome, String> {
+pub fn start(session: &Session, mission_id: &str) -> Result<StartOutcome, String> {
     session.refresh()?;
     let store = session.store.as_ref();
     if let Some(binding) = resolve(session)? {
@@ -105,32 +146,41 @@ pub fn start(
             binding.thread_id().to_string(),
         ));
     }
-    check_briefing_path(briefing_path)?;
-    if !store.doc_exists(briefing_path)? {
-        return Err(format!(
-            "error: mission briefing not found at ledger-relative path '{}' (checked {})",
-            briefing_path,
-            store.describe_document(briefing_path)
-        ));
-    }
+    // The record is the mission. A ledger not yet moved to records has a briefing.
+    let has_record = store.missions_load()?.iter().any(|m| m.id == mission_id);
+    let briefing = if has_record {
+        None
+    } else {
+        Some(find_briefing(store, mission_id)?.ok_or_else(|| no_such_mission(mission_id))?)
+    };
     let id = mint_id(
         &store.describe_threads(),
         &store.describe_threads(),
         &|id| store.thread_exists(id),
     )?;
-    store.thread_create(&id, briefing_path)?;
+    store.thread_create(&id, mission_id, briefing.as_deref())?;
     bind_current(session, &id)?;
+    clear_skip(session)?;
     session.push(&format!("Start thread {} for mission {}", id, mission_id))?;
     Ok(StartOutcome::Started(id))
 }
 
-pub fn pause(
-    session: &Session,
-    id: &str,
-    mission_link: &str,
+/// The task to record: empty stays empty. When the mission has a record, a task ID must
+/// name one of its tasks, and `T-1` is written as `T-01`. A mission with no record has no
+/// tasks to check against.
+fn checked_task(
+    missions: &[Mission],
+    mission_id: Option<&str>,
     task_id: &str,
-    whats_next: &str,
-) -> Result<(), String> {
+) -> Result<String, String> {
+    let record = mission_id.and_then(|id| missions.iter().find(|m| m.id == id));
+    match record {
+        Some(mission) if !task_id.is_empty() => resolve_task(mission, task_id),
+        _ => Ok(task_id.to_string()),
+    }
+}
+
+pub fn pause(session: &Session, id: &str, task_id: &str, whats_next: &str) -> Result<(), String> {
     check_thread_id(id)?;
     session.refresh()?;
     let store = session.store.as_ref();
@@ -141,6 +191,9 @@ pub fn pause(
             store.describe_thread(id)
         ));
     }
+    let info = store.thread_info(id)?;
+    let mission_id = thread_mission(&info);
+    let task_id = checked_task(&store.missions_load()?, mission_id.as_deref(), task_id)?;
     let ledger_commit = store.head_id()?;
     let code_git = &session.repo.git;
     let code_ref = current_branch_ref(code_git)?;
@@ -151,8 +204,9 @@ pub fn pause(
     store.continuation_append(
         id,
         &NewEntry {
-            mission_link,
-            task_id,
+            mission_id: mission_id.as_deref(),
+            mission_link: info.briefing_path.as_deref(),
+            task_id: &task_id,
             whats_next,
             git: GitState {
                 ledger: LedgerState {
@@ -286,8 +340,9 @@ pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
                 session.push(&format!("Bind {} to thread {}", current, id))?;
             }
         }
-        None => super::binding::write_marker(session, id)?,
+        None => write_marker(session, id)?,
     }
+    clear_skip(session)?;
 
     Ok(ResumeOutcome {
         thread_id: id.to_string(),
@@ -370,11 +425,12 @@ pub fn mission_link(index_md: &str) -> String {
 pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
     let mut rows = Vec::new();
     for name in store.thread_ids()? {
-        let link = store.thread_briefing(&name)?.unwrap_or_default();
+        let info = store.thread_info(&name)?;
         let entries = entries_of(store, &name)?;
         let latest = entries.last().map(|stored| &stored.entry);
         rows.push(ListRow {
-            mission_link: link,
+            mission_id: thread_mission(&info),
+            mission_link: info.briefing_path.unwrap_or_default(),
             latest_whats_next: latest.and_then(|e| e.whats_next.clone()),
             latest_timestamp: latest.and_then(|e| e.timestamp.clone()),
             id: name,
@@ -414,15 +470,6 @@ mod tests {
     }
 
     #[test]
-    fn briefing_path_stays_inside_the_ledger() {
-        assert!(check_briefing_path("missions/operational/M-X.md").is_ok());
-        assert!(check_briefing_path("./missions/M-X.md").is_ok());
-        assert!(check_briefing_path("/etc/passwd").is_err());
-        assert!(check_briefing_path("missions/../../x.md").is_err());
-        assert!(check_briefing_path("").is_err());
-    }
-
-    #[test]
     fn is_branch_ref_accepts_only_named_branch_refs() {
         assert!(is_branch_ref("refs/heads/main"));
         assert!(is_branch_ref("refs/heads/feature/x"));
@@ -447,23 +494,118 @@ mod tests {
     }
 
     #[test]
-    fn index_md_matches_the_script_layout() {
+    fn index_md_names_the_mission_and_links_a_briefing_only_when_given() {
         assert_eq!(
-            index_md("1234abcd", "missions/M-X.md"),
-            "# Thread 1234abcd\n\nMission briefing: [missions/M-X.md](missions/M-X.md)\n"
+            index_md("1234abcd", "M-X", Some("missions/M-X.md")),
+            "# Thread 1234abcd\n\nMission: M-X\nMission briefing: [missions/M-X.md](missions/M-X.md)\n"
         );
+        assert_eq!(
+            index_md("1234abcd", "M-X", None),
+            "# Thread 1234abcd\n\nMission: M-X\n"
+        );
+    }
+
+    #[test]
+    fn index_mission_reads_the_mission_line() {
+        assert_eq!(
+            index_mission(&index_md("1234abcd", "M-X", Some("missions/M-X.md"))).as_deref(),
+            Some("M-X")
+        );
+        assert_eq!(
+            index_mission("# Thread\n\nMission briefing: [a](a)\n"),
+            None
+        );
+        assert_eq!(index_mission("Mission: \n"), None);
     }
 
     #[test]
     fn mission_link_reads_the_first_briefing_link() {
         assert_eq!(
-            mission_link(&index_md("1234abcd", "missions/M-X.md")),
+            mission_link(&index_md("1234abcd", "M-X", Some("missions/M-X.md"))),
             "missions/M-X.md"
         );
+        assert_eq!(mission_link(&index_md("1234abcd", "M-X", None)), "");
         assert_eq!(mission_link("# Thread\n\nno link\n"), "");
         assert_eq!(
             mission_link("Mission briefing: [open ended\n"),
             "open ended"
+        );
+    }
+
+    #[test]
+    fn mission_id_comes_from_the_file_name_before_the_slug() {
+        let id = |p: &str| mission_id_of_file(p);
+        assert_eq!(
+            id("missions/operational/M-BOOT-04-official-ledger.md").as_deref(),
+            Some("M-BOOT-04")
+        );
+        assert_eq!(
+            id("missions/operational/M-CONF-01.md").as_deref(),
+            Some("M-CONF-01")
+        );
+        assert_eq!(
+            id("missions/operational/M-BOOT-02-01-ledger-store.md").as_deref(),
+            Some("M-BOOT-02-01")
+        );
+        assert_eq!(
+            id("M-TSK-SCHEMA-tsk-schema.md").as_deref(),
+            Some("M-TSK-SCHEMA")
+        );
+        assert_eq!(id("missions/operational/notes.md"), None);
+        assert_eq!(id("missions/operational/M-lower.md"), None);
+        assert_eq!(id("base.md"), None);
+        assert_eq!(id(""), None);
+    }
+
+    #[test]
+    fn a_thread_mission_is_stored_else_derived_from_the_briefing_path() {
+        let info = |mission: Option<&str>, briefing: Option<&str>| ThreadInfo {
+            mission_id: mission.map(str::to_string),
+            briefing_path: briefing.map(str::to_string),
+        };
+        assert_eq!(
+            thread_mission(&info(Some("M-A"), Some("missions/operational/M-B-x.md"))).as_deref(),
+            Some("M-A")
+        );
+        assert_eq!(
+            thread_mission(&info(None, Some("missions/operational/M-B-x.md"))).as_deref(),
+            Some("M-B")
+        );
+        assert_eq!(thread_mission(&info(None, Some("base.md"))), None);
+        assert_eq!(thread_mission(&info(None, None)), None);
+    }
+
+    fn mission_with_task() -> Mission {
+        let missions = crate::mission::model::create(
+            &[],
+            "M-X",
+            "Mission X",
+            crate::mission::model::Category::Operational,
+            None,
+        )
+        .unwrap();
+        crate::mission::records::task_add(&[missions], "M-X", "First").unwrap()
+    }
+
+    #[test]
+    fn a_task_is_checked_against_a_mission_with_a_record_only() {
+        let missions = vec![mission_with_task()];
+        assert_eq!(checked_task(&missions, Some("M-X"), "T-1").unwrap(), "T-01");
+        assert_eq!(
+            checked_task(&missions, Some("M-X"), "T-01").unwrap(),
+            "T-01"
+        );
+        assert_eq!(checked_task(&missions, Some("M-X"), "").unwrap(), "");
+        let err = checked_task(&missions, Some("M-X"), "T-09").unwrap_err();
+        assert!(err.contains("T-09"), "{}", err);
+        assert!(checked_task(&missions, Some("M-X"), "later").is_err());
+        assert_eq!(
+            checked_task(&missions, Some("M-Y"), "T-09").unwrap(),
+            "T-09"
+        );
+        assert_eq!(
+            checked_task(&missions, None, "anything").unwrap(),
+            "anything"
         );
     }
 
@@ -527,6 +669,7 @@ mod tests {
     fn row(id: &str, ts: Option<&str>) -> ListRow {
         ListRow {
             id: id.to_string(),
+            mission_id: None,
             mission_link: String::new(),
             latest_whats_next: None,
             latest_timestamp: ts.map(str::to_string),
@@ -549,13 +692,14 @@ mod tests {
     fn list_row_serialises_in_the_script_field_order() {
         let r = ListRow {
             id: "1234abcd".to_string(),
+            mission_id: Some("M-X".to_string()),
             mission_link: "m.md".to_string(),
             latest_whats_next: None,
             latest_timestamp: None,
         };
         assert_eq!(
             serde_json::to_string(&r).unwrap(),
-            "{\"id\":\"1234abcd\",\"mission_link\":\"m.md\",\"latest_whats_next\":null,\"latest_timestamp\":null}"
+            "{\"id\":\"1234abcd\",\"mission_id\":\"M-X\",\"mission_link\":\"m.md\",\"latest_whats_next\":null,\"latest_timestamp\":null}"
         );
     }
 }

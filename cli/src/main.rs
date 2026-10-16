@@ -199,14 +199,32 @@ mod tests {
     #[test]
     fn thread_subcommands_parse() {
         assert!(matches!(
-            Cli::try_parse_from(["tsk", "thread", "start", "M-X", "missions/M-X.md"]).unwrap().command,
-            Some(Commands::Thread { action: thread::ThreadCommands::Start { mission_id, briefing_path } })
-                if mission_id == "M-X" && briefing_path == "missions/M-X.md"
+            Cli::try_parse_from(["tsk", "thread", "start", "M-X"]).unwrap().command,
+            Some(Commands::Thread { action: thread::ThreadCommands::Start { mission_id, briefing_path: None } })
+                if mission_id == "M-X"
         ));
         assert!(matches!(
-            Cli::try_parse_from(["tsk", "thread", "pause", "1234abcd", "m.md", "", "-next: tests"]).unwrap().command,
-            Some(Commands::Thread { action: thread::ThreadCommands::Pause { task_id, whats_next, .. } })
+            Cli::try_parse_from(["tsk", "thread", "start", "M-X", "missions/M-X.md"]).unwrap().command,
+            Some(Commands::Thread { action: thread::ThreadCommands::Start { mission_id, briefing_path: Some(path) } })
+                if mission_id == "M-X" && path == "missions/M-X.md"
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "thread", "pause", "1234abcd", "", "-next: tests"]).unwrap().command,
+            Some(Commands::Thread { action: thread::ThreadCommands::Pause { task_id, whats_next, legacy_whats_next: None, .. } })
                 if task_id.is_empty() && whats_next == "-next: tests"
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "thread", "pause", "1234abcd", "m.md", "T-01", "-next: tests"]).unwrap().command,
+            Some(Commands::Thread { action: thread::ThreadCommands::Pause { task_id, whats_next, legacy_whats_next: Some(last), .. } })
+                if task_id == "m.md" && whats_next == "T-01" && last == "-next: tests"
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "thread", "skip"])
+                .unwrap()
+                .command,
+            Some(Commands::Thread {
+                action: thread::ThreadCommands::Skip
+            })
         ));
         assert!(matches!(
             Cli::try_parse_from(["tsk", "thread", "stop"])

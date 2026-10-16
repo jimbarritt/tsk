@@ -93,10 +93,14 @@ A thread ID is a bare slug: 8 characters, lowercase base36, checked against exis
 to leave the `threads/` namespace; the directory itself is the namespace, so a bare
 slug is enough inside it.
 
-Each thread has a directory, `threads/<slug>/`, holding:
+Each thread has a directory, `threads/<slug>/`, holding the following. In the Dolt ledger
+the directory is a row of the `threads` table: `mission_id`, and `briefing_path` only for a
+mission with no record.
 
-- `index.md`: a stable pointer. At minimum, a link to the mission briefing document the
-  thread works on, not a bare mission ID.
+- `index.md`: a stable pointer. It names the mission by ID (`Mission: <id>`). A thread for
+  a mission with no record also links the mission briefing document. A thread made
+  before the ID was stored has the link only, and the reader derives the ID from the
+  link's file name.
 - `continuation-state.jsonl`: an append only store of continuation contexts that were
   passed between thread pause and resume. Named "thread continuation" in
   `docs/domain/ubiquitous-language.md`, qualified because the record already lives
@@ -110,17 +114,18 @@ One JSON object per line, appended, never rewritten. Fields:
 
 | Field | Written by | Description |
 |---|---|---|
-| Mission briefing link | Agent (usually already known from thread state) | The briefing document the thread works on |
-| Task ID | Agent (usually already known from thread state) | The task in progress when the thread paused |
+| Mission ID | Binary | The mission the thread works, from the thread |
+| Mission briefing link | Binary | The briefing document the thread works on. Written only for a thread whose mission has no record |
+| Task ID | Agent (usually already known from thread state) | The task in progress when the thread paused. When the mission has a record, the binary checks it against the mission's tasks |
 | What's next | Agent | A short account of where things stand |
 | Git state | Binary | A nested `git` object. `git.ledger.commit` is the commit the ledger branch was at when the pause began, read before this entry is appended. It cannot be the commit the push creates: that commit holds this entry, so its hash is unknown here. `git.code.ref` is the full ref of the branch the code worktree is on at pause time. `git.code.commit` is the commit at its `HEAD`. |
 | Timestamp | Script | When the entry was appended |
 | Written by | Script | `urn:tsk:worktree:<name>` or `urn:tsk:cloudsession:<session-id>`, naming the binding that wrote this entry |
 
 The commit and timestamp fields are deterministic: a script captures them, since the
-same script already handles the git side of a pause. Only the mission link, task ID
-and what's-next text involve judgement, and even the first two are usually already
-known rather than freshly decided.
+same script already handles the git side of a pause. The mission comes from the thread.
+Only the task ID and what's-next text involve judgement, and the task ID is usually
+already known rather than freshly decided.
 
 Resuming a thread reads the latest entry by default, selected by timestamp. Earlier
 entries stay in the store and can be read directly, for example to notice a task
@@ -139,12 +144,15 @@ request naming a mission.
    resolve the code worktree marker.
 2. If a thread already exists for that binding, this is a resume, not a start (see
    `/resume-thread`).
-3. If none exists, mint a new thread ID, scaffold `threads/<slug>/`, and write the
-   binding (the cloud lookup entry, or the code worktree marker file).
+3. If none exists, mint a new thread ID, create the thread with its mission, and write the
+   binding (the cloud lookup entry, or the code worktree marker file). Starting clears a
+   `tsk thread skip`.
 4. The mission argument is resolved and validated twice: the agent resolves a
-   natural-language mission reference to an actual mission ID and briefing link before
-   running the script, and the script validates that reference independently rather
-   than trusting the agent's resolution alone.
+   natural-language mission reference to an actual mission ID before running the
+   command, and `tsk thread start <mission-id>` validates that ID independently rather
+   than trusting the agent's resolution alone. The mission must have a record, or, in a
+   ledger not yet moved to records, a briefing document. The thread stores the briefing
+   path only in the second case.
 
 Everything in this path is scriptable. No agent judgement is needed once the mission
 argument is resolved.
@@ -152,8 +160,10 @@ argument is resolved.
 ### `/pause-thread`
 
 Writes one continuation state entry, through `tsk thread pause`. The command captures
-the commit hashes, the branch and the timestamp; the agent supplies the mission link,
-task ID and what's-next text as arguments.
+the commit hashes, the branch and the timestamp, and takes the mission from the thread;
+the agent supplies the task ID and what's-next text as arguments:
+`tsk thread pause <thread-id> <task-id> <whats-next>`. The task ID can be empty. When the
+mission has a record, a task ID that is not one of its tasks stops the pause.
 
 The pause rule: `HEAD` of the code worktree must be reachable from some branch on origin,
 not only from origin's default branch, because work happens on feature branches and in
@@ -167,6 +177,14 @@ worktrees yet.
 
 `/pause-thread` is invoked manually, in the supervised operating context: a human runs
 it themselves before `/clear`.
+
+### Working without a thread
+
+`tsk thread skip` records, in a file in the clone's git directory, that this session or
+code worktree works without a thread. The Stop hook check passes in silence while the file
+exists. The record is local and is never in the ledger. `tsk thread start` and
+`tsk thread resume` remove it. The Stop hook check also passes when the ledger holds no
+missions, because there is nothing to bind to.
 
 ### `/resume-thread <thread-id>`
 

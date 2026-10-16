@@ -17,9 +17,9 @@ use crate::ledger::{fetch, push};
 use crate::mission::model::{self, Mission};
 use crate::thread::entry::STORE_FILE;
 use crate::thread::lookup::{lookup_path, CloudBinding, Lookup};
-use crate::thread::ops::{index_md, mission_link};
+use crate::thread::ops::{index_md, index_mission, mission_link};
 
-use super::{LedgerStore, PushReport, RefreshOutcome};
+use super::{LedgerStore, PushReport, RefreshOutcome, ThreadInfo};
 
 const THREADS_DIR: &str = "threads";
 /// The top-level directory of record files. One JSON file per mission sits in
@@ -191,8 +191,13 @@ impl LedgerStore for FilesStore {
         Ok(self.tree()?.thread_dir(id).is_dir())
     }
 
-    fn thread_create(&self, id: &str, briefing_path: &str) -> Result<(), String> {
-        self.tree()?.thread_create(id, briefing_path)
+    fn thread_create(
+        &self,
+        id: &str,
+        mission_id: &str,
+        briefing_path: Option<&str>,
+    ) -> Result<(), String> {
+        self.tree()?.thread_create(id, mission_id, briefing_path)
     }
 
     fn thread_delete(&self, id: &str) -> Result<(), String> {
@@ -203,8 +208,8 @@ impl LedgerStore for FilesStore {
         self.tree()?.thread_ids()
     }
 
-    fn thread_briefing(&self, id: &str) -> Result<Option<String>, String> {
-        Ok(self.tree()?.thread_briefing(id))
+    fn thread_info(&self, id: &str) -> Result<ThreadInfo, String> {
+        Ok(self.tree()?.thread_info(id))
     }
 
     fn continuation_append(&self, id: &str, line: &str) -> Result<(), String> {
@@ -457,7 +462,12 @@ impl FileTree {
         Ok(())
     }
 
-    fn thread_create(&self, id: &str, briefing_path: &str) -> Result<(), String> {
+    fn thread_create(
+        &self,
+        id: &str,
+        mission_id: &str,
+        briefing_path: Option<&str>,
+    ) -> Result<(), String> {
         let dir = self.thread_dir(id);
         if dir.exists() {
             return Err(format!("error: threads/{} already exists", id));
@@ -465,7 +475,7 @@ impl FileTree {
         std::fs::create_dir_all(&dir)
             .map_err(|e| format!("error: could not create {}: {}", dir.display(), e))?;
         let index = dir.join("index.md");
-        std::fs::write(&index, index_md(id, briefing_path))
+        std::fs::write(&index, index_md(id, mission_id, briefing_path))
             .map_err(|e| format!("error: could not write {}: {}", index.display(), e))?;
         let store = dir.join(STORE_FILE);
         std::fs::write(&store, "")
@@ -500,10 +510,14 @@ impl FileTree {
         Ok(names)
     }
 
-    fn thread_briefing(&self, id: &str) -> Option<String> {
-        std::fs::read_to_string(self.thread_dir(id).join("index.md"))
-            .ok()
-            .map(|text| mission_link(&text))
+    fn thread_info(&self, id: &str) -> ThreadInfo {
+        match std::fs::read_to_string(self.thread_dir(id).join("index.md")) {
+            Ok(text) => ThreadInfo {
+                mission_id: index_mission(&text),
+                briefing_path: Some(mission_link(&text)).filter(|p| !p.is_empty()),
+            },
+            Err(_) => ThreadInfo::default(),
+        }
     }
 
     fn continuation_append(&self, id: &str, line: &str) -> Result<(), String> {
@@ -615,22 +629,26 @@ mod tests {
     #[test]
     fn thread_create_writes_index_and_empty_store_and_refuses_an_existing_thread() {
         let (_dir, tree) = tree();
-        tree.thread_create("1234abcd", "missions/M-X.md").unwrap();
+        tree.thread_create("1234abcd", "M-X", Some("missions/M-X.md"))
+            .unwrap();
         let thread = tree.thread_dir("1234abcd");
         assert_eq!(
             std::fs::read_to_string(thread.join("index.md")).unwrap(),
-            index_md("1234abcd", "missions/M-X.md")
+            index_md("1234abcd", "M-X", Some("missions/M-X.md"))
         );
         assert_eq!(
             std::fs::read_to_string(thread.join(STORE_FILE)).unwrap(),
             ""
         );
         assert_eq!(
-            tree.thread_briefing("1234abcd").as_deref(),
-            Some("missions/M-X.md")
+            tree.thread_info("1234abcd"),
+            ThreadInfo {
+                mission_id: Some("M-X".to_string()),
+                briefing_path: Some("missions/M-X.md".to_string()),
+            }
         );
         let err = tree
-            .thread_create("1234abcd", "missions/M-X.md")
+            .thread_create("1234abcd", "M-X", Some("missions/M-X.md"))
             .unwrap_err();
         assert_eq!(err, "error: threads/1234abcd already exists");
     }
@@ -639,7 +657,7 @@ mod tests {
     fn continuation_lines_append_in_order_and_an_absent_log_is_empty() {
         let (_dir, tree) = tree();
         assert!(tree.continuation_list("1234abcd").unwrap().is_empty());
-        tree.thread_create("1234abcd", "m.md").unwrap();
+        tree.thread_create("1234abcd", "M-X", Some("m.md")).unwrap();
         tree.continuation_append("1234abcd", "{\"n\":1}").unwrap();
         tree.continuation_append("1234abcd", "{\"n\":2}").unwrap();
         assert_eq!(
@@ -667,7 +685,7 @@ mod tests {
         tree.doc_put("missions/b.md", "b").unwrap();
         tree.doc_put("missions/a.md", "a").unwrap();
         tree.doc_put("index.md", "i").unwrap();
-        tree.thread_create("1234abcd", "m.md").unwrap();
+        tree.thread_create("1234abcd", "M-X", Some("m.md")).unwrap();
         tree.events_append("{}\n").unwrap();
         assert_eq!(tree.doc_get("missions/a.md").unwrap().as_deref(), Some("a"));
         assert_eq!(tree.doc_get("missions").unwrap(), None);

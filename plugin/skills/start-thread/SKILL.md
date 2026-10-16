@@ -9,25 +9,21 @@ Backs the `/tsk:start-thread` command. This skill is the agent-facing wrapper ar
 ## Steps
 
 1. **Resolve the mission argument.** You were given a mission reference, by name,
-   ID, or natural language. Resolve it to:
-   - `<mission-id>`: the mission's stable ID, e.g. `M-BOOT-02-01`.
-   - `<briefing-path>`: the mission briefing's path, relative to the ledger root
-     (not the absolute path), e.g. `missions/operational/M-BOOT-04-official-ledger.md`.
-     Look it up in the mission tree that `tsk ledger doc get index.md` prints, or
-     list the briefings with `tsk ledger doc list missions/`, if you don't already
-     know it.
+   ID, or natural language. Resolve it to the mission's stable ID, e.g.
+   `M-TSK-SCHEMA`. List the missions with `tsk mission list`, or, for a ledger with no
+   mission records yet, read the mission tree that `tsk ledger doc get index.md` prints.
 
    If you cannot resolve the reference to an actual mission, stop and ask rather
-   than guessing. Do not invent an ID or a path.
+   than guessing. Do not invent an ID.
 
 2. **Run the command.**
 
    ```bash
-   tsk thread start "<mission-id>" "<briefing-path>"
+   tsk thread start "<mission-id>"
    ```
 
-   The command validates that the briefing path exists in the ledger. It
-   does not trust your resolution alone.
+   The command checks that the mission exists, as a record or as a briefing
+   document. It does not trust your resolution alone.
 
 3. **Handle the result.**
    - Exit 0, output `started:<thread-id>`: a new thread was minted and bound.
@@ -35,5 +31,5 @@ Backs the `/tsk:start-thread` command. This skill is the agent-facing wrapper ar
    - Exit 2, output `resume-required:<thread-id>`: this session or code worktree is
      already bound to a thread. This is a resume, not a start. Invoke the
      `tsk:resume-thread` skill with that thread ID instead of proceeding here.
-   - Exit 1: the mission argument failed validation, or another error occurred.
-     Report the command's stderr and stop. Do not retry with a guessed path.
+   - Exit 1: the mission ID is unknown, or another error occurred. Report the
+     command's stderr and stop. Do not retry with a guessed ID.

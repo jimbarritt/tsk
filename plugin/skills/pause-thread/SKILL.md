@@ -21,12 +21,12 @@ suggest an automated trigger for it.
    (no binding), there is no thread to pause. Say so and stop. Do not start
    one implicitly.
 
-2. **Compose the continuation state entry's three judgement fields**, from what you
+2. **Compose the continuation state entry's two judgement fields**, from what you
    already know about the thread (usually already on hand from thread state,
-   not freshly decided):
-   - `<mission-briefing-link>`: the mission briefing this thread is working, relative
-     to the ledger root.
-   - `<task-id>`: the task in progress when the thread paused.
+   not freshly decided). The mission comes from the thread.
+   - `<task-id>`: the task in progress when the thread paused, for example `T-05`. It
+     can be empty. When the thread's mission has a record, it must be a task of that
+     mission.
    - `<whats-next>`: a short, concrete account of where things stand, specific
      enough that a different actor, reading only this line, knows what to do
      next.
@@ -34,7 +34,7 @@ suggest an automated trigger for it.
 3. **Run the command.**
 
    ```bash
-   tsk thread pause "<thread-id>" "<mission-briefing-link>" "<task-id>" "<whats-next>"
+   tsk thread pause "<thread-id>" "<task-id>" "<whats-next>"
    ```
 
    It captures the ledger commit, the code commit and branch, and the timestamp

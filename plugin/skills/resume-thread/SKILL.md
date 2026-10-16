@@ -28,9 +28,9 @@ refuse.
 2. **If `warning` is non-empty**, surface it to me plainly before going further.
    Do not silently take over a thread another actor is or was working.
 
-3. **Present the fixed-shape summary**, reading `latest.mission_link`,
-   `latest.task_id` and `latest.whats_next` (if `latest` is `{}`, say so
-   instead of inventing a summary):
+3. **Present the fixed-shape summary**, reading `latest.mission_id` (or
+   `latest.mission_link` in an older entry), `latest.task_id` and `latest.whats_next`
+   (if `latest` is `{}`, say so instead of inventing a summary):
 
    ```
    thread id: <thread-id>
@@ -38,9 +38,10 @@ refuse.
    this is where we are at: <summary of the handover note>
    ```
 
-   Resolve `<mission title>` from `latest.mission_link`. Read the briefing with
-   `tsk ledger doc get <mission_link>` if you need the title, and do not just
-   repeat the raw link.
+   Resolve `<mission title>` from `latest.mission_id`: `tsk mission list <mission-id>`
+   prints the name. For an older entry that has only `latest.mission_link`, read the
+   briefing with `tsk ledger doc get <mission_link>` if you need the title. Do not just
+   repeat the raw ID or link.
 
 4. **Ask whether to continue** with this thread, or do something else. Do not
    assume continuation.

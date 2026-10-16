@@ -11,8 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::ledger::docs;
 use crate::ledger::dolt::{
-    self, flag, integer, lit, text, Dolt, BRANCH, DOCS_LAYOUT_VERSION, LEGACY_LAYOUT_VERSION,
-    REMOTE, REMOTE_BRANCH_NAME,
+    self, flag, integer, lit, text, Dolt, BRANCH, LEGACY_LAYOUT_VERSION, REMOTE, REMOTE_BRANCH_NAME,
 };
 use crate::ledger::fetch::{fetch_tip, ref_kind, FetchOutcome, RefKind};
 use crate::ledger::git::Git;
@@ -28,7 +27,7 @@ use crate::mission::model::{
 use crate::thread::lookup::{CloudBinding, Lookup};
 
 use super::files::FileTree;
-use super::{LedgerStore, PushReport, RefreshOutcome};
+use super::{LedgerStore, PushReport, RefreshOutcome, ThreadInfo};
 
 const MANIFEST_SOURCE: &str = "the manifest table";
 
@@ -769,15 +768,30 @@ impl LedgerStore for DoltStore {
         ))? > 0)
     }
 
-    fn thread_create(&self, id: &str, briefing_path: &str) -> Result<(), String> {
+    fn thread_create(
+        &self,
+        id: &str,
+        mission_id: &str,
+        briefing_path: Option<&str>,
+    ) -> Result<(), String> {
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        // A refused write upgrades nothing: the checks come first.
+        let version = self.check_current(&db, &location)?;
         if self.thread_exists(id)? {
             return Err(format!("error: threads/{} already exists", id));
         }
-        self.db()?.exec(&format!(
-            "insert into threads (thread_id, briefing_path) values ({}, {});",
+        let mut sql = String::new();
+        if version < dolt::LAYOUT_VERSION {
+            sql.push_str(&dolt::upgrade_sql(version));
+        }
+        sql.push_str(&format!(
+            "insert into threads (thread_id, briefing_path, mission_id) values ({}, {}, {});",
             lit(id),
-            lit(briefing_path)
-        ))
+            briefing_path.map_or("NULL".to_string(), lit),
+            lit(mission_id)
+        ));
+        db.exec(&sql)
     }
 
     fn thread_delete(&self, id: &str) -> Result<(), String> {
@@ -798,12 +812,26 @@ impl LedgerStore for DoltStore {
         Ok(ids)
     }
 
-    fn thread_briefing(&self, id: &str) -> Result<Option<String>, String> {
-        let rows = self.db()?.rows(&format!(
-            "select briefing_path from threads where thread_id = {}",
+    fn thread_info(&self, id: &str) -> Result<ThreadInfo, String> {
+        let db = self.db()?;
+        // A ledger below version 5 has no `mission_id` column.
+        let column = if self.manifest_rows(&db)?.version >= dolt::LAYOUT_VERSION {
+            "mission_id"
+        } else {
+            "null as mission_id"
+        };
+        let rows = db.rows(&format!(
+            "select briefing_path, {} from threads where thread_id = {}",
+            column,
             lit(id)
         ))?;
-        Ok(rows.first().and_then(|row| text(row, "briefing_path")))
+        Ok(rows
+            .first()
+            .map(|row| ThreadInfo {
+                mission_id: text(row, "mission_id").filter(|m| !m.is_empty()),
+                briefing_path: text(row, "briefing_path").filter(|p| !p.is_empty()),
+            })
+            .unwrap_or_default())
     }
 
     fn continuation_append(&self, id: &str, line: &str) -> Result<(), String> {
@@ -961,14 +989,10 @@ impl LedgerStore for DoltStore {
         let db = self.db()?;
         let version = self.check_current(&db, &location)?;
         let mut sql = String::new();
-        if version == DOCS_LAYOUT_VERSION {
-            // The first mission write on a version 2 ledger: the tables and the new
-            // version land in the same local change as the mission.
-            sql.push_str(&dolt::mission_upgrade_sql());
-        } else if version == dolt::MISSIONS_LAYOUT_VERSION {
-            // A version 3 ledger gains the counters and the task, decision and question
-            // tables in the same local change as the first write.
-            sql.push_str(&dolt::task_upgrade_sql());
+        if version < dolt::LAYOUT_VERSION {
+            // The first write on an older ledger: the missing tables and columns and the
+            // new version land in the same local change as the mission.
+            sql.push_str(&dolt::upgrade_sql(version));
         }
         sql.push_str(&save_sql(mission));
         db.exec(&sql)
@@ -1020,7 +1044,7 @@ impl DoltStore {
             return Ok(Vec::new());
         }
         // A version 3 ledger has no task, decision or question tables.
-        read_missions(db, version >= dolt::LAYOUT_VERSION)
+        read_missions(db, version >= dolt::TASKS_LAYOUT_VERSION)
     }
 
     /// A fresh clone meets a ref that holds a file ledger: stop with the way out.
