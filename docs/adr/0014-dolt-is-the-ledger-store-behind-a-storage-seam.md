@@ -61,7 +61,8 @@ is not taken now. The reasons are in `tsk-market-position-analysis.md` under
 3. **Dolt runs as an external binary**, as `git` does. tsk does not link Dolt.
 4. **Git stays the transport.** The Dolt database syncs to the repository's
    `tsk/ledger` branch, or a branch beside it, with `dolt remote add --ref
-   refs/heads/<branch>`. No custom ref, no server, no account.
+   refs/heads/<branch>`. No custom ref, no server and no account are needed. A server is a
+   potential future evolution (see the end of this document).
 5. **No projection layer in the first step.** Agents read and write the ledger through
    `tsk` commands, which print Markdown and JSON. A projection for humans follows when a
    human needs one.
@@ -85,3 +86,18 @@ is not taken now. The reasons are in `tsk-market-position-analysis.md` under
   rewritten for the new store.
 - The dependency on the `dolt` binary is the first dependency beyond git since ADR
   0012. The seam is what makes that reversible.
+
+## Potential future evolution: a server in place of branch storage
+
+Raised by Jim, 2026-10-16, from the Pi Durable research. Pi Durable's storage interface
+accepts a store the user already runs, such as Postgres
+(`docs/kb/orchestration-ecosystem/pi-durable.md`). The same applies here: because the
+ledger sits behind the storage seam, a deployment that already runs a server could use
+it. In a corporate or enterprise setting, a Dolt server, or a tsk server, could replace
+the branch storage mechanism, so the ledger would need no `tsk/ledger` branch.
+
+This is a potential future evolution. Nothing here is decided or scheduled. Git stays the
+transport for now, because it needs no server, no account and nothing installed beyond
+`git` and `dolt`, and it works in a Claude Code cloud session. Open: Dolt's own server or
+a tsk server, whether a cloud session keeps the branch transport, and how the seam names a
+transport that is not git. Recorded in the ledger under future missions.
