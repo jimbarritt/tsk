@@ -1,0 +1,118 @@
+# Mission: tsk schema
+
+| Field | Value |
+|---|---|
+| ID | M-TSK-SCHEMA |
+| Territory | agentic research |
+| Assignee | unassigned |
+| Blocked by | none |
+
+Designed. Named by Jim on 2026-10-15. The design is in
+`missions/operational/M-TSK-SCHEMA/design.md`, worked out in eight questions and answers
+with Jim the same day. The plan below is drawn from it and awaits Jim's approval.
+
+## Idea, as captured
+
+Raised by Jim, 2026-10-13, when the import guide (M-ENV T-10) was proposed in terms of
+document paths:
+
+> Wait. No we should be using dolt now. I thought we agreed everything should be stored
+> in dolt.
+>
+> The whole point is that the agents should not edit the markdowns themselves they
+> should always go through tsk. Then we do the projections later
+
+And, on the same day:
+
+> Doc put will still be used for eg storing intel files.
+
+Named by Jim, 2026-10-15: "M-TSK-SCHEMA".
+
+## Intelligence
+
+- `missions/operational/M-TSK-SCHEMA/design.md`: the design document for this mission.
+  The design is worked out there.
+- M-DOLT's briefing, `missions/operational/M-DOLT-ledger-store.md`: every ledger record
+  moved to Dolt as it was. A mission briefing is a row in the `documents` table, with its
+  Markdown body in one text column. An agent writes that Markdown and stores it with
+  `tsk ledger doc put`, and tsk does not parse it. The briefing lists "Changing what the
+  ledger records" as out of scope, and "Projections are decided later" as a decision.
+- `future-missions-tbd.md`, "Dolt as the ledger's store, and markdown as a projection for
+  humans" (Jim, 2026-10-09): the earlier form of the idea.
+- `future-missions-tbd.md`, the subagent delegation pattern: the candidate features,
+  including `tsk mission brief <mission> <task>`, which renders a delegation prompt from
+  the ledger, decision authority per run, file ownership as data, and structured
+  questions from a subagent.
+- `docs/adr/0007-event-log-as-source-of-truth.md` in the tsk repo: Markdown as a
+  read-only projection of tsk's own store.
+- `docs/adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md` in the tsk repo:
+  Dolt as the store, and the projection deferred.
+- `docs/domain/mission-model.md` and `docs/domain/mission-briefing-template.md` in the
+  tsk repo: the mission model and the briefing sections today.
+
+## Decisions
+
+- **Records and documents.** Missions, tasks and decisions become structured records,
+  written through `tsk` commands. Intelligence, research, reports and other free text
+  stay documents, written with `tsk ledger doc put`. The index is generated from the
+  mission records. Agreed by Jim, 2026-10-15.
+
+## Objective
+
+- Missions, tasks, decisions and open questions are typed rows in the Dolt database,
+  written and read only through `tsk` commands. Markdown briefings no longer exist for
+  open missions.
+- Documents are plain Markdown files on the branch `tsk/docs`, written with
+  `tsk ledger doc put` and linked from mission records by path and role.
+  `tsk ledger push` pushes both branches in one command, documents first.
+- A thread links to a mission by ID, and a pause entry to a mission and a task by ID.
+  tsk refuses an ID it cannot find.
+- `tsk mission list` is the index. The session start context prints the bound thread's
+  mission and its open tasks, or the mission list when unbound.
+- Every open mission in this repo's ledger is migrated to records through the commands,
+  and every done mission's briefing is a document linked from a bare mission record.
+- The import guide, the plugin skills, `CLAUDE.md` and the user guide describe the
+  commands, and no agent-facing text names a briefing file.
+- A repo's ledger and documents use a custom ref by default. Branches under
+  `refs/heads/*` are an override, set for a repo that is used from Claude Code cloud
+  sessions.
+
+## Decision authority
+
+Jim decided everything in the design doc's Decisions section. The actor decides table
+definitions, column types, output columns of `list`, and test layout, and records each
+choice in the design doc.
+
+## Constraints
+
+- Every write goes through the `LedgerStore` trait, and the conformance suite runs
+  against both backends. The `git` backend may hold records as JSONL files, so the file
+  ledger keeps working for a repo that selects it.
+- No Markdown rendering of records in this mission. Projections are a later mission.
+- The existing `documents` table and `tsk ledger doc` commands keep working until the
+  migration moves every document to `tsk/docs`, then the table goes.
+- One release per task where a task changes the binary, so each step can be tried in a
+  live session before the next.
+
+## Out of scope
+
+- Projections to Markdown for humans.
+- Rendering a delegation prompt from the records (`tsk mission brief`).
+
+## Plan
+
+Drafted 2026-10-15 by thread 25366ae1 from the design doc. Jim told the actor to run with T-01 on 2026-10-15 and to report when it is released.
+
+| ID | Task | Status |
+|---|---|---|
+| T-01 | Documents on `tsk/docs`: a docs worktree beside the Dolt database, `tsk ledger doc` commands read and write it, `tsk ledger fetch` and `push` handle both branches, documents first. Migrate every document out of the `documents` table, then drop it. Conformance tests for both backends. Release | RELEASED 2026-10-15 as 0.8.0 (`562b604`). Waits on Jim's go-ahead to run `tsk ledger migrate-docs` on this ledger. Dry run on the real ledger passed: 53 documents read back identical. `tsk self-update` upgraded a released 0.7.0 binary to 0.8.0 against the live releases |
+| T-02 | Mission records: the `missions`, `objective_outcomes`, `mission_blocks` and `mission_documents` tables, `tsk mission create`, `set`, `block`, `unblock`, `objective`, `link` and `list`, with derived blocked state. Release | TODO |
+| T-03 | Task, decision and question records: their tables and commands, with `T-nn` and `Q-nn` minting per mission. Release | TODO |
+| T-04 | Threads and pause entries link by ID: `tsk thread start <mission-id>`, `pause` takes a task ID and checks it, the session start context prints the mission and open tasks or the mission list. The thread tables gain the links. Release | TODO |
+| T-05 | Migrate this repo's ledger: each open mission entered through the commands, each done mission's briefing moved to `tsk/docs` and linked from a bare record, `index.md` and `future-missions-tbd.md` retired, the standing notes moved to a document | TODO |
+| T-06 | Guides and docs: `tsk guide import` rewritten for the commands, the plugin skills, `CLAUDE.md`, `ledger-layout.md`, `session-continuation-design.md` and the user guide updated. Release | TODO |
+| T-07 | Custom ref by default: a repo's ledger and documents use a custom ref outside `refs/heads/*`, and branches under `refs/heads/*` are an override for a repo used from Claude Code cloud sessions. Where the setting lives is open question 9 in the design doc. This repo keeps the override. Conformance tests for both modes. Release | TODO |
+
+Order: T-01, then T-02 to T-04 in order, then T-05, then T-06. T-05 is the test of
+T-01 to T-04 on real data, so T-06 waits for what it finds. T-07 follows T-01, because
+it covers the documents ref as well as the Dolt ref.

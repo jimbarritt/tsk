@@ -1,0 +1,858 @@
+# Future missions, TBD
+
+Ideas for missions that have not been shaped into briefings yet. Recorded so they are
+not lost. Listing an idea here implies no commitment, no ordering and no decision that
+it is a good idea.
+
+## Extend the product domain, with Cutler's piece as a basis
+
+Raised by Jim, 2026-09-27.
+
+Jim's read: Cutler's piece can be a basis for extending our product domain.
+
+Starting point: `docs/kb/ai-and-the-loss-of-positive-friction.md` in the tsk repo, which
+maps Cutler's stages and remedies against tsk's terms, and records what Jim's pitch of
+2026-07-05 says about signals. The gap it records: tsk has no object yet for signals,
+insights, or models.
+
+## AI and the loss of positive friction (John Cutler)
+
+Raised by Jim, 2026-09-27, as relevant to tsk. Source: John Cutler,
+["TBM 441: AI, the Loss of Positive Friction, and What to Do About It"](https://cutlefish.substack.com/p/tbm-441-ai-the-loss-of-positive-friction),
+The Beautiful Mess, 2026-09-24.
+Written up with the mapping to tsk in the tsk repo:
+`docs/kb/ai-and-the-loss-of-positive-friction.md`.
+
+The essence: product work used to move information through six steps by hand: a customer
+call, synthesising insights, deciding what to do, doing it, shipping it, and measuring
+impact. Each hand-off forced someone to "process, think about, discuss, reshape,
+restate" the information. Cutler calls that effort positive friction, and each hand-off
+a chance to apply a forcing function. AI removes it: a transcript becomes an LLM
+summary, the summary becomes a spec, the spec becomes code, with little human attention
+at any step. What is lost is the chance for thinking, pruning, shaping and judgement, and
+material that is original, atomic and written by a human. Breadth also grows: five calls
+become 80 opportunities, 80 tickets and 400 tasks. The anti-pattern he names: "AI
+flattening layered on AI flattening, with no thread back to reality."
+
+He lists a twelve-element ontology that artefacts mix together: signals, insights,
+models, options, choice, intent, actions, mechanical change, effects, actors, materials
+and constraints. He describes it as a graph, and says "it is the edges where the work
+happens".
+
+His eleven principles:
+
+1. Keep original feedback atomic, and preserve its path back to the source.
+2. Preserve both atomicity and coherence: fragments alone, or ideas mashed together,
+   both fail.
+3. Add positive friction when content is copied and recontextualised: state what is
+   carried forward, what changed, and why.
+4. Separate the underlying job from its presentation to different audiences.
+5. Label AI-generated content by degree of AI contribution, for example "100%
+   AI-generated", "HITL curated", "AI used for editing/grammar".
+6. Avoid compounding AI flattening.
+7. Do not let AI capability turn a tool into a dumping ground.
+8. Treat code analysis as one source of evidence.
+9. Use the tracker for bounded team intent: "whose need it represents, why it matters,
+   what problem we're addressing".
+10. Go for depth over breadth in product improvements.
+11. The tracker has two jobs: team-visible intent, and personal planning and
+    decomposition.
+
+## A session's context reset while its thread binding survived
+
+Raised by Jim, 2026-09-25, in thread `3376badb` (M-ADMIN-01).
+
+What happened: the cloud session's context reset without Jim running `/clear`. The
+agent's context held no record of drafting the M-BOOT-06 briefing in the same session.
+The thread binding survived: `threads/lookup-by-cloud-session.json` still mapped the
+session to `3376badb`. The conversation context did not.
+
+Jim's read: maybe the cloud sessions time out if left with no input. So we need some
+way to detect this and restore context from the thread. It also means it's important
+for the agent to push frequently, which it already does.
+
+## A terminal inside a browser, not a browser inside a terminal
+
+Raised by Jim, 2026-10-02, after the Orca research (`docs/kb/orchestration-ecosystem/orca.md`):
+"One of the advantages of being chromium is that web browsing is part of the native product
+so they kind of inverted the problem. It's very tricky to get a web browser running inside
+a terminal but much more practical to run a terminal in a web browser." Relevant to the
+Task TUI and Mission Control in tmux. Captured as an idea only. Not designed.
+
+## A symbiotic mechanism for success criteria and rules of engagement (OpenAPPA)
+
+Raised by Jim, 2026-10-02, after reading `archestra-ai/OpenAPPA`: "Maybe also a symbiotic
+mechanism for determining objective success criteria and providing 'rules of engagement'
+behavioural constraints". Researched in `docs/kb/orchestration-ecosystem/openappa.md`,
+which records that the product enforces behavioural constraints and states no success
+criterion, and that its benchmark scores observable side effects. Captured as an idea
+only. Not designed.
+
+Jim, later the same day: OpenAPPA "can also be relevant to swe and has this common pattern
+of deterministic vs inference based verification". Recorded in `openappa.md`: its model
+backed annotators, authorities and sanitizers run inside a deterministic engine that
+checks their answers against declared permits, while swe's inference tier is advisory and
+runs after the action.
+
+## A plugin or connector to Unblocked, used during mission definition
+
+Raised by Jim, 2026-10-02, after the Unblocked research
+(`docs/kb/orchestration-ecosystem/unblocked.md`): "I could imagine a plugin or connector
+to unblocked so that during mission definition we talk to unblocked for info or even fire
+up research missions to query it". Captured as an idea only. Not designed.
+
+## A tsk plugin: skills first, the tsk binary later
+
+Raised by Jim, 2026-10-02: write a tsk plugin, host it in the jimbarritt marketplace (he
+wonders whether it is time to move to ubiqtek.ai), and start it with a bunch of skills,
+extending it later to use the tsk binary. Jim's thought on the source of truth: keep the
+source in the tsk repo and publish it to the marketplace, as Homebrew does. Researched in
+`docs/kb/claude-code-plugin-packaging.md`: a marketplace entry can reference another
+repository (`github` or `git-subdir`, with `ref` and `sha`), and a plugin can get a binary
+through `bin/` or a download into `${CLAUDE_PLUGIN_DATA}`. Not designed.
+
+Jim's later decisions, 2026-10-02: the tsk binary installs separately from the plugin,
+because tsk also runs standalone, and a Homebrew recipe is to be added. The plugin checks
+at session start whether the binary is installed and tells the user how to install it.
+When the installed binary is missing or too old, binary-backed skills refuse to run
+"because it will just fail". Jim wants to come back to that later. Open: whether to get
+the bootstrap working in the binary first and then write the plugin, or to write the
+plugin from skills first. The ubiqtek.ai
+question is open and was not researched.
+
+## Claude mods for the swe plugin or the tsk plugin
+
+Raised by Jim, 2026-10-02, from the Claude Code 2.1.287 release: "seems we can now extend
+the harness itself. Could be something for swe plugin or for the tsk plugin". Researched
+and written up as a reference doc in the tsk repo: `docs/kb/claude-code-mods.md`, which
+ends with a table of mechanisms that could apply to each plugin. Not designed.
+
+## Permissions
+
+Raised by Jim, 2026-10-01: "New idea: permissions". Jim also asked for research on
+SpiceDB as a potential store for permissions. Written up as a reference doc in the tsk
+repo: `docs/kb/spicedb.md`.
+
+Related, from the same area: a post's permissions are commensurate with the post, and
+holding the post grants them (see "Humans filling posts" below, and the "Posts as an
+escalation target in tsk" section of
+`docs/kb/orchestration-ecosystem/underlying-energy-constraints-of-running-a-factory.md`).
+Captured as an idea only. Not designed.
+
+## Humans filling posts, as an answer to the fuel crisis
+
+Raised by Jim, 2026-09-21, from the fuel-crisis and Fable sections of Yegge's "Seats and
+Sunsets". Written up as a reference doc in the tsk repo:
+`docs/kb/orchestration-ecosystem/underlying-energy-constraints-of-running-a-factory.md`.
+
+Jim's read: Yegge's account matches his own intuition that he is needed more when using
+Sonnet, and he cannot afford to run the factory at any scale.
+
+Jim's idea: tsk's model of collab with humans means that humans could fill posts, if the
+agents understand what the post is and when they should escalate, as long as there is a
+comms medium (e.g. Slack). tsk provides a powerful solution to this. Not designed; depends
+on Post, which is itself a placeholder.
+
+## Seats: wait and let it come out in the design
+
+Raised by Jim, 2026-09-21, after reading the seats comparison in
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md` in the tsk repo.
+
+Jim's read: we haven't reached the point of needing seats yet because we are still
+bootstrapping in supervised mode. Until we actually have agents autonomously running and
+trying to manage each other we don't need it, or rather Jim is sitting in all the seats.
+
+The word "seat" itself doesn't make intuitive sense to him. He asked for another way to
+describe it given tsk's context, as a future note only. Decision: wait and let it come out
+in the design.
+
+Name settled, 2026-09-21: **post**, the UK doctrine term for an authorised position that
+exists whether filled or vacant and that a person is appointed to. A placeholder entry now
+sits in `docs/domain/ubiquitous-language.md` in the tsk repo, marked not yet modelled; the
+full doctrine mapping is under Seats in
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`. Rejected: billet (the US term for the
+same thing), seat, role (JP 1's sense is organisation-level, the wrong level for an
+individual position).
+
+Doctrine splits a seat five ways, which is the mapping to keep when it comes out in the
+design: the post (the standing position), authority by assignment (vested in the post, not
+the person), standing orders (instructions that persist across incumbents), the incumbent
+(tsk's Actor), and the duty log (tsk's Thread continuation). tsk has the last two. The
+first three are what "seat" bundles in and tsk has no term for.
+
+Connects to an open point already recorded in `docs/domain/mission-model.md` under
+mission categories: a mission with no end point "is closer to a description of an actor
+than to a unit of work: the responsibility it carries, and the skills it needs", and
+whether tsk models that separately is open.
+
+## tsk talking to Wheelhouse, and messaging into the tsk nexus
+
+Raised by Jim, 2026-09-20, from Yegge's tweet about orchestration factories exchanging
+ideas with Gas Town and Wheelhouse.
+
+Jim's read: he wants tsk able to talk to Wheelhouse, and wants to interact via some kind
+of messaging with his tsk nexus. He asked whether these are the same answer.
+
+Found so far: Gas Town and Wheelhouse have no documented protocol for messaging between
+separate, independently-run installations. Gas Town's own routing and mail work within
+one town only. What Gas Town, Wheelhouse, and other independent orchestrators share is
+Beads, a shared substrate, not a network protocol between them, consistent with the
+existing finding in `docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`
+that beads is "technically symbiotic... a swappable substrate and a research baseline,
+not an ally."
+
+The tsk nexus (`docs/domain/territory-and-nexus.md`, `jimbarritt/tsk-nexus`) is a
+discovery and routing index today, with no messaging layer, and that gap is already
+logged as open in that document. Both of Jim's asks land on the same missing piece: no
+ready-made inter-instance protocol exists to reuse from either Gas Town or Wheelhouse. A
+messaging layer for the tsk nexus would be new design work, not an adoption of something
+already built elsewhere.
+
+Jim, 2026-09-22, alongside writing a mission briefing for the swe agent on implementing
+Jev in the linter: this is a good example of how we would use the nexus, sending missions
+or intel to other parts of the territory. The briefing was written in one session, for a
+different repo's agent, and handed over by copy and paste. That hand-off is the case the
+messaging layer above would carry.
+
+## Switch tsk's CLAUDE.md to also load as AGENTS.md
+
+Raised by Jim, 2026-09-20, alongside `docs/kb/claude-code-mods.md`.
+
+Jim's read: switch from `CLAUDE.md` to `AGENTS.md` everywhere, for compatibility.
+
+Confirmed while researching mods: Claude Code already supports this today, through the
+built-in `agents-md` mod, on this container's version, 2.1.278. Four loading modes
+exist; `claude-md-and-agents-md` loads both side by side. Not yet decided: which mode,
+whether tsk renames `CLAUDE.md` to `AGENTS.md` outright or adds `AGENTS.md` alongside
+it.
+
+"Everywhere" means every one of Jim's repos, done one at a time, not in one pass.
+
+## External access to Claude Code Remote sessions, and deep-linking
+
+Raised by Jim, 2026-09-19.
+
+Research mission: does an external process, not a Claude Code session, get access to
+list or manage Claude Code Remote sessions.
+
+Found so far: `create_trigger` and `list_triggers` name three caller types, in-session,
+toolbox, and OAuth. `list_triggers` restricts one parameter to OAuth callers and errors
+for the other two on that path. An OAuth-authenticated external caller reaches this
+backend. Not confirmed for session listing specifically; inferred, since Claude Code
+Remote's own web interface is not itself a Claude Code session and needs to list
+sessions to render itself.
+
+Jim's follow-up question, not yet researched: can a URL be generated that deep-links
+into a specific Claude iOS session.
+
+Connects to the substrate-independence point in
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`: session discovery and
+access from outside any one Claude Code session bears on whether a coordinator built
+outside Anthropic's own tooling could reach a Claude Code session as an actor.
+
+## The "robot factory" framing, and why Jim is doing this concretely
+
+Raised by Jim, 2026-09-19, while pointing at `docs/kb/yegges-levels.md`.
+
+Yegge's levels is partly why Jim is doing tsk. It also frames the market and the niche:
+as more organisations realise they need to build a "robot factory", coordinating enough
+concurrent agents that a person can no longer track them by hand, that is where jobs for
+engineers will be. Jim is writing a LinkedIn post about this.
+
+Whether tsk itself is adopted is a separate question. One of Jim's reasons for building
+it, and writing about it, is to experience concretely what running that factory means,
+not only to theorise about it.
+
+The point behind the LinkedIn post, added once the two verbatim tellings of Yegge's
+ladder were both in `docs/kb/yegges-levels.md`: if you don't actually climb the ladder,
+it's hard to really grok what it means. The two tellings themselves are evidence for
+this. Yegge described the same middle rungs differently a month apart, physically the
+first time, psychologically the second, because what a climber notices changes as they
+climb it. You can't get that from reading about it once.
+
+## What pausing a thread really means
+
+Raised by Jim, 2026-09-17.
+
+Investigate further what pausing a thread really means. A thread should have a state of
+paused or running.
+
+There is no such state today. A pause appends a continuation state entry and nothing
+records that the thread is paused, so the only evidence is whether the latest entry still
+describes where things stand. Work done after a pause leaves that entry stale with
+nothing marking it so, and the thread has to be paused again.
+
+## Claude Code Projects redesign: compare against tsk's own model
+
+Raised by Jim, 2026-09-18, from
+[claude.com/blog/projects-redesigned](https://claude.com/blog/projects-redesigned).
+
+Done, same day. The comparison lives in `docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md` in the tsk
+repo, which was widened from the beads assessment to cover the field under one verdict.
+
+In short: Claude Code Projects converges on Thread as the unit that holds context and
+persists, and diverges by fusing three pairs tsk keeps apart. A project is a mission
+described loosely. It models no Product, no Delta and no Scale, so its dimensional
+limit matches beads'.
+
+Two things the comparison left for other work. M-BOOT-03's T-07 defines a run loop the
+platform may now provide, so check before building it. And the live cross-mission fact
+with no home in tsk, such as a release date moving, is the same gap as design decision
+recording beyond ADRs, below.
+
+## Report: spawning an agent session to execute a task
+
+Logged 2026-09-16. Session `session_01EepA7GiwbvHJVWxr8JKQ3N`.
+
+Jim planned to add the compact Software English instructions to `CLAUDE.md` (M-BOOT-02
+T-12) himself. Instead this session spawned an agent session with `create_session` and
+gave it the task.
+
+The agent session started, read the Software English specification from an external
+repository, wrote the instructions into `CLAUDE.md`, committed, and pushed to `main`.
+It ran to completion with no intervention and no blocking prompts. T-12 is marked done
+on this branch at commit `a448461`.
+
+Jim's read: the harness works. Recorded here because it is the first end to end run of
+spawn, execute, push without a human in the loop, and because it bears on M-BOOT-03,
+whose objective is one unattended run producing a pull request and a run record.
+
+## GitHub PR suggestion banner for metadata branch
+
+Raised by Jim, 2026-09-16.
+
+`tsk/bootstrap` is a real branch now (not a custom ref), which lets agents push to it
+from cloud sessions. GitHub's web UI sees a real branch and shows a persistent banner
+asking if you want to create a pull request from it, treating it like a development
+branch. This is noise.
+
+Candidate solutions: a branch protection rule that hides the branch from PR suggestions,
+or a `.github/workflows` check that auto-closes any PR opened against or from
+`tsk/bootstrap`, or marking the branch as draft-only in some way, or documenting the
+branch in a way that makes GitHub understand it is not for PRs.
+
+Open: whether GitHub supports suppressing PR suggestions per branch, what mechanism
+works, whether the solution applies to other metadata branches (if tsk ever has more
+than one).
+
+## Design decision recording beyond ADRs
+
+Raised by Jim, 2026-09-17.
+
+ADRs capture architectural decisions that have consequences lasting the lifetime of the
+project. Not all design decisions are at that scale. Some are more local: why a
+particular component is structured one way, why a feature works this way, constraints
+discovered and recorded.
+
+These decisions are worth capturing for future reference, so people rebuilding or
+refactoring that code understand what was already decided. They may not warrant an ADR,
+but they need to live somewhere that is not a code comment (those rot) and not a
+passing conversation.
+
+Research mission: what document types and structures make sense for recording these?
+Does tsk need a "design notes" or "design rationale" directory separate from ADRs?
+How granular should they be? Where do they live in the repo structure?
+
+Open: scope (what qualifies), form (one per decision or grouped by area), archive
+(do old decisions get pruned or kept forever), whether this is just a refined version
+of the ADR process applied at finer scale or fundamentally different.
+
+## tsk and Linear / Jira integration
+
+Raised by Jim, 2026-09-16.
+
+Research mission: explore the intersection between tsk's mission and task model and
+Linear or Jira. Understand how the two relate, and whether tsk replaces one, complements
+it, or interoperates with it.
+
+Open: scope of the research, candidate tools and use cases, and whether this shapes tsk's
+design or is purely a downstream question.
+
+## tsk metadata in the nexus, not the repo
+
+Raised by Jim, 2026-09-16.
+
+tsk currently stores its metadata branch in the repo it manages. This works for repos
+you own, but breaks for repos you don't: you cannot push a branch without the repo's
+permission, and you don't want to ask owners to allowlist your metadata branch.
+
+Solution: store the metadata branch in the nexus repo instead, namespaced by target
+repo (e.g. `refs/heads/repos/owner/repo-name/missions`). The nexus is already meant to
+index repos; reusing it to hold their tsk metadata is a natural extension.
+
+Open: namespace design, whether a single nexus branch per target repo is enough or
+whether finer granularity is needed, whether this changes the mission model or
+thread continuity story.
+
+Jim, 2026-09-22, alongside deciding against a `.tsk/` directory on `main`
+(`docs/adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md` in the tsk repo): this
+option, pulling the ledger fully outside the repo, is still valuable. ADR 0010 decided
+only branch versus directory, both inside the repo, and left this one open rather than
+deciding it either way.
+
+## Agents interrupting each other
+
+Raised by Jim, 2026-09-15.
+
+Agents should be able to interrupt each other. The mechanism suggested is tsk running a
+peer to peer "gossip" protocol that lets agents send each other messages.
+
+Open: whether this is needed at all, given that agents can already communicate through
+git. Recorded as an idea, not a direction.
+
+## Generalising the harness's cross-repo needs
+
+Raised by Jim, 2026-09-15, alongside M-BOOT-02 T-06.
+
+tsk's `CLAUDE.md` now carries a tsk-specific instruction: attach `ksobr-transcripts`
+with `add_repo` before pushing a transcript at session end. That is a stopgap. Once the
+harness is meant to run in more than one repo, a harness needs a general way to declare
+"this repo also needs this other repo attached" that does not mean hand-writing the
+instruction into every consuming repo's `CLAUDE.md`.
+
+Open: what that declaration looks like, and whether it can be read by a `SessionStart`
+hook at all, given `add_repo` is an MCP tool call the agent makes, not something a bash
+script can invoke.
+
+## Safeguard main against leaked secrets
+
+Raised by Jim, 2026-09-16, after an agent committed a live session ID to a public repo.
+
+An agent can push something to `main` that shouldn't be there: a credential, a session
+ID, anything identifying. Need a way to catch this deterministically rather than relying
+on an agent noticing.
+
+Candidate shape, sketched, not decided:
+
+1. An agent pushes a commit to `main`.
+2. A GitHub Action fires on the push and reviews it — Copilot, or a spawned Claude
+   session, checking the diff for secrets and other things that shouldn't be public.
+3. If it finds something, then what? Open questions, none answered yet:
+   - A pre-commit hook is not a reliable first line of defence here: `.git/hooks/` is
+     never cloned, so it only exists if something installs it into each fresh session's
+     checkout, and `--no-verify` skips it anyway. GitHub's own secret scanning push
+     protection is server-side and can't be skipped that way, but only catches
+     recognised secret patterns, not something project-specific like a session ID.
+   - `git revert` does not remove the leaked content from history: the original commit
+     and blob stay fully present and fetchable by SHA. Actually removing it needs a
+     history rewrite (`git filter-repo`, or BFG) and a force-push, and even then: forks
+     keep the old history untouched, existing clones keep the old blob until they
+     re-clone, and CI logs that printed the secret are a separate purge, not touched by
+     rewriting git history at all. The one action that reliably neutralises a leaked
+     credential is rotating it. History rewriting is cleanup, not the fix.
+   - Race condition: if the review is asynchronous, another commit can land on `main`
+     while it runs. A plain revert may not apply cleanly against a `main` that has moved
+     on. A history rewrite is worse: it changes the bad commit's SHA and rebases
+     everything after it. Whether `main` should be frozen while a finding is under
+     remediation is unresolved.
+
+## Software English review, and document types, in the harness
+
+Raised by Jim, 2026-09-16, after `docs/kb/session-creation-and-environments.md` came out
+a mess: written as a first-person log of one session's inspection, with live identifiers
+in it, when what was wanted was a reference document.
+
+Two connected needs:
+
+1. Software English review as part of the harness, so prose an agent writes into the
+   repository gets checked rather than trusted. Spec:
+   https://github.com/jimbarritt/software-english. M-BOOT-02 T-12 covers putting the
+   compact instructions into `CLAUDE.md`, which is the instruction half. This is the
+   review half.
+2. The harness defines specific document types with specific rules, so that "create a
+   ref document" has one meaning and produces the right shape. A reference document, a
+   mission briefing, an intel file, an ADR and a KB entry are not the same kind of
+   writing, and today only the mission briefing has a template.
+
+Jim's read: this is probably a set of skills rather than more prose in `CLAUDE.md`.
+
+Open: which document types are worth defining, whether a skill per type is the right
+granularity, and whether review runs as a skill the agent invokes, a hook, or a check in
+CI alongside the secrets scanning in the mission above.
+
+## Long lived workers, and where continuity belongs
+
+Raised by Jim, 2026-09-16, from the question of whether cloud sessions can be reused as a
+pool of workers rather than created fresh per mission.
+
+Reusing a session is mechanically supported: `create_trigger` fires into a named
+`persistent_session_id`, and `claude -p --cloud <session-id>` queues a message into an
+existing session. See `docs/kb/session-creation-and-environments.md` in the tsk repo for
+the mechanics and their limits.
+
+The domain question it raises: a worker that takes mission after mission accumulates
+continuity of its own, independent of any single mission. The ubiquitous language today
+defines a thread as the execution sequence, resumable "possibly as a different actor",
+which puts continuity in the work and lets actors come and go. A worker pool inverts
+that: continuity sits in the actor, and missions pass through it. Both are coherent. They
+disagree about where continuity is anchored.
+
+This is the same tension already flagged against M-BOOT-02 T-04, that a thread may be
+more about the actors than about overall work status. Settle them together.
+
+Open: whether tsk models the worker as a first-class thing at all, or whether a worker is
+simply an actor that happens to persist, with threads still carrying the continuity.
+
+## Autonomous conflict resolution on tsk/bootstrap pushes
+
+Raised by Jim, 2026-09-18, alongside the `push-bootstrap-ref.sh` fix for concurrent
+pushes (M-BOOT-02).
+
+That fix rebases onto origin's tip and retries when a concurrent push is
+non-conflicting, but aborts with a message and stops on a real conflict, for a human to
+resolve by hand. An autonomous agent has no human to hand this to.
+
+Jim raised two directions: escalate to Jim for assistance, or have the agent attempt
+self-resolution. He connected this to "Agents interrupting each other" above: the two
+sessions in conflict could have a discussion with each other, possibly over the same
+peer to peer gossip protocol raised there, rather than one session resolving the
+conflict blind.
+
+Jim's read: might be part of a later mission. Not decided.
+
+Open: whether self-resolution is safe for ledger content (missions, tasks, thread
+state) at all, what a discussion between sessions would need mechanically, and whether
+it is the same mechanism as the interrupting-each-other idea or a different one.
+
+## Auto mode's safety classifier moves server-side
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-19-anthropic-auto-mode-classifier-server-side`).
+
+From Claude Code 2.1.278, Enterprise, Claude API, Bedrock, Vertex and Foundry accounts
+have auto mode's safety classifier run server-side by default, at no charge. A
+client-side fallback covers the case where the server cannot be reached, and a new
+"Auto mode server" row in `/status` shows which mode a session is in.
+[code.claude.com/docs/en/auto-mode-classifier-billing](https://code.claude.com/docs/en/auto-mode-classifier-billing).
+
+## Claude Code workflows pause at a usage limit instead of dropping agents
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-14-claude-code-workflows-pause-usage-limit`).
+
+In Claude Code 2.1.271, a dynamic workflow that hits a usage limit now pauses and
+resumes automatically once the limit resets, rather than dropping the agents running
+inside it. [code.claude.com/docs/en/changelog#2-1-271](https://code.claude.com/docs/en/changelog#2-1-271).
+
+## Claude Code approves network hosts per Bash command in sandboxed auto mode
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-14-claude-code-sandboxing-per-command-hosts`).
+
+In Claude Code 2.1.271, sandboxed auto mode lists the network hosts a Bash command
+needs, and the safety classifier reviews the hosts together with the command. Approval
+opens those hosts for that one command only.
+[code.claude.com/docs/en/sandboxing#per-command-allowed-domains-in-auto-mode](https://code.claude.com/docs/en/sandboxing#per-command-allowed-domains-in-auto-mode).
+
+## Cursor launches Projects, a coordinator agent for large-scale work
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-10-cursor-projects`).
+
+Cursor Projects uses a coordinator agent that plans tasks and delegates to subagents,
+running in the cloud so closing a laptop does not stop the work. It can watch Slack
+channels, pull requests and schedules to start work on its own, and scales to thousands
+of concurrent subagents. [cursor.com/changelog](https://cursor.com/changelog).
+
+A fifth team reaching this coordinator-and-threads shape, after Claude Code Projects,
+Gas Town, Copilot's `/fleet`, and Agent HQ. Bears on
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`.
+
+## LangChain scores agent evals with a classifier instead of an LLM judge
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-20-langchain-jev-as-a-judge-agent-evals`).
+
+LangChain's Jev-as-a-Judge answers Choice, Score or Boolean questions about an agent's
+behaviour directly as typed output, instead of generating text like an LLM judge.
+LangChain says this is 92 to 913 times more consistent than an LLM judge, and cheaper
+and faster, so teams can run evals more often.
+[langchain.com/blog/jev-agent-evals-langsmith](https://www.langchain.com/blog/jev-agent-evals-langsmith).
+
+Further reference, added by Jim, 2026-09-20: [typesafe.ai](https://typesafe.ai/), Jev's
+own site. Jim is signing up to its waitlist.
+
+Jim, 2026-09-20: this one needs research.
+
+Research done, 2026-09-20: `docs/kb/typesafe-jev-classifier.md`, with a section in
+`tsk-market-position-analysis.md` on its intersection with `/goal`'s evaluator mechanism.
+
+Jim, 2026-09-21: into the preview, signing up now.
+
+Same Jev classifier already noted in `docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`
+from LangChain's harness piece, now applied to evals specifically.
+
+## OpenAI's agentic software factory
+
+Raised by Jim, 2026-09-20, from the agentic engineering news feed
+(`2026-09-15-pragmatic-engineer-openai-agentic-software-factory`).
+
+OpenAI runs Codex agents through code generation, testing, review, deployment and
+monitoring with little human intervention, using specialised agents for different parts
+of the infrastructure. Pull requests have grown roughly tenfold in six months, forcing
+OpenAI to rethink CI/CD, code review and how it uses pull requests at all.
+[newsletter.pragmaticengineer.com/p/openai-software-factory](https://newsletter.pragmaticengineer.com/p/openai-software-factory)
+The article was later read (sections 1 to 3; the rest is paid) and written up as a
+reference doc in the tsk repo: `docs/kb/orchestration-ecosystem/openai-software-factory.md`.
+The earlier note that the proxy blocks the domain was out of date.
+
+## Telemetry for a factory-wide view across agents
+
+Raised by Jim, 2026-09-21, from Claude Code's OpenTelemetry export support.
+
+Jim is thinking about how tsk can get a view of everything that's going on across
+agents, to help humans manage the factory. A telemetry server Jim runs himself, with the
+cloud environment's Claude Code sessions configured to export to it, is one candidate
+mechanism. Still at the "could" stage, not decided.
+
+## A "chief of staff" post
+
+Raised by Jim, 2026-09-21.
+
+Jim wants a high-level assistant across the whole of his territory, maybe wider: an
+agent he interacts with at a high level, coordinating breakdown of work and tracking
+overall mission status. Jim's read: this is the first instance of the "post" concept he
+believes is already in `docs/domain/ubiquitous-language.md`.
+
+Correction to this entry, 2026-09-21: Post was added to that document the same day, by a
+different session, commit `e7ffcf9`, as a placeholder, "not yet modelled: the design has
+not called for it, and the term is recorded now so it is not renamed later." Sourced from
+Steve Yegge's "Seats and Sunsets" essay, Wheelhouse's "seat" concept, mapped in
+`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md` under Seats. Missed on
+first capture: this session's local checkout of `main` was stale, 20 commits behind, at
+the time.
+
+On Jim's read, this chief-of-staff idea would be the first post actually filled, not just
+named.
+
+Jim does not yet know its duties. Captured as an idea only.
+
+## Actor definition
+
+Raised by Jim, 2026-09-17, while resolving what to do with a thread that has no mission.
+An administrative mission (idea capture, tidy up, architecture review, distilling
+mission reports) is almost an "actor definition", something like a custom agent. It is
+more about the actor than about the work: what is your responsibility, what are your
+skills.
+
+Jim's read: this might be an additional concept. Come back to it later. An administrative
+mission is what the four examples are recorded as for now.
+
+Doctrine has a close match, found in the same session: the mission essential task list,
+"a listing of tasks the unit must be able to perform", held per unit and derived from the
+unit's anticipated missions rather than from any single one. Standardised METLs are the
+official lists of "the fundamental tasks that units are designed to perform in any
+operational environment". See `docs/domain/mission-model.md` in the tsk repo, under
+mission categories, for the rest of that cross-check.
+
+Open: whether an actor definition is a first-class object in tsk, and how it relates to
+Actor, which the ubiquitous language already defines, and to the administrative mission.
+
+Added by Jim, 2026-10-03, while deciding what a Culture ship name belongs to (see
+[M-NAMES](missions/operational/M-NAMES-session-names.md)):
+
+> I think it's the actor but maybe we don't have a clean enough definition of what an
+> actor is.
+>
+> It's not a session because these are ephemeral.
+>
+> And like you say I don't think it's a thread because multiple actors can be working on
+> the same thread or picking up work.
+> So actor is a concept of something that runs either in iOS like here or in a terminal,
+> can span multiple sessions and has a position and possible certain skills and memory
+> if its own.
+
+## Session names from Iain M. Banks ship Minds
+
+Raised by Jim, 2026-10-03:
+
+> I have a new idea: I want us to write a plugin that can give our sessions or web
+> sessions names based on the ai / ship names from Ian m banks so when they talk to each
+> other they have identities.
+
+Captured as an idea only. Nothing is decided.
+
+Mission brief: [M-NAMES](missions/operational/M-NAMES-session-names.md).
+
+## Concurrent writes to the shared ledger worktree
+
+Raised during M-BOOT-04, 2026-10-04. Jim chose to record it as a follow-up, outside
+[M-BOOT-04](missions/operational/M-BOOT-04-official-ledger.md).
+
+The ledger worktree is one per clone, at
+`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger`. Every session in
+that clone reads and writes it. `tsk ledger push` resolves concurrent writers in
+different clones at push time: it rebases onto the fetched tip, pushes with
+`--force-with-lease`, and retries on a `!` rejection. Two sessions in the same clone
+have no guard: no lock exists around a ledger write. A `git add -A` and commit from one
+session can take in the other's partly written change, or the two `git` processes
+collide on the worktree's `index.lock` and one fails. The bash scripts have the same
+gap.
+
+Options, not decided:
+
+- A lock file around each ledger write in the binary.
+- One ledger worktree per session or per code worktree, which moves this case onto the
+  push-time compare and swap.
+
+## A focus in the rebuilt TUI
+
+Raised by Jim during M-BOOT-04, 2026-10-04, and deferred.
+
+Under ADR 0012 the TUI is rebuilt as a global view over every ledger, located through
+the nexus, so it has no single working directory. A long running TUI instance can hold a
+focus that narrows the view to one repo or one code worktree, moved with a `/cd` style
+command. This belongs to the mission that rebuilds the TUI on the ledgers.
+
+## Delegating a task to subagents: feedback from real use
+
+Raised by Jim, 2026-10-04, after M-BOOT-04 T-07 and T-10.
+
+### What happened
+
+In thread `ab9cd219`, the lead session ran M-BOOT-04 T-07 and T-10 through Claude Code
+subagents (the `Agent` tool), not inline. No subagent had a mission, a task row or a
+thread in the ledger. Each was one tool call with a written prompt, and each returned
+one report as a message to the lead.
+
+- T-07 ran two subagents at once in the same code worktree: `t07-binary` (the binary
+  changes, `cli/` and two domain docs) and `t07-plugin` (plugin hooks and skills,
+  marketplace, poller, workflow, justfile, `CLAUDE.md`). A third, `t07-sweep`, ran the
+  terminology sweep after both finished, and committed and pushed itself.
+- T-10 ran as one subagent, `t10-nexus`, in autonomous mode while Jim was away from his
+  machine.
+
+### The prompt took the shape of a mission briefing
+
+| Briefing section | What the prompt held |
+|---|---|
+| Objective | The task and its done state, for example "`cargo test --workspace` passes, committed and pushed" |
+| Intelligence | The files to read first: the briefing, ADRs, domain docs and code paths |
+| Decision authority | T-07: report open questions back. T-10: decide, record each decision as a dated entry in the briefing, continue |
+| Constraints | Software English, no code comments, the commands the user's hooks block, no hand-run git against the ledger |
+| Out of scope | The files another subagent owns at the same time |
+| Plan | Numbered work items |
+
+Three things had no place in the briefing format and were added by hand:
+
+1. **File ownership between concurrent subagents.** Each prompt named the files that
+   subagent owns and the files the other owns. Two subagents ran in one code worktree
+   with no conflict.
+2. **A fixed contract between subagents.** The plugin subagent's prompt gave the exact
+   stdin, stdout and exit code of `tsk thread session-start` before the binary subagent
+   had written it. Both sides built against the contract at once.
+3. **A report shape.** Each prompt ended with the report wanted back: files changed,
+   decisions, test count, open items. That shape is the same as a continuation state
+   entry's: where things stand, and what is next.
+
+### Gaps against tsk's own model
+
+- A subagent has no thread and no continuation state. A subagent that stops partway
+  through leaves its work only in the working tree, with no record of where it got to.
+- Questions came back as free text, and the lead relayed answers by hand through
+  `SendMessage`. The plugin subagent sent four questions in one message, against Jim's
+  rule to raise points one at a time.
+- Decisions made in a subagent reached the briefing only because the prompt said to
+  write them there.
+- The lead retyped context that the ledger already holds: the task row, the relevant
+  decisions, the constraints.
+
+### Candidate features
+
+- **A command that renders a delegation prompt from the ledger.** For example
+  `tsk mission brief M-BOOT-04 T-10`, which prints the task row, the decisions that name
+  the task, the constraints, the out-of-scope list and a report template.
+- **A child thread per subagent: open.** The subagent's report becomes a pause entry on
+  its own thread, linked to the lead's thread, so another session can resume a stopped
+  subagent. Jim, 2026-10-04: not sure each subagent needs its own thread. The pattern
+  is to be discussed further as it recurs.
+- **Decision authority per run, not per mission.** The same mission ran in "ask" mode
+  for T-07 and in "decide and record" mode for T-10.
+- **File ownership as data.** A run declares the paths it owns, and a check refuses an
+  overlapping run. This connects to the concurrency gap on the shared ledger worktree,
+  recorded under M-BOOT-04.
+- **Structured questions from a subagent.** Each question carries an ID, options and a
+  recommendation, and is raised one at a time to the lead and from there to the human.
+
+## Dolt as the ledger's store, and markdown as a projection for humans
+
+Raised by Jim, 2026-10-09, after the Dolt over git experiment recorded in
+`docs/kb/orchestration-ecosystem/beads-as-backing-store-analysis.md` in the tsk repo:
+
+> Ah this is already interesting information - and implies dolt already encountered
+> this issue!
+>
+> I guess what dolt gives beads is an abstraction layer over the persistence. Which is
+> powerful.
+>
+> I wonder if we should rewrite dolt in rust or rewrite tsk in dolt?
+> I meant go
+
+Asked whether to record it:
+
+> Yes. Because I've been thinking about moving to a more binary format anyway.
+>
+> And making markdown a projection that gets published for Humans.
+
+Context from the same session:
+
+- Dolt pushed a database to this repo from a cloud session once its data ref was a
+  branch under `refs/heads/*`. The default `refs/dolt/data` got HTTP 403.
+- The options raised: rewrite Dolt in Rust, rewrite tsk in Go, or call the `dolt`
+  binary from the Rust `tsk` binary, as it already calls `git`.
+- `docs/adr/0007-event-log-as-source-of-truth.md` in the tsk repo already states
+  markdown as a read-only projection of tsk's own store.
+
+Captured as an idea only. Nothing is decided.
+
+## tsk emits program status through OSC 7501
+
+Raised by Jim, 2026-10-09, after reading Rex's Program Status Protocol
+(`docs/kb/orchestration-ecosystem/rex.md` in the tsk repo). Asked whether to capture
+"tsk emits OSC 7501" as an idea:
+
+> Yeah for sure this is a great idea a standard for emitting statuses for sure we
+> should add that
+
+Context from the same session:
+
+- OSC 7501 is a terminal escape sequence, published by Superlogical as a generic
+  protocol, by which a program reports `idle`, `working`, `blocked` (with
+  `kind=permission`, `question` or `auth`), `done` or `error`, plus progress, an `app`
+  name, a title and a message.
+- A tsk actor that emits it appears in Rex's session picker with no Rex-specific code,
+  and in any other terminal that adopts the protocol.
+- Mission Control (M-BOOT-06) could read the same sequence for its status indicator
+  instead of its own state file, if Claude Code or a hook emits it.
+- Herdr reads agent state from the screen instead. Rex's docs name that as the
+  heuristic the protocol replaces.
+
+Adopted by Jim, 2026-10-09: "the OSC thing is in and Rex is just something people can
+use if they want." tsk will emit program status through OSC 7501. Where it lands, as a
+`tsk` command, a hook, or both, and which mission builds it, are open.
+
+## The Efrit channel's contract as a model for the next `tsk` command
+
+Raised during the Efrit research, 2026-10-10. Jim agreed to capture it as an idea when
+asked whether the channel's contract is worth reading again when the next `tsk` command
+is designed:
+
+> Yes.
+
+Context from `docs/kb/orchestration-ecosystem/efrit.md` in the tsk repo. Efrit's
+channel, `bin/efrit`, lets an external agent drive a live Emacs. Its contract:
+
+- One command per interaction.
+- Errors are data, in a JSON envelope: `{"ok":false,"error":{"type":...,"message":...}}`.
+- The result is bounded: printed values, snapshot content and messages each have a size
+  limit.
+- A timeout fails loudly with an error and a non-zero exit status, never a hang.
+- Every answer carries the current state, so the caller never acts blind.
+
+The channel document records why the earlier design failed: requests crossed several
+asynchronous hops (an MCP server, a file queue, a file watcher, an inner model loop) and
+returned no state, so agents fell back to batch mode. The `tsk` external event queue in
+the ledger crosses hops in a similar way.
+
+Captured as an idea only. Nothing is decided. Which command, and whether it applies to
+existing commands or to a new one, are open.

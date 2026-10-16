@@ -1,0 +1,273 @@
+# Report: M-BOOT-06, Mission Control
+
+| Field | Value |
+|---|---|
+| Mission | M-BOOT-06 |
+| Outcome | Blocked |
+| Actor | Cloud session, Sonnet 5 |
+| Date started | 2026-09-25 |
+
+## Outcome
+
+Blocked on T-09, the essential task, which needs Jim's own macOS machine per the
+briefing's constraint. T-01 through T-08 are done and pushed to
+`jimbarritt/tsk-mission-control`'s `main`. A checklist for T-09 is at the foot of this
+report. This report is written as execution proceeds, per the mission model's rule that
+a report takes addenda rather than being written only at the end.
+
+## Decisions made during execution
+
+**T-05 key bindings, approved by Jim 2026-09-25/26.** `j`/`k` move the list selection,
+`Enter` switches the right pane to the selected session, `n` starts a new session with a
+name prompt defaulting to the current git repo name. Vim style, matching the vim
+keybindings already recorded for tsk's own TUI in the ledger's legacy backlog.
+
+**T-08 key bindings, approved by Jim 2026-09-25/26.** `e` opens nvim, zoomed, in the
+selected session's worktree. `prefix+v` (tmux prefix, `Ctrl-b` by default) restores the
+three-pane layout, hiding nvim while it keeps running.
+
+Reasoning for `prefix+v` over the two alternatives considered:
+- `prefix+z` was ruled out before it was proposed: it is tmux's own real pane-zoom
+  toggle, and nvim in this design runs in a dedicated window, not a zoomed pane, so
+  reusing that key would be misleading as well as functionally wrong.
+- `prefix+r` was proposed first and rejected. Stock tmux binds `prefix+r` by default to
+  `refresh-client` (force a redraw). Scoping the override to the Mission Control
+  session only, so `refresh-client` keeps working in every other tmux session on the
+  machine, was offered as a way to keep `r`. Jim chose the second option instead: pick a
+  letter tmux does not bind by default, so nothing is ever overridden, anywhere.
+- `prefix+v` has no default binding in stock tmux, so it introduces no clash and needs
+  no session-scoped key table.
+
+**Opus review before starting.** An Opus 5.5 subagent reviewed the plan before work
+began, per the mission's instruction to consult one when deciding how to proceed. Its
+recommendations, folded into the plan below: pane IDs (`%N`) rather than indices; nvim as
+a dedicated tmux window rather than a popup, so it survives independently of the
+Mission Control app; state files under
+`${XDG_STATE_HOME:-~/.local/state}/tsk-mission-control/`, keyed by tmux session ID; a
+poll-based list redraw (`st_mtime_ns` comparison) rather than an OS-specific
+file-watching dependency, per the macOS/Linux-parity constraint; and several caveats on
+Claude Code hook events for T-06, recorded there rather than here.
+
+**T-01, done.** `jimbarritt/tsk-mission-control` has a README (tmux 3.4, Python 3.9,
+Claude Code CLI 2.1.283 as the versions it needs), a `src/tsk_mission_control` package,
+and a `pyproject.toml` console-script entry point. Install step: `pipx install
+--editable .`. Proven in this sandbox with `--backend pip`, since the sandbox's `pipx`
+defaults to a `uv` backend below the version pipx wants; that flag is a sandbox-only
+workaround, not part of the documented install step, and does not apply on macOS.
+
+**T-02, done.** One JSON file per Claude session, keyed by tmux pane ID, under
+`${XDG_STATE_HOME:-~/.local/state}/tsk-mission-control/<tmux session id>/`. Fields:
+`name`, `pane_id`, `worktree`, `claude_session_id`, `transcript_path`, `status`
+(`attention`/`reason`/`since`), `tokens_total`, `schema_version`, `updated_at`.
+`transcript_path` is not in the briefing's field list for T-02 but the briefing's own
+note under T-06 asks for it to be stored, so the field is defined here rather than
+reshaping the file format later. Writes lock a sibling `.lock` file and go through a
+temp file plus `os.replace`, so a hook can patch one field without a read-modify-write
+race against another hook. Covered by four `unittest` tests, no dependency beyond the
+standard library.
+
+**T-03, done.** `tsk-mission-control [name]`, run inside an existing tmux session,
+splits the invoking pane into the three-pane layout, then `execvp`s into `claude`, so the
+invoking pane becomes the first Claude session's pane directly rather than a wrapper
+around it. Order: split off the bottom terminal first, while the pane still spans full
+width, then split the remaining top region into list (left) and session (right). List
+pane runs a placeholder module until T-04. Verified against a real detached tmux 3.4
+session in this sandbox, with `claude` actually starting in the right pane and the state
+file written correctly.
+
+**Finding: `split-window -p <N>` fails in this sandbox.** `-p` (percentage) fails with
+`size missing`, reproducibly, against a freshly created session with an attached client,
+tmux 3.4, this sandbox. `-l <N>%` (the documented, more general size argument, which also
+takes a percentage) works and was used instead. Not yet checked against macOS's tmux;
+T-09 rechecks it there. If macOS's tmux accepts `-p` fine, the cause is this sandbox
+specifically and the code stays as `-l <N>%` regardless, since that argument works on
+both.
+
+**T-04, done.** A `curses` app in the list pane, showing every session by name with an
+attention marker (`○`/`●`), polling the state directory every 0.5s and redrawing only
+when a `(name, mtime_ns, size)` signature over its files changes. `curses.wrapper`
+handles terminal setup and teardown, including on an exception, closing the gap tsk's
+own TUI hit in the legacy backlog (BUG-1: terminal left broken on a panic). Verified
+against a real tmux pane: the list renders, and a state file flip (as T-06's hooks will
+do) redraws the marker within one poll interval.
+
+Also fixed, found while building T-04: `list_states`' sort was lexicographic on the
+filename, putting `%10` before `%2`. Pane IDs now sort on their numeric value.
+
+**T-05, done.** `j`/`k` move the list cursor, `n` starts a new Claude session (name
+prompt defaulting to the git repo name), `Enter` switches the right pane to the
+highlighted session. Switching uses `swap-pane` to trade the visible session's pane with
+the target's, so the one leaving view keeps running rather than being killed. A session
+not currently shown lives in a hidden window, `mc-stash`, created on first use. The
+visible session's pane is found by position each time (the pane sharing the list pane's
+top row), not tracked as a separate "current" ID, so it stays correct even if a pane is
+swapped from outside the app.
+
+`entrypoint.py` lets a newly spawned pane register its own state file after creation,
+reading its pane ID from `$TMUX_PANE`. This sidesteps an ordering problem T-02's own
+design would otherwise hit here: the state file's key is the pane ID, but the pane ID is
+only assigned once tmux creates the pane, so the code that spawns a new session's pane
+cannot compute that path before spawning it. The pane's own first action, once it
+exists, can.
+
+**Finding, in the same shape twice.** The first name-input implementation derived its
+input cap from the space left on the pane's row after the prompt, so a long default name
+(or a narrow list pane) silently truncated whatever the user typed. Fixing the cap
+uncovered a second, deeper version of the same fault: curses' own `getstr` does not
+scroll within a line, so it stops accepting input at the pane's right edge regardless of
+any cap passed to it. Both were found by typing a real, long name into a real tmux pane,
+not by reading the code. Replaced with a manual, scrolling line reader that keeps the
+full typed string regardless of what fits on screen.
+
+**T-06, done.** `--settings <json>`, passed on the `claude` command line at launch
+(never a settings file, and never `~/.claude/settings.json`), registers one command for
+seven hook events, all pointing at `hooks.py`'s own module invocation. `--settings` is
+additive, so nothing here touches the user's global settings, and the hooks fire only
+for a `claude` process Mission Control itself launched.
+
+Event names and payload fields were confirmed directly against the installed CLI
+(`cli.js`, Claude Code 2.1.283), not from documentation, since no public reference lists
+them exhaustively: `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`,
+`PostToolUse`, `PostToolUseFailure`, `Notification`, `PermissionRequest`,
+`SubagentStart`, `SubagentStop`, `PreCompact` all exist as literal event names in this
+build. Every payload carries `hook_event_name`, `session_id`, `transcript_path`, `cwd`.
+`Notification` carries `notification_type` (`permission_prompt`, `idle_prompt`, among
+others). `SessionEnd` carries `reason`, one of `clear`, `logout`, `exit`, `other`,
+`prompt_input_exit`, `error`.
+
+**This settles the briefing's own open question on T-06: which event, if any, fires on
+an error.** There is no separate event for a mid-turn API error that leaves the session
+running; `PostToolUseFailure` exists but is scoped to one tool call failing, not the
+turn or the session, and firing "needs attention" on it would fire on routine,
+self-recovered tool errors too. What does fire, and cleanly matches "an error" at the
+session level the briefing asks for: `SessionEnd` with `reason="error"`, when the whole
+session ends abnormally. The other four `SessionEnd` reasons are clean ends and set
+nothing.
+
+Mapping: `Notification` and `PermissionRequest` set attention (a prompt needs a look);
+`Stop` sets it (a finished turn); `UserPromptSubmit` clears it (submitting is the
+natural acknowledgement). `PostToolUse` also clears it, beyond the briefing's four named
+states: nothing fires when a human approves a pending permission, checked directly
+against the same schema, so without this the indicator would stay lit through the rest
+of the turn even after Jim had already looked and approved. The next tool call
+completing is what actually signals that.
+
+Verified with unit tests covering every event and transition; the hook logic itself
+needs no live `claude` session. Also verified: `claude --settings '<generated json>'
+doctor` loads the settings with no hook-schema warnings.
+
+**Not verified end to end, and not this task's fault.** A live run, as done for T-03 and
+T-05, hit an unrelated environment problem: this sandbox's shared auth state now asks
+even a bare `claude`, no flags at all, to log in again, which it did not a few commits
+earlier in this same session. Checked directly: identical wizard from a plain `claude`
+with no `--settings` argument, so the change is in the shared container's auth state,
+not in anything built here. T-07 through T-09 may need this resolved, or a workaround
+(T-07 can likely test against this very session's own transcript file instead of
+spawning a fresh one); T-09 runs on Jim's own macOS machine regardless, where this
+sandbox's auth state does not apply.
+
+**T-07, done.** `tokens.py` sums the usage records in a session's transcript file.
+Confirmed directly against a real transcript, this session's own, not from
+documentation: a streamed response writes several JSONL lines for the same assistant
+message, each repeating that message's usage totals verbatim, so a message counts once,
+by its id. Total is `input + cache_creation_input + cache_read_input + output` tokens
+per unique message; thinking tokens are a breakdown within `output_tokens`, not
+additional on top.
+
+**Definition recorded, as the briefing's own note under T-06 asked for regarding
+`transcript_path`, and as this task's own token definition needs recording too.** The
+displayed number runs into the tens of millions for a long session, because a cache
+read is counted again on every turn: that is how the API itself bills it, not a bug in
+the sum. Numbers are formatted compactly (`1.5k`, `35.2M`) for this reason.
+
+**Checked and ruled out as a shortcut.** A transcript can carry a `cost-state` entry
+with running token totals. Checked directly: it is a one-off snapshot, not kept current
+to the end of the file (found at line 84 of 1101 in the transcript checked against, with
+332 assistant entries by the end). Summing the usage records directly is the only
+correct source.
+
+`TranscriptTokenCounter` reads incrementally from a saved byte offset rather than
+re-parsing the whole file every poll tick, and stops at the last complete line, so a
+transcript caught mid-write is picked up correctly on the next read rather than having
+its finishing bytes skipped over.
+
+**Verified against a live, growing transcript, working around the sandbox's auth
+problem.** A real `claude` session still cannot be launched here (T-06's finding).
+Pointed a hand-written state file at this session's own transcript instead: the
+displayed total tracked the transcript's growth over several seconds, unprompted,
+confirming the poll loop and the incremental reader both work against a file actively
+being appended to, not only against a static fixture.
+
+**T-08, done.** `e` opens the selected session's nvim in a dedicated tmux window, not a
+pane and not a popup, named `nvim-<pane id>`, in that session's worktree. `select-window`
+switches the client to it, which is what makes it "zoomed": a different window fills
+the whole client, with no need for tmux's own pane-zoom. Pressing `e` again for the same
+session finds the same window by name rather than starting a second nvim.
+
+`prefix+v` returns to the three-pane layout. Registered in `layout.py`, not
+`list_view.py`: it is a tmux-server-wide key binding, not something a pane's own key
+handling can own, since by the time it fires the list pane may not even be the visible
+one. `layout.py` also renames the main window to a fixed name (`mission-control`) so the
+binding's target, an unqualified window name, resolves within whichever session the
+client is currently attached to: one binding covers every Mission Control tmux session's
+own main window, not just the first one's.
+
+The two candidates put to Jim and not chosen for this key: `prefix+z`, tmux's own
+pane-zoom, wrong tool once nvim runs in a dedicated window rather than a zoomed pane;
+and `prefix+r`, which clashes with stock tmux's `refresh-client`.
+
+**Verified against real tmux windows and a real nvim,** installed for this check since
+the base sandbox does not carry one. Opening, reusing, and returning all confirmed
+directly, including that the nvim window survives the return.
+
+**One piece could not be verified headlessly.** `tmux send-keys -t <pane> C-b v` sends
+keys straight into that pane, bypassing tmux's own prefix-key interception at the client
+level, so it does not exercise the real key path; checked directly, nvim received the
+raw `Ctrl-b` as its own page-up binding instead. Confirmed instead that the binding is
+registered correctly (`tmux list-keys -T prefix v`) and that its target command does the
+right thing when run directly. The real key press, from an actual attached client, is
+proven in T-09.
+
+## T-09 checklist, for Jim on macOS
+
+T-01 through T-08 are done and pushed to `jimbarritt/tsk-mission-control`'s `main`. T-09
+is the essential task: the mission is not done until this holds, and it needs Jim's own
+macOS machine, per the briefing's constraint. What follows is what to check, in order.
+
+**Setup.**
+1. `git clone https://github.com/jimbarritt/tsk-mission-control && cd tsk-mission-control`
+2. Confirm versions against the README: tmux 3.4+, Python 3.9+, Claude Code CLI, pipx.
+3. `pipx install --editable .` (no `--backend pip` override needed unless macOS's pipx
+   has the same `uv`-version mismatch this sandbox had).
+4. `tmux new -s mc-test` (or any name), then `tsk-mission-control` inside it.
+
+**Per objective.**
+- Three-pane layout appears: list left, session right (running `claude`, already past
+  its own login if already authenticated on that machine), terminal below, full width.
+- The session pane's name (window title or `tmux list-panes -F '#{pane_id}'` cross-check
+  against the state file) matches the current repo's name, or the name given on the
+  command line.
+- `j`/`k` move a highlighted row in the list; `n` prompts for a name (try one longer
+  than the list pane is wide, to recheck the T-05 finding); `Enter` swaps that session
+  into the right pane, with the previous one still running (check with
+  `tmux list-windows -a`, it should be in `mc-stash`).
+- Trigger a real permission prompt in the visible session (e.g. ask it to run a command
+  needing approval) and confirm the list shows `●` for that row; approve it and confirm
+  the marker clears once the next tool call completes.
+- Let a turn finish with no further input and confirm `●` appears (the `Stop` state);
+  submit a new prompt and confirm it clears.
+- Confirm the list shows a token figure per session, and that it increases as that
+  session works.
+- `e` on a session opens nvim, zoomed, in that session's worktree; `prefix+v` (`Ctrl-b v`
+  unless a different prefix is in use) returns to the three-pane layout with nvim still
+  running (`tmux list-windows -a` shows the `nvim-<pane id>` window still there);
+  pressing `e` again on the same session returns to that same nvim, not a fresh one.
+- Detach (`tmux detach`) and reattach (`tmux attach -t mc-test`): everything should
+  still be there and working, per the briefing's phase-one lifetime decision.
+
+**Specifically recheck, since both are sandbox findings that might not hold on macOS's
+own tmux build:** `split-window -l <N>%` (T-03) versus the `-p` form that failed here;
+and the `prefix+v` binding actually firing from a real keypress, not merely being
+registered (T-08).
+
+Fix what breaks, and re-check it, before calling T-09 done.
