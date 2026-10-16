@@ -152,6 +152,31 @@ Blocked is derived: a mission is blocked while any mission it names in `block` i
 `list <id> --json` prints the full record. A linked path must be a document on `tsk/docs`,
 written with `tsk ledger doc put`.
 
+### Tasks, decisions and questions
+
+A mission's tasks, decisions and open questions are data too. Record and change them only
+with these commands, and never write them as Markdown in a briefing or any other document.
+Every command changes the local store only. `tsk ledger push` publishes.
+
+```
+tsk task add <mission> <description>          # prints the new ID, T-01 upward
+tsk task set <mission> <task> <field> <value> # status (todo|in-progress|done) or description
+tsk task block <mission> <task> <by>          # and unblock; <by> is a task of the same mission
+tsk task list <mission>
+tsk decision add <mission> "<text>" --by <who> [--task T-nn]
+tsk decision list <mission>
+tsk question add <mission> "<text>"           # prints the new ID, Q-01 upward
+tsk question answer <mission> <q> "<text>" --by <who>
+tsk question list [<mission>]                 # open questions, all missions when none is given
+```
+
+Text is one line. `task list` prints `T-nn`, `status`, `blocked-by` and `description`,
+tab-separated. A task is blocked while any task it names in `block` is not `done`.
+`decision list` prints the date, who, the task or `-`, and the text, oldest first.
+`question list` prints the mission, `Q-nn`, the date asked and the text. Use `--by` with
+the name of the person who made the decision or gave the answer. `tsk mission list <id>
+--json` prints the mission with its tasks, decisions and questions.
+
 ### Threads
 
 Every `thread` command that reads the ledger fetches it first, except `binding

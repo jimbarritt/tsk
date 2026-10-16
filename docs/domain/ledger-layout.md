@@ -15,6 +15,7 @@ continuation state), `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-cu
 
 - [Dolt backend](#dolt-backend)
 - [Mission commands](#mission-commands)
+- [Task, decision and question commands](#task-decision-and-question-commands)
 - [File layout (`git` backend)](#file-layout-git-backend)
 - [Location and ref](#location-and-ref)
 - [Ledger worktree location](#ledger-worktree-location)
@@ -84,16 +85,20 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `3`. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `4`. |
 | `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024) | One row per thread. `briefing_path` replaces `threads/<thread-id>/index.md`. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
 | `cloud_session_bindings` | `session_id` varchar(255), primary key; `thread_id` varchar(64); `registered_at` varchar(32) | One row per cloud session binding. It replaces `threads/lookup-by-cloud-session.json`. |
 | `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of [`queue.ndjson`](#external-eventsqueuendjson). |
 | `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` varchar(32) | One row, `id` 1, the processed position of the queue. No row reads as `0`. It replaces `watermark.json`. |
-| `missions` | `id` varchar(64), primary key; `name` varchar(255); `category` enum(`operational`, `administrative`); `status` enum(`todo`, `in-progress`, `done`), default `todo`; `parent` varchar(64), null, foreign key to `missions(id)`; `purpose`, `decision_authority`, `constraints_text`, `out_of_scope` longtext, null; `next_objective` int, default 1 | One row per mission. Empty text is stored as null. `next_objective` is the number the next objective outcome gets. It only grows, so a removed outcome's number is never reused. |
+| `missions` | `id` varchar(64), primary key; `name` varchar(255); `category` enum(`operational`, `administrative`); `status` enum(`todo`, `in-progress`, `done`), default `todo`; `parent` varchar(64), null, foreign key to `missions(id)`; `purpose`, `decision_authority`, `constraints_text`, `out_of_scope` longtext, null; `next_objective`, `next_task`, `next_question` int, default 1 | One row per mission. Empty text is stored as null. Each `next_` column is the number the next objective outcome, task or question gets. It only grows, so a number is never reused. |
 | `objective_outcomes` | `mission_id` varchar(64), foreign key; `seq` int; `outcome` longtext; `met` boolean, default false. Primary key (`mission_id`, `seq`) | One row per objective outcome. |
 | `mission_blocks` | `mission_id` varchar(64), foreign key; `blocked_by_id` varchar(64), foreign key to `missions(id)`. Primary key of both | One row per block. Whether a block still holds is derived, never stored. |
 | `mission_documents` | `mission_id` varchar(64), foreign key; `path` varchar(1024); `role` enum(`intelligence`, `report`, `design`). Primary key (`mission_id`, `path`) | One row per document a mission links. The path names a document on `tsk/docs`. |
+| `tasks` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `description` longtext; `status` enum(`todo`, `in-progress`, `done`), default `todo`. Primary key (`mission_id`, `seq`) | One row per task. The ID `T-nn` is `seq` zero padded to two digits. |
+| `task_blocks` | `mission_id` varchar(64); `task_seq` int; `blocked_by_seq` int. Primary key of all three. Foreign keys (`mission_id`, `task_seq`) and (`mission_id`, `blocked_by_seq`) to `tasks(mission_id, seq)` | One row per task block. Both tasks belong to one mission. Whether a block still holds is derived, never stored. |
+| `decisions` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext; `decided_by` varchar(255); `decided_on` date; `task_seq` int, null. Primary key (`mission_id`, `seq`). Foreign key (`mission_id`, `task_seq`) to `tasks(mission_id, seq)` | One row per decision. `seq` orders the decisions and has no label. `decided_on` is the UTC date of the command. |
+| `questions` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext; `status` enum(`open`, `answered`), default `open`; `answer` longtext, null; `answered_by` varchar(255), null; `answered_on` date, null; `asked_on` date. Primary key (`mission_id`, `seq`) | One row per question. The ID `Q-nn` is `seq` zero padded to two digits. |
 
 There is no `documents` table. A version 1 ledger had one, and
 [`tsk ledger migrate-docs`](#moving-the-documents-out-of-dolt) moves its rows to files.
@@ -195,9 +200,10 @@ documents changed. Notes go to stderr.
 
 ### Manifest version
 
-The `version` row of the `manifest` table is `3` for a ledger with the mission tables, and
-`2` for a ledger whose documents are files on `tsk/docs` and that has no mission tables. The
-Dolt backend accepts versions 1, 2 and 3. Version 1 is a ledger that still keeps its
+The `version` row of the `manifest` table is `4` for a ledger with the mission, task,
+decision and question tables, `3` for a ledger with the mission tables only, and `2` for a
+ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
+backend accepts versions 1, 2, 3 and 4. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger is refused by every command except `tsk ledger fetch`,
@@ -206,16 +212,22 @@ documents in a `documents` table.
   tsk/docs branch.` `tsk ledger fetch` refreshes the database only and prints a note.
 - A version 2 ledger works for everything it did before. The mission read commands behave
   as an empty mission set and write nothing. The first mission write command creates the
-  four mission tables and sets the `version` row to `3` in the same local Dolt change as the
-  mission, so `tsk ledger push` publishes both.
-- A `tsk` binary from before version 3 does not know the version. It stops at its manifest
-  check with `unsupported ledger version 3`, before it writes. The binary needs updating.
+  mission, task, decision and question tables and sets the `version` row to `4` in the same
+  local Dolt change as the mission, so `tsk ledger push` publishes both.
+- A version 3 ledger works for everything it did before. The task, decision and question
+  read commands behave as if the mission had none, and write nothing. The first write
+  command of any of the four kinds (`mission`, `task`, `decision` or `question`) adds the
+  columns `next_task` and `next_question` to `missions`, creates the four new tables and
+  sets the `version` row to `4` in the same local Dolt change as the record, so
+  `tsk ledger push` publishes both. A write that fails a check upgrades nothing.
+- A `tsk` binary from before version 4 does not know the version. It stops at its manifest
+  check with `unsupported ledger version 4`, before it writes. The binary needs updating.
   The file ledger's `.tsk-ledger.toml` stays at version 1.
 
 ### Migration
 
 `tsk ledger migrate-to-dolt` moves a file ledger to the Dolt backend. It runs with
-either backend selected. The new ledger is version 3: it has no `documents` table, it has the mission tables, and
+either backend selected. The new ledger is version 4: it has no `documents` table, it has the mission, task, decision and question tables, and
 its documents are written as files on `tsk/docs`. It:
 
 1. Fetches the file ledger ref and checks its manifest. It stops when the ref is absent
@@ -270,7 +282,7 @@ table to files on `tsk/docs`. It steps through:
    reads every file back from that commit to compare it with the rows. A difference stops
    the command before any push.
 5. Checks the ledger ref has not moved. In the database, drops the `documents` table,
-   creates the mission tables and sets the `version` row to `3` in one Dolt commit, `Move the documents to the tsk/docs
+   creates the mission, task, decision and question tables and sets the `version` row to `4` in one Dolt commit, `Move the documents to the tsk/docs
    branch`.
 6. Pushes the documents branch, checks the ledger ref again, then pushes the Dolt data.
 7. Prints `migrated-docs:<count>`, with counts on stderr.
@@ -333,7 +345,7 @@ Rules:
 full record as one JSON object, and `list --json` prints an array of them:
 
 ```
-{"id":"M-J","name":"Json","category":"operational","status":"todo","parent":"M-P","blocked":true,"purpose":"Why","decision_authority":"","constraints":"","out_of_scope":"","objective":[{"n":1,"outcome":"One","met":true},{"n":2,"outcome":"Two","met":false}],"blocked_by":[{"id":"M-Q","blocking":true}],"documents":[{"path":"m/design.md","role":"design"}]}
+{"id":"M-J","name":"Json","category":"operational","status":"todo","parent":"M-P","blocked":true,"purpose":"Why","decision_authority":"","constraints":"","out_of_scope":"","objective":[{"n":1,"outcome":"One","met":true},{"n":2,"outcome":"Two","met":false}],"blocked_by":[{"id":"M-Q","blocking":true}],"documents":[{"path":"m/design.md","role":"design"}],"tasks":[],"decisions":[],"questions":[]}
 ```
 
 `blocked_by` lists every blocker. `blocking` is true for each one that is not done, and
@@ -346,6 +358,68 @@ two missions without a conflict, and a line per field lets it merge two fields o
 mission. The file ledger's `records/` directory is managed by tsk, so it is not a document
 path. The validation, the derived blocked state and the output are the same code for both
 backends.
+
+## Task, decision and question commands
+
+Tasks, decisions and questions belong to one mission. They are data like the mission: typed
+rows written only through these commands, never by editing Markdown. Every command changes
+the local store only, and `tsk ledger push` publishes. A command that fails exits 1, prints
+`error: ...` on stderr and writes nothing.
+
+```
+tsk task add <mission> <description>
+tsk task set <mission> <task> <field> <value>
+tsk task block <mission> <task> <by>
+tsk task unblock <mission> <task> <by>
+tsk task list <mission>
+tsk decision add <mission> <text> --by <who> [--task <T-nn>]
+tsk decision list <mission>
+tsk question add <mission> <text>
+tsk question answer <mission> <question> <text> --by <who>
+tsk question list [<mission>]
+```
+
+Rules:
+
+- `task add` and `question add` mint the next ID of the mission and print it. IDs are
+  `T-nn` and `Q-nn`: the number zero padded to two digits, and wider past 99. A counter on
+  the mission (`next_task`, `next_question`) only grows, so a number is never reused. Task
+  and question IDs are unique within a mission, not across missions.
+- A description, a decision, a question, an answer and the name after `--by` are one line.
+  A line break or a tab, or an empty value, is an error.
+- `task set` takes the fields `status` and `description`. Status is `todo`, `in-progress`
+  or `done`. Any other value is an error that names the three.
+- `task block` needs both tasks to exist in the mission. It refuses a task that blocks
+  itself, a pair that is already blocked, and any block that makes a cycle. `unblock` of a
+  pair that is not blocked is an error.
+- Blocked is never stored. A task is blocked when any task it names in `block` is not
+  `done`.
+- `decision add` records the UTC date of the command. `--task` must name a task of the
+  mission. A decision has no label.
+- `question answer` records the answer, the name after `--by` and the UTC date, and the
+  question is no longer open. A question is answered once: a second answer is an error.
+- An unknown mission, task or question is an error that names the ID.
+
+Each `list` prints one record per line, tab-separated, with no header:
+
+| Command | Columns |
+|---|---|
+| `task list <mission>` | `T-nn`, `status`, `blocked-by` (the IDs of the blockers that are not done, comma-separated, or `-`), `description`. Ordered by number. |
+| `decision list <mission>` | `decided_on` (`YYYY-MM-DD`), `decided_by`, `T-nn` or `-`, `text`. Oldest first. |
+| `question list [<mission>]` | `mission`, `Q-nn`, `asked_on` (`YYYY-MM-DD`), `text`. Open questions only, ordered by mission and number. All missions when none is given. |
+
+`tsk mission list --json` carries the records. Each mission object has three more keys after
+`documents`: `tasks` (`id`, `description`, `status`, `blocked`, and `blocked_by` as a list
+of `id` and `blocking`), `decisions` (`text`, `decided_by`, `decided_on`, `task` or null)
+and `questions` (`id`, `text`, `status`, `asked_on`, and `answer`, `answered_by` and
+`answered_on`, null while open). There is no `show` command and no Markdown output.
+
+The `git` backend keeps the records in the mission's file, `records/missions/<ID>.json`,
+as the keys `next_task`, `next_question`, `tasks`, `decisions` and `questions`. A file
+written before this release has none of them and reads as a mission with no records. The
+validation, the derived blocked state and the output are the same code for both backends.
+Two decisions added at the same time by two clones get the same `seq` and conflict at push,
+as do two tasks added to one mission.
 
 ## File layout (`git` backend)
 

@@ -21,7 +21,10 @@ use crate::ledger::location::{
 };
 use crate::ledger::manifest::{self, ManifestInfo, DOLT_SUPPORTED_VERSIONS};
 use crate::ledger::push::{PushOutcome, PushResult, PushStatus, MAX_ATTEMPTS};
-use crate::mission::model::{self, Category, Document, Mission, Outcome, Role, Status};
+use crate::mission::model::{
+    self, Category, Decision, Document, Mission, Outcome, Question, QuestionStatus, Role, Status,
+    Task,
+};
 use crate::thread::lookup::{CloudBinding, Lookup};
 
 use super::files::FileTree;
@@ -962,6 +965,10 @@ impl LedgerStore for DoltStore {
             // The first mission write on a version 2 ledger: the tables and the new
             // version land in the same local change as the mission.
             sql.push_str(&dolt::mission_upgrade_sql());
+        } else if version == dolt::MISSIONS_LAYOUT_VERSION {
+            // A version 3 ledger gains the counters and the task, decision and question
+            // tables in the same local change as the first write.
+            sql.push_str(&dolt::task_upgrade_sql());
         }
         sql.push_str(&save_sql(mission));
         db.exec(&sql)
@@ -1008,10 +1015,12 @@ impl DoltStore {
     /// Every mission in `db`. A version 2 ledger has no mission tables: it has no
     /// missions. A version 1 ledger is refused.
     fn missions_in(&self, db: &Dolt, location: &LedgerLocation) -> Result<Vec<Mission>, String> {
-        if self.check_current(db, location)? < dolt::LAYOUT_VERSION {
+        let version = self.check_current(db, location)?;
+        if version < dolt::MISSIONS_LAYOUT_VERSION {
             return Ok(Vec::new());
         }
-        read_missions(db)
+        // A version 3 ledger has no task, decision or question tables.
+        read_missions(db, version >= dolt::LAYOUT_VERSION)
     }
 
     /// A fresh clone meets a ref that holds a file ledger: stop with the way out.
@@ -1052,13 +1061,15 @@ fn save_sql(mission: &Mission) -> String {
     let id = lit(&mission.id);
     let mut sql = format!(
         "insert into missions (id, name, category, status, parent, purpose, decision_authority, \
-         constraints_text, out_of_scope, next_objective) values ({id}, {name}, '{category}', \
-         '{status}', {parent}, {purpose}, {authority}, {constraints}, {scope}, {next}) \
+         constraints_text, out_of_scope, next_objective, next_task, next_question) values \
+         ({id}, {name}, '{category}', '{status}', {parent}, {purpose}, {authority}, \
+         {constraints}, {scope}, {next}, {next_task}, {next_question}) \
          on duplicate key update name = values(name), category = values(category), \
          status = values(status), parent = values(parent), purpose = values(purpose), \
          decision_authority = values(decision_authority), \
          constraints_text = values(constraints_text), out_of_scope = values(out_of_scope), \
-         next_objective = values(next_objective);\n",
+         next_objective = values(next_objective), next_task = values(next_task), \
+         next_question = values(next_question);\n",
         id = id,
         name = lit(&mission.name),
         category = mission.category.as_str(),
@@ -1073,6 +1084,8 @@ fn save_sql(mission: &Mission) -> String {
         constraints = nullable(&mission.constraints),
         scope = nullable(&mission.out_of_scope),
         next = mission.next_objective,
+        next_task = mission.next_task,
+        next_question = mission.next_question,
     );
 
     let seqs: Vec<String> = mission
@@ -1148,11 +1161,103 @@ fn save_sql(mission: &Mission) -> String {
             rows.join(", ")
         ));
     }
+    // Tasks first: blocks and decisions point at them. A task is never removed.
+    if !mission.tasks.is_empty() {
+        let rows: Vec<String> = mission
+            .tasks
+            .iter()
+            .map(|t| {
+                format!(
+                    "({}, {}, {}, '{}')",
+                    id,
+                    t.seq,
+                    lit(&t.description),
+                    t.status.as_str()
+                )
+            })
+            .collect();
+        sql.push_str(&format!(
+            "insert into tasks (mission_id, seq, description, status) values {} \
+             on duplicate key update description = values(description), status = values(status);\n",
+            rows.join(", ")
+        ));
+    }
+    sql.push_str(&format!(
+        "delete from task_blocks where mission_id = {};\n",
+        id
+    ));
+    let blocks: Vec<String> = mission
+        .tasks
+        .iter()
+        .flat_map(|t| {
+            let id = &id;
+            t.blocked_by
+                .iter()
+                .map(move |by| format!("({}, {}, {})", id, t.seq, by))
+        })
+        .collect();
+    if !blocks.is_empty() {
+        sql.push_str(&format!(
+            "replace into task_blocks (mission_id, task_seq, blocked_by_seq) values {};\n",
+            blocks.join(", ")
+        ));
+    }
+    if !mission.decisions.is_empty() {
+        let rows: Vec<String> = mission
+            .decisions
+            .iter()
+            .map(|d| {
+                format!(
+                    "({}, {}, {}, {}, {}, {})",
+                    id,
+                    d.seq,
+                    lit(&d.text),
+                    lit(&d.decided_by),
+                    lit(&d.decided_on),
+                    d.task.map_or("NULL".to_string(), |t| t.to_string())
+                )
+            })
+            .collect();
+        sql.push_str(&format!(
+            "insert into decisions (mission_id, seq, text, decided_by, decided_on, task_seq) values {} \
+             on duplicate key update text = values(text), decided_by = values(decided_by), \
+             decided_on = values(decided_on), task_seq = values(task_seq);\n",
+            rows.join(", ")
+        ));
+    }
+    if !mission.questions.is_empty() {
+        let opt = |v: &Option<String>| v.as_deref().map_or("NULL".to_string(), lit);
+        let rows: Vec<String> = mission
+            .questions
+            .iter()
+            .map(|q| {
+                format!(
+                    "({}, {}, {}, '{}', {}, {}, {}, {})",
+                    id,
+                    q.seq,
+                    lit(&q.text),
+                    q.status.as_str(),
+                    opt(&q.answer),
+                    opt(&q.answered_by),
+                    opt(&q.answered_on),
+                    lit(&q.asked_on)
+                )
+            })
+            .collect();
+        sql.push_str(&format!(
+            "insert into questions (mission_id, seq, text, status, answer, answered_by, answered_on, asked_on) values {} \
+             on duplicate key update text = values(text), status = values(status), \
+             answer = values(answer), answered_by = values(answered_by), \
+             answered_on = values(answered_on), asked_on = values(asked_on);\n",
+            rows.join(", ")
+        ));
+    }
     sql
 }
 
-/// Read every mission with its outcomes, blockers and links.
-fn read_missions(db: &Dolt) -> Result<Vec<Mission>, String> {
+/// Read every mission with its outcomes, blockers and links, and with its tasks,
+/// decisions and questions when `with_records` says the tables exist.
+fn read_missions(db: &Dolt, with_records: bool) -> Result<Vec<Mission>, String> {
     let bad = |column: &str, id: &str| {
         format!(
             "error: the missions table holds an unreadable {} for {}",
@@ -1160,10 +1265,16 @@ fn read_missions(db: &Dolt) -> Result<Vec<Mission>, String> {
         )
     };
     let mut missions = Vec::new();
-    for row in db.rows(
+    let counters = if with_records {
+        ", next_task, next_question"
+    } else {
+        ""
+    };
+    for row in db.rows(&format!(
         "select id, name, category, status, parent, purpose, decision_authority, \
-         constraints_text, out_of_scope, next_objective from missions order by id",
-    )? {
+         constraints_text, out_of_scope, next_objective{} from missions order by id",
+        counters
+    ))? {
         let id = text(&row, "id").unwrap_or_default();
         missions.push(Mission {
             name: text(&row, "name").unwrap_or_default(),
@@ -1180,6 +1291,11 @@ fn read_missions(db: &Dolt) -> Result<Vec<Mission>, String> {
             objective: Vec::new(),
             blocked_by: Vec::new(),
             documents: Vec::new(),
+            next_task: integer(&row, "next_task").unwrap_or(1),
+            next_question: integer(&row, "next_question").unwrap_or(1),
+            tasks: Vec::new(),
+            decisions: Vec::new(),
+            questions: Vec::new(),
             id,
         });
     }
@@ -1220,7 +1336,85 @@ fn read_missions(db: &Dolt) -> Result<Vec<Mission>, String> {
             });
         }
     }
+    if with_records {
+        read_records(db, &mut missions, &bad)?;
+    }
     Ok(missions)
+}
+
+/// Read every task with its blockers, and every decision and question.
+fn read_records(
+    db: &Dolt,
+    missions: &mut [Mission],
+    bad: &dyn Fn(&str, &str) -> String,
+) -> Result<(), String> {
+    let slot = |missions: &[Mission], id: &str| missions.iter().position(|m| m.id == id);
+    for row in
+        db.rows("select mission_id, seq, description, status from tasks order by mission_id, seq")?
+    {
+        let id = text(&row, "mission_id").unwrap_or_default();
+        if let Some(at) = slot(missions, &id) {
+            missions[at].tasks.push(Task {
+                seq: integer(&row, "seq").unwrap_or(0),
+                description: text(&row, "description").unwrap_or_default(),
+                status: Status::parse(&text(&row, "status").unwrap_or_default())
+                    .map_err(|_| bad("task status", &id))?,
+                blocked_by: Vec::new(),
+            });
+        }
+    }
+    for row in db.rows(
+        "select mission_id, task_seq, blocked_by_seq from task_blocks \
+         order by mission_id, task_seq, blocked_by_seq",
+    )? {
+        let id = text(&row, "mission_id").unwrap_or_default();
+        let task_seq = integer(&row, "task_seq").unwrap_or(0);
+        if let Some(at) = slot(missions, &id) {
+            if let Some(task) = missions[at].tasks.iter_mut().find(|t| t.seq == task_seq) {
+                task.blocked_by
+                    .push(integer(&row, "blocked_by_seq").unwrap_or(0));
+            }
+        }
+    }
+    for row in db.rows(
+        "select mission_id, seq, text, decided_by, decided_on, task_seq from decisions \
+         order by mission_id, seq",
+    )? {
+        let id = text(&row, "mission_id").unwrap_or_default();
+        if let Some(at) = slot(missions, &id) {
+            missions[at].decisions.push(Decision {
+                seq: integer(&row, "seq").unwrap_or(0),
+                text: text(&row, "text").unwrap_or_default(),
+                decided_by: text(&row, "decided_by").unwrap_or_default(),
+                decided_on: date(&row, "decided_on").unwrap_or_default(),
+                task: integer(&row, "task_seq"),
+            });
+        }
+    }
+    for row in db.rows(
+        "select mission_id, seq, text, status, answer, answered_by, answered_on, asked_on \
+         from questions order by mission_id, seq",
+    )? {
+        let id = text(&row, "mission_id").unwrap_or_default();
+        if let Some(at) = slot(missions, &id) {
+            missions[at].questions.push(Question {
+                seq: integer(&row, "seq").unwrap_or(0),
+                text: text(&row, "text").unwrap_or_default(),
+                status: QuestionStatus::parse(&text(&row, "status").unwrap_or_default())
+                    .ok_or_else(|| bad("question status", &id))?,
+                answer: text(&row, "answer"),
+                answered_by: text(&row, "answered_by"),
+                answered_on: date(&row, "answered_on"),
+                asked_on: date(&row, "asked_on").unwrap_or_default(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// A `date` column as `YYYY-MM-DD`. Dolt's JSON output may carry a time part.
+fn date(row: &serde_json::Value, column: &str) -> Option<String> {
+    text(row, column).map(|v| v.chars().take(10).collect())
 }
 
 /// Merge the remote branch into the local one. A conflict aborts the merge and fails;

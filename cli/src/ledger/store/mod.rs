@@ -157,7 +157,7 @@ pub trait LedgerStore {
     fn missions_load(&self) -> Result<Vec<Mission>, String>;
     /// Write one mission and its objective outcomes, blockers and document links in the
     /// local store, replacing what the store held for that ID. The first call on a
-    /// Dolt ledger at version 2 creates the mission tables and records version 3.
+    /// Dolt ledger at version 2 or 3 creates the missing tables and records version 4.
     fn mission_save(&self, mission: &Mission) -> Result<(), String>;
 
     // --- Descriptions for error messages ---
