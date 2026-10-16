@@ -964,3 +964,23 @@ config holds the list of attached nexuses and which to show. A personal nexus is
 The analysis in the tsk repo records the shape and what is not built. Two decisions stay
 open there: territory as a property of the (nexus, repo) pair, and where a personal
 nexus holds its own ledger.
+
+Decided by Jim, 2026-10-16, on the other two open decisions, after working an example with
+a repo shared by team A and team B. Jim, in his own words:
+
+> I think the problem is that territory is a kind of nexus local concept that groups repos. So the same repo can be in multiple trrritotires depending on your perspective.
+>
+> One additional factor - what if a mission has no repo? Or is cross cutting multiple repos?
+
+and, on the answer:
+
+> Yes, record it in both. And I think the thing about territories is correct, it's an overlay over the missions so territories know their missions but not the other way round
+
+So: territory is a nexus-local overlay. The same repo or mission can be in several
+territories, one per nexus that indexes it. A territory knows its missions, and a mission
+does not know its territory, so the briefing's Territory row goes. A nexus repo holds a
+ledger of its own, for missions that belong to no single repo or cut across several. A
+team's cross-repo mission goes in the team nexus's ledger, and an actor's cross-cutting
+work in their personal nexus's ledger. The cost is that such a mission has the nexus's
+access boundary. The analysis in the tsk repo has the example. Open there: whether a
+territory lists repos, missions, or both.
