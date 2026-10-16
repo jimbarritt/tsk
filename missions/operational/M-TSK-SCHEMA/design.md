@@ -111,6 +111,24 @@ Stated by Jim, 2026-10-15.
   The aim is non-invasive use: a repo registered in a nexus holds nothing of tsk's.
   The local repo config is the uncommon path. It serves a standalone repo with no
   nexus entry that is used from cloud sessions. Decided by Jim, 2026-10-16.
+- A thread can exist without a mission. A thread is the continuation unit: a binding
+  and a sequence of pause entries with "what's next". A mission is the task owner:
+  tasks, decisions and questions hang off it, with IDs minted per mission. Nothing in
+  the continuation mechanism needs the mission. Tasks stay on missions and are never
+  owned by a thread, so there is one ID space and one owner for blocks, decisions and
+  questions. Ad hoc tasks go on an administrative mission such as M-ADMIN-02.
+  Changes: `tsk thread start` with no argument mints a thread with no mission;
+  `pause` on such a thread takes an empty task ID and refuses any other;
+  session start prints the latest "what's next" and says the thread has no mission;
+  `tsk thread set mission <id>` attaches a mission later, or changes it, and each
+  pause entry keeps the mission that was current when it was written. The four cases:
+  `skip` (no thread, nothing persists); a thread without a mission (continuity, no
+  tasks); a thread on an administrative mission (continuity and ad hoc tasks); a thread
+  on an operational mission (the full model). Decided by Jim, 2026-10-16. Jim's note
+  on the domain naming, as captured: he used "thread" before as a representation of
+  his context switching, with multiple threads going on, pausing and switching contexts
+  between them, and the threads remembering the state; he thinks the mission now
+  represents this concept.
 
 ## Custom refs by default, branches for cloud sessions
 
