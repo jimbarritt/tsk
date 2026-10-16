@@ -14,6 +14,7 @@ use crate::ledger::git::Git;
 use crate::ledger::location::{state_root_from_env, worktree_path, Repo};
 use crate::ledger::manifest::{self, ManifestInfo, MANIFEST_FILE};
 use crate::ledger::{fetch, push};
+use crate::mission::model::{self, Mission};
 use crate::thread::entry::STORE_FILE;
 use crate::thread::lookup::{lookup_path, CloudBinding, Lookup};
 use crate::thread::ops::{index_md, mission_link};
@@ -21,6 +22,10 @@ use crate::thread::ops::{index_md, mission_link};
 use super::{LedgerStore, PushReport, RefreshOutcome};
 
 const THREADS_DIR: &str = "threads";
+/// The top-level directory of record files. One JSON file per mission sits in
+/// `records/missions/`, so git merges two missions without a conflict.
+pub const RECORDS_DIR: &str = "records";
+const MISSIONS_DIR: &str = "missions";
 
 pub struct FilesStore {
     repo: Repo,
@@ -112,6 +117,14 @@ impl LedgerStore for FilesStore {
         message: &str,
         notes: &mut dyn FnMut(&str),
     ) -> Result<PushReport, String> {
+        // Documents and records share one commit here, so a link to a document that is
+        // gone stops the push before anything is committed.
+        let tree = self.tree()?;
+        model::check_links(
+            &tree.missions_load()?,
+            &|path| tree.doc_path(path).is_file(),
+            "Nothing was committed or pushed",
+        )?;
         let outcome = {
             let mut on_retry = |attempt: usize, status: &push::PushStatus| {
                 notes(&crate::ledger::retry_note(attempt, status))
@@ -162,6 +175,9 @@ impl LedgerStore for FilesStore {
     }
 
     fn doc_exists(&self, path: &str) -> Result<bool, String> {
+        if super::check_document_path(path).is_err() {
+            return Ok(false);
+        }
         Ok(self.tree()?.doc_path(path).is_file())
     }
 
@@ -244,6 +260,14 @@ impl LedgerStore for FilesStore {
         self.tree()?.watermark_set(processed_through, updated_at)
     }
 
+    fn missions_load(&self) -> Result<Vec<Mission>, String> {
+        self.tree()?.missions_load()
+    }
+
+    fn mission_save(&self, mission: &Mission) -> Result<(), String> {
+        self.tree()?.mission_save(mission)
+    }
+
     fn describe_document(&self, path: &str) -> String {
         self.describe(path)
     }
@@ -293,6 +317,46 @@ fn ensure_parent(path: &Path) -> Result<(), String> {
 impl FileTree {
     pub(crate) fn doc_path(&self, path: &str) -> PathBuf {
         self.root.join(path)
+    }
+
+    fn missions_dir(&self) -> PathBuf {
+        self.root.join(RECORDS_DIR).join(MISSIONS_DIR)
+    }
+
+    fn missions_load(&self) -> Result<Vec<Mission>, String> {
+        let dir = self.missions_dir();
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(format!("error: could not read {}: {}", dir.display(), e)),
+        };
+        let mut missions = Vec::new();
+        for entry in entries {
+            let entry =
+                entry.map_err(|e| format!("error: could not read {}: {}", dir.display(), e))?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| format!("error: could not read {}: {}", path.display(), e))?;
+            let mission: Mission = serde_json::from_str(&text)
+                .map_err(|e| format!("error: {} is not a mission record: {}", path.display(), e))?;
+            missions.push(mission);
+        }
+        missions.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(missions)
+    }
+
+    /// One pretty-printed file per mission, keys in the order of the struct.
+    fn mission_save(&self, mission: &Mission) -> Result<(), String> {
+        let file = self.missions_dir().join(format!("{}.json", mission.id));
+        ensure_parent(&file)?;
+        let mut text = serde_json::to_string_pretty(mission)
+            .map_err(|e| format!("error: could not write the mission record: {}", e))?;
+        text.push('\n');
+        std::fs::write(&file, text)
+            .map_err(|e| format!("error: could not write {}: {}", file.display(), e))
     }
 
     fn thread_dir(&self, id: &str) -> PathBuf {
@@ -531,7 +595,7 @@ impl FileTree {
 }
 
 fn is_reserved_top(name: &str) -> bool {
-    name == THREADS_DIR || name == EVENTS_DIR || name == MANIFEST_FILE
+    name == THREADS_DIR || name == EVENTS_DIR || name == RECORDS_DIR || name == MANIFEST_FILE
 }
 
 #[cfg(test)]

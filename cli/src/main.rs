@@ -55,6 +55,13 @@ enum Commands {
         #[command(subcommand)]
         action: ledger::LedgerCommands,
     },
+    #[command(
+        about = "Create, change and list mission records in the local ledger store; tsk ledger push publishes (runs without tskd)"
+    )]
+    Mission {
+        #[command(subcommand)]
+        action: mission::MissionCommands,
+    },
     #[command(about = "Read and write the user config: attach the nexus")]
     Config {
         #[command(subcommand)]
@@ -122,6 +129,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
         Some(Commands::Thread { action }) => thread::run(action),
         Some(Commands::Ledger { action }) => ledger::run(action).map(|()| 0),
         Some(Commands::Events { action }) => events::run(action),
+        Some(Commands::Mission { action }) => mission::run(action).map(|()| 0),
         Some(Commands::Config { action }) => config::run(action).map(|()| 0),
         Some(Commands::Nexus { action }) => nexus_cmd::run(action).map(|()| 0),
         Some(Commands::InstallPlugin(args)) => install_plugin::run(args).map(|()| 0),
@@ -140,6 +148,8 @@ mod tui;
 mod config;
 
 mod ledger;
+
+mod mission;
 
 mod thread;
 
@@ -241,6 +251,42 @@ mod tests {
         assert!(Cli::try_parse_from(["tsk", "ledger", "push"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "ledger"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "ledger", "fetch", "extra"]).is_err());
+    }
+
+    #[test]
+    fn mission_subcommands_parse() {
+        for args in [
+            vec!["tsk", "mission", "create", "M-X", "A name"],
+            vec![
+                "tsk",
+                "mission",
+                "create",
+                "M-X",
+                "A name",
+                "--category",
+                "administrative",
+                "--parent",
+                "M-Y",
+            ],
+            vec!["tsk", "mission", "set", "M-X", "purpose", "-"],
+            vec!["tsk", "mission", "block", "M-X", "M-Y"],
+            vec!["tsk", "mission", "unblock", "M-X", "M-Y"],
+            vec!["tsk", "mission", "objective", "add", "M-X", "-dash outcome"],
+            vec!["tsk", "mission", "objective", "done", "M-X", "1"],
+            vec!["tsk", "mission", "objective", "undone", "M-X", "1"],
+            vec!["tsk", "mission", "objective", "remove", "M-X", "1"],
+            vec!["tsk", "mission", "objective", "list", "M-X"],
+            vec![
+                "tsk", "mission", "link", "M-X", "a/b.md", "--role", "report",
+            ],
+            vec!["tsk", "mission", "unlink", "M-X", "a/b.md"],
+            vec!["tsk", "mission", "list"],
+            vec!["tsk", "mission", "list", "M-X", "--json"],
+        ] {
+            assert!(Cli::try_parse_from(&args).is_ok(), "{:?}", args);
+        }
+        assert!(Cli::try_parse_from(["tsk", "mission", "show", "M-X"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "mission", "link", "M-X", "a.md"]).is_err());
     }
 
     #[test]

@@ -726,6 +726,657 @@ mod cases {
             }
         }
     }
+
+    // --- Missions ---
+
+    fn mission_json(fx: &Fixture, dir: &Path, id: &str) -> serde_json::Value {
+        json(&fx.ok(dir, &["mission", "list", id, "--json"]))
+    }
+
+    fn fails(fx: &Fixture, dir: &Path, args: &[&str], needle: &str) {
+        let out = fx.tsk(dir, args);
+        assert_exit(&out, 1);
+        assert!(stderr(&out).starts_with("error: "), "{}", stderr(&out));
+        assert!(stderr(&out).contains(needle), "{}", stderr(&out));
+        assert_eq!(stdout(&out), "");
+    }
+
+    pub fn missions_are_created_and_listed_one_per_line(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        assert_eq!(fx.ok(&a, &["mission", "list"]), "");
+        assert_eq!(fx.ok(&a, &["mission", "create", "M-B-TWO", "Second"]), "");
+        fx.ok(&a, &["mission", "create", "M-A1", "First one"]);
+        fx.ok(
+            &a,
+            &[
+                "mission",
+                "create",
+                "M-ADMIN",
+                "Standing work",
+                "--category",
+                "administrative",
+                "--parent",
+                "M-A1",
+            ],
+        );
+        assert_eq!(
+            fx.ok(&a, &["mission", "list"]),
+            "M-A1\ttodo\t-\t-\tFirst one\n\
+             M-ADMIN\tin-progress\t-\tM-A1\tStanding work\n\
+             M-B-TWO\ttodo\t-\t-\tSecond\n"
+        );
+        assert_eq!(
+            fx.ok(&a, &["mission", "list", "M-ADMIN"]),
+            "M-ADMIN\tin-progress\t-\tM-A1\tStanding work\n"
+        );
+
+        let before = fx.ok(&a, &["mission", "list"]);
+        fails(
+            &fx,
+            &a,
+            &["mission", "create", "M-A1", "Again"],
+            "already exists",
+        );
+        for bad in ["m-x", "X", "M-", "M-A--B", "M-a"] {
+            fails(
+                &fx,
+                &a,
+                &["mission", "create", bad, "Bad"],
+                "not a mission ID",
+            );
+        }
+        fails(
+            &fx,
+            &a,
+            &["mission", "create", "M-C", "x", "--parent", "M-NONE"],
+            "M-NONE",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "create", "M-C", "x", "--category", "odd"],
+            "operational and administrative",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "create", "M-C", ""],
+            "cannot be empty",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "create", "M-C", "two\nlines"],
+            "one line",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "list", "M-NONE"],
+            "no such mission: M-NONE",
+        );
+        assert_eq!(fx.ok(&a, &["mission", "list"]), before);
+    }
+
+    pub fn every_mission_field_round_trips(b: Backend) {
+        let fx = Fixture::new(b);
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-F", "Fields"]);
+        fx.ok(&a, &["ledger", "push", "Base"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+
+        let name = "N\u{e9}m \u{65e5}\u{672c} \u{1f600} 'q' \"d\"; drop table missions; --";
+        fx.ok(&a, &["mission", "set", "M-F", "name", name]);
+        let multi = "Line one \"quoted\" 'single' \\ back\n\ttabbed; drop table missions; --\n\u{e9} \u{65e5}\u{672c} \u{1f600}\r\nlast, no newline";
+        for (field, key) in [
+            ("purpose", "purpose"),
+            ("constraints", "constraints"),
+            ("out-of-scope", "out_of_scope"),
+            ("decision-authority", "decision_authority"),
+        ] {
+            let set = fx.tsk_stdin(&a, &["mission", "set", "M-F", field, "-"], multi);
+            assert_success(&set);
+            assert_eq!(mission_json(&fx, &a, "M-F")[key], multi, "{}", field);
+        }
+        fx.ok(
+            &a,
+            &["mission", "set", "M-F", "purpose", "from the argument"],
+        );
+        fx.ok(&a, &["mission", "set", "M-F", "constraints", "-dash start"]);
+        assert_success(&fx.tsk_stdin(
+            &a,
+            &["mission", "set", "M-F", "status", "-"],
+            "in-progress\n",
+        ));
+        fx.ok(&a, &["mission", "set", "M-F", "out-of-scope", ""]);
+
+        let record = mission_json(&fx, &a, "M-F");
+        assert_eq!(record["name"], name);
+        assert_eq!(record["purpose"], "from the argument");
+        assert_eq!(record["constraints"], "-dash start");
+        assert_eq!(record["out_of_scope"], "");
+        assert_eq!(record["decision_authority"], multi);
+        assert_eq!(record["status"], "in-progress");
+
+        fails(
+            &fx,
+            &a,
+            &["mission", "set", "M-F", "colour", "red"],
+            "name, status, purpose, constraints, out-of-scope, decision-authority",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "set", "M-NONE", "purpose", "x"],
+            "no such mission",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "set", "M-F", "name", ""],
+            "cannot be empty",
+        );
+
+        fx.ok(&a, &["ledger", "push", "Fields"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(mission_json(&fx, &other, "M-F"), record);
+    }
+
+    pub fn status_accepts_three_values_and_an_administrative_mission_keeps_one(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-OP", "Operational"]);
+        fx.ok(
+            &a,
+            &[
+                "mission",
+                "create",
+                "M-AD",
+                "Admin",
+                "--category",
+                "administrative",
+            ],
+        );
+        for status in ["in-progress", "done", "todo"] {
+            fx.ok(&a, &["mission", "set", "M-OP", "status", status]);
+            assert_eq!(mission_json(&fx, &a, "M-OP")["status"], status);
+        }
+        for bad in ["blocked", "deferred", "DONE", "", "in progress"] {
+            fails(
+                &fx,
+                &a,
+                &["mission", "set", "M-OP", "status", bad],
+                "todo, in-progress and done",
+            );
+        }
+        assert_eq!(mission_json(&fx, &a, "M-OP")["status"], "todo");
+
+        assert_eq!(mission_json(&fx, &a, "M-AD")["status"], "in-progress");
+        fails(
+            &fx,
+            &a,
+            &["mission", "set", "M-AD", "status", "todo"],
+            "has no end",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "set", "M-AD", "status", "done"],
+            "has no end",
+        );
+        fx.ok(&a, &["mission", "set", "M-AD", "status", "in-progress"]);
+        assert_eq!(mission_json(&fx, &a, "M-AD")["status"], "in-progress");
+    }
+
+    pub fn blocks_are_checked_and_blocked_is_derived(b: Backend) {
+        let fx = Fixture::new(b);
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["ledger", "fetch"]);
+        for (id, name) in [("M-A", "Alpha"), ("M-B", "Beta"), ("M-C", "Gamma")] {
+            fx.ok(&a, &["mission", "create", id, name]);
+        }
+        fails(
+            &fx,
+            &a,
+            &["mission", "block", "M-A", "M-NONE"],
+            "no such mission: M-NONE",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "block", "M-NONE", "M-A"],
+            "no such mission: M-NONE",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "block", "M-A", "M-A"],
+            "cannot block itself",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "unblock", "M-A", "M-B"],
+            "is not blocked by M-B",
+        );
+
+        fx.ok(&a, &["mission", "block", "M-A", "M-B"]);
+        fx.ok(&a, &["mission", "block", "M-B", "M-C"]);
+        fails(
+            &fx,
+            &a,
+            &["mission", "block", "M-A", "M-B"],
+            "already blocked",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "block", "M-C", "M-A"],
+            "cycle (M-C -> M-A -> M-B -> M-C)",
+        );
+        fails(&fx, &a, &["mission", "block", "M-C", "M-B"], "cycle");
+
+        // Blocked is never stored: it follows the status of the blockers.
+        let listed = |fx: &Fixture, dir: &Path| fx.ok(dir, &["mission", "list"]);
+        assert_eq!(
+            listed(&fx, &a),
+            "M-A\ttodo\tM-B\t-\tAlpha\nM-B\ttodo\tM-C\t-\tBeta\nM-C\ttodo\t-\t-\tGamma\n"
+        );
+        fx.ok(&a, &["mission", "block", "M-A", "M-C"]);
+        fx.ok(&a, &["mission", "set", "M-C", "status", "done"]);
+        assert_eq!(
+            listed(&fx, &a),
+            "M-A\ttodo\tM-B\t-\tAlpha\nM-B\ttodo\t-\t-\tBeta\nM-C\tdone\t-\t-\tGamma\n"
+        );
+        let record = mission_json(&fx, &a, "M-A");
+        assert_eq!(record["blocked"], true);
+        assert_eq!(
+            record["blocked_by"][0],
+            serde_json::json!({"id": "M-B", "blocking": true})
+        );
+        assert_eq!(
+            record["blocked_by"][1],
+            serde_json::json!({"id": "M-C", "blocking": false})
+        );
+        fx.ok(&a, &["mission", "set", "M-B", "status", "done"]);
+        assert_eq!(
+            listed(&fx, &a),
+            "M-A\ttodo\t-\t-\tAlpha\nM-B\tdone\t-\t-\tBeta\nM-C\tdone\t-\t-\tGamma\n"
+        );
+        assert_eq!(mission_json(&fx, &a, "M-A")["blocked"], false);
+        fx.ok(&a, &["mission", "set", "M-B", "status", "in-progress"]);
+        assert!(listed(&fx, &a).starts_with("M-A\ttodo\tM-B\t"));
+
+        fx.ok(&a, &["mission", "unblock", "M-A", "M-B"]);
+        fx.ok(&a, &["mission", "unblock", "M-A", "M-C"]);
+        assert!(listed(&fx, &a).starts_with("M-A\ttodo\t-\t"));
+        // The pushed records read back the same on another clone.
+        fx.ok(&a, &["mission", "block", "M-A", "M-B"]);
+        fx.ok(&a, &["ledger", "push", "Blocks"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(listed(&fx, &other), listed(&fx, &a));
+    }
+
+    pub fn objective_outcomes_are_numbered_and_numbers_are_not_reused(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-O", "Objectives"]);
+        assert_eq!(
+            fx.ok(&a, &["mission", "objective", "add", "M-O", "First"]),
+            "1\n"
+        );
+        assert_eq!(
+            fx.ok(&a, &["mission", "objective", "add", "M-O", "Second \u{e9}"]),
+            "2\n"
+        );
+        assert_eq!(
+            fx.ok(&a, &["mission", "objective", "add", "M-O", "-Third"]),
+            "3\n"
+        );
+        assert_eq!(
+            fx.ok(&a, &["mission", "objective", "list", "M-O"]),
+            "1\topen\tFirst\n2\topen\tSecond \u{e9}\n3\topen\t-Third\n"
+        );
+        fx.ok(&a, &["mission", "objective", "done", "M-O", "2"]);
+        assert_eq!(
+            mission_json(&fx, &a, "M-O")["objective"][1],
+            serde_json::json!({"n": 2, "outcome": "Second \u{e9}", "met": true})
+        );
+        fx.ok(&a, &["mission", "objective", "undone", "M-O", "2"]);
+        assert_eq!(mission_json(&fx, &a, "M-O")["objective"][1]["met"], false);
+
+        fx.ok(&a, &["mission", "objective", "remove", "M-O", "3"]);
+        fx.ok(&a, &["mission", "objective", "remove", "M-O", "1"]);
+        assert_eq!(
+            fx.ok(&a, &["mission", "objective", "add", "M-O", "Fourth"]),
+            "4\n"
+        );
+        assert_eq!(
+            fx.ok(&a, &["mission", "objective", "list", "M-O"]),
+            "2\topen\tSecond \u{e9}\n4\topen\tFourth\n"
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "objective", "done", "M-O", "3"],
+            "no objective outcome 3",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "objective", "remove", "M-O", "1"],
+            "no objective outcome 1",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "objective", "add", "M-O", ""],
+            "cannot be empty",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "objective", "add", "M-NONE", "x"],
+            "no such mission",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "objective", "list", "M-NONE"],
+            "no such mission",
+        );
+
+        // The counter survives a push and a fresh clone.
+        fx.ok(&a, &["mission", "objective", "remove", "M-O", "4"]);
+        fx.ok(&a, &["ledger", "push", "Objectives"]);
+        let other = fx.b();
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(
+            fx.ok(&other, &["mission", "objective", "add", "M-O", "Fifth"]),
+            "5\n"
+        );
+    }
+
+    pub fn documents_are_linked_by_path_and_checked_at_push(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-D", "Documents"]);
+        fx.put(&a, "missions/M-D/report.md", "# Report\n");
+
+        fails(
+            &fx,
+            &a,
+            &[
+                "mission",
+                "link",
+                "M-D",
+                "missions/none.md",
+                "--role",
+                "report",
+            ],
+            "error: no such document: missions/none.md",
+        );
+        fails(
+            &fx,
+            &a,
+            &[
+                "mission",
+                "link",
+                "M-D",
+                "missions/M-D/report.md",
+                "--role",
+                "summary",
+            ],
+            "intelligence, report and design",
+        );
+        fails(
+            &fx,
+            &a,
+            &["mission", "link", "M-D", "../escape.md", "--role", "report"],
+            "no such document",
+        );
+        fails(
+            &fx,
+            &a,
+            &[
+                "mission",
+                "link",
+                "M-NONE",
+                "missions/M-D/report.md",
+                "--role",
+                "report",
+            ],
+            "no such mission",
+        );
+        assert_eq!(
+            mission_json(&fx, &a, "M-D")["documents"],
+            serde_json::json!([])
+        );
+
+        fx.ok(
+            &a,
+            &[
+                "mission",
+                "link",
+                "M-D",
+                "missions/M-D/report.md",
+                "--role",
+                "report",
+            ],
+        );
+        fx.ok(
+            &a,
+            &["mission", "link", "M-D", "./index.md", "--role", "design"],
+        );
+        assert_eq!(
+            mission_json(&fx, &a, "M-D")["documents"],
+            serde_json::json!([
+                {"path": "index.md", "role": "design"},
+                {"path": "missions/M-D/report.md", "role": "report"}
+            ])
+        );
+        // Linking again changes the role.
+        fx.ok(
+            &a,
+            &[
+                "mission",
+                "link",
+                "M-D",
+                "missions/M-D/report.md",
+                "--role",
+                "intelligence",
+            ],
+        );
+        assert_eq!(
+            mission_json(&fx, &a, "M-D")["documents"][1]["role"],
+            "intelligence"
+        );
+        fx.ok(&a, &["mission", "unlink", "M-D", "index.md"]);
+        fails(
+            &fx,
+            &a,
+            &["mission", "unlink", "M-D", "index.md"],
+            "does not link index.md",
+        );
+        fx.ok(&a, &["ledger", "push", "Link a report"]);
+
+        // The document is removed after the link: the push stops and names both.
+        assert_success(&fx.tsk(&a, &["ledger", "doc", "rm", "missions/M-D/report.md"]));
+        let ledger_before = fx.remote_ledger();
+        let stopped = fx.tsk(&a, &["ledger", "push", "Report gone"]);
+        assert_exit(&stopped, 1);
+        let message = stderr(&stopped);
+        assert!(message.contains("M-D"), "{}", message);
+        assert!(message.contains("missions/M-D/report.md"), "{}", message);
+        assert_eq!(fx.remote_ledger(), ledger_before);
+        if b == Backend::Dolt {
+            // The documents had already gone: the removal is on the branch.
+            let files = fx.origin_files(DOCS_REF);
+            assert!(
+                !files.iter().any(|f| f == "missions/M-D/report.md"),
+                "{:?}",
+                files
+            );
+        }
+
+        fx.ok(&a, &["mission", "unlink", "M-D", "missions/M-D/report.md"]);
+        assert_success(&fx.tsk(&a, &["ledger", "push", "Unlink it"]));
+        let other = fx.b();
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(
+            mission_json(&fx, &other, "M-D")["documents"],
+            serde_json::json!([])
+        );
+    }
+
+    pub fn mission_writes_stay_local_until_the_push(b: Backend) {
+        let fx = Fixture::new(b);
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-BASE", "Base"]);
+        fx.ok(&a, &["ledger", "push", "Base"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        let ledger = fx.remote_ledger();
+
+        fx.ok(&a, &["mission", "create", "M-NEW", "New"]);
+        fx.ok(&a, &["mission", "set", "M-BASE", "purpose", "changed"]);
+        assert_eq!(fx.remote_ledger(), ledger);
+        assert_eq!(
+            fx.ok(&other, &["mission", "list"]),
+            "M-BASE\ttodo\t-\t-\tBase\n"
+        );
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(
+            fx.ok(&other, &["mission", "list"]),
+            "M-BASE\ttodo\t-\t-\tBase\n"
+        );
+        assert_eq!(mission_json(&fx, &other, "M-BASE")["purpose"], "");
+
+        fx.ok(&a, &["ledger", "push", "Publish"]);
+        assert_ne!(fx.remote_ledger(), ledger);
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(
+            fx.ok(&other, &["mission", "list"]),
+            "M-BASE\ttodo\t-\t-\tBase\nM-NEW\ttodo\t-\t-\tNew\n"
+        );
+        assert_eq!(mission_json(&fx, &other, "M-BASE")["purpose"], "changed");
+    }
+
+    pub fn two_clones_add_missions_that_merge_and_one_field_conflicts(b: Backend) {
+        let fx = Fixture::new(b);
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-BASE", "Base"]);
+        fx.ok(&a, &["ledger", "push", "Base"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+
+        fx.ok(&a, &["mission", "create", "M-FROM-A", "From A"]);
+        fx.ok(&a, &["ledger", "push", "A adds a mission"]);
+        fx.ok(&other, &["mission", "create", "M-FROM-B", "From B"]);
+        let stale = fx.tsk(&other, &["ledger", "push", "B adds a mission"]);
+        assert_success(&stale);
+        fx.ok(&a, &["ledger", "fetch"]);
+        let expected = "M-BASE\ttodo\t-\t-\tBase\nM-FROM-A\ttodo\t-\t-\tFrom A\nM-FROM-B\ttodo\t-\t-\tFrom B\n";
+        assert_eq!(fx.ok(&a, &["mission", "list"]), expected);
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(fx.ok(&other, &["mission", "list"]), expected);
+
+        // Different fields of one mission merge.
+        fx.ok(&a, &["mission", "set", "M-BASE", "purpose", "from a"]);
+        fx.ok(&a, &["ledger", "push", "A sets the purpose"]);
+        fx.ok(
+            &other,
+            &["mission", "set", "M-BASE", "constraints", "from b"],
+        );
+        assert_success(&fx.tsk(&other, &["ledger", "push", "B sets the constraints"]));
+        fx.ok(&a, &["ledger", "fetch"]);
+        let merged = mission_json(&fx, &a, "M-BASE");
+        assert_eq!(merged["purpose"], "from a");
+        assert_eq!(merged["constraints"], "from b");
+
+        // The same field of the same mission: stop, name it, leave the remote alone.
+        fx.ok(&other, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "set", "M-BASE", "status", "in-progress"]);
+        fx.ok(&a, &["ledger", "push", "A starts it"]);
+        let before = fx.remote_ledger();
+        fx.ok(&other, &["mission", "set", "M-BASE", "status", "done"]);
+        let conflict = fx.tsk(&other, &["ledger", "push", "B finishes it"]);
+        assert_exit(&conflict, 1);
+        let message = stderr(&conflict);
+        assert!(message.contains("conflicted"), "{}", message);
+        match b {
+            Backend::Dolt => assert!(message.contains("missions"), "{}", message),
+            Backend::Git => assert!(
+                message.contains("records/missions/M-BASE.json"),
+                "{}",
+                message
+            ),
+        }
+        assert_eq!(fx.remote_ledger(), before);
+    }
+
+    pub fn the_json_record_has_every_field(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-P", "Parent"]);
+        fx.ok(&a, &["mission", "create", "M-Q", "Blocker"]);
+        fx.ok(&a, &["mission", "create", "M-J", "Json", "--parent", "M-P"]);
+        fx.ok(&a, &["mission", "set", "M-J", "purpose", "Why"]);
+        fx.ok(&a, &["mission", "objective", "add", "M-J", "One"]);
+        fx.ok(&a, &["mission", "objective", "add", "M-J", "Two"]);
+        fx.ok(&a, &["mission", "objective", "done", "M-J", "1"]);
+        fx.ok(&a, &["mission", "block", "M-J", "M-Q"]);
+        fx.put(&a, "m/design.md", "d\n");
+        fx.ok(
+            &a,
+            &["mission", "link", "M-J", "m/design.md", "--role", "design"],
+        );
+
+        let one = fx.ok(&a, &["mission", "list", "M-J", "--json"]);
+        assert_eq!(one.lines().count(), 1);
+        assert_eq!(
+            json(&one),
+            serde_json::json!({
+                "id": "M-J",
+                "name": "Json",
+                "category": "operational",
+                "status": "todo",
+                "parent": "M-P",
+                "blocked": true,
+                "purpose": "Why",
+                "decision_authority": "",
+                "constraints": "",
+                "out_of_scope": "",
+                "objective": [
+                    {"n": 1, "outcome": "One", "met": true},
+                    {"n": 2, "outcome": "Two", "met": false}
+                ],
+                "blocked_by": [{"id": "M-Q", "blocking": true}],
+                "documents": [{"path": "m/design.md", "role": "design"}]
+            })
+        );
+        let all = json(&fx.ok(&a, &["mission", "list", "--json"]));
+        let ids: Vec<&str> = all
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, vec!["M-J", "M-P", "M-Q"]);
+        assert_eq!(all[0], json(&one));
+        assert_eq!(fx.ok(&a, &["mission", "create", "M-E", "Empty"]), "");
+        assert_eq!(
+            mission_json(&fx, &a, "M-E")["objective"],
+            serde_json::json!([])
+        );
+    }
 }
 
 macro_rules! conformance {
@@ -758,6 +1409,15 @@ conformance!(
     a_same_row_conflict_stops_and_leaves_the_remote_unchanged,
     doc_path_prints_the_file_and_bad_paths_are_refused,
     documents_that_the_ledger_does_not_reserve_follow_the_backend,
+    missions_are_created_and_listed_one_per_line,
+    every_mission_field_round_trips,
+    status_accepts_three_values_and_an_administrative_mission_keeps_one,
+    blocks_are_checked_and_blocked_is_derived,
+    objective_outcomes_are_numbered_and_numbers_are_not_reused,
+    documents_are_linked_by_path_and_checked_at_push,
+    mission_writes_stay_local_until_the_push,
+    two_clones_add_missions_that_merge_and_one_field_conflicts,
+    the_json_record_has_every_field,
 );
 
 conformance!(
@@ -771,6 +1431,15 @@ conformance!(
     a_same_row_conflict_stops_and_leaves_the_remote_unchanged,
     doc_path_prints_the_file_and_bad_paths_are_refused,
     documents_that_the_ledger_does_not_reserve_follow_the_backend,
+    missions_are_created_and_listed_one_per_line,
+    every_mission_field_round_trips,
+    status_accepts_three_values_and_an_administrative_mission_keeps_one,
+    blocks_are_checked_and_blocked_is_derived,
+    objective_outcomes_are_numbered_and_numbers_are_not_reused,
+    documents_are_linked_by_path_and_checked_at_push,
+    mission_writes_stay_local_until_the_push,
+    two_clones_add_missions_that_merge_and_one_field_conflicts,
+    the_json_record_has_every_field,
 );
 
 // --- Backend selection and mismatch ---
@@ -1325,4 +1994,181 @@ fn thread_commands_work_on_a_version_two_ledger() {
         "{}",
         stderr(&missing)
     );
+}
+
+// --- Mission tables and the version 3 ledger (Dolt backend) ---
+
+const MISSION_TABLES: [&str; 4] = [
+    "mission_documents",
+    "mission_blocks",
+    "objective_outcomes",
+    "missions",
+];
+
+impl Fixture {
+    fn manifest_version(&self, dir: &Path) -> String {
+        self.dolt_sql(dir, "select v from manifest where k = 'version'")
+            .lines()
+            .nth(1)
+            .unwrap_or("")
+            .to_string()
+    }
+
+    fn tables(&self, dir: &Path) -> String {
+        self.dolt_sql(dir, "show tables")
+    }
+
+    /// A published Dolt ledger at version 2, as the previous release left it: clone A
+    /// drops the mission tables, records the version and pushes.
+    fn version_two_ledger() -> Fixture {
+        let fx = Fixture::new(Backend::Dolt);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        let mut sql: Vec<String> = MISSION_TABLES
+            .iter()
+            .map(|t| format!("drop table {}", t))
+            .collect();
+        sql.push("replace into manifest (k, v) values ('version', '2')".to_string());
+        fx.dolt_sql(&a, &sql.join("; "));
+        fx.put(&a, "base.md", "base\n");
+        fx.ok(&a, &["ledger", "push", "A version 2 ledger"]);
+        fx
+    }
+}
+
+#[test]
+fn a_new_dolt_ledger_has_the_mission_tables_at_version_three() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new(Backend::Dolt);
+    let a = fx.a();
+    fx.ok(&a, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&a), "3");
+    let tables = fx.tables(&a);
+    for table in MISSION_TABLES {
+        assert!(tables.contains(table), "{}", tables);
+    }
+}
+
+#[test]
+fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrades_it() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::version_two_ledger();
+    let (a, other) = (fx.a(), fx.b());
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&other), "2");
+
+    // Reads behave as an empty mission set and write nothing.
+    assert_eq!(fx.ok(&other, &["mission", "list"]), "");
+    assert_eq!(fx.ok(&other, &["mission", "list", "--json"]), "[]\n");
+    for args in [
+        vec!["mission", "list", "M-X"],
+        vec!["mission", "list", "M-X", "--json"],
+        vec!["mission", "objective", "list", "M-X"],
+        vec!["mission", "set", "M-X", "status", "done"],
+        vec!["mission", "block", "M-X", "M-Y"],
+        vec!["mission", "unblock", "M-X", "M-Y"],
+        vec!["mission", "objective", "add", "M-X", "One"],
+        vec!["mission", "link", "M-X", "base.md", "--role", "report"],
+        vec!["mission", "unlink", "M-X", "base.md"],
+        vec!["mission", "create", "M-Y", "Bad", "--parent", "M-NONE"],
+        vec!["mission", "create", "bad id", "Bad"],
+    ] {
+        let out = fx.tsk(&other, &args);
+        assert_exit(&out, 1);
+        assert!(
+            stderr(&out).starts_with("error: "),
+            "{:?}: {}",
+            args,
+            stderr(&out)
+        );
+    }
+    assert_eq!(fx.manifest_version(&other), "2");
+    assert!(
+        !fx.tables(&other).contains("missions"),
+        "{}",
+        fx.tables(&other)
+    );
+    assert_eq!(
+        fx.dolt_sql(&other, "select count(*) as c from dolt_status"),
+        "c\n0\n"
+    );
+    // Everything else a version 2 ledger did still works, and it pushes.
+    assert_eq!(
+        fx.ok(&other, &["ledger", "doc", "get", "base.md"]),
+        "base\n"
+    );
+    assert!(fx
+        .ok(&other, &["thread", "start", "M-CONF-01", "base.md"])
+        .starts_with("started:"));
+    assert!(fx
+        .ok(&other, &["thread", "detach"])
+        .starts_with("detached:"));
+
+    // The first mission write creates the tables and records version 3 in one change.
+    fx.ok(&other, &["mission", "create", "M-X", "First on version 2"]);
+    assert_eq!(fx.manifest_version(&other), "3");
+    let tables = fx.tables(&other);
+    for table in MISSION_TABLES {
+        assert!(tables.contains(table), "{}", tables);
+    }
+    let status = fx.dolt_sql(
+        &other,
+        "select table_name from dolt_status order by table_name",
+    );
+    assert!(status.contains("manifest"), "{}", status);
+    assert!(status.contains("missions"), "{}", status);
+    assert_eq!(
+        fx.ok(&other, &["mission", "list"]),
+        "M-X\ttodo\t-\t-\tFirst on version 2\n"
+    );
+    // The other clone is still at version 2 until the push.
+    assert_eq!(fx.manifest_version(&a), "2");
+    fx.ok(&other, &["ledger", "push", "First mission"]);
+    fx.ok(&a, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&a), "3");
+    assert_eq!(
+        fx.ok(&a, &["mission", "list"]),
+        "M-X\ttodo\t-\t-\tFirst on version 2\n"
+    );
+    fx.ok(&a, &["mission", "create", "M-Y", "Second"]);
+    assert_eq!(fx.manifest_version(&a), "3");
+}
+
+#[test]
+fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest_check() {
+    // What the previous release does with a Dolt ledger the new release has written:
+    // the manifest check is the first thing every command runs. The supported list is
+    // faked in a unit test (ledger::manifest); here a version no release knows yet
+    // stands in, because this binary supports 1, 2 and 3.
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new(Backend::Dolt);
+    let a = fx.a();
+    fx.ok(&a, &["ledger", "fetch"]);
+    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '4')");
+    for args in [
+        vec!["mission", "list"],
+        vec!["mission", "create", "M-X", "x"],
+        vec!["ledger", "push", "x"],
+    ] {
+        let out = fx.tsk(&a, &args);
+        assert_exit(&out, 1);
+        let message = stderr(&out);
+        assert!(
+            message.contains("unsupported ledger version 4")
+                && message.contains("supports version 1, 2, 3")
+                && message.contains("Update tsk"),
+            "{:?}: {}",
+            args,
+            message
+        );
+    }
 }

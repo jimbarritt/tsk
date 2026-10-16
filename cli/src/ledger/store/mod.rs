@@ -14,6 +14,7 @@ pub mod files;
 
 use std::path::{Component, Path, PathBuf};
 
+use crate::mission::model::Mission;
 use crate::thread::lookup::Lookup;
 
 use super::manifest::ManifestInfo;
@@ -149,6 +150,16 @@ pub trait LedgerStore {
     fn watermark_get(&self) -> Result<u64, String>;
     fn watermark_set(&self, processed_through: u64, updated_at: &str) -> Result<(), String>;
 
+    // --- Missions ---
+
+    /// Every mission, sorted by ID. A ledger that predates missions has none. A version 1
+    /// ledger is refused.
+    fn missions_load(&self) -> Result<Vec<Mission>, String>;
+    /// Write one mission and its objective outcomes, blockers and document links in the
+    /// local store, replacing what the store held for that ID. The first call on a
+    /// Dolt ledger at version 2 creates the mission tables and records version 3.
+    fn mission_save(&self, mission: &Mission) -> Result<(), String>;
+
     // --- Descriptions for error messages ---
 
     /// A human-readable location of a document.
@@ -208,10 +219,11 @@ pub fn check_document_path(path: &str) -> Result<(), String> {
     let first = parts[0].as_str();
     let reserved = first == "threads"
         || first == "external-events"
+        || first == files::RECORDS_DIR
         || (parts.len() == 1 && first == super::manifest::MANIFEST_FILE);
     if reserved || parts.iter().any(|part| part == ".git") {
         return Err(format!(
-            "error: '{}' is not a document: threads/, external-events/, {} and .git are managed by tsk",
+            "error: '{}' is not a document: threads/, external-events/, records/, {} and .git are managed by tsk",
             path,
             super::manifest::MANIFEST_FILE
         ));
@@ -263,6 +275,7 @@ mod tests {
             "threads/1234abcd/index.md",
             "threads",
             "external-events/queue.ndjson",
+            "records/missions/M-X.json",
             ".tsk-ledger.toml",
             "./.tsk-ledger.toml",
             ".git",

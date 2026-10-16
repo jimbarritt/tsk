@@ -40,16 +40,73 @@ pub const SCHEMA: &[&str] = &[
 pub const LEGACY_DOCUMENTS_TABLE: &str =
     "create table documents (path varchar(1024) primary key, body longtext not null)";
 
-/// The layout version a new Dolt ledger records: documents live on the `tsk/docs` branch.
-pub const LAYOUT_VERSION: i64 = 2;
+/// The mission tables, created with a new ledger and by the first mission write on a
+/// version 2 ledger. Foreign keys keep a record from naming a mission that does not exist.
+/// `next_objective` is the number the next objective outcome gets: it only grows, so a
+/// removed outcome's number is never reused.
+pub const MISSION_SCHEMA: &[&str] = &[
+    "create table missions (\
+     id varchar(64) not null primary key, \
+     name varchar(255) not null, \
+     category enum('operational','administrative') not null, \
+     status enum('todo','in-progress','done') not null default 'todo', \
+     parent varchar(64) null, \
+     purpose longtext null, \
+     decision_authority longtext null, \
+     constraints_text longtext null, \
+     out_of_scope longtext null, \
+     next_objective int not null default 1, \
+     constraint missions_parent_fk foreign key (parent) references missions (id))",
+    "create table objective_outcomes (\
+     mission_id varchar(64) not null, \
+     seq int not null, \
+     outcome longtext not null, \
+     met boolean not null default false, \
+     primary key (mission_id, seq), \
+     constraint objective_outcomes_mission_fk foreign key (mission_id) references missions (id))",
+    "create table mission_blocks (\
+     mission_id varchar(64) not null, \
+     blocked_by_id varchar(64) not null, \
+     primary key (mission_id, blocked_by_id), \
+     constraint mission_blocks_mission_fk foreign key (mission_id) references missions (id), \
+     constraint mission_blocks_by_fk foreign key (blocked_by_id) references missions (id))",
+    "create table mission_documents (\
+     mission_id varchar(64) not null, \
+     path varchar(1024) not null, \
+     role enum('intelligence','report','design') not null, \
+     primary key (mission_id, path), \
+     constraint mission_documents_mission_fk foreign key (mission_id) references missions (id))",
+];
+
+/// The layout version a new Dolt ledger records: documents live on the `tsk/docs` branch
+/// and missions are rows.
+pub const LAYOUT_VERSION: i64 = 3;
+/// The layout version with documents on the `tsk/docs` branch and no mission tables.
+pub const DOCS_LAYOUT_VERSION: i64 = 2;
 /// The layout version whose documents are rows in the `documents` table.
 pub const LEGACY_LAYOUT_VERSION: i64 = 1;
+
+/// Statements that create the mission tables and record layout version 3. Run on a
+/// version 1 ledger after its documents move, and on a version 2 ledger at the first
+/// mission write.
+pub fn mission_upgrade_sql() -> String {
+    let mut sql = String::new();
+    for statement in MISSION_SCHEMA {
+        sql.push_str(statement);
+        sql.push_str(";\n");
+    }
+    sql.push_str(&format!(
+        "replace into manifest (k, v) values ('version', '{}');\n",
+        LAYOUT_VERSION
+    ));
+    sql
+}
 
 /// Statements that create every table and the manifest rows (`version`, and `repo_id`
 /// for a nexus ledger), separated by `;\n`.
 pub fn init_sql(repo_id: Option<&str>) -> String {
     let mut sql = String::new();
-    for statement in SCHEMA {
+    for statement in SCHEMA.iter().chain(MISSION_SCHEMA) {
         sql.push_str(statement);
         sql.push_str(";\n");
     }
@@ -315,6 +372,10 @@ mod tests {
             "cloud_session_bindings",
             "external_events",
             "watermark",
+            "missions",
+            "objective_outcomes",
+            "mission_blocks",
+            "mission_documents",
         ] {
             assert!(
                 sql.contains(&format!("create table {} ", table)),
@@ -322,8 +383,8 @@ mod tests {
                 table
             );
         }
-        assert!(!sql.contains("documents"));
-        assert!(sql.contains("('version', '2')"));
+        assert!(!sql.contains("create table documents"));
+        assert!(sql.contains("('version', '3')"));
         assert!(sql.contains("'repo_id'"));
         assert!(!init_sql(None).contains("repo_id"));
     }
