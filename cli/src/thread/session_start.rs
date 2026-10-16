@@ -218,7 +218,7 @@ impl PendingNote {
 
 fn pending_warning(pending: &PendingNote) -> String {
     format!(
-        "WARNING: the ledger worktree holds a commit that is not on {}, so it was left as it is rather than reset: {}. A worker restart can end a turn between a commit and its push, which leaves exactly this state, so this may be your own work from a turn you hold no record of making. Do not assume another actor made it, and do not discard it on that basis. Read what it changes first, with: {}. Then push it with tsk ledger push, or discard it deliberately once you know what it is.",
+        "WARNING: the ledger worktree holds a commit that is not on {}, so it was left as it is rather than reset: {}. A worker restart can end a turn between a commit and its push, which leaves exactly this state, so this may be your own work from a turn you hold no record of making. Do not assume another actor made it, and do not discard it on that basis. Read what it changes first, with: {}. Then push it with tsk ledger push, or, once you know what it is, run tsk ledger status to see what would go and tsk ledger discard to drop it deliberately.",
         pending.remote_ref,
         pending.lines.join(";"),
         pending.inspect_hint

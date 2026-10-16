@@ -514,9 +514,8 @@ fn remote_branch_exists(db: &Dolt) -> Result<bool, String> {
 fn dirty_error(path: &Path) -> String {
     format!(
         "error: {} holds uncommitted changes; refusing to reset over them.\n       \
-         Push them with tsk ledger push, or discard them deliberately with: cd '{}' && dolt reset --hard\n       \
-         To read the path without refreshing, use tsk ledger path",
-        path.display(),
+         Push them with tsk ledger push, or drop them deliberately with tsk ledger discard\n       \
+         (tsk ledger status shows what would go). To read the path without refreshing, use tsk ledger path",
         path.display()
     )
 }
@@ -557,7 +556,7 @@ impl DoltStore {
             ("HEAD".to_string(), RemoteState::Unknown)
         };
         let summary = db.rows(&format!(
-            "select from_table_name, to_table_name from dolt_diff_summary({}, 'WORKING')",
+            "select from_table_name, to_table_name, data_change, schema_change from dolt_diff_summary({}, 'WORKING')",
             lit(&base)
         ))?;
         let stats = db.rows(&format!(
@@ -574,14 +573,21 @@ impl DoltStore {
                 .iter()
                 .find(|stat| text(stat, "table_name").as_deref() == Some(name.as_str()));
             let number = |column: &str| stat.and_then(|stat| integer(stat, column)).unwrap_or(0);
+            let counts = format!(
+                "added {}\tmodified {}\tdeleted {}",
+                number("rows_added"),
+                number("rows_modified"),
+                number("rows_deleted")
+            );
+            let schema = flag(row, "schema_change");
+            let rows_changed = flag(row, "data_change") || stat.is_some();
             changes.push((
                 name,
-                format!(
-                    "added {}\tmodified {}\tdeleted {}",
-                    number("rows_added"),
-                    number("rows_modified"),
-                    number("rows_deleted")
-                ),
+                match (rows_changed, schema) {
+                    (false, true) => "schema changed".to_string(),
+                    (true, true) => format!("{}\tschema changed", counts),
+                    _ => counts,
+                },
             ));
         }
         changes.sort();
@@ -689,13 +695,10 @@ impl DoltStore {
                 note.push_str(&format!("        {}\n", line));
             }
             note.push_str("      Leaving the database as it is rather than resetting over it.\n");
-            note.push_str("      Push it with tsk ledger push, or discard it\n");
-            note.push_str(&format!(
-                "      deliberately with: cd '{}' && dolt reset --hard {}/{}",
-                path.display(),
-                REMOTE,
-                BRANCH
-            ));
+            note.push_str(
+                "      Push it with tsk ledger push. To see what would be lost, run tsk ledger status.\n",
+            );
+            note.push_str("      To drop it deliberately, run tsk ledger discard.");
             note
         });
         Ok((
@@ -1614,12 +1617,12 @@ fn merge_remote(db: &Dolt, remote_ref: &str) -> Result<(), String> {
         return Err(format!(
             "error: merging {} into {} conflicted in {}; the merge is aborted.\n       \
              Both sides changed the same row. The local commit stays in {}.\n       \
-             Resolve it there with dolt, or discard it with dolt reset --hard {}, then re-run tsk ledger push",
+             To drop the local changes instead, run tsk ledger status to see them, then tsk ledger discard,\n       \
+             then re-run tsk ledger push",
             remote_ref,
             BRANCH,
             tables.join(", "),
-            db.dir().display(),
-            remote_ref
+            db.dir().display()
         ));
     }
     if !output.status.success() {
