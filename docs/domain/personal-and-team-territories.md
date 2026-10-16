@@ -189,6 +189,10 @@ The whole nexus reads it.
 Not built: the ledger on a nexus repo and a territory that lists missions. A mission
 model has no repo field. A mission has a repo only through the ledger it sits in.
 
+Updated on 2026-10-16: the glossary entries for territory and nexus,
+`territory-and-nexus.md`, and the briefing template (the Territory row is removed, in the
+template and in its worked example) match these decisions.
+
 ## Open
 
 - Whether a territory lists repos, as `nexus.json` does today, or missions directly, or

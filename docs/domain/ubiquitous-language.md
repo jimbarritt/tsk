@@ -5,10 +5,18 @@ reason.
 
 ## Territory
 
-A bounding area. It is where isolation is defined. A mission operates within a
-territory. Expected territories: work, personal, Ubiqtek, agentic research. Territories
-are independent of GitHub organisations. Whether a link may be followed across a
-territory boundary is governed by the territory, not by the nexus.
+A grouping that a [nexus](#nexus) holds over repos or missions. It is local to the
+nexus: the same repo or mission can be in several territories, one per nexus that indexes
+it. A territory knows its missions. A mission does not know its territory, and a
+briefing records none. Expected territories: work, personal, Ubiqtek, agentic research.
+Territories are independent of GitHub organisations. Revised 2026-10-16; the analysis is
+in `docs/domain/personal-and-team-territories.md`.
+
+Open: whether a territory lists repos, missions, or both, and whether a territory
+governs isolation. Access follows two boundaries that exist already: access to a repo,
+and access to a nexus repo. Earlier text made the territory the place where isolation is
+defined and said a link crosses a territory boundary only if the territory allows it.
+That has no mechanics.
 
 Rejected: realm, workspace, atlas, estate, province, district, theatre, area of
 operations. A territory is a bounded sub-part by definition, with borders and
@@ -17,10 +25,14 @@ with the compliance-as-theatre usage in Thinking in Code.
 
 ## Nexus
 
-The discovery and routing mechanism. Nothing more. A nexus holds the index of the repos
-in its area, and links to other nexuses. A nexus does not define a boundary, the
-territory does that. Each repo keeps its own [ledger](#ledger); the nexus records where
-to find it.
+The discovery and routing mechanism, and the holder of territories. A group of actors
+shares a nexus. It is optional: tsk works in a repo with no nexus, and nobody needs a
+personal nexus to take part. A nexus holds the index of the repos in its area, its
+[territories](#territory), and a related-nexus list (designed, not built). A repo keeps
+its own [ledger](#ledger), and the nexus records where to find it. The nexus repo may
+hold a ledger of its own, for missions that belong to no single repo or cut across
+several (decided, not built). Which nexuses an install attaches, and which a surface
+shows, is local config. Revised 2026-10-16.
 
 Rejected: base camp and Basecamp (an existing product in the same category), mission
 control and operations centre (hold an operational-control sense that does not fit a
