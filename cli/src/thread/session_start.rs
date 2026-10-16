@@ -8,7 +8,12 @@ use crate::ledger::location::state_root_from_env;
 use crate::ledger::store::RefreshOutcome;
 use crate::self_update::{session_notice, upgrade_for_cloud, CloudUpgrade};
 
-use super::binding::{resolve, UNBOUND_PROMPT};
+use crate::ledger::store::dolt::VERSION_1_REFUSAL;
+use crate::mission::model::{Mission, Status};
+use crate::mission::records::task_line;
+
+use super::binding::{is_skipped, open_mission_lines, resolve, unbound_prompt};
+use super::ops::thread_mission;
 use super::session::Session;
 
 pub const ENV_FILE_VAR: &str = "CLAUDE_ENV_FILE";
@@ -168,11 +173,14 @@ pub fn fetched_context(
     thread_message: &str,
 ) -> String {
     let mut context = format!(
-        "The ledger was fetched and materialised at {} (also exported as ${}). {}",
+        "The ledger was fetched and materialised at {} (also exported as ${}).",
         path.display(),
         LEDGER_WT_VAR,
-        read_hint
     );
+    if !read_hint.is_empty() {
+        context.push(' ');
+        context.push_str(read_hint);
+    }
     if !pending.lines.is_empty() {
         context.push(' ');
         context.push_str(&pending_warning(pending));
@@ -208,7 +216,9 @@ fn pending_warning(pending: &PendingNote) -> String {
     )
 }
 
-pub fn thread_message(binding: Option<&str>) -> String {
+/// What the session start says about the thread: the binding to resume, or the prompt
+/// that asks which mission to work.
+pub fn thread_message(binding: Option<&str>, unbound_prompt: &str) -> String {
     match binding {
         Some(binding) => {
             let thread_id = binding.split_once(':').map(|(_, id)| id).unwrap_or(binding);
@@ -217,8 +227,45 @@ pub fn thread_message(binding: Option<&str>) -> String {
                 binding, thread_id
             )
         }
-        None => UNBOUND_PROMPT.to_string(),
+        None => unbound_prompt.to_string(),
     }
+}
+
+/// Said instead of the unbound prompt when this session or worktree skipped a thread.
+pub const SKIPPED_MESSAGE: &str = "This session or worktree works without a thread (tsk thread skip). To bind one, run /tsk:start-thread <mission-id>, or /tsk:resume-thread <thread-id> for an existing thread.";
+
+/// The mission a bound thread works and its open tasks, as `tsk task list` prints them.
+pub fn mission_context(mission: &Mission) -> String {
+    let mut text = format!(
+        "This thread works mission {} ({}): {}.",
+        mission.id,
+        mission.status.as_str(),
+        mission.name
+    );
+    let open: Vec<String> = mission
+        .tasks
+        .iter()
+        .filter(|t| t.status != Status::Done)
+        .map(|t| task_line(mission, t))
+        .collect();
+    if open.is_empty() {
+        text.push_str(" It has no open tasks.");
+    } else {
+        text.push_str(
+            " Its open tasks follow, one per line: id, status, blocked-by, description, tab-separated.\n",
+        );
+        text.push_str(&open.join("\n"));
+    }
+    text
+}
+
+/// What a version 1 ledger needs, which no other command can do.
+pub fn version_1_context(path: &Path) -> String {
+    format!(
+        "The ledger at {} (also exported as ${}) is at layout version 1: its documents are still in Dolt. Run `tsk ledger migrate-docs` once to move them to the tsk/docs branch. Until then every tsk command except `tsk ledger fetch` stops with an error that names this command.",
+        path.display(),
+        LEDGER_WT_VAR
+    )
 }
 
 pub fn failure_context(error: &str) -> String {
@@ -242,24 +289,63 @@ fn export_to_env_file(path: &Path) -> Result<(), String> {
 }
 
 fn context_after_fetch(session: &Session) -> Result<String, String> {
-    let outcome = session.store.refresh()?;
-    let binding = resolve(session).ok().flatten().map(|b| b.to_string());
+    let outcome = match session.store.refresh() {
+        Ok(outcome) => outcome,
+        Err(e) if e == VERSION_1_REFUSAL => {
+            // The database is refreshed and the documents are not reachable.
+            let path = session.store.path()?;
+            let mut context = version_1_context(&path);
+            if let Err(e) = export_to_env_file(&path) {
+                context.push_str(&format!(
+                    " WARNING: {} was not exported ({}); use the path above.",
+                    LEDGER_WT_VAR, e
+                ));
+            }
+            return Ok(context);
+        }
+        Err(e) => return Err(e),
+    };
+    let store = session.store.as_ref();
+    let binding = resolve(session).ok().flatten();
+    let missions = store.missions_load().unwrap_or_default();
+    let no_documents = store
+        .doc_list("missions/")
+        .is_ok_and(|documents| documents.is_empty());
+
+    // With mission records the context carries the mission list or the bound mission, and
+    // does not send the agent to the index.
+    let mut read_hint = if missions.is_empty() {
+        store.read_index_hint(&outcome.path)
+    } else {
+        String::new()
+    };
+    if let Some(binding) = &binding {
+        let thread_mission = store
+            .thread_info(binding.thread_id())
+            .ok()
+            .and_then(|info| thread_mission(&info));
+        if let Some(mission) = thread_mission
+            .as_deref()
+            .and_then(|id| missions.iter().find(|m| m.id == id))
+        {
+            read_hint = mission_context(mission);
+        }
+    }
+    let prompt = if is_skipped(session) {
+        SKIPPED_MESSAGE.to_string()
+    } else {
+        unbound_prompt(&open_mission_lines(&missions))
+    };
     let mut context = fetched_context(
         &outcome.path,
-        &session.store.read_index_hint(&outcome.path),
+        &read_hint,
         &PendingNote::from_outcome(
             &outcome,
-            session
-                .store
-                .pending_inspect_hint(&outcome.path, &outcome.remote_head),
+            store.pending_inspect_hint(&outcome.path, &outcome.remote_head),
         ),
-        &thread_message(binding.as_deref()),
+        &thread_message(binding.map(|b| b.to_string()).as_deref(), &prompt),
     );
-    if session
-        .store
-        .doc_list("missions/")
-        .is_ok_and(|missions| missions.is_empty())
-    {
+    if missions.is_empty() && no_documents {
         context.push(' ');
         context.push_str(crate::guide::EMPTY_LEDGER_NOTE);
     }
@@ -344,6 +430,7 @@ pub fn run(format: HookFormat, install_plugin: bool) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use super::super::binding::UNBOUND_PROMPT;
     use super::*;
     use std::path::PathBuf;
 
@@ -424,10 +511,11 @@ mod tests {
     #[test]
     fn thread_message_names_the_binding_and_the_resume_command() {
         assert_eq!(
-            thread_message(Some("worktree:1234abcd")),
+            thread_message(Some("worktree:1234abcd"), UNBOUND_PROMPT),
             "An existing thread binding was found: worktree:1234abcd. Run /tsk:resume-thread 1234abcd next."
         );
-        assert_eq!(thread_message(None), UNBOUND_PROMPT);
+        assert_eq!(thread_message(None, UNBOUND_PROMPT), UNBOUND_PROMPT);
+        assert_eq!(thread_message(None, "Pick."), "Pick.");
     }
 
     fn input(session_id: Option<&str>, source: Option<&str>) -> HookInput {

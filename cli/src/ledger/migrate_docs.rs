@@ -96,7 +96,7 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
 
     db.exec(&format!(
         "drop table documents;\n{}",
-        dolt::mission_upgrade_sql()
+        dolt::upgrade_sql(dolt::DOCS_LAYOUT_VERSION)
     ))?;
     db.run(["add", "-A"])?;
     db.run(["commit", "-m", DROP_COMMIT])?;

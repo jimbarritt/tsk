@@ -191,7 +191,7 @@ impl Fixture {
     }
 
     fn start(&self) -> String {
-        let output = self.tsk(&["thread", "start", "M-TEST-01", BRIEFING]);
+        let output = self.tsk(&["thread", "start", "M-TEST-01"]);
         assert_success(&output);
         let line = stdout(&output);
         line.trim_end()
@@ -304,7 +304,7 @@ fn start_mints_scaffolds_binds_the_worktree_and_pushes() {
     assert_eq!(
         fx.origin_file(&format!("threads/{}/index.md", id)).unwrap(),
         format!(
-            "# Thread {}\n\nMission briefing: [{}]({})\n",
+            "# Thread {}\n\nMission: M-TEST-01\nMission briefing: [{}]({})\n",
             id, BRIEFING, BRIEFING
         )
     );
@@ -333,7 +333,7 @@ fn start_with_an_existing_binding_requires_a_resume() {
     let id = fx.start();
     let before = fx.origin_ledger_sha();
 
-    let output = fx.tsk(&["thread", "start", "M-TEST-01", BRIEFING]);
+    let output = fx.tsk(&["thread", "start", "M-TEST-01"]);
 
     assert_exit(&output, 2);
     assert_eq!(stdout(&output), format!("resume-required:{}\n", id));
@@ -341,15 +341,19 @@ fn start_with_an_existing_binding_requires_a_resume() {
 }
 
 #[test]
-fn start_refuses_a_briefing_that_is_not_on_the_ledger() {
+fn start_refuses_a_mission_with_no_record_and_no_briefing() {
     let fx = Fixture::new();
     let before = fx.origin_ledger_sha();
 
-    let output = fx.tsk(&["thread", "start", "M-NONE", "missions/M-NONE.md"]);
+    let output = fx.tsk(&["thread", "start", "M-NONE"]);
 
     assert_exit(&output, 1);
     assert_eq!(stdout(&output), "");
-    assert!(stderr(&output).contains("mission briefing not found"));
+    assert!(stderr(&output).contains("no such mission: M-NONE"));
+    // The old form with a briefing path gives the same refusal.
+    let old = fx.tsk(&["thread", "start", "M-NONE", "missions/M-NONE.md"]);
+    assert_exit(&old, 1);
+    assert!(stderr(&old).contains("no such mission: M-NONE"));
     assert!(!fx.marker().exists());
     assert_eq!(fx.origin_ledger_sha(), before);
 }
@@ -358,6 +362,11 @@ fn start_refuses_a_briefing_that_is_not_on_the_ledger() {
 fn start_in_a_cloud_session_binds_through_the_lookup() {
     let fx = Fixture::new();
     let output = fx.tsk_cloud("cse_one", &["thread", "start", "M-TEST-01", BRIEFING]);
+    assert!(
+        stderr(&output).contains("no longer needed"),
+        "{}",
+        stderr(&output)
+    );
     assert_success(&output);
     let id = stdout(&output)
         .trim_end()
@@ -388,14 +397,7 @@ fn pause_appends_an_entry_with_the_nested_git_state_and_pushes() {
     let ledger_before = fx.origin_ledger_sha();
     let main_head = git_line(&fx.work(), &["rev-parse", "HEAD"]);
 
-    let output = fx.tsk(&[
-        "thread",
-        "pause",
-        &id,
-        BRIEFING,
-        "T-05",
-        "Write the \"thread\" tests",
-    ]);
+    let output = fx.tsk(&["thread", "pause", &id, "T-05", "Write the \"thread\" tests"]);
 
     assert_success(&output);
     assert_eq!(stdout(&output), format!("paused:{}\n", id));
@@ -406,8 +408,9 @@ fn pause_appends_an_entry_with_the_nested_git_state_and_pushes() {
     assert!(store.ends_with('\n'));
     let line = store.lines().next().unwrap();
     let keys: Vec<_> = json(line).as_object().unwrap().keys().cloned().collect();
-    assert_eq!(keys.len(), 6);
+    assert_eq!(keys.len(), 7);
     let positions: Vec<_> = [
+        "\"mission_id\"",
         "\"mission_link\"",
         "\"task_id\"",
         "\"whats_next\"",
@@ -427,6 +430,7 @@ fn pause_appends_an_entry_with_the_nested_git_state_and_pushes() {
         assert!(!line.contains(old), "{}", old);
     }
     let entry = json(line);
+    assert_eq!(entry["mission_id"], "M-TEST-01");
     assert_eq!(entry["mission_link"], BRIEFING);
     assert_eq!(entry["task_id"], "T-05");
     assert_eq!(entry["whats_next"], "Write the \"thread\" tests");
@@ -592,7 +596,7 @@ fn pause_refuses_a_detached_head() {
 #[test]
 fn pause_refuses_an_unknown_thread() {
     let fx = Fixture::new();
-    let output = fx.tsk(&["thread", "pause", "0000aaaa", BRIEFING, "T-05", "next"]);
+    let output = fx.tsk(&["thread", "pause", "0000aaaa", "T-05", "next"]);
     assert_exit(&output, 1);
     assert!(stderr(&output).contains("no such thread: 0000aaaa"));
 }
@@ -867,9 +871,9 @@ fn list_prints_one_compact_object_per_thread_newest_first() {
     assert_eq!(
         lines,
         vec![
-            format!("{{\"id\":\"cccc0000\",\"mission_link\":\"{}\",\"latest_whats_next\":\"newer\",\"latest_timestamp\":\"2026-10-01T00:00:00Z\"}}", BRIEFING),
-            format!("{{\"id\":\"bbbb0000\",\"mission_link\":\"{}\",\"latest_whats_next\":\"older\",\"latest_timestamp\":\"2026-09-01T00:00:00Z\"}}", BRIEFING),
-            format!("{{\"id\":\"aaaa0000\",\"mission_link\":\"{}\",\"latest_whats_next\":null,\"latest_timestamp\":null}}", BRIEFING),
+            format!("{{\"id\":\"cccc0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":\"newer\",\"latest_timestamp\":\"2026-10-01T00:00:00Z\"}}", BRIEFING),
+            format!("{{\"id\":\"bbbb0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":\"older\",\"latest_timestamp\":\"2026-09-01T00:00:00Z\"}}", BRIEFING),
+            format!("{{\"id\":\"aaaa0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":null,\"latest_timestamp\":null}}", BRIEFING),
         ]
     );
 }
@@ -1015,7 +1019,7 @@ fn session_start_fetches_exports_the_path_and_prints_the_unbound_prompt() {
         wt.display(),
         wt.display()
     )));
-    assert!(context.ends_with("if an existing thread is named instead."));
+    assert!(context.ends_with("run `tsk thread skip` instead."));
     assert!(context.contains("No thread binding was found for this session or worktree."));
     assert!(!context.contains("WARNING"));
     assert_eq!(

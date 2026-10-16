@@ -4,7 +4,11 @@ pub const STORE_FILE: &str = "continuation-state.jsonl";
 
 #[derive(Serialize)]
 pub struct NewEntry<'a> {
-    pub mission_link: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mission_id: Option<&'a str>,
+    /// The briefing path of a thread whose mission has no record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mission_link: Option<&'a str>,
     pub task_id: &'a str,
     pub whats_next: &'a str,
     pub git: GitState<'a>,
@@ -85,7 +89,8 @@ mod tests {
 
     fn new_entry() -> NewEntry<'static> {
         NewEntry {
-            mission_link: "missions/operational/M-X.md",
+            mission_id: Some("M-X"),
+            mission_link: Some("missions/operational/M-X.md"),
             task_id: "T-05",
             whats_next: "Write the \"thread\" commands",
             git: GitState {
@@ -106,12 +111,37 @@ mod tests {
     fn new_entry_is_one_compact_line_in_field_order() {
         assert_eq!(
             new_entry().to_line(),
-            "{\"mission_link\":\"missions/operational/M-X.md\",\"task_id\":\"T-05\",\
+            "{\"mission_id\":\"M-X\",\"mission_link\":\"missions/operational/M-X.md\",\"task_id\":\"T-05\",\
              \"whats_next\":\"Write the \\\"thread\\\" commands\",\
              \"git\":{\"ledger\":{\"commit\":\"1111111111111111111111111111111111111111\"},\
              \"code\":{\"ref\":\"refs/heads/feature/x\",\"commit\":\"2222222222222222222222222222222222222222\"}},\
              \"timestamp\":\"2026-10-03T10:00:00Z\",\"written_by\":\"urn:tsk:worktree:.git\"}\n"
         );
+    }
+
+    #[test]
+    fn new_entry_for_a_mission_with_a_record_has_no_mission_link() {
+        let entry = NewEntry {
+            mission_link: None,
+            ..new_entry()
+        };
+        let line = entry.to_line();
+        assert!(
+            line.starts_with("{\"mission_id\":\"M-X\",\"task_id\":\"T-05\""),
+            "{}",
+            line
+        );
+        assert!(!line.contains("mission_link"), "{}", line);
+    }
+
+    #[test]
+    fn new_entry_without_a_known_mission_writes_neither_field() {
+        let entry = NewEntry {
+            mission_id: None,
+            mission_link: None,
+            ..new_entry()
+        };
+        assert!(entry.to_line().starts_with("{\"task_id\""));
     }
 
     #[test]

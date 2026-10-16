@@ -11,7 +11,7 @@ use tempfile::TempDir;
 
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 const DOCS_REF: &str = "refs/heads/tsk/docs";
-const BRIEFING: &str = "missions/M-CONF-01.md";
+const BRIEFING: &str = "missions/operational/M-CONF-01-conformance.md";
 const CLOUD_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -350,6 +350,98 @@ fn json(text: &str) -> serde_json::Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("not JSON ({}): {}", e, text))
 }
 
+impl Fixture {
+    /// The Stop hook check, as the hook runs it: a session ID on stdin.
+    fn guard(&self, dir: &Path, cloud: Option<&str>) -> Output {
+        let mut command = self.command(dir, self.backend.name(), &["thread", "guard"]);
+        if let Some(session) = cloud {
+            command.env(CLOUD_VAR, session);
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"{\"session_id\":\"x\"}")
+            .unwrap();
+        child.wait_with_output().unwrap()
+    }
+
+    /// The reason the Stop hook check blocks with, or `None` when it passes in silence.
+    fn guard_reason(&self, dir: &Path, cloud: Option<&str>) -> Option<String> {
+        let output = self.guard(dir, cloud);
+        assert_success(&output);
+        let text = stdout(&output);
+        if text.is_empty() {
+            return None;
+        }
+        let decision = json(&text);
+        assert_eq!(decision["decision"], "block");
+        Some(decision["reason"].as_str().unwrap().to_string())
+    }
+
+    /// The context `tsk thread session-start` prints. Each call needs its own session ID.
+    fn session_context(&self, dir: &Path, session: &str, format: &str) -> String {
+        let mut child = self
+            .command(
+                dir,
+                self.backend.name(),
+                &["thread", "session-start", "--format", format],
+            )
+            .env_remove("CLAUDE_ENV_FILE")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(
+                format!("{{\"session_id\":\"{}\",\"source\":\"startup\"}}", session).as_bytes(),
+            )
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert_success(&output);
+        let value = json(&stdout(&output));
+        let context = match format {
+            "copilot" => &value["additionalContext"],
+            _ => &value["hookSpecificOutput"]["additionalContext"],
+        };
+        context.as_str().unwrap().to_string()
+    }
+
+    /// The `thread list` row of a thread.
+    fn thread_row(&self, dir: &Path, id: &str) -> serde_json::Value {
+        let list = self.ok(dir, &["thread", "list"]);
+        list.lines()
+            .map(json)
+            .find(|row| row["id"] == id)
+            .unwrap_or_else(|| panic!("no row for {}: {}", id, list))
+    }
+
+    fn started(&self, dir: &Path, args: &[&str]) -> String {
+        let output = self.tsk(dir, args);
+        assert_success(&output);
+        stdout(&output)
+            .trim_end()
+            .strip_prefix("started:")
+            .unwrap_or_else(|| panic!("{}", stdout(&output)))
+            .to_string()
+    }
+
+    /// The latest continuation state entry of a thread, read by resuming it.
+    fn latest_entry(&self, dir: &Path, id: &str) -> serde_json::Value {
+        json(&self.ok(dir, &["thread", "resume", id]))["latest"].clone()
+    }
+}
+
 mod cases {
     use super::*;
 
@@ -476,7 +568,7 @@ mod cases {
         let fx = Fixture::with_briefing(b);
         let (a, other) = (fx.a(), fx.b());
 
-        let start = fx.ok(&a, &["thread", "start", "M-CONF-01", BRIEFING]);
+        let start = fx.ok(&a, &["thread", "start", "M-CONF-01"]);
         let id = start
             .trim_end()
             .strip_prefix("started:")
@@ -487,14 +579,12 @@ mod cases {
             format!("worktree:{}\n", id)
         );
 
-        let paused = fx.ok(
-            &a,
-            &["thread", "pause", &id, BRIEFING, "T-01", "first \"step\""],
-        );
+        let paused = fx.ok(&a, &["thread", "pause", &id, "T-01", "first \"step\""]);
         assert_eq!(paused, format!("paused:{}\n", id));
         let list = fx.ok(&a, &["thread", "list"]);
         let row = json(list.lines().next().unwrap());
         assert_eq!(row["id"], id.as_str());
+        assert_eq!(row["mission_id"], "M-CONF-01");
         assert_eq!(row["mission_link"], BRIEFING);
         assert_eq!(row["latest_whats_next"], "first \"step\"");
 
@@ -503,14 +593,12 @@ mod cases {
             format!("detached:{}\n", id)
         );
         assert_exit(&fx.tsk(&a, &["thread", "binding", "--no-fetch"]), 1);
-        assert_exit(
-            &fx.tsk(&a, &["thread", "start", "M-CONF-01", "missions/missing.md"]),
-            1,
-        );
+        assert_exit(&fx.tsk(&a, &["thread", "start", "M-NONE"]), 1);
 
         let resumed = json(&fx.ok(&other, &["thread", "resume", &id]));
         assert_eq!(resumed["thread_id"], id.as_str());
         assert_eq!(resumed["latest"]["task_id"], "T-01");
+        assert_eq!(resumed["latest"]["mission_id"], "M-CONF-01");
         assert_eq!(resumed["latest"]["mission_link"], BRIEFING);
         let commit = resumed["latest"]["git"]["ledger"]["commit"]
             .as_str()
@@ -521,10 +609,7 @@ mod cases {
             format!("worktree:{}\n", id)
         );
 
-        assert_exit(
-            &fx.tsk(&a, &["thread", "pause", "zzzzzzzz", BRIEFING, "T", "x"]),
-            1,
-        );
+        assert_exit(&fx.tsk(&a, &["thread", "pause", "zzzzzzzz", "T", "x"]), 1);
 
         assert_eq!(
             fx.ok(&other, &["thread", "stop"]),
@@ -536,7 +621,7 @@ mod cases {
     pub fn cloud_sessions_bind_through_the_ledger(b: Backend) {
         let fx = Fixture::with_briefing(b);
         let (a, other) = (fx.a(), fx.b());
-        let start = fx.tsk_cloud(&a, "cse_one", &["thread", "start", "M-CONF-01", BRIEFING]);
+        let start = fx.tsk_cloud(&a, "cse_one", &["thread", "start", "M-CONF-01"]);
         assert_success(&start);
         let id = stdout(&start)
             .trim_end()
@@ -1878,6 +1963,419 @@ mod cases {
             );
         }
     }
+
+    pub fn thread_start_takes_a_mission_id_and_checks_it_against_records_and_briefings(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let a = fx.a();
+
+        // A mission known only by its briefing document stores the briefing path.
+        let first = fx.started(&a, &["thread", "start", "M-CONF-01"]);
+        let row = fx.thread_row(&a, &first);
+        assert_eq!(row["mission_id"], "M-CONF-01");
+        assert_eq!(row["mission_link"], BRIEFING);
+        fx.ok(&a, &["thread", "detach"]);
+
+        // An unknown mission is refused with an error that names it, and writes nothing.
+        let before = fx.remote_ledger();
+        let refused = fx.tsk(&a, &["thread", "start", "M-NONE"]);
+        assert_exit(&refused, 1);
+        assert!(
+            stderr(&refused).contains("no such mission: M-NONE"),
+            "{}",
+            stderr(&refused)
+        );
+        assert_eq!(stdout(&refused), "");
+        assert_exit(&fx.tsk(&a, &["thread", "binding", "--no-fetch"]), 1);
+        assert_eq!(fx.remote_ledger(), before);
+
+        // A sub-mission's briefing does not make its parent exist.
+        fx.put(&a, "missions/operational/M-CONF-01-02-sub.md", "# Sub\n");
+        fx.ok(&a, &["ledger", "push", "Add a sub-mission briefing"]);
+        let refused = fx.tsk(&a, &["thread", "start", "M-CONF"]);
+        assert_exit(&refused, 1);
+        assert!(stderr(&refused).contains("M-CONF"), "{}", stderr(&refused));
+        let sub = fx.started(&a, &["thread", "start", "M-CONF-01-02"]);
+        assert_eq!(fx.thread_row(&a, &sub)["mission_id"], "M-CONF-01-02");
+        fx.ok(&a, &["thread", "detach"]);
+
+        // A mission with a record stores the ID alone.
+        fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
+        fx.ok(&a, &["ledger", "push", "Add M-REC"]);
+        let recorded = fx.started(&a, &["thread", "start", "M-REC"]);
+        let row = fx.thread_row(&a, &recorded);
+        assert_eq!(row["mission_id"], "M-REC");
+        assert_eq!(row["mission_link"], "");
+        fx.ok(&a, &["thread", "detach"]);
+
+        // The old two-argument form still works. The second argument is ignored.
+        let old = fx.tsk(&a, &["thread", "start", "M-REC", "missions/ignored.md"]);
+        assert_success(&old);
+        assert!(stdout(&old).starts_with("started:"), "{}", stdout(&old));
+        assert!(
+            stderr(&old).contains("no longer needed"),
+            "{}",
+            stderr(&old)
+        );
+        let old_id = stdout(&old)
+            .trim_end()
+            .trim_start_matches("started:")
+            .to_string();
+        assert_eq!(fx.thread_row(&a, &old_id)["mission_link"], "");
+        fx.ok(&a, &["thread", "detach"]);
+
+        // A record wins over a briefing document for the same mission.
+        fx.ok(&a, &["mission", "create", "M-CONF-01", "Both"]);
+        fx.ok(&a, &["ledger", "push", "Add the record"]);
+        let both = fx.started(&a, &["thread", "start", "M-CONF-01"]);
+        let row = fx.thread_row(&a, &both);
+        assert_eq!(row["mission_id"], "M-CONF-01");
+        assert_eq!(row["mission_link"], "");
+    }
+
+    pub fn thread_pause_checks_the_task_against_the_mission_record(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
+        fx.ok(&a, &["task", "add", "M-REC", "First task"]);
+        fx.put(&a, "missions/operational/M-LEG-legacy.md", "# Legacy\n");
+        fx.ok(&a, &["ledger", "push", "Add the missions"]);
+
+        let id = fx.started(&a, &["thread", "start", "M-REC"]);
+
+        // A task of the mission is accepted, and T-1 is T-01.
+        assert_eq!(
+            fx.ok(&a, &["thread", "pause", &id, "T-1", "first"]),
+            format!("paused:{}\n", id)
+        );
+        let latest = fx.latest_entry(&a, &id);
+        assert_eq!(latest["mission_id"], "M-REC");
+        assert_eq!(latest["task_id"], "T-01");
+        assert_eq!(latest["whats_next"], "first");
+        assert!(latest.get("mission_link").is_none(), "{}", latest);
+        for key in ["git", "timestamp", "written_by"] {
+            assert!(latest.get(key).is_some(), "{}: {}", key, latest);
+        }
+
+        // A task the mission does not have is refused, by name, and nothing is recorded.
+        let before = fx.remote_ledger();
+        let refused = fx.tsk(&a, &["thread", "pause", &id, "T-09", "second"]);
+        assert_exit(&refused, 1);
+        assert!(stderr(&refused).contains("T-09"), "{}", stderr(&refused));
+        assert_exit(&fx.tsk(&a, &["thread", "pause", &id, "later", "second"]), 1);
+        assert_eq!(fx.remote_ledger(), before);
+        assert_eq!(fx.latest_entry(&a, &id)["whats_next"], "first");
+
+        // An empty task is accepted.
+        fx.ok(&a, &["thread", "pause", &id, "", "no task"]);
+        let latest = fx.latest_entry(&a, &id);
+        assert_eq!(latest["task_id"], "");
+        assert_eq!(latest["whats_next"], "no task");
+
+        // The old four-argument form is accepted. The mission link is ignored.
+        let old = fx.tsk(
+            &a,
+            &[
+                "thread",
+                "pause",
+                &id,
+                "missions/ignored.md",
+                "T-01",
+                "old form",
+            ],
+        );
+        assert_success(&old);
+        assert_eq!(stdout(&old), format!("paused:{}\n", id));
+        assert!(
+            stderr(&old).contains("no longer needed"),
+            "{}",
+            stderr(&old)
+        );
+        let latest = fx.latest_entry(&a, &id);
+        assert_eq!(latest["task_id"], "T-01");
+        assert_eq!(latest["whats_next"], "old form");
+        assert!(latest.get("mission_link").is_none(), "{}", latest);
+        // The old form still checks the task.
+        assert_exit(
+            &fx.tsk(
+                &a,
+                &["thread", "pause", &id, "missions/ignored.md", "T-09", "x"],
+            ),
+            1,
+        );
+
+        // A mission with no record has no tasks to check against, and its entries carry
+        // the briefing path.
+        fx.ok(&a, &["thread", "detach"]);
+        let legacy = fx.started(&a, &["thread", "start", "M-LEG"]);
+        fx.ok(&a, &["thread", "pause", &legacy, "T-99", "unchecked"]);
+        let latest = fx.latest_entry(&a, &legacy);
+        assert_eq!(latest["mission_id"], "M-LEG");
+        assert_eq!(
+            latest["mission_link"],
+            "missions/operational/M-LEG-legacy.md"
+        );
+        assert_eq!(latest["task_id"], "T-99");
+    }
+
+    /// Put a thread row and one entry in the ledger store the way an older tsk wrote
+    /// them, and push: no mission ID, only a briefing path.
+    fn seed_legacy_thread(fx: &Fixture, dir: &Path, id: &str) {
+        let entry = format!(
+            "{{\"mission_link\":\"{}\",\"task_id\":\"T-01\",\"whats_next\":\"old\",\"written_by\":\"urn:tsk:worktree:old\"}}",
+            BRIEFING
+        );
+        match fx.backend {
+            Backend::Dolt => {
+                fx.dolt_sql(
+                    dir,
+                    &format!(
+                        "insert into threads (thread_id, briefing_path) values ('{}', '{}'); \
+                         insert into continuation_entries (thread_id, seq, entry) values ('{}', 1, '{}')",
+                        id, BRIEFING, id, entry
+                    ),
+                );
+            }
+            Backend::Git => {
+                let thread = fx.ledger_path(dir).join("threads").join(id);
+                std::fs::create_dir_all(&thread).unwrap();
+                write(
+                    &thread.join("index.md"),
+                    &format!(
+                        "# Thread {}\n\nMission briefing: [{}]({})\n",
+                        id, BRIEFING, BRIEFING
+                    ),
+                );
+                write(
+                    &thread.join("continuation-state.jsonl"),
+                    &format!("{}\n", entry),
+                );
+            }
+        }
+        fx.ok(dir, &["ledger", "push", "Seed a legacy thread"]);
+    }
+
+    pub fn legacy_thread_rows_read_with_a_mission_id_derived_from_the_briefing_path(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let a = fx.a();
+        seed_legacy_thread(&fx, &a, "aaaa1111");
+
+        let row = fx.thread_row(&a, "aaaa1111");
+        assert_eq!(row["mission_id"], "M-CONF-01");
+        assert_eq!(row["mission_link"], BRIEFING);
+        assert_eq!(row["latest_whats_next"], "old");
+
+        // A pause on the legacy thread records the derived mission and the briefing path.
+        fx.ok(&a, &["thread", "pause", "aaaa1111", "T-77", "new"]);
+        let latest = fx.latest_entry(&a, "aaaa1111");
+        assert_eq!(latest["mission_id"], "M-CONF-01");
+        assert_eq!(latest["mission_link"], BRIEFING);
+        assert_eq!(latest["task_id"], "T-77");
+
+        // The derived ID is not written back.
+        if b == Backend::Dolt {
+            assert_eq!(
+                fx.dolt_sql(
+                    &a,
+                    "select mission_id from threads where thread_id = 'aaaa1111'"
+                ),
+                "mission_id\n\n"
+            );
+        } else {
+            let index =
+                std::fs::read_to_string(fx.ledger_path(&a).join("threads/aaaa1111/index.md"))
+                    .unwrap();
+            assert!(!index.contains("Mission: "), "{}", index);
+        }
+        // Another clone reads the same row.
+        let other = fx.b();
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(fx.thread_row(&other, "aaaa1111")["mission_id"], "M-CONF-01");
+    }
+
+    pub fn the_stop_hook_check_passes_when_the_ledger_has_no_missions(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        assert_eq!(fx.guard_reason(&a, None), None);
+        assert_eq!(stdout(&fx.guard(&a, None)), "");
+
+        // A record alone is a mission: the reason offers the missions not done.
+        fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
+        fx.ok(&a, &["mission", "create", "M-DONE", "Finished"]);
+        fx.ok(&a, &["mission", "set", "M-DONE", "status", "done"]);
+        fx.ok(&a, &["ledger", "push", "Add missions"]);
+        let reason = fx.guard_reason(&a, None).expect("blocks");
+        assert!(
+            reason.starts_with("No thread binding was found for this session or worktree."),
+            "{}",
+            reason
+        );
+        assert!(reason.contains("M-REC\ttodo\t-\t-\tRecorded"), "{}", reason);
+        assert!(!reason.contains("M-DONE"), "{}", reason);
+        assert!(!reason.contains("index.md"), "{}", reason);
+        assert!(reason.contains("`tsk thread skip`"), "{}", reason);
+
+        // A bound session passes.
+        fx.started(&a, &["thread", "start", "M-REC"]);
+        assert_eq!(fx.guard_reason(&a, None), None);
+    }
+
+    pub fn a_mission_document_alone_makes_the_stop_hook_check_block(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let a = fx.a();
+        let reason = fx.guard_reason(&a, None).expect("blocks");
+        assert!(reason.contains("index.md"), "{}", reason);
+        assert!(reason.contains("`tsk thread skip`"), "{}", reason);
+    }
+
+    pub fn skip_silences_the_stop_hook_check_until_a_thread_starts_or_resumes(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let a = fx.a();
+        assert!(fx.guard_reason(&a, None).is_some());
+
+        assert_eq!(fx.ok(&a, &["thread", "skip"]), "skipped\n");
+        assert_eq!(fx.guard_reason(&a, None), None);
+        // The skip is local: the ledger has nothing to commit.
+        let push = fx.tsk(&a, &["ledger", "push", "Nothing"]);
+        assert_success(&push);
+        assert!(
+            stderr(&push).contains("nothing to commit"),
+            "{}",
+            stderr(&push)
+        );
+        // And another clone knows nothing of it.
+        assert!(fx.guard_reason(&fx.b(), None).is_some());
+
+        // Start clears the skip.
+        let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
+        assert_eq!(fx.guard_reason(&a, None), None);
+        fx.ok(&a, &["thread", "detach"]);
+        assert!(fx.guard_reason(&a, None).is_some());
+
+        // So does resume.
+        fx.ok(&a, &["thread", "skip"]);
+        assert_eq!(fx.guard_reason(&a, None), None);
+        fx.ok(&a, &["thread", "resume", &id]);
+        assert_eq!(fx.guard_reason(&a, None), None);
+        fx.ok(&a, &["thread", "detach"]);
+        assert!(fx.guard_reason(&a, None).is_some());
+
+        // A cloud session skips for itself only.
+        let skipped = fx.tsk_cloud(&a, "cse_skip", &["thread", "skip"]);
+        assert_eq!(stdout(&skipped), "skipped\n");
+        assert_eq!(fx.guard_reason(&a, Some("cse_skip")), None);
+        assert!(fx.guard_reason(&a, Some("cse_other")).is_some());
+        assert!(fx.guard_reason(&a, None).is_some());
+        fx.tsk_cloud(&a, "cse_skip", &["thread", "start", "M-CONF-01"]);
+        fx.tsk_cloud(&a, "cse_skip", &["thread", "detach"]);
+        assert!(fx.guard_reason(&a, Some("cse_skip")).is_some());
+    }
+
+    pub fn session_start_names_the_bound_mission_with_its_open_tasks(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-REC", "Recorded mission"]);
+        fx.ok(&a, &["mission", "create", "M-DONE", "Finished mission"]);
+        fx.ok(&a, &["mission", "set", "M-DONE", "status", "done"]);
+        fx.ok(&a, &["task", "add", "M-REC", "Open one"]);
+        fx.ok(&a, &["task", "add", "M-REC", "Closed one"]);
+        fx.ok(&a, &["task", "add", "M-REC", "Waits"]);
+        fx.ok(&a, &["task", "block", "M-REC", "T-03", "T-01"]);
+        fx.ok(&a, &["task", "set", "M-REC", "T-02", "status", "done"]);
+        fx.ok(&a, &["ledger", "push", "Add the missions"]);
+
+        // Unbound: the missions not done, and no index.
+        let unbound = fx.session_context(&a, "s-unbound", "claude");
+        assert!(
+            unbound.contains("M-REC\ttodo\t-\t-\tRecorded mission"),
+            "{}",
+            unbound
+        );
+        assert!(!unbound.contains("M-DONE"), "{}", unbound);
+        assert!(!unbound.contains("index.md"), "{}", unbound);
+        assert!(
+            unbound.contains("No thread binding was found"),
+            "{}",
+            unbound
+        );
+        assert!(unbound.contains("`tsk thread skip`"), "{}", unbound);
+        assert!(!unbound.contains("tsk guide import"), "{}", unbound);
+
+        // Bound: the mission and its open tasks only.
+        let id = fx.started(&a, &["thread", "start", "M-REC"]);
+        for (session, format) in [("s-bound", "claude"), ("s-bound-copilot", "copilot")] {
+            let bound = fx.session_context(&a, session, format);
+            assert!(
+                bound.contains("This thread works mission M-REC (todo): Recorded mission."),
+                "{}",
+                bound
+            );
+            assert!(bound.contains("T-01\ttodo\t-\tOpen one"), "{}", bound);
+            assert!(bound.contains("T-03\ttodo\tT-01\tWaits"), "{}", bound);
+            assert!(!bound.contains("Closed one"), "{}", bound);
+            assert!(!bound.contains("index.md"), "{}", bound);
+            assert!(!bound.contains("M-DONE"), "{}", bound);
+            assert!(
+                bound.contains(&format!(
+                    "An existing thread binding was found: worktree:{}. Run /tsk:resume-thread {} next.",
+                    id, id
+                )),
+                "{}",
+                bound
+            );
+            assert!(!bound.contains("No thread binding"), "{}", bound);
+        }
+
+        // A mission with every task done has no open tasks.
+        fx.ok(&a, &["task", "set", "M-REC", "T-01", "status", "done"]);
+        fx.ok(&a, &["task", "set", "M-REC", "T-03", "status", "done"]);
+        fx.ok(&a, &["ledger", "push", "Close the tasks"]);
+        let closed = fx.session_context(&a, "s-closed", "claude");
+        assert!(closed.contains("It has no open tasks."), "{}", closed);
+    }
+
+    pub fn session_start_keeps_the_index_hint_for_a_bound_mission_with_no_record(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let a = fx.a();
+        let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
+        let context = fx.session_context(&a, "s-legacy", "claude");
+        assert!(context.contains("index.md"), "{}", context);
+        assert!(
+            !context.contains("This thread works mission"),
+            "{}",
+            context
+        );
+        assert!(context.contains(&format!("worktree:{}", id)), "{}", context);
+    }
+
+    pub fn session_start_shows_the_empty_ledger_note_only_without_records_and_documents(
+        b: Backend,
+    ) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        let empty = fx.session_context(&a, "s-empty", "claude");
+        assert!(empty.contains("run `tsk guide import`"), "{}", empty);
+        // Without records the unbound prompt stays as it was, and gains the skip choice.
+        assert!(empty.contains("index.md"), "{}", empty);
+        assert!(empty.contains("`tsk thread skip`"), "{}", empty);
+
+        fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
+        fx.ok(&a, &["ledger", "push", "Add a record"]);
+        let with_record = fx.session_context(&a, "s-record", "claude");
+        assert!(!with_record.contains("tsk guide import"), "{}", with_record);
+    }
+
+    pub fn session_start_says_a_skipped_session_works_without_a_thread(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let a = fx.a();
+        fx.ok(&a, &["thread", "skip"]);
+        let context = fx.session_context(&a, "s-skip", "claude");
+        assert!(context.contains("works without a thread"), "{}", context);
+        assert!(!context.contains("No thread binding"), "{}", context);
+    }
 }
 
 macro_rules! conformance {
@@ -1924,6 +2422,16 @@ conformance!(
     decisions_are_recorded_with_who_when_and_an_optional_task,
     questions_are_minted_answered_and_listed_while_open,
     two_clones_add_records_to_different_missions_and_the_ledgers_merge,
+    thread_start_takes_a_mission_id_and_checks_it_against_records_and_briefings,
+    thread_pause_checks_the_task_against_the_mission_record,
+    legacy_thread_rows_read_with_a_mission_id_derived_from_the_briefing_path,
+    the_stop_hook_check_passes_when_the_ledger_has_no_missions,
+    a_mission_document_alone_makes_the_stop_hook_check_block,
+    skip_silences_the_stop_hook_check_until_a_thread_starts_or_resumes,
+    session_start_names_the_bound_mission_with_its_open_tasks,
+    session_start_keeps_the_index_hint_for_a_bound_mission_with_no_record,
+    session_start_shows_the_empty_ledger_note_only_without_records_and_documents,
+    session_start_says_a_skipped_session_works_without_a_thread,
 );
 
 conformance!(
@@ -1951,6 +2459,16 @@ conformance!(
     decisions_are_recorded_with_who_when_and_an_optional_task,
     questions_are_minted_answered_and_listed_while_open,
     two_clones_add_records_to_different_missions_and_the_ledgers_merge,
+    thread_start_takes_a_mission_id_and_checks_it_against_records_and_briefings,
+    thread_pause_checks_the_task_against_the_mission_record,
+    legacy_thread_rows_read_with_a_mission_id_derived_from_the_briefing_path,
+    the_stop_hook_check_passes_when_the_ledger_has_no_missions,
+    a_mission_document_alone_makes_the_stop_hook_check_block,
+    skip_silences_the_stop_hook_check_until_a_thread_starts_or_resumes,
+    session_start_names_the_bound_mission_with_its_open_tasks,
+    session_start_keeps_the_index_hint_for_a_bound_mission_with_no_record,
+    session_start_shows_the_empty_ledger_note_only_without_records_and_documents,
+    session_start_says_a_skipped_session_works_without_a_thread,
 );
 
 // --- Backend selection and mismatch ---
@@ -2489,25 +3007,19 @@ fn thread_commands_work_on_a_version_two_ledger() {
     let events = json(&fx.ok(&a, &["events", "read-new"]));
     assert_eq!(events["total_count"], 0);
 
-    let start = fx.ok(&a, &["thread", "start", "M-CONF-01", BRIEFING]);
+    let start = fx.ok(&a, &["thread", "start", "M-CONF-01"]);
     assert!(start.starts_with("started:"), "{}", start);
     assert!(fx.ok(&a, &["thread", "detach"]).starts_with("detached:"));
-    let missing = fx.tsk(&a, &["thread", "start", "M-CONF-01", "missions/none.md"]);
+    let missing = fx.tsk(&a, &["thread", "start", "M-NONE"]);
     assert_exit(&missing, 1);
     assert!(
-        stderr(&missing).contains("mission briefing not found"),
-        "{}",
-        stderr(&missing)
-    );
-    // The briefing path in the message points at the documents worktree.
-    assert!(
-        stderr(&missing).contains("/docs/missions/none.md"),
+        stderr(&missing).contains("no such mission: M-NONE"),
         "{}",
         stderr(&missing)
     );
 }
 
-// --- Mission and task tables and the version 4 ledger (Dolt backend) ---
+// --- Mission and task tables and the version 5 ledger (Dolt backend) ---
 
 const TASK_TABLES: [&str; 4] = ["questions", "decisions", "task_blocks", "tasks"];
 
@@ -2520,6 +3032,13 @@ const MISSION_TABLES: [&str; 8] = [
     "mission_blocks",
     "objective_outcomes",
     "missions",
+];
+
+/// What a ledger below version 5 has for `threads`: no `mission_id`, and a briefing path
+/// that is never null.
+const OLD_THREADS: [&str; 2] = [
+    "alter table threads drop column mission_id",
+    "alter table threads modify column briefing_path varchar(1024) not null",
 ];
 
 impl Fixture {
@@ -2545,6 +3064,7 @@ impl Fixture {
             .iter()
             .map(|t| format!("drop table {}", t))
             .collect();
+        sql.extend(OLD_THREADS.iter().map(|s| s.to_string()));
         sql.push("replace into manifest (k, v) values ('version', '2')".to_string());
         fx.dolt_sql(&a, &sql.join("; "));
         fx.put(&a, "base.md", "base\n");
@@ -2571,6 +3091,7 @@ impl Fixture {
             .collect();
         sql.push("alter table missions drop column next_task".to_string());
         sql.push("alter table missions drop column next_question".to_string());
+        sql.extend(OLD_THREADS.iter().map(|s| s.to_string()));
         sql.push("replace into manifest (k, v) values ('version', '3')".to_string());
         fx.dolt_sql(&a, &sql.join("; "));
         fx.ok(&a, &["ledger", "push", "A version 3 ledger"]);
@@ -2609,12 +3130,13 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
         "c\n0\n"
     );
 
-    // The first write creates the tables, adds the counters and records version 4.
+    // The first write creates the tables, adds the counters, adds the thread column and
+    // records version 5.
     assert_eq!(
         fx.ok(&other, &["task", "add", "M-OLD", "First on version 3"]),
         "T-01\n"
     );
-    assert_eq!(fx.manifest_version(&other), "4");
+    assert_eq!(fx.manifest_version(&other), "5");
     let tables = fx.tables(&other);
     for table in TASK_TABLES {
         assert!(tables.lines().any(|t| t == table), "{}: {}", table, tables);
@@ -2657,7 +3179,7 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
     assert_eq!(fx.manifest_version(&a), "3");
     fx.ok(&other, &["ledger", "push", "First task"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "4");
+    assert_eq!(fx.manifest_version(&a), "5");
     assert_eq!(
         fx.ok(&a, &["task", "list", "M-OLD"]),
         "T-01\ttodo\t-\tFirst on version 3\nT-02\ttodo\tT-01\tSecond\n"
@@ -2677,12 +3199,12 @@ fn a_version_three_ledger_upgrades_at_a_mission_write_too() {
     fx.ok(&other, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&other), "3");
     fx.ok(&other, &["mission", "create", "M-NEW", "New"]);
-    assert_eq!(fx.manifest_version(&other), "4");
+    assert_eq!(fx.manifest_version(&other), "5");
     assert_eq!(fx.ok(&other, &["task", "add", "M-OLD", "x"]), "T-01\n");
 }
 
 #[test]
-fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_four() {
+fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_five() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
@@ -2690,11 +3212,18 @@ fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_four() {
     let fx = Fixture::new(Backend::Dolt);
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "4");
+    assert_eq!(fx.manifest_version(&a), "5");
     let tables = fx.tables(&a);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
     }
+    assert_eq!(
+        fx.dolt_sql(
+            &a,
+            "select column_name, is_nullable from information_schema.columns where table_name = 'threads' order by ordinal_position"
+        ),
+        "COLUMN_NAME,IS_NULLABLE\nthread_id,NO\nbriefing_path,YES\nmission_id,YES\n"
+    );
 }
 
 #[test]
@@ -2748,16 +3277,10 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
         fx.ok(&other, &["ledger", "doc", "get", "base.md"]),
         "base\n"
     );
-    assert!(fx
-        .ok(&other, &["thread", "start", "M-CONF-01", "base.md"])
-        .starts_with("started:"));
-    assert!(fx
-        .ok(&other, &["thread", "detach"])
-        .starts_with("detached:"));
-
-    // The first mission write creates the tables and records version 4 in one change.
+    // The first mission write creates the tables, the column and records version 5 in one
+    // change.
     fx.ok(&other, &["mission", "create", "M-X", "First on version 2"]);
-    assert_eq!(fx.manifest_version(&other), "4");
+    assert_eq!(fx.manifest_version(&other), "5");
     let tables = fx.tables(&other);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -2768,6 +3291,7 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
     );
     assert!(status.contains("manifest"), "{}", status);
     assert!(status.contains("missions"), "{}", status);
+    assert!(status.contains("threads"), "{}", status);
     assert_eq!(
         fx.ok(&other, &["mission", "list"]),
         "M-X\ttodo\t-\t-\tFirst on version 2\n"
@@ -2776,13 +3300,158 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
     assert_eq!(fx.manifest_version(&a), "2");
     fx.ok(&other, &["ledger", "push", "First mission"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "4");
+    assert_eq!(fx.manifest_version(&a), "5");
     assert_eq!(
         fx.ok(&a, &["mission", "list"]),
         "M-X\ttodo\t-\t-\tFirst on version 2\n"
     );
     fx.ok(&a, &["mission", "create", "M-Y", "Second"]);
+    assert_eq!(fx.manifest_version(&a), "5");
+}
+
+#[test]
+fn a_version_two_ledger_upgrades_at_the_first_thread_write_and_not_before() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::version_two_ledger();
+    let (a, other) = (fx.a(), fx.b());
+    fx.ok(&other, &["ledger", "fetch"]);
+    fx.put(&other, "missions/operational/M-CONF-01-old.md", "# Old\n");
+    fx.ok(&other, &["ledger", "push", "A briefing"]);
+    assert_eq!(fx.manifest_version(&other), "2");
+
+    // Reads and refused writes upgrade nothing.
+    assert_eq!(fx.ok(&other, &["thread", "list"]), "");
+    assert_exit(&fx.tsk(&other, &["thread", "start", "M-NONE"]), 1);
+    assert_exit(
+        &fx.tsk(&other, &["thread", "pause", "aaaa0000", "", "x"]),
+        1,
+    );
+    assert_eq!(fx.ok(&other, &["thread", "skip"]), "skipped\n");
+    assert_eq!(fx.manifest_version(&other), "2");
+    assert_eq!(
+        fx.dolt_sql(&other, "select count(*) as c from dolt_status"),
+        "c\n0\n"
+    );
+
+    // The first thread write creates the tables and the column and records version 5.
+    let started = fx.ok(&other, &["thread", "start", "M-CONF-01"]);
+    let id = started
+        .trim_end()
+        .strip_prefix("started:")
+        .unwrap()
+        .to_string();
+    assert_eq!(fx.manifest_version(&other), "5");
+    let tables = fx.tables(&other);
+    for table in MISSION_TABLES {
+        assert!(tables.contains(table), "{}", tables);
+    }
+    assert_eq!(
+        fx.dolt_sql(
+            &other,
+            &format!(
+                "select mission_id, briefing_path from threads where thread_id = '{}'",
+                id
+            )
+        ),
+        "mission_id,briefing_path\nM-CONF-01,missions/operational/M-CONF-01-old.md\n"
+    );
+    // The start pushed itself.
+    assert_eq!(fx.manifest_version(&a), "2");
+    fx.ok(&a, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&a), "5");
+    assert_eq!(fx.ok(&a, &["mission", "list"]), "");
+}
+
+impl Fixture {
+    /// A published Dolt ledger at version 4, as the previous release left it: `threads`
+    /// has no `mission_id`, its `briefing_path` is not null, and it holds one legacy
+    /// thread for the briefing of M-CONF-01.
+    fn version_four_ledger() -> Fixture {
+        let fx = Fixture::new(Backend::Dolt);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.put(&a, BRIEFING, "# Mission: conformance\n");
+        fx.dolt_sql(
+            &a,
+            &format!(
+                "alter table threads drop column mission_id; \
+                 alter table threads modify column briefing_path varchar(1024) not null; \
+                 replace into manifest (k, v) values ('version', '4'); \
+                 insert into threads (thread_id, briefing_path) values ('aaaa1111', '{}')",
+                BRIEFING
+            ),
+        );
+        fx.ok(&a, &["ledger", "push", "A version 4 ledger"]);
+        fx
+    }
+}
+
+#[test]
+fn a_version_four_ledger_reads_threads_and_upgrades_at_the_first_thread_start() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::version_four_ledger();
+    let (a, other) = (fx.a(), fx.b());
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&other), "4");
+
+    // Reads see the legacy thread with a derived mission ID, and write nothing.
+    let row = fx.thread_row(&other, "aaaa1111");
+    assert_eq!(row["mission_id"], "M-CONF-01");
+    assert_eq!(row["mission_link"], BRIEFING);
+    assert!(fx.guard_reason(&other, None).is_some());
+    let context = fx.session_context(&other, "s-four", "claude");
+    assert!(context.contains("No thread binding"), "{}", context);
+    assert_eq!(fx.ok(&other, &["thread", "skip"]), "skipped\n");
+    // Refused writes upgrade nothing either.
+    let refused = fx.tsk(&other, &["thread", "start", "M-NONE"]);
+    assert_exit(&refused, 1);
+    assert!(stderr(&refused).contains("M-NONE"), "{}", stderr(&refused));
+    assert_exit(
+        &fx.tsk(&other, &["thread", "pause", "bbbb2222", "", "x"]),
+        1,
+    );
+    assert_eq!(fx.manifest_version(&other), "4");
+    assert_eq!(
+        fx.dolt_sql(&other, "select count(*) as c from dolt_status"),
+        "c\n0\n"
+    );
+
+    // A pause appends an entry, which needs no new column: the version stays 4.
+    fx.ok(&other, &["thread", "pause", "aaaa1111", "", "carry on"]);
+    assert_eq!(fx.manifest_version(&other), "4");
+    assert_eq!(
+        fx.latest_entry(&other, "aaaa1111")["mission_id"],
+        "M-CONF-01"
+    );
+    fx.ok(&other, &["thread", "detach"]);
+
+    // The first thread start alters the table and records version 5, in its own push.
+    let id = fx.started(&other, &["thread", "start", "M-CONF-01"]);
+    assert_eq!(fx.manifest_version(&other), "5");
+    assert_eq!(
+        fx.dolt_sql(
+            &other,
+            "select thread_id, mission_id, briefing_path from threads order by thread_id = 'aaaa1111' desc"
+        ),
+        format!(
+            "thread_id,mission_id,briefing_path\naaaa1111,,{}\n{},M-CONF-01,{}\n",
+            BRIEFING, id, BRIEFING
+        )
+    );
+    assert_eq!(fx.thread_row(&other, "aaaa1111")["mission_id"], "M-CONF-01");
+
+    // The other clone takes the upgrade with its next fetch.
     assert_eq!(fx.manifest_version(&a), "4");
+    fx.ok(&a, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&a), "5");
+    assert_eq!(fx.thread_row(&a, &id)["mission_id"], "M-CONF-01");
+    assert_eq!(fx.thread_row(&a, "aaaa1111")["mission_id"], "M-CONF-01");
 }
 
 #[test]
@@ -2790,7 +3459,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
     // What the previous release does with a Dolt ledger the new release has written:
     // the manifest check is the first thing every command runs. The supported list is
     // faked in a unit test (ledger::manifest); here a version no release knows yet
-    // stands in, because this binary supports 1, 2, 3 and 4.
+    // stands in, because this binary supports 1, 2, 3, 4 and 5.
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
@@ -2798,7 +3467,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
     let fx = Fixture::new(Backend::Dolt);
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '5')");
+    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '6')");
     for args in [
         vec!["mission", "list"],
         vec!["mission", "create", "M-X", "x"],
@@ -2808,8 +3477,8 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
         assert_exit(&out, 1);
         let message = stderr(&out);
         assert!(
-            message.contains("unsupported ledger version 5")
-                && message.contains("supports version 1, 2, 3, 4")
+            message.contains("unsupported ledger version 6")
+                && message.contains("supports version 1, 2, 3, 4, 5")
                 && message.contains("Update tsk"),
             "{:?}: {}",
             args,

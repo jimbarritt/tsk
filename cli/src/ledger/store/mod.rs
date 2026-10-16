@@ -48,6 +48,14 @@ pub struct PushReport {
     pub already_on_remote: bool,
 }
 
+/// The mission and briefing a thread stores. A thread made before layout version 5 has
+/// no stored mission ID: [`crate::thread::ops::thread_mission`] derives it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ThreadInfo {
+    pub mission_id: Option<String>,
+    pub briefing_path: Option<String>,
+}
+
 #[allow(dead_code)]
 pub trait LedgerStore {
     // --- Remote synchronisation and location ---
@@ -109,15 +117,22 @@ pub trait LedgerStore {
     // --- Threads ---
 
     fn thread_exists(&self, id: &str) -> Result<bool, String>;
-    /// Create a thread with an empty continuation log and its briefing link. Fails when
-    /// the thread exists.
-    fn thread_create(&self, id: &str, briefing_path: &str) -> Result<(), String>;
+    /// Create a thread with an empty continuation log, the mission it works and, for a
+    /// mission with no record, its briefing path. Fails when the thread exists. The first
+    /// call on a Dolt ledger below version 5 upgrades it.
+    fn thread_create(
+        &self,
+        id: &str,
+        mission_id: &str,
+        briefing_path: Option<&str>,
+    ) -> Result<(), String>;
     /// Delete a thread and its continuation log.
     fn thread_delete(&self, id: &str) -> Result<(), String>;
     /// Every thread ID, sorted.
     fn thread_ids(&self) -> Result<Vec<String>, String>;
-    /// The briefing path a thread links to, or `None` when it records none.
-    fn thread_briefing(&self, id: &str) -> Result<Option<String>, String>;
+    /// What a thread stores: the mission it works and the briefing path it links to, each
+    /// `None` when the thread records none. An unknown thread reads as neither.
+    fn thread_info(&self, id: &str) -> Result<ThreadInfo, String>;
 
     // --- Continuation entries ---
 
@@ -157,7 +172,7 @@ pub trait LedgerStore {
     fn missions_load(&self) -> Result<Vec<Mission>, String>;
     /// Write one mission and its objective outcomes, blockers and document links in the
     /// local store, replacing what the store held for that ID. The first call on a
-    /// Dolt ledger at version 2 or 3 creates the missing tables and records version 4.
+    /// Dolt ledger below version 5 creates the missing tables and columns and records version 5.
     fn mission_save(&self, mission: &Mission) -> Result<(), String>;
 
     // --- Descriptions for error messages ---

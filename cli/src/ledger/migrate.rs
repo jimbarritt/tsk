@@ -27,7 +27,7 @@ use crate::ledger::store::dolt::{create_database_with, remote_tip, remote_url, D
 use crate::ledger::store::{check_document_path, LedgerStore};
 use crate::thread::entry::STORE_FILE;
 use crate::thread::lookup::LOOKUP_FILE;
-use crate::thread::ops::mission_link;
+use crate::thread::ops::{index_mission, mission_link};
 
 const INDEX_FILE: &str = "index.md";
 const MAX_DOCUMENT_PATH: usize = 1024;
@@ -56,6 +56,8 @@ struct Records {
 struct ThreadRecord {
     id: String,
     briefing: String,
+    /// The mission the thread names on its `Mission:` line, if it has one.
+    mission_id: Option<String>,
     entries: Vec<String>,
 }
 
@@ -550,6 +552,7 @@ fn read_records(git: &Git, commit: &str) -> Result<Records, String> {
 
     for (id, (index, store)) in threads {
         let briefing = index.as_deref().map(mission_link).unwrap_or_default();
+        let mission_id = index.as_deref().and_then(index_mission);
         if index.is_none() {
             records.warnings.push(format!(
                 "thread {} has no {}; its briefing is empty",
@@ -567,6 +570,7 @@ fn read_records(git: &Git, commit: &str) -> Result<Records, String> {
         records.threads.push(ThreadRecord {
             id,
             briefing,
+            mission_id,
             entries,
         });
     }
@@ -629,11 +633,25 @@ fn insert_sql(records: &Records) -> String {
     };
     batch(
         "threads",
-        "thread_id, briefing_path",
+        "thread_id, briefing_path, mission_id",
         records
             .threads
             .iter()
-            .map(|t| format!("({}, {})", lit(&t.id), lit(&t.briefing)))
+            .map(|t| {
+                let nullable = |v: &str| {
+                    if v.is_empty() {
+                        "NULL".to_string()
+                    } else {
+                        lit(v)
+                    }
+                };
+                format!(
+                    "({}, {}, {})",
+                    lit(&t.id),
+                    nullable(&t.briefing),
+                    nullable(t.mission_id.as_deref().unwrap_or(""))
+                )
+            })
             .collect(),
     );
     batch(
@@ -713,10 +731,16 @@ fn verify(store: &dyn LedgerStore, records: &Records) -> Result<(), String> {
     let ids: Vec<String> = records.threads.iter().map(|t| t.id.clone()).collect();
     expect("the thread list", ids, store.thread_ids()?)?;
     for thread in &records.threads {
+        let info = store.thread_info(&thread.id)?;
         expect(
             &format!("the briefing of thread {}", thread.id),
             thread.briefing.clone(),
-            store.thread_briefing(&thread.id)?.unwrap_or_default(),
+            info.briefing_path.unwrap_or_default(),
+        )?;
+        expect(
+            &format!("the mission of thread {}", thread.id),
+            thread.mission_id.clone(),
+            info.mission_id,
         )?;
         expect(
             &format!("the continuation entries of thread {}", thread.id),
@@ -774,6 +798,7 @@ mod tests {
             threads: vec![ThreadRecord {
                 id: "t1".into(),
                 briefing: "missions/M-X.md".into(),
+                mission_id: Some("M-X".into()),
                 entries: vec!["{\"a\":1}".into(), "{\"a\":2}".into()],
             }],
             events: vec!["e1".into()],

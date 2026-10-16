@@ -85,8 +85,8 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `4`. |
-| `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024) | One row per thread. `briefing_path` replaces `threads/<thread-id>/index.md`. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `5`. |
+| `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the mission the thread works. `briefing_path` is the mission's briefing document, stored only when the mission has no record. Together they replace `threads/<thread-id>/index.md`. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
 | `cloud_session_bindings` | `session_id` varchar(255), primary key; `thread_id` varchar(64); `registered_at` varchar(32) | One row per cloud session binding. It replaces `threads/lookup-by-cloud-session.json`. |
 | `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of [`queue.ndjson`](#external-eventsqueuendjson). |
@@ -157,7 +157,7 @@ With the `git` backend, `doc path` prints the file in the ledger worktree. The o
 commands behave the same with both backends.
 
 `doc put` and `doc rm` do not reach the remote. `tsk ledger push "<message>"` does.
-`tsk thread start` refuses a briefing path that has no file in the documents worktree.
+`tsk thread start` takes a mission ID. It refuses an ID that has no mission record and no briefing document at `missions/<category>/<ID>-<slug>.md` or `missions/<category>/<ID>.md` in the documents worktree.
 
 `tsk ledger fetch` refreshes both stores: the Dolt database, then the documents
 worktree. It creates the worktree when it is absent. It refuses a worktree with
@@ -200,10 +200,11 @@ documents changed. Notes go to stderr.
 
 ### Manifest version
 
-The `version` row of the `manifest` table is `4` for a ledger with the mission, task,
-decision and question tables, `3` for a ledger with the mission tables only, and `2` for a
+The `version` row of the `manifest` table is `5` for a ledger whose `threads` table has
+`mission_id`, `4` for a ledger with the mission, task, decision and question tables and the
+older `threads` table, `3` for a ledger with the mission tables only, and `2` for a
 ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
-backend accepts versions 1, 2, 3 and 4. Version 1 is a ledger that still keeps its
+backend accepts versions 1, 2, 3, 4 and 5. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger is refused by every command except `tsk ledger fetch`,
@@ -212,22 +213,30 @@ documents in a `documents` table.
   tsk/docs branch.` `tsk ledger fetch` refreshes the database only and prints a note.
 - A version 2 ledger works for everything it did before. The mission read commands behave
   as an empty mission set and write nothing. The first mission write command creates the
-  mission, task, decision and question tables and sets the `version` row to `4` in the same
-  local Dolt change as the mission, so `tsk ledger push` publishes both.
+  mission, task, decision and question tables, adds `mission_id` to `threads` and makes
+  `briefing_path` nullable, and sets the `version` row to `5` in the same local Dolt
+  change as the mission, so `tsk ledger push` publishes both.
 - A version 3 ledger works for everything it did before. The task, decision and question
   read commands behave as if the mission had none, and write nothing. The first write
   command of any of the four kinds (`mission`, `task`, `decision` or `question`) adds the
-  columns `next_task` and `next_question` to `missions`, creates the four new tables and
-  sets the `version` row to `4` in the same local Dolt change as the record, so
-  `tsk ledger push` publishes both. A write that fails a check upgrades nothing.
-- A `tsk` binary from before version 4 does not know the version. It stops at its manifest
-  check with `unsupported ledger version 4`, before it writes. The binary needs updating.
+  columns `next_task` and `next_question` to `missions`, creates the four new tables, alters
+  `threads` as above and sets the `version` row to `5` in the same local Dolt change as the
+  record, so `tsk ledger push` publishes both. A write that fails a check upgrades nothing.
+- A version 4 ledger works for everything it did before. `thread list` derives each
+  thread's mission ID from its briefing path. The first write that needs the new column
+  alters `threads` and sets the `version` row to `5` in the same local Dolt change:
+  `tsk thread start`, and a mission, task, decision or question write. Reads, `thread skip`
+  and a `thread pause` upgrade nothing, and neither does a write that is refused.
+  A version 2, 3 or 4 ledger takes the whole chain of changes up to version 5 at its first
+  such write.
+- A `tsk` binary from before version 5 does not know the version. It stops at its manifest
+  check with `unsupported ledger version 5`, before it writes. The binary needs updating.
   The file ledger's `.tsk-ledger.toml` stays at version 1.
 
 ### Migration
 
 `tsk ledger migrate-to-dolt` moves a file ledger to the Dolt backend. It runs with
-either backend selected. The new ledger is version 4: it has no `documents` table, it has the mission, task, decision and question tables, and
+either backend selected. The new ledger is version 5: it has no `documents` table, it has the mission, task, decision and question tables, and
 its documents are written as files on `tsk/docs`. It:
 
 1. Fetches the file ledger ref and checks its manifest. It stops when the ref is absent
@@ -735,10 +744,13 @@ Layout in use:
 | `missions/<category>/M-<ID>/` | A mission's supporting files: sub-briefings, intelligence indexes, reports. |
 | `missions/<category>/M-<ID>-<slug>-report-<YYYY-MM-DD>.md` | A dated report beside its briefing. |
 
-The one structural rule a command enforces: `thread start` takes a briefing path
-relative to the ledger root, for example
-`missions/operational/M-BOOT-04-official-ledger.md`, and refuses it unless a file exists
-at that path in the ledger worktree.
+The one structural rule a command enforces: `thread start` takes a mission ID. It
+accepts the ID when the mission has a record, and otherwise when a briefing document at
+`missions/<category>/<ID>-<slug>.md` or `missions/<category>/<ID>.md` exists (for
+example `missions/operational/M-BOOT-04-official-ledger.md` for `M-BOOT-04`). The ID in
+a file name is `M-` and the groups of capitals and digits that follow, up to the slug.
+It refuses any other ID with `error: no such mission: <ID>`. Older skills pass a briefing
+path as a second argument: it is accepted and ignored.
 
 ## `threads/`
 
@@ -753,19 +765,23 @@ is minted.
 
 ### `threads/<thread-id>/index.md`
 
-Written once, at thread start. Exact content, with a trailing newline:
+Written once, at thread start. Exact content, with a trailing newline. The last line is
+there only when the mission has no record:
 
 ```
 # Thread <thread-id>
 
+Mission: <mission-id>
 Mission briefing: [<briefing-path>](<briefing-path>)
 ```
 
-`<briefing-path>` is the path relative to the ledger root that `thread start` was given.
+`<briefing-path>` is the path of the briefing document that `thread start` found, relative
+to the ledger root. An older thread has no `Mission:` line.
 
-`thread list` reads the mission link from this file: the text between
-`Mission briefing: [` and the next `]`, first match. A missing file or no match gives an
-empty string.
+`thread list` reads the mission ID from the `Mission:` line, and derives it from the
+briefing path when the line is absent. It reads the mission link from this file: the text
+between `Mission briefing: [` and the next `]`, first match. A missing file or no match
+gives an empty string.
 
 ### `threads/<thread-id>/continuation-state.jsonl`
 
@@ -779,8 +795,9 @@ Fields, in the order written. `git` holds `ledger` then `code`; `ledger` holds `
 
 | Field | Type | Source | Meaning |
 |---|---|---|---|
-| `mission_link` | string | caller | The mission briefing the thread works on, as a path relative to the ledger root. |
-| `task_id` | string | caller | The task in progress at pause time, for example `T-03`. Can be empty. |
+| `mission_id` | string | command | The mission the thread works, from the thread. Absent when the thread names none and its briefing path has no mission ID in its file name. Entries written before version 5 do not have it. |
+| `mission_link` | string | command | The mission briefing the thread works on, as a path relative to the ledger root. Written only for a thread whose mission has no record. Earlier entries always have it. |
+| `task_id` | string | caller | The task in progress at pause time, for example `T-03`. Can be empty. When the mission has a record, the command checks it against the mission's tasks and writes `T-5` as `T-05`. A mission with no record has no tasks to check against. |
 | `whats_next` | string | caller | A short account of where things stand. |
 | `git` | object | command | The commits the entry records, in two nested objects: `ledger` and `code`. |
 | `git.ledger.commit` | string | command | Full 40-character SHA of the ledger worktree's `HEAD` after it is refreshed from the remote and before this entry is appended. |
@@ -964,6 +981,19 @@ Written by `thread start` and `thread resume` when `CLAUDE_CODE_REMOTE_SESSION_I
 set. Deleted by `thread detach`, and by `thread stop` when it names the stopped thread.
 Never pushed: a marker in another clone or code worktree that names a stopped thread stays
 there, stale.
+
+### `tsk-thread-skip`
+
+Path: `$(git rev-parse --path-format=absolute --git-dir)/tsk-thread-skip`, beside
+`tsk-thread-id`. In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` set) the file is
+`tsk-thread-skip-<session-id>`, with every character outside `A-Za-z0-9_-` replaced by `_`,
+so each cloud session skips for itself.
+
+Content: the word `skipped` and a newline. Only the file's presence counts.
+
+Written by `thread skip`. Deleted by `thread start` and `thread resume`. While it exists,
+`thread guard` passes in silence, and the session start context says the session works
+without a thread. Never in the ledger and never pushed.
 
 ## Common value formats
 
@@ -1195,14 +1225,33 @@ Standard output on success:
 
 `additionalContext` is these parts, joined by single spaces:
 
-1. `The ledger was fetched and materialised at <path> (also exported as $TSK_LEDGER_WT). Read <path>/index.md next.`
+1. `The ledger was fetched and materialised at <path> (also exported as $TSK_LEDGER_WT).`
+   and, when the ledger has no mission records, the backend's hint to read the index
+   (`Read <path>/index.md next.`). With mission records the hint is absent. A bound thread
+   whose mission has a record gets instead the mission and its open tasks:
+   `This thread works mission <id> (<status>): <name>.` and
+   `Its open tasks follow, one per line: id, status, blocked-by, description, tab-separated.`
+   and the lines `tsk task list` prints for the tasks that are not done. With none, it
+   ends `It has no open tasks.`
 2. When the ledger worktree holds commits that are not on the remote ledger branch, a
    warning that starts `WARNING: the ledger worktree holds a commit that is not on
    <remote>'s <ref>, so it was left as it is rather than reset:`, lists the commits
    separated by `;`, and gives the `git log -p <remote-tip>..HEAD` command to read them and
    `tsk ledger push` to push them.
 3. With a binding, `An existing thread binding was found: <binding>. Run /tsk:resume-thread
-   <thread-id> next.` Without one, the unbound prompt text.
+   <thread-id> next.` Without one, the unbound prompt text. When the ledger has mission
+   records, the prompt lists the missions not done, in the format of `tsk mission list`,
+   and offers them; it does not mention `index.md`. Both prompts end by naming
+   `tsk thread skip` as the choice for no thread. When this session or code worktree
+   skipped a thread, the context says so in place of the prompt.
+4. When the ledger has no mission records and no mission documents, the note that names
+   `tsk guide import`.
+
+When the fetch finds a version 1 ledger, the context is `The ledger at <path> (also
+exported as $TSK_LEDGER_WT) is at layout version 1: its documents are still in Dolt. Run
+`tsk ledger migrate-docs` once to move them to the tsk/docs branch. Until then every tsk
+command except `tsk ledger fetch` stops with an error that names this command.` Nothing
+else is added.
 
 On failure the output is the same object with the context
 `Warning: the ledger could not be fetched automatically at session start (<error>). Run
@@ -1233,14 +1282,14 @@ what the harness expects until then.
 
 | Script | Stdout on success | Other exits | Replaced by |
 |---|---|---|---|
-| `thread-start.sh` | `started:<thread-id>` | `resume-required:<thread-id>` and exit 2 when a binding exists | `tsk thread start <mission-id> <briefing-path>` |
-| `thread-append-handover.sh` | `paused:<thread-id>` | | `tsk thread pause <thread-id> <mission-link> <task-id> <whats-next>` |
+| `thread-start.sh` | `started:<thread-id>` | `resume-required:<thread-id>` and exit 2 when a binding exists | `tsk thread start <mission-id>` |
+| `thread-append-handover.sh` | `paused:<thread-id>` | | `tsk thread pause <thread-id> <task-id> <whats-next>` |
 | `thread-resume.sh` | `{"thread_id":"...","latest":{...},"warning":"..."}` (`latest` is `{}` with no entry; `warning` is empty unless another actor wrote to the thread) | | `tsk thread resume <thread-id>` |
 | `thread-detach.sh` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread detach` |
 | `thread-stop.sh` | `stopped:<thread-id>` | | `tsk thread stop [<thread-id>]` |
-| `thread-list.sh` | one compact JSON object per line: `id`, `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry) | | `tsk thread list` |
+| `thread-list.sh` | one compact JSON object per line: `id`, `mission_id`, `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry) | | `tsk thread list` |
 | `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger worktree |
-| `thread-binding-guard.sh` | nothing when bound; `{"decision":"block","reason":"..."}` when not | | `tsk thread guard` |
+| `thread-binding-guard.sh` | nothing when bound, after `tsk thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | | `tsk thread guard` |
 | `claude-session-start.sh` (the tsk parts) | one JSON object, `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}` | exit 0 in every case, including a failed fetch, which prints a warning context | `tsk thread session-start` (see [Session start command](#session-start-command)) |
 | `thread-scaffold.sh` | nothing | exit 1 when `threads/<thread-id>` exists | internal to `tsk thread start` |
 | `thread-mint-id.sh` | `<thread-id>` | | internal to `tsk thread start` |

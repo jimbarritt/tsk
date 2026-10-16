@@ -20,7 +20,7 @@ Design references in the tsk repository: every ledger file and format is in
 
 A **thread** is one line of work on a mission. Its ID is 8 characters from `[0-9a-z]`.
 Each thread has a directory on the ledger, `threads/<thread-id>/`, that holds `index.md`
-(a link to the mission briefing) and `continuation-state.jsonl` (one continuation state
+(the mission, with a link to its briefing when it has no record) and `continuation-state.jsonl` (one continuation state
 entry per pause).
 
 A **binding** ties the current session or code worktree to a thread:
@@ -75,10 +75,11 @@ tsk ledger doc list [<prefix>]           list document paths, optionally under a
 tsk ledger doc rm <path>                 remove a document; changes the local store only
 tsk ledger migrate-to-dolt               one-off: move a file ledger into a Dolt database and push it
 
-tsk thread start <mission-id> <briefing-path>                         mint, scaffold and bind a thread, push
-tsk thread pause <thread-id> <mission-link> <task-id> <whats-next>    append a continuation state entry, push
+tsk thread start <mission-id>                                          mint and bind a thread for a mission, push
+tsk thread pause <thread-id> <task-id> <whats-next>                   append a continuation state entry, push
 tsk thread resume <thread-id>                                         bind to a thread, print its latest entry
 tsk thread detach                                                     remove this session's or code worktree's binding
+tsk thread skip                                                       work without a thread; local to this clone, never pushed
 tsk thread stop [<thread-id>]                                         delete a thread and every cloud binding to it, push
 tsk thread list                                                       list threads, most recently paused first
 tsk thread binding [--no-fetch]                                       print the current binding
@@ -91,9 +92,13 @@ tsk events read-new                                                       print 
 tsk events advance-watermark <count>                                      set the watermark to <count>, push
 ```
 
-`<briefing-path>` and `<mission-link>` are paths relative to the ledger root, for example
-`missions/operational/M-BOOT-04-official-ledger.md`. `tsk thread start` refuses a path
-with no document at it in the ledger.
+`<mission-id>` is a mission with a record, or a mission with a briefing document at
+`missions/<category>/<mission-id>-<slug>.md`. `tsk thread start` refuses an unknown ID.
+`<task-id>` can be empty. When the thread's mission has a record, `tsk thread pause`
+refuses a task that is not one of its tasks, and writes `T-5` as `T-01`. The old forms
+`thread start <mission-id> <briefing-path>` and
+`thread pause <thread-id> <mission-link> <task-id> <whats-next>` still work. The path and
+the link are ignored.
 
 ### Ledger
 
@@ -191,17 +196,19 @@ stderr.
 | `thread resume` | `{"thread_id":"...","latest":{...},"warning":"..."}` | |
 | `thread detach` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding |
 | `thread stop` | `stopped:<thread-id>` | exit 1 with no binding and no thread ID given |
-| `thread list` | one compact JSON object per line: `id`, `mission_link`, `latest_whats_next`, `latest_timestamp` | |
+| `thread skip` | `skipped` | |
+| `thread list` | one compact JSON object per line: `id`, `mission_id`, `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp` | |
 | `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding |
-| `thread guard` | nothing when bound; `{"decision":"block","reason":"..."}` when not | |
+| `thread guard` | nothing when bound, after `thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | |
 
 In `thread resume`, `latest` is the thread's last continuation state entry as stored, or
 `{}` with no entry. `warning` is empty unless the thread's entries name a `written_by`
 actor and none of them is the current actor.
 
-A continuation state entry holds `mission_link`, `task_id`, `whats_next`, a nested `git`
-object, `timestamp` and `written_by`. The `git` object holds `ledger.commit`, `code.ref`
-and `code.commit`.
+A continuation state entry holds `mission_id`, `mission_link` (only for a thread whose
+mission has no record), `task_id`, `whats_next`, a nested `git` object, `timestamp` and
+`written_by`. The `git` object holds `ledger.commit`, `code.ref` and `code.commit`. An
+older entry has `mission_link` and no `mission_id`.
 
 `thread pause` records the commit the ledger store is at before the entry is appended,
 and the managed repo's branch and `HEAD` commit. It refuses a `HEAD` that no branch on

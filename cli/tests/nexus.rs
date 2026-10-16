@@ -736,7 +736,7 @@ fn threads_pause_and_resume_against_a_nexus_ledger() {
         .to_string();
 
     let head = git_line(&fx.work(), &["rev-parse", "HEAD"]);
-    let paused = fx.tsk(&["thread", "pause", &id, BRIEFING, "T-01", "Carry on"]);
+    let paused = fx.tsk(&["thread", "pause", &id, "T-01", "Carry on"]);
     assert_success(&paused);
     let store = fx
         .file_on(
@@ -799,9 +799,9 @@ fn a_nexus_ledger_is_created_when_the_first_command_is_a_thread_start() {
     fx.set_nexus_json(WORK_API_ENTRY);
     fx.attach();
 
-    let output = fx.tsk(&["thread", "start", "M-TEST-01", BRIEFING]);
+    let output = fx.tsk(&["thread", "start", "M-TEST-01"]);
 
-    assert_failure_mentioning(&output, BRIEFING);
+    assert_failure_mentioning(&output, "M-TEST-01");
 }
 
 #[test]
