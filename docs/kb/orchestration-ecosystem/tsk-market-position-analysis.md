@@ -1260,6 +1260,9 @@ collision above).
   comparison against tsk's Product capability, Delta and nexus.
 - [pi-durable.md](pi-durable.md): the full reference for the Pi Durable section above,
   with a comparison against tsk's thread continuation, ledger and storage seam.
+- [durable-and-proactive-agents-provenance.md](durable-and-proactive-agents-provenance.md):
+  where the terms "durable agents" and "proactive agents" in the Pi Durable section come
+  from.
 - [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md): a schema-level
   sharpening of the Beads section above, on whether beads could be tsk's official ledger,
   updated 2026-10-09 for Memory Beads, the Beads Protocol and versioning.
