@@ -187,8 +187,8 @@ impl DoltStore {
     /// [`LedgerStore::refresh`], or the lenient refresh of `tsk ledger fetch` and
     /// `tsk ledger migrate-docs` when `lenient` is set: a version 1 ledger refreshes its
     /// Dolt database only and gets a note instead of the refusal.
-    fn refresh_with(&self, lenient: bool) -> Result<RefreshOutcome, String> {
-        let (mut outcome, version) = self.refresh_data()?;
+    fn refresh_with(&self, lenient: bool, keep_local: bool) -> Result<RefreshOutcome, String> {
+        let (mut outcome, version) = self.refresh_data(keep_local)?;
         if version == LEGACY_LAYOUT_VERSION {
             if !lenient {
                 return Err(VERSION_1_REFUSAL.to_string());
@@ -198,7 +198,7 @@ impl DoltStore {
             return Ok(outcome);
         }
         let location = self.repo.location(&self.state_root)?;
-        let fetched = docs::fetch(&self.repo, &self.state_root, &location)?;
+        let fetched = docs::fetch(&self.repo, &self.state_root, &location, keep_local)?;
         let dolt_unpublished = outcome.unpublished;
         for line in &fetched.pending {
             outcome.pending.push(format!("documents: {}", line));
@@ -522,7 +522,7 @@ fn dirty_error(path: &Path) -> String {
 
 impl DoltStore {
     /// Refresh the Dolt database, and return the manifest version it holds.
-    pub(crate) fn refresh_data(&self) -> Result<(RefreshOutcome, i64), String> {
+    pub(crate) fn refresh_data(&self, keep_local: bool) -> Result<(RefreshOutcome, i64), String> {
         dolt::ensure_identity()?;
         let location = self.repo.location(&self.state_root)?;
         let clone_id = self.repo.ensure_clone_id()?;
@@ -566,11 +566,13 @@ impl DoltStore {
         }
 
         let db;
+        let mut dirty = false;
         let mut pending = Vec::new();
         if present {
             db = Dolt::new(&path);
             verify_remote(&db, &url, &location)?;
-            if db.count("select count(*) as c from dolt_status")? > 0 {
+            dirty = db.count("select count(*) as c from dolt_status")? > 0;
+            if dirty && !keep_local {
                 return Err(dirty_error(&path));
             }
             db.run(["fetch", REMOTE])?;
@@ -599,7 +601,7 @@ impl DoltStore {
         let remote_head = db.hash_of(&format!("{}/{}", REMOTE, BRANCH))?;
         if present {
             pending = pending_commits(&db)?;
-            if pending.is_empty() {
+            if pending.is_empty() && !dirty {
                 db.run(["reset", "--hard", &format!("{}/{}", REMOTE, BRANCH)])?;
             }
         }
@@ -640,11 +642,23 @@ impl DoltStore {
 
 impl LedgerStore for DoltStore {
     fn refresh(&self) -> Result<RefreshOutcome, String> {
-        self.refresh_with(false)
+        self.refresh_with(false, false)
     }
 
     fn refresh_for_fetch(&self) -> Result<RefreshOutcome, String> {
-        self.refresh_with(true)
+        self.refresh_with(true, false)
+    }
+
+    fn refresh_keeping_local(&self) -> Result<RefreshOutcome, String> {
+        self.refresh_with(false, true)
+    }
+
+    fn has_local_changes(&self) -> Result<bool, String> {
+        if self.db()?.count("select count(*) as c from dolt_status")? > 0 {
+            return Ok(true);
+        }
+        let docs = Git::new(&self.docs_tree()?.root);
+        Ok(!docs.run(["status", "--porcelain=v2", "-z"])?.is_empty())
     }
 
     fn path(&self) -> Result<PathBuf, String> {

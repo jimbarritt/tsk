@@ -190,6 +190,11 @@ pub fn fetch_reporting(store: &dyn LedgerStore) -> Result<RefreshOutcome, String
     Ok(report_refresh(store.refresh()?))
 }
 
+/// [`fetch_reporting`] for the thread commands: local changes are kept, not refused.
+pub fn fetch_keeping_local_reporting(store: &dyn LedgerStore) -> Result<RefreshOutcome, String> {
+    Ok(report_refresh(store.refresh_keeping_local()?))
+}
+
 /// Print the notes of a refresh to stderr and hand the outcome back.
 pub(crate) fn report_refresh(outcome: RefreshOutcome) -> RefreshOutcome {
     if let Some(note) = &outcome.pending_note {

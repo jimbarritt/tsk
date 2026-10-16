@@ -37,19 +37,25 @@ pub fn worktree_path(repo: &Repo, state_root: &Path) -> Result<PathBuf, String> 
 
 /// Fetch the documents branch and bring the worktree up to it, creating the worktree when
 /// it is absent. A new branch starts from an orphan commit holding `README.md` and the
-/// seed `index.md`. Refuses a dirty worktree and leaves unpushed commits as they are.
+/// seed `index.md`. Refuses a dirty worktree, unless `keep_local` is set, and leaves unpushed commits as they are.
 pub fn fetch(
     repo: &Repo,
     state_root: &Path,
     location: &LedgerLocation,
+    keep_local: bool,
 ) -> Result<DocsFetch, String> {
     let clone_id = repo.ensure_clone_id()?;
     let path = docs_worktree_path(state_root, &clone_id);
-    fetch_at(repo, location, &path)
+    fetch_at(repo, location, &path, keep_local)
 }
 
 /// [`fetch`] with the worktree at `path`.
-pub fn fetch_at(repo: &Repo, location: &LedgerLocation, path: &Path) -> Result<DocsFetch, String> {
+pub fn fetch_at(
+    repo: &Repo,
+    location: &LedgerLocation,
+    path: &Path,
+    keep_local: bool,
+) -> Result<DocsFetch, String> {
     let docs = location.docs();
     let Some(commit) = fetch_tip(&repo.git, &docs)? else {
         let commit = if path.exists() {
@@ -70,7 +76,7 @@ pub fn fetch_at(repo: &Repo, location: &LedgerLocation, path: &Path) -> Result<D
         });
     };
     let pending = if path.exists() {
-        refresh_worktree(repo, path, &commit)?
+        refresh_worktree(repo, path, &commit, keep_local)?
     } else {
         add_worktree(repo, path, &commit)?;
         Vec::new()

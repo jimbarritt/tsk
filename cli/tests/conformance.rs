@@ -2313,7 +2313,14 @@ mod cases {
                 bound
             );
             assert!(bound.contains("T-01\ttodo\t-\tOpen one"), "{}", bound);
-            assert!(bound.contains("T-03\ttodo\tT-01\tWaits"), "{}", bound);
+            // The last task line ends with a line break, not a space.
+            assert!(
+                bound.contains(
+                    "T-01\ttodo\t-\tOpen one\nT-03\ttodo\tT-01\tWaits\nAn existing thread binding"
+                ),
+                "{}",
+                bound
+            );
             assert!(!bound.contains("Closed one"), "{}", bound);
             assert!(!bound.contains("index.md"), "{}", bound);
             assert!(!bound.contains("M-DONE"), "{}", bound);
@@ -2334,6 +2341,82 @@ mod cases {
         fx.ok(&a, &["ledger", "push", "Close the tasks"]);
         let closed = fx.session_context(&a, "s-closed", "claude");
         assert!(closed.contains("It has no open tasks."), "{}", closed);
+    }
+
+    pub fn thread_commands_carry_local_record_and_document_changes_to_the_remote(b: Backend) {
+        let fx = Fixture::new(b);
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["ledger", "fetch"]);
+
+        // Records and a document written since the last push.
+        fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
+        fx.ok(&a, &["task", "add", "M-REC", "First"]);
+        fx.put(&a, "notes/n.md", "note\n");
+
+        // Session start leaves them in place, says so, and does not report a failure.
+        let context = fx.session_context(&a, "s-local-1", "claude");
+        assert!(
+            context.contains("local changes that are not pushed"),
+            "{}",
+            context
+        );
+        assert!(!context.contains("could not be fetched"), "{}", context);
+        assert!(context.contains("M-REC\ttodo"), "{}", context);
+        assert_eq!(
+            fx.ok(&a, &["task", "list", "M-REC"]),
+            "T-01\ttodo\t-\tFirst\n"
+        );
+
+        // Thread list reads with them.
+        assert_eq!(fx.ok(&a, &["thread", "list"]), "");
+
+        // Start carries them: one push, and the remote has the records and the document.
+        let id = fx.started(&a, &["thread", "start", "M-REC"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(
+            fx.ok(&other, &["task", "list", "M-REC"]),
+            "T-01\ttodo\t-\tFirst\n"
+        );
+        assert_eq!(
+            fx.ok(&other, &["ledger", "doc", "get", "notes/n.md"]),
+            "note\n"
+        );
+        assert_eq!(fx.thread_row(&other, &id)["mission_id"], "M-REC");
+        let context = fx.session_context(&a, "s-local-2", "claude");
+        assert!(
+            !context.contains("local changes that are not pushed"),
+            "{}",
+            context
+        );
+
+        // Pause carries a new record.
+        fx.ok(&a, &["task", "add", "M-REC", "Second"]);
+        fx.ok(&a, &["thread", "pause", &id, "T-02", "carry on"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(fx.ok(&other, &["task", "list", "M-REC"]).lines().count(), 2);
+        assert_eq!(fx.latest_entry(&other, &id)["task_id"], "T-02");
+
+        // Session start with the changes pending again, and a detach that does not refuse
+        // them. A worktree detach pushes nothing: the changes wait for the next push.
+        fx.ok(&a, &["mission", "create", "M-TWO", "Two"]);
+        let context = fx.session_context(&a, "s-local-3", "claude");
+        assert!(
+            context.contains("local changes that are not pushed"),
+            "{}",
+            context
+        );
+        assert!(
+            context.contains("This thread works mission M-REC"),
+            "{}",
+            context
+        );
+        fx.ok(&a, &["thread", "detach"]);
+        fx.ok(&a, &["ledger", "push", "Push the rest"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert!(fx.ok(&other, &["mission", "list"]).contains("M-TWO"));
+        // `ledger fetch` itself still refuses uncommitted changes.
+        fx.ok(&a, &["mission", "create", "M-THREE", "Three"]);
+        assert_exit(&fx.tsk(&a, &["ledger", "fetch"]), 1);
     }
 
     pub fn session_start_keeps_the_index_hint_for_a_bound_mission_with_no_record(b: Backend) {
@@ -2432,6 +2515,7 @@ conformance!(
     session_start_keeps_the_index_hint_for_a_bound_mission_with_no_record,
     session_start_shows_the_empty_ledger_note_only_without_records_and_documents,
     session_start_says_a_skipped_session_works_without_a_thread,
+    thread_commands_carry_local_record_and_document_changes_to_the_remote,
 );
 
 conformance!(
@@ -2469,6 +2553,7 @@ conformance!(
     session_start_keeps_the_index_hint_for_a_bound_mission_with_no_record,
     session_start_shows_the_empty_ledger_note_only_without_records_and_documents,
     session_start_says_a_skipped_session_works_without_a_thread,
+    thread_commands_carry_local_record_and_document_changes_to_the_remote,
 );
 
 // --- Backend selection and mismatch ---

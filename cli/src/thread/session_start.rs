@@ -178,17 +178,26 @@ pub fn fetched_context(
         LEDGER_WT_VAR,
     );
     if !read_hint.is_empty() {
-        context.push(' ');
-        context.push_str(read_hint);
+        push_part(&mut context, read_hint);
     }
     if !pending.lines.is_empty() {
-        context.push(' ');
-        context.push_str(&pending_warning(pending));
+        push_part(&mut context, &pending_warning(pending));
     }
-    context.push(' ');
-    context.push_str(thread_message);
+    push_part(&mut context, thread_message);
     context
 }
+
+/// Add a part after a single space, or directly after a line break when the context ends
+/// with one, so that a list of lines never runs into the next sentence.
+fn push_part(context: &mut String, part: &str) {
+    if !context.ends_with('\n') {
+        context.push(' ');
+    }
+    context.push_str(part);
+}
+
+/// Said when the session start leaves uncommitted changes of the ledger store in place.
+pub const LOCAL_CHANGES_NOTE: &str = "The ledger store holds local changes that are not pushed (records or documents written since the last push). The refresh left them as they are. A thread command pushes them with its own change, or run `tsk ledger push`.";
 
 pub struct PendingNote {
     pub remote_ref: String,
@@ -255,6 +264,7 @@ pub fn mission_context(mission: &Mission) -> String {
             " Its open tasks follow, one per line: id, status, blocked-by, description, tab-separated.\n",
         );
         text.push_str(&open.join("\n"));
+        text.push('\n');
     }
     text
 }
@@ -289,7 +299,7 @@ fn export_to_env_file(path: &Path) -> Result<(), String> {
 }
 
 fn context_after_fetch(session: &Session) -> Result<String, String> {
-    let outcome = match session.store.refresh() {
+    let outcome = match session.store.refresh_keeping_local() {
         Ok(outcome) => outcome,
         Err(e) if e == VERSION_1_REFUSAL => {
             // The database is refreshed and the documents are not reachable.
@@ -345,6 +355,9 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
         ),
         &thread_message(binding.map(|b| b.to_string()).as_deref(), &prompt),
     );
+    if store.has_local_changes().unwrap_or(false) {
+        push_part(&mut context, LOCAL_CHANGES_NOTE);
+    }
     if missions.is_empty() && no_documents {
         context.push(' ');
         context.push_str(crate::guide::EMPTY_LEDGER_NOTE);

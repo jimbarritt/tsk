@@ -12,7 +12,10 @@ pub struct FetchOutcome {
     pub unpublished: bool,
 }
 
-pub fn fetch(repo: &Repo, state_root: &Path) -> Result<FetchOutcome, String> {
+/// Fetch the ledger branch and bring the worktree up to it. With `keep_local`, a worktree
+/// with uncommitted changes is left as it is instead of refused: the next push commits
+/// the changes and merges the remote tip.
+pub fn fetch(repo: &Repo, state_root: &Path, keep_local: bool) -> Result<FetchOutcome, String> {
     let location = repo.location(state_root)?;
     let clone_id = repo.ensure_clone_id()?;
     let path = worktree_path(state_root, &clone_id);
@@ -23,7 +26,7 @@ pub fn fetch(repo: &Repo, state_root: &Path) -> Result<FetchOutcome, String> {
     check_manifest(&repo.git, &commit, &location)?;
 
     if path.exists() {
-        let pending = refresh_worktree(repo, &path, &commit)?;
+        let pending = refresh_worktree(repo, &path, &commit, keep_local)?;
         Ok(FetchOutcome {
             location,
             path,
@@ -182,12 +185,16 @@ pub(crate) fn refresh_worktree(
     repo: &Repo,
     path: &Path,
     commit: &str,
+    keep_local: bool,
 ) -> Result<Vec<String>, String> {
     let wt = Git::new(path);
     ensure_worktree_of_repo(&wt, &repo.common_dir)?;
 
     let status = wt.run(["status", "--porcelain=v2", "-z"])?;
     if !status.is_empty() {
+        if keep_local {
+            return pending_commits(&wt, commit);
+        }
         return Err(format!(
             "error: {} holds uncommitted changes; refusing to reset over them.\n       \
              Push them with tsk ledger push, or discard them deliberately with: git -C \"{}\" reset --hard\n       \
