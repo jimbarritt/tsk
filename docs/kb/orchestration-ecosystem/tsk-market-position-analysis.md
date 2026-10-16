@@ -8,7 +8,7 @@ dynamic workflows were added on 2026-10-05 as a related mechanism, not a system 
 Antithesis was added on 2026-10-05 as a related tool, not a system assessed, compared
 with Jepsen and Jev. A strategy section on adopting Dolt rather than beads was added on
 2026-10-09, with ADR 0014. Rex was added on 2026-10-09 as a related runtime beside Herdr. A closing section on interaction surfaces, with tmux, was added on
-2026-10-10. Herdr was added on 2026-10-06 as a related runtime, not a system
+2026-10-10. Pi Durable was added on 2026-10-16 as a case of independent convergence. Herdr was added on 2026-10-06 as a related runtime, not a system
 assessed, compared with tmux. OpenSpec was added on 2026-10-06 as a related
 system, not a system assessed. It is the first read that models parts of Product and Delta,
 and it models no Navigation or Scale.
@@ -663,6 +663,53 @@ that attaches to any of them and depends on none.
 
 Research: [efrit.md](efrit.md).
 
+## Pi Durable: independent convergence on continuation
+
+Jim, 2026-10-16: Pi Durable looks very similar to tsk, another case of co-evolution.
+Earendil released it on 2026-10-01 with Pi 1.0, as an experimental TypeScript framework
+for agentic applications. The reading is in [pi-durable.md](pi-durable.md).
+
+What the two share:
+
+- **An immutable record with state beside it.** Conversations are immutable entries.
+  Documents are typed JSON changed in the same atomic commit.
+- **A handoff note.** `reset(note)` starts a new context, and the older entries stay in
+  storage and stay searchable.
+- **Forks at a chosen point.**
+- **A small storage interface** with memory, SQLite, JSONL and Cloudflare backends, a
+  conformance suite and benchmarks. ADR 0014 names the same shape for the ledger.
+- **An idempotency key.** A `requestId` makes a submission exactly-once.
+- **Several clients steering one body of work.**
+
+What differs:
+
+| Aspect | Pi Durable | tsk |
+|---|---|---|
+| What stays continuous | One run, across a process restart | Work, across actors, sessions and machines |
+| Who writes the store | One process owns a storage. Other clients attach to it. Offline multi-writer merge is a stated non-goal | Many clones write a Dolt database over git. Rows and cells merge |
+| Model of the work | A conversation, with tasks as steps of a run | Four dimensions: Navigation, Delta, Product and Scale |
+| Mission, objective, report, actor | None | Core terms |
+| Delegation | A subagent is a conversation owned by a tool call | A briefing, a report and a Post |
+| Crash recovery | Checkpoint at every step, and `replay: "safe"` per tool | Continuation entry read by the next actor |
+
+Position:
+
+- The finding supports the thread continuation design. A team with a larger user base
+  than tsk reached the same mechanisms for the same failure, an agent that loses its
+  place. It does not test the four-dimension claim, because Pi Durable models none of
+  the four.
+- Pi Durable is a harness. Under ADR 0013, tsk works in it through an adapter that calls
+  the `tsk` binary. It is also a possible runtime beneath a tsk actor. No adapter was
+  written or tried.
+- The gap Pi Durable leaves is the gap tsk fills: continuity across machines and
+  actors, and a model of what the work is. A single-process storage owner does not
+  carry a thread from one clone to another.
+- `replay: "safe"` is a candidate for a `tsk` command contract: a per-command statement
+  of whether a second call is harmless.
+- No change to the three-part verdict.
+
+Research: [pi-durable.md](pi-durable.md).
+
 ## Net position
 
 Do not stop tsk. Do not ship tsk as a head-to-head tracker or orchestrator. Do not plan
@@ -1211,6 +1258,8 @@ collision above).
   Mission Control task and tsk compared, and the Program Status Protocol.
 - [openspec.md](openspec.md): the full reference for the OpenSpec section above, with a
   comparison against tsk's Product capability, Delta and nexus.
+- [pi-durable.md](pi-durable.md): the full reference for the Pi Durable section above,
+  with a comparison against tsk's thread continuation, ledger and storage seam.
 - [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md): a schema-level
   sharpening of the Beads section above, on whether beads could be tsk's official ledger,
   updated 2026-10-09 for Memory Beads, the Beads Protocol and versioning.
