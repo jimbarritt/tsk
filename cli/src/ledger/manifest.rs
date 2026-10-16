@@ -5,7 +5,8 @@ pub const MANIFEST_FILE: &str = ".tsk-ledger.toml";
 pub const SUPPORTED_VERSIONS: &[i64] = &[1];
 /// The versions a Dolt ledger's `manifest` table may hold. Version 1 keeps its documents
 /// in a `documents` table. Version 2 keeps them as files on the `tsk/docs` branch.
-pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2];
+/// Version 3 adds the mission tables.
+pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3];
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
@@ -131,8 +132,17 @@ mod tests {
     }
 
     #[test]
-    fn the_dolt_list_accepts_versions_one_and_two_and_rejects_three() {
-        for ok in [1, 2] {
+    fn a_binary_that_knows_versions_one_and_two_stops_at_a_version_three_ledger() {
+        // What the previous release does with a Dolt ledger at version 3.
+        let err = check_values(3, None, None, "the manifest table", &[1, 2]).unwrap_err();
+        assert!(err.contains("unsupported ledger version 3"), "{}", err);
+        assert!(err.contains("supports version 1, 2"), "{}", err);
+        assert!(err.contains("Update tsk"), "{}", err);
+    }
+
+    #[test]
+    fn the_dolt_list_accepts_versions_one_to_three_and_rejects_four() {
+        for ok in [1, 2, 3] {
             assert_eq!(
                 check_values(
                     ok,
@@ -146,9 +156,9 @@ mod tests {
             );
         }
         let err =
-            check_values(3, None, None, "the manifest table", DOLT_SUPPORTED_VERSIONS).unwrap_err();
-        assert!(err.contains("unsupported ledger version 3"), "{}", err);
-        assert!(err.contains("supports version 1, 2"), "{}", err);
+            check_values(4, None, None, "the manifest table", DOLT_SUPPORTED_VERSIONS).unwrap_err();
+        assert!(err.contains("unsupported ledger version 4"), "{}", err);
+        assert!(err.contains("supports version 1, 2, 3"), "{}", err);
     }
 
     #[test]

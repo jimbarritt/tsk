@@ -131,6 +131,27 @@ then up to 5 attempts of `dolt fetch`, `dolt merge` and `dolt push`. A merge con
 continuation state entry holds the Dolt commit hash. An older `tsk` finds no
 `.tsk-ledger.toml` on the Dolt branch and stops before writing: update `tsk`.
 
+### Missions
+
+A mission is data. Create and change it only with `tsk mission` commands, and never edit a
+mission row, file or briefing by any other route. Every command changes the local store
+only. `tsk ledger push` publishes.
+
+```
+tsk mission create <id> <name> [--category operational|administrative] [--parent <id>]
+tsk mission set <id> <field> <value>          # name, status, purpose, constraints, out-of-scope, decision-authority; `-` reads stdin
+tsk mission block <id> <by-id>                # and unblock
+tsk mission objective add <id> <outcome>      # prints n; also done, undone, remove, list
+tsk mission link <id> <path> --role <intelligence|report|design>   # and unlink
+tsk mission list [<id>] [--json]
+```
+
+Status is `todo`, `in-progress` or `done`. An administrative mission stays `in-progress`.
+Blocked is derived: a mission is blocked while any mission it names in `block` is not
+`done`. `list` prints `id`, `status`, `blocked-by`, `parent` and `name`, tab-separated.
+`list <id> --json` prints the full record. A linked path must be a document on `tsk/docs`,
+written with `tsk ledger doc put`.
+
 ### Threads
 
 Every `thread` command that reads the ledger fetches it first, except `binding

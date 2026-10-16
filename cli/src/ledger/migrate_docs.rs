@@ -3,8 +3,8 @@
 //!
 //! The rows are read first and every path and body is checked, so nothing is written for a
 //! ledger that cannot move. The files are committed to the documents worktree and read
-//! back from the commit, and only then does the Dolt database drop the table and record
-//! version 2, in one Dolt commit. The documents are pushed before the Dolt data, so a
+//! back from the commit, and only then does the Dolt database drop the table, create the mission
+//! tables and record version 3, in one Dolt commit. The documents are pushed before the Dolt data, so a
 //! record never names a document the remote lacks. A rerun after a partial failure
 //! compares what the branch already holds and goes on from there.
 
@@ -94,7 +94,10 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
 
     check_unmoved(&repo, &location, &ledger_tip, false)?;
 
-    db.exec("drop table documents;\nreplace into manifest (k, v) values ('version', '2');")?;
+    db.exec(&format!(
+        "drop table documents;\n{}",
+        dolt::mission_upgrade_sql()
+    ))?;
     db.run(["add", "-A"])?;
     db.run(["commit", "-m", DROP_COMMIT])?;
     guard.keep = true;

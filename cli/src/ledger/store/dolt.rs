@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 
 use crate::ledger::docs;
 use crate::ledger::dolt::{
-    self, flag, integer, lit, text, Dolt, BRANCH, LEGACY_LAYOUT_VERSION, REMOTE, REMOTE_BRANCH_NAME,
+    self, flag, integer, lit, text, Dolt, BRANCH, DOCS_LAYOUT_VERSION, LEGACY_LAYOUT_VERSION,
+    REMOTE, REMOTE_BRANCH_NAME,
 };
 use crate::ledger::fetch::{fetch_tip, ref_kind, FetchOutcome, RefKind};
 use crate::ledger::git::Git;
@@ -20,6 +21,7 @@ use crate::ledger::location::{
 };
 use crate::ledger::manifest::{self, ManifestInfo, DOLT_SUPPORTED_VERSIONS};
 use crate::ledger::push::{PushOutcome, PushResult, PushStatus, MAX_ATTEMPTS};
+use crate::mission::model::{self, Category, Document, Mission, Outcome, Role, Status};
 use crate::thread::lookup::{CloudBinding, Lookup};
 
 use super::files::FileTree;
@@ -691,6 +693,15 @@ impl LedgerStore for DoltStore {
         let docs_changed =
             docs_outcome.committed || matches!(docs_outcome.result, PushResult::Pushed { .. });
 
+        // Every document a mission links must still exist. The documents are already
+        // pushed, so this stops before the Dolt data goes and keeps both local commits.
+        let docs_tree = self.docs_tree()?;
+        model::check_links(
+            &self.missions_in(&db, &location)?,
+            &|path| docs_tree.doc_path(path).is_file(),
+            "The documents are pushed. The Dolt data stays committed locally and is not pushed yet",
+        )?;
+
         let mut report = self.push_data(&location, &db, committed, docs_changed, notes)?;
         if docs_changed {
             report.committed = report.committed || docs_outcome.committed;
@@ -937,6 +948,25 @@ impl LedgerStore for DoltStore {
         ))
     }
 
+    fn missions_load(&self) -> Result<Vec<Mission>, String> {
+        let location = self.repo.location(&self.state_root)?;
+        self.missions_in(&self.db()?, &location)
+    }
+
+    fn mission_save(&self, mission: &Mission) -> Result<(), String> {
+        let location = self.repo.location(&self.state_root)?;
+        let db = self.db()?;
+        let version = self.check_current(&db, &location)?;
+        let mut sql = String::new();
+        if version == DOCS_LAYOUT_VERSION {
+            // The first mission write on a version 2 ledger: the tables and the new
+            // version land in the same local change as the mission.
+            sql.push_str(&dolt::mission_upgrade_sql());
+        }
+        sql.push_str(&save_sql(mission));
+        db.exec(&sql)
+    }
+
     fn describe_document(&self, path: &str) -> String {
         match self.docs_hint() {
             Some(root) => root.join(path).display().to_string(),
@@ -975,6 +1005,15 @@ impl LedgerStore for DoltStore {
 }
 
 impl DoltStore {
+    /// Every mission in `db`. A version 2 ledger has no mission tables: it has no
+    /// missions. A version 1 ledger is refused.
+    fn missions_in(&self, db: &Dolt, location: &LedgerLocation) -> Result<Vec<Mission>, String> {
+        if self.check_current(db, location)? < dolt::LAYOUT_VERSION {
+            return Ok(Vec::new());
+        }
+        read_missions(db)
+    }
+
     /// A fresh clone meets a ref that holds a file ledger: stop with the way out.
     fn check_remote_kind(&self, location: &LedgerLocation) -> Result<(), String> {
         let Some(commit) = fetch_tip(&self.repo.git, location)? else {
@@ -995,6 +1034,193 @@ impl DoltStore {
             )),
         }
     }
+}
+
+/// A nullable text column: NULL for an empty value.
+fn nullable(value: &str) -> String {
+    if value.is_empty() {
+        "NULL".to_string()
+    } else {
+        lit(value)
+    }
+}
+
+/// The statements that make the tables hold `mission`: its row, and its outcomes, blockers
+/// and links, with the rows it no longer has removed. A value that did not change writes
+/// the same cell, so Dolt merges two clones that changed different fields.
+fn save_sql(mission: &Mission) -> String {
+    let id = lit(&mission.id);
+    let mut sql = format!(
+        "insert into missions (id, name, category, status, parent, purpose, decision_authority, \
+         constraints_text, out_of_scope, next_objective) values ({id}, {name}, '{category}', \
+         '{status}', {parent}, {purpose}, {authority}, {constraints}, {scope}, {next}) \
+         on duplicate key update name = values(name), category = values(category), \
+         status = values(status), parent = values(parent), purpose = values(purpose), \
+         decision_authority = values(decision_authority), \
+         constraints_text = values(constraints_text), out_of_scope = values(out_of_scope), \
+         next_objective = values(next_objective);\n",
+        id = id,
+        name = lit(&mission.name),
+        category = mission.category.as_str(),
+        status = mission.status.as_str(),
+        parent = mission
+            .parent
+            .as_deref()
+            .map(lit)
+            .unwrap_or_else(|| "NULL".to_string()),
+        purpose = nullable(&mission.purpose),
+        authority = nullable(&mission.decision_authority),
+        constraints = nullable(&mission.constraints),
+        scope = nullable(&mission.out_of_scope),
+        next = mission.next_objective,
+    );
+
+    let seqs: Vec<String> = mission
+        .objective
+        .iter()
+        .map(|o| o.seq.to_string())
+        .collect();
+    sql.push_str(&format!(
+        "delete from objective_outcomes where mission_id = {}{};\n",
+        id,
+        if seqs.is_empty() {
+            String::new()
+        } else {
+            format!(" and seq not in ({})", seqs.join(", "))
+        }
+    ));
+    if !mission.objective.is_empty() {
+        let rows: Vec<String> = mission
+            .objective
+            .iter()
+            .map(|o| {
+                format!(
+                    "({}, {}, {}, {})",
+                    id,
+                    o.seq,
+                    lit(&o.outcome),
+                    if o.met { "true" } else { "false" }
+                )
+            })
+            .collect();
+        sql.push_str(&format!(
+            "replace into objective_outcomes (mission_id, seq, outcome, met) values {};\n",
+            rows.join(", ")
+        ));
+    }
+
+    let kept: Vec<String> = mission.blocked_by.iter().map(|b| lit(b)).collect();
+    sql.push_str(&format!(
+        "delete from mission_blocks where mission_id = {}{};\n",
+        id,
+        if kept.is_empty() {
+            String::new()
+        } else {
+            format!(" and blocked_by_id not in ({})", kept.join(", "))
+        }
+    ));
+    if !kept.is_empty() {
+        let rows: Vec<String> = kept.iter().map(|b| format!("({}, {})", id, b)).collect();
+        sql.push_str(&format!(
+            "replace into mission_blocks (mission_id, blocked_by_id) values {};\n",
+            rows.join(", ")
+        ));
+    }
+
+    let paths: Vec<String> = mission.documents.iter().map(|d| lit(&d.path)).collect();
+    sql.push_str(&format!(
+        "delete from mission_documents where mission_id = {}{};\n",
+        id,
+        if paths.is_empty() {
+            String::new()
+        } else {
+            format!(" and path not in ({})", paths.join(", "))
+        }
+    ));
+    if !paths.is_empty() {
+        let rows: Vec<String> = mission
+            .documents
+            .iter()
+            .map(|d| format!("({}, {}, '{}')", id, lit(&d.path), d.role.as_str()))
+            .collect();
+        sql.push_str(&format!(
+            "replace into mission_documents (mission_id, path, role) values {};\n",
+            rows.join(", ")
+        ));
+    }
+    sql
+}
+
+/// Read every mission with its outcomes, blockers and links.
+fn read_missions(db: &Dolt) -> Result<Vec<Mission>, String> {
+    let bad = |column: &str, id: &str| {
+        format!(
+            "error: the missions table holds an unreadable {} for {}",
+            column, id
+        )
+    };
+    let mut missions = Vec::new();
+    for row in db.rows(
+        "select id, name, category, status, parent, purpose, decision_authority, \
+         constraints_text, out_of_scope, next_objective from missions order by id",
+    )? {
+        let id = text(&row, "id").unwrap_or_default();
+        missions.push(Mission {
+            name: text(&row, "name").unwrap_or_default(),
+            category: Category::parse(&text(&row, "category").unwrap_or_default())
+                .map_err(|_| bad("category", &id))?,
+            status: Status::parse(&text(&row, "status").unwrap_or_default())
+                .map_err(|_| bad("status", &id))?,
+            parent: text(&row, "parent"),
+            purpose: text(&row, "purpose").unwrap_or_default(),
+            decision_authority: text(&row, "decision_authority").unwrap_or_default(),
+            constraints: text(&row, "constraints_text").unwrap_or_default(),
+            out_of_scope: text(&row, "out_of_scope").unwrap_or_default(),
+            next_objective: integer(&row, "next_objective").unwrap_or(1),
+            objective: Vec::new(),
+            blocked_by: Vec::new(),
+            documents: Vec::new(),
+            id,
+        });
+    }
+    let slot = |missions: &mut Vec<Mission>, id: &str| -> Option<usize> {
+        missions.iter().position(|m| m.id == id)
+    };
+    for row in db.rows(
+        "select mission_id, seq, outcome, met from objective_outcomes order by mission_id, seq",
+    )? {
+        let id = text(&row, "mission_id").unwrap_or_default();
+        if let Some(at) = slot(&mut missions, &id) {
+            missions[at].objective.push(Outcome {
+                seq: integer(&row, "seq").unwrap_or(0),
+                outcome: text(&row, "outcome").unwrap_or_default(),
+                met: flag(&row, "met"),
+            });
+        }
+    }
+    for row in db.rows(
+        "select mission_id, blocked_by_id from mission_blocks order by mission_id, blocked_by_id",
+    )? {
+        let id = text(&row, "mission_id").unwrap_or_default();
+        if let Some(at) = slot(&mut missions, &id) {
+            missions[at]
+                .blocked_by
+                .push(text(&row, "blocked_by_id").unwrap_or_default());
+        }
+    }
+    for row in
+        db.rows("select mission_id, path, role from mission_documents order by mission_id, path")?
+    {
+        let id = text(&row, "mission_id").unwrap_or_default();
+        if let Some(at) = slot(&mut missions, &id) {
+            missions[at].documents.push(Document {
+                path: text(&row, "path").unwrap_or_default(),
+                role: Role::parse(&text(&row, "role").unwrap_or_default())
+                    .map_err(|_| bad("role", &id))?,
+            });
+        }
+    }
+    Ok(missions)
 }
 
 /// Merge the remote branch into the local one. A conflict aborts the merge and fails;
