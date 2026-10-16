@@ -742,10 +742,10 @@ Jim's thought: that is another reason Dolt is a good abstraction. In a corporate
 enterprise setup, a Dolt server, or a tsk server, would replace the branch storage
 mechanism, so no branches are needed.
 
-ADR 0014 decision 4 makes git the transport and says no server. This idea adds a server
-as a second transport behind the same storage seam. It is an idea, not a decision. Open:
+ADR 0014 decision 4 makes git the transport. The ADR now lists a server as a potential
+future evolution behind the same storage seam. It is an idea, not a decision. Open:
 Dolt's own server or a tsk server, whether cloud sessions keep the branch transport, and
-what decision 4 becomes. It is recorded in the ledger.
+how the seam names a transport that is not git. It is recorded in the ledger.
 
 ## Net position
 
