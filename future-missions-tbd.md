@@ -917,3 +917,20 @@ Candidate scope, from `docs/kb/orchestration-ecosystem/pi-durable.md`:
 
 Open: whether the experiment shares a mission with the parked token-saving experiment
 (ADR 0014, option D), and which model runs it.
+
+## A Dolt server, or a tsk server, in place of the branch storage
+
+Raised during the Pi Durable research, 2026-10-16. Jim, in his own words:
+
+> There's also something else going on here with about storage layer. So I think that Pi thing was, you can use your own Postgres database or whatever. And that's another reason why choosing Dalt is a good abstraction, because you could avoid the branch storage mechanism completely. For example, if you were in a corporate or enterprise setup, you could just install a Dalt server, or maybe we would have a Tusk server. And then you wouldn't even need the branches at all.
+
+Captured as an idea of Jim's, not a decision. Context from the tsk repo: Pi Durable's
+storage interface is small, with memory, SQLite, JSONL and Cloudflare backends, and
+Earendil says it is easy to implement on top of a key-value store or Postgres
+(`docs/kb/orchestration-ecosystem/pi-durable.md`). ADR 0014 decision 4 makes git the
+transport and says no server. This idea adds a server as a second transport behind the
+same storage seam, for settings where a server is acceptable, such as a corporate or
+enterprise one. The branch `tsk/ledger` would not be needed there.
+
+Open: Dolt's own server, or a tsk server. Whether the cloud-session case, which needs no
+server today, keeps the branch transport. What ADR 0014 decision 4 becomes.
