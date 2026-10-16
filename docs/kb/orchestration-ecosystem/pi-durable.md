@@ -132,6 +132,34 @@ reached from a web UI, a terminal client or `curl`. Its demo is a proactive agen
 watches a production log stream and has a fix ready for review before the person arrives.
 It uses OpenRouter for models, `just` for tasks, and `ssh` to reach remote devices.
 
+## Cost and authentication
+
+Raised by Jim, 2026-10-16: whether Pi can run on a Claude subscription.
+
+- **Pi signs in with a subscription.** The coding agent README says `/login` connects "a
+  subscription or API key". Pi's `docs/containerization.md` shows a Claude Pro or Max
+  token from `claude setup-token` in a Docker sandbox. Pi Durable is a library. Its model
+  calls go through the provider layer in `pi-ai`.
+- **The usage is billed per token.** With Anthropic subscription auth, Pi shows this
+  warning (`interactive-mode.ts`): "Third-party harness usage draws from extra usage and is
+  billed per token, not your Claude plan limits." The setting `warnings.anthropicExtraUsage`
+  turns the warning off.
+- **Anthropic's terms.** The
+  [legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance) says
+  OAuth "is designed to support ordinary use of Claude Code and other native Anthropic
+  applications". Developers building products or tools should use API keys, and Anthropic
+  does not permit routing requests "through Free, Pro, or Max plan credentials on behalf of
+  their users". A person who signs in to the unmodified Claude Code binary with their own
+  plan is the stated exception. Pi is not that binary.
+- **Dates.** Secondary reports date a block on subscription tokens in third-party
+  harnesses to January to April 2026, with enforcement on 2026-04-04. Anthropic's own
+  announcement was not found.
+- **The community demo** `disler/durable-pi` takes an OpenRouter API key.
+
+For tsk: Claude Code stays on plan limits, and a Pi Durable run needs an API key. Jim noted
+the API credits in the Anthropic Haiku 5.5 announcement as a way to pay for Pi
+experiments. The amount was not checked for this note.
+
 ## Terms that differ from tsk's
 
 | Term | In Pi Durable | In tsk |
@@ -191,5 +219,7 @@ Two items intersect tsk:
 - How a conversation is addressed from another machine. The spec describes clients that
   attach to one process. A network layer was not read, apart from the community repository.
 - Whether Pi extensions can call `tsk` commands today. No adapter was written or tried.
+- Anthropic's own statement on subscription tokens in third-party harnesses, apart from the
+  legal and compliance page. The Pi warning and the dated reports are secondary.
 - Earendil's funding and the ownership of Pi. The posts read name Earendil and "the Pi
   community" and say nothing more.
