@@ -27,7 +27,7 @@ question:
 | `nexus.json` nests repos inside territories. A repo entry is in one territory | `nexus.json` example in `new-nexus-on-a-clean-machine.md`; `NexusIndex` in `cli/src/ledger/nexus.rs` |
 | A repo's ledger is in-repo by default, or in the nexus with `"ledger": "nexus"`, for a repo the operator cannot push a branch to | `ledger-layout.md`, "Location and ref" |
 | A nexus holds links to other nexuses, and a tsk install reaches the wider network by following links. Whether a link may be followed across a territory boundary is a property of the territory | `territory-and-nexus.md`; `ubiquitous-language.md` |
-| A mission briefing has a Territory row | `mission-briefing-template.md`, line 31 |
+| A mission briefing had a Territory row, removed 2026-10-16 | `mission-briefing-template.md` |
 | An actor is whoever holds a thread: a human, who holds many, or an agent session, bound to one | `ubiquitous-language.md`, "Actor" |
 | Nexus links are not built. `tsk nexus` has `add`, `list` and `register-repo`. The config holds one URL | `tsk nexus --help`; `ledger-layout.md`, "Attaching a nexus" |
 
@@ -111,8 +111,8 @@ both cases.
 
 - No nexus. The collaborator clones the repo. Both parties write the in-repo ledger
   through `tsk`, and `tsk ledger push` serialises writes at push time.
-- The Territory row in a briefing is free text with nothing to validate it. Leave it
-  blank or agree a label. Nothing in the binary reads it.
+- Before the row was removed, the Territory row in a briefing was free text that nothing
+  in the binary reads. Existing briefings in the ledger keep the row. It is harmless.
 - The trial tests the repo boundary only. Requirements 2 and 3 are not needed for it.
 
 ## Decision 2026-10-16: personal and team nexuses are decoupled
