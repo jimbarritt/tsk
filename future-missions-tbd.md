@@ -934,3 +934,21 @@ enterprise one. The branch `tsk/ledger` would not be needed there.
 
 Open: Dolt's own server, or a tsk server. Whether the cloud-session case, which needs no
 server today, keeps the branch transport. How the seam names a transport that is not git.
+
+## tsk without a nexus, and a personal nexus beside team nexuses
+
+Raised by Jim, 2026-10-16, ahead of a trial with a collaborator. Jim, in his own words:
+
+> I'm going to be running a trial with a collaborator soon, and it's occurred to me that we need to make sure that Tusk can operate without a nexus. Like, the scale should be that we can start just in a repository and then add the nexus on top if we want to, and that really also a nexus is a kind of like person relationship, so like a human, it's for humans really, I think. Well, yes, humans and actors, it's for actors, it's a group of actors share a nexus. So for example, team A might have a nexus, but they might be collaborating on a repo that also team B has, is how I suspect it looks, because you need to know the context and the scope for what you as an actor are working on. So like I, in my nexus, I'm going to have a lot of my own projects and not this external project. Sorry, I don't want to be in the nexus for the external project, because that will be the other team's context and will have other things in it which they may not even be allowed to access, so I shouldn't have access to their nexus.
+
+> There's another subtlety to add before we record it, which is, so I've got my things that I'm working on in my team, or teams, so now, which is like kind of like the territories, and so now I'm kind of not sure about the relationship between a nexus and a territory. The nexus is where the territories live, but I also have my own stuff. So for example, at work, I've got a set of tasks that don't necessarily, they could cut across territories, which is how I was actually using Tusk to begin with, and I have my own threads which I'm running, which may not be in a territory. So it's like I've got my own territory, which nobody else is in or contributing to. And I don't really know how this fits together. Maybe it means that there are two kinds of nexus. There's a shared team nexus and my personal one. Or maybe my personal one is not actually in Git. It's actually just config on my local machine. But then I couldn't share it with a cloud instance. So and we wouldn't be able to use Dalt. So I think there's gonna need to be a team nexus and a personal nexus. I think that's right. And then Tusk is configured as to which nexus, the list of the nexi or nexuses.
+
+The analysis is `docs/domain/personal-and-team-territories.md` in the tsk repo. In short:
+tsk runs without a nexus today (ledger-layout rule 1, and this cloud session does so);
+the scenario has two access boundaries, repo and nexus, and a shared repo's ledger
+belongs in the repo; a territory is a property of the (nexus, repo) pair, not the repo;
+an actor's own work needs a ledger with no managed repo, which a personal nexus repo can
+hold; and one attached personal nexus with links to team nexuses holds the same
+information as a list in the config, in a place cloud sessions read.
+
+Three decisions are open and listed at the end of the analysis. Nothing is decided.
