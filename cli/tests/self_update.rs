@@ -26,8 +26,7 @@ fn run(dir: &Path, program: &str, args: &[&str]) {
         .env("GIT_AUTHOR_EMAIL", "test@example.com")
         .env("GIT_COMMITTER_NAME", "Test")
         .env("GIT_COMMITTER_EMAIL", "test@example.com")
-        .output()
-        .unwrap();
+        .output_retry();
     assert!(
         output.status.success(),
         "{} {:?}: {}",
@@ -122,10 +121,28 @@ impl Fixture {
     }
 
     fn tsk(&self, bin: &Path, args: &[&str]) -> Output {
-        self.command(bin, args)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap()
+        self.command(bin, args).stdin(Stdio::null()).output_retry()
+    }
+}
+
+/// Runs a command to completion. Linux refuses to execute a file that is open for
+/// writing, and a fork on another test thread can hold the write handle of a file this
+/// test has just copied or written. The refusal (ETXTBSY) is brief, so retry on it.
+trait OutputRetry {
+    fn output_retry(&mut self) -> Output;
+}
+
+impl OutputRetry for Command {
+    fn output_retry(&mut self) -> Output {
+        for _ in 0..200 {
+            match self.output() {
+                Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+                result => return result.unwrap(),
+            }
+        }
+        self.output().unwrap()
     }
 }
 
@@ -138,7 +155,7 @@ fn err(output: &Output) -> String {
 }
 
 fn version_of(bin: &Path) -> String {
-    let output = Command::new(bin).output().unwrap();
+    let output = Command::new(bin).output_retry();
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
@@ -249,16 +266,14 @@ fn session_start_is_silent_when_current_switched_off_or_unreachable() {
         .command(&bin, &["thread", "session-start"])
         .env("TSK_NO_UPDATE_CHECK", "1")
         .stdin(Stdio::null())
-        .output()
-        .unwrap();
+        .output_retry();
     assert!(!out(&off).contains("self-update"), "{}", out(&off));
 
     let missing = fx
         .command(&bin, &["thread", "session-start"])
         .env("TSK_RELEASE_REPO_URL", fx.root.path().join("nowhere.git"))
         .stdin(Stdio::null())
-        .output()
-        .unwrap();
+        .output_retry();
     assert!(missing.status.success());
     assert!(!out(&missing).contains("self-update"), "{}", out(&missing));
 
@@ -282,8 +297,7 @@ fn a_cloud_session_upgrades_before_it_installs_the_plugin() {
         .env("CLAUDE_CODE_REMOTE", "true")
         .env("TSK_CLAUDE_BIN", &claude)
         .stdin(Stdio::null())
-        .output()
-        .unwrap();
+        .output_retry();
     assert!(output.status.success(), "{}", err(&output));
     assert_eq!(version_of(&bin), "tsk 99.0.0");
     assert!(err(&output).contains("updated tsk"), "{}", err(&output));
@@ -311,8 +325,7 @@ fn a_failed_cloud_upgrade_adds_a_warning_and_the_session_still_starts() {
         .env("CLAUDE_CODE_REMOTE", "true")
         .env("TSK_CLAUDE_BIN", &claude)
         .stdin(Stdio::null())
-        .output()
-        .unwrap();
+        .output_retry();
     assert!(output.status.success());
     let json: serde_json::Value = serde_json::from_str(out(&output).trim()).unwrap();
     let context = json["hookSpecificOutput"]["additionalContext"]
