@@ -129,6 +129,14 @@ Stated by Jim, 2026-10-15.
   his context switching, with multiple threads going on, pausing and switching contexts
   between them, and the threads remembering the state; he thinks the mission now
   represents this concept.
+- A decision record and an ADR are different things. A decision record is a one-line
+  fact about the work, in the ledger, on a mission. An ADR is a reasoned architecture
+  record, a document in the code repo under `docs/adr/`, committed with the code.
+  A decision can link to an ADR, optionally, by the ADR's path in the repo, and tsk
+  navigates both ways: from a decision to its ADR, and from an ADR to the decisions
+  that name it. This follows the rule that the work's facts are records and reasoned
+  documents sit with what they explain, and it serves the aim of navigating the graph
+  from different perspectives. Decided by Jim, 2026-10-16.
 
 ## Custom refs by default, branches for cloud sessions
 
