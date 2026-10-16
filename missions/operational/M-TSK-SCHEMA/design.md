@@ -99,6 +99,18 @@ Stated by Jim, 2026-10-15.
   2026-10-15. This supersedes the same day's earlier decision to keep the ledger on
   branches, made because the "Compare & pull request" banner is too noisy for a real
   product with real users.
+- Where the ledger setting lives (answer to question 9). A session finds a repo's
+  ledger settings in this order:
+  1. The nexus, which is part of the environment. The repo's nexus entry holds the
+     setting, including whether the repo uses a custom ref or the branch override.
+  2. A local repo config, only when the nexus has no entry for the repo.
+  3. Neither exists: the session asks the person and discusses the setup. The choices
+     are to write an override in this repo, or to register the repo with the nexus.
+     When no nexus exists, the session offers to set one up, or defaults to this repo.
+
+  The aim is non-invasive use: a repo registered in a nexus holds nothing of tsk's.
+  The local repo config is the uncommon path. It serves a standalone repo with no
+  nexus entry that is used from cloud sessions. Decided by Jim, 2026-10-16.
 
 ## Custom refs by default, branches for cloud sessions
 
@@ -174,10 +186,7 @@ Each question is answered in its own entry below, with the date.
 7. Answered 2026-10-15, see Decisions: the index is `tsk mission list`, there is no
    current mission, and the session start context prints the records.
 8. Answered 2026-10-15, see Decisions: threads and pause entries link by ID, checked.
-9. Where does the override live? Every clone of a repo, local and cloud, must read the
-   same ref, or a laptop on the custom ref and a cloud session on the branch hold two
-   separate ledgers. So the setting belongs to the repo, not to a machine or a cloud
-   environment, and every clone must be able to read it before it finds the ledger.
+9. Answered 2026-10-16, see Decisions: where the ledger setting lives.
 
 ## Answers
 
