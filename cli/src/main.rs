@@ -293,6 +293,31 @@ mod tests {
         assert!(Cli::try_parse_from(["tsk", "ledger", "push"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "ledger"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "ledger", "fetch", "extra"]).is_err());
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "ledger", "status"])
+                .unwrap()
+                .command,
+            Some(Commands::Ledger {
+                action: ledger::LedgerCommands::Status
+            })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "ledger", "discard"])
+                .unwrap()
+                .command,
+            Some(Commands::Ledger {
+                action: ledger::LedgerCommands::Discard { yes: false }
+            })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "ledger", "discard", "--yes"])
+                .unwrap()
+                .command,
+            Some(Commands::Ledger {
+                action: ledger::LedgerCommands::Discard { yes: true }
+            })
+        ));
+        assert!(Cli::try_parse_from(["tsk", "ledger", "status", "extra"]).is_err());
     }
 
     #[test]
@@ -343,6 +368,17 @@ mod tests {
             vec!["tsk", "decision", "add", "M-X", "Use Dolt", "--by", "jim"],
             vec![
                 "tsk", "decision", "add", "M-X", "Use Dolt", "--by", "jim", "--task", "T-01",
+            ],
+            vec![
+                "tsk",
+                "decision",
+                "add",
+                "M-X",
+                "Use Dolt",
+                "--by",
+                "jim",
+                "--on",
+                "2026-02-27",
             ],
             vec!["tsk", "decision", "list", "M-X"],
             vec!["tsk", "question", "add", "M-X", "Why?"],

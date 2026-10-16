@@ -9,6 +9,7 @@ pub mod migrate_docs;
 pub mod nexus;
 pub mod push;
 pub mod register;
+pub mod status;
 pub mod store;
 
 use clap::Subcommand;
@@ -31,6 +32,20 @@ pub enum LedgerCommands {
     Push {
         #[arg(help = "Commit message for the worktree changes")]
         message: String,
+    },
+    #[command(
+        about = "Print what is not pushed, one fact per line: data and documents, clean or local changes with a line per changed table or file, and whether origin is ahead or behind; fetches the remote refs and changes nothing else"
+    )]
+    Status,
+    #[command(
+        about = "Drop every local change that is not pushed, in the data and the documents, and reset both to origin's state; without --yes it prints what it would drop and exits 1"
+    )]
+    Discard {
+        #[arg(
+            long,
+            help = "Discard now. Without it nothing changes and the changes are printed"
+        )]
+        yes: bool,
     },
     #[command(
         name = "migrate-to-dolt",
@@ -126,11 +141,45 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             println!("{}", report.head);
             Ok(())
         }
+        LedgerCommands::Status => {
+            let status = store.status()?;
+            if let Some(note) = &status.fetch_note {
+                eprintln!("{}", note);
+            }
+            for line in status.lines() {
+                println!("{}", line);
+            }
+            Ok(())
+        }
+        LedgerCommands::Discard { yes } => run_discard(store.as_ref(), yes),
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
         LedgerCommands::MigrateToDolt { .. } | LedgerCommands::MigrateDocs { .. } => {
             unreachable!("handled before the store opens")
         }
     }
+}
+
+/// `tsk ledger discard`. Without `yes` it prints the local changes and refuses.
+fn run_discard(store: &dyn LedgerStore, yes: bool) -> Result<(), String> {
+    if !yes {
+        let status = store.status()?;
+        if let Some(note) = &status.fetch_note {
+            eprintln!("{}", note);
+        }
+        for line in status.changes_lines() {
+            println!("{}", line);
+        }
+        if status.is_clean() {
+            return Ok(());
+        }
+        return Err(
+            "error: this would discard the local changes above. Rerun with --yes to discard them."
+                .to_string(),
+        );
+    }
+    store.discard()?;
+    println!("discarded");
+    Ok(())
 }
 
 fn no_such_document(path: &str) -> String {

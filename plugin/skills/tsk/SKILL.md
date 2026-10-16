@@ -73,6 +73,8 @@ tsk ledger doc get <path>                print a document's body (index.md, futu
 tsk ledger doc put <path> [<file>]       write a document from <file>, or from stdin; changes the local store only
 tsk ledger doc list [<prefix>]           list document paths, optionally under a prefix
 tsk ledger doc rm <path>                 remove a document; changes the local store only
+tsk ledger status                        print what is not pushed (data, documents) and whether origin is ahead or behind; read-only
+tsk ledger discard [--yes]               drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
 tsk ledger migrate-to-dolt               one-off: move a file ledger into a Dolt database and push it
 
 tsk thread start <mission-id>                                          mint and bind a thread for a mission, push
@@ -125,6 +127,25 @@ A ledger at version 1 still keeps its documents in a Dolt table. Every command e
 Run `tsk ledger migrate-docs` once. It moves the documents to `tsk/docs` and prints
 `migrated-docs:<count>`. `--dry-run` checks the move and pushes nothing.
 
+To see what is not pushed, run `tsk ledger status`. It prints one fact per line, with no
+header: `data` and `docs` each `clean` or `local changes`, then a line per changed table
+(with counts of rows added, modified and deleted) or per changed file (`A`, `M` or `D`),
+then `data<TAB>remote<TAB>...` and `docs<TAB>remote<TAB>...`, which say `up to date`,
+`ahead N`, `behind N`, `diverged ahead N behind N`, `unknown` (origin could not be
+fetched) or `unpublished` (origin holds no such branch yet). It fetches the remote refs
+and changes nothing else.
+
+To undo work that is not pushed, such as a trial mission, run `tsk ledger discard`. It
+prints what it would drop and exits 1. Run `tsk ledger discard --yes` to drop every local
+change in the data and the documents, including local commits that origin lacks, and
+reset both to origin's state. It prints `discarded`. It leaves thread bindings alone.
+**Use `tsk ledger discard`, never `dolt reset`, `dolt clean` or `git reset` against the
+ledger.** Check `tsk ledger status` first: a discard cannot be undone.
+
+Outside a git repository the `ledger`, `mission`, `task`, `decision`, `question`,
+`thread` (except the `session-start` and `guard` hooks) and `events` commands stop with
+`error: not inside a git repository. Run tsk from inside the repository whose ledger you want.`
+
 To bring an existing plan, in any format, into the ledger, run `tsk guide import` and
 follow it. It explains what the ledger holds and how to map a plan onto missions. Do not
 read the tsk source code to learn the format.
@@ -168,7 +189,7 @@ tsk task add <mission> <description>          # prints the new ID, T-01 upward
 tsk task set <mission> <task> <field> <value> # status (todo|in-progress|done) or description
 tsk task block <mission> <task> <by>          # and unblock; <by> is a task of the same mission
 tsk task list <mission>
-tsk decision add <mission> "<text>" --by <who> [--task T-nn]
+tsk decision add <mission> "<text>" --by <who> [--task T-nn] [--on YYYY-MM-DD]
 tsk decision list <mission>
 tsk question add <mission> "<text>"           # prints the new ID, Q-01 upward
 tsk question answer <mission> <q> "<text>" --by <who>
@@ -178,6 +199,9 @@ tsk question list [<mission>]                 # open questions, all missions whe
 Text is one line. `task list` prints `T-nn`, `status`, `blocked-by` and `description`,
 tab-separated. A task is blocked while any task it names in `block` is not `done`.
 `decision list` prints the date, who, the task or `-`, and the text, oldest first.
+`decision add` dates the decision today (UTC). When the decision was made earlier, give
+its date with `--on`, a real calendar date such as `2026-03-14`, rather than writing the
+date into the text.
 `question list` prints the mission, `Q-nn`, the date asked and the text. Use `--by` with
 the name of the person who made the decision or gave the answer. `tsk mission list <id>
 --json` prints the mission with its tasks, decisions and questions.

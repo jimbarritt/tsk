@@ -688,14 +688,48 @@ fn ledger_commands_fail_outside_a_git_repository() {
         vec!["ledger", "fetch"],
         vec!["ledger", "path"],
         vec!["ledger", "push", "message"],
+        vec!["ledger", "status"],
+        vec!["ledger", "discard", "--yes"],
+        vec!["ledger", "doc", "put", "notes.md"],
+        vec!["ledger", "doc", "get", "notes.md"],
+        vec!["ledger", "migrate-docs"],
+        vec!["ledger", "migrate-to-dolt"],
+        vec!["mission", "list"],
+        vec!["mission", "create", "M-X", "Name"],
+        vec!["task", "list", "M-X"],
+        vec!["decision", "list", "M-X"],
+        vec!["decision", "add", "M-X", "Text", "--by", "jim"],
+        vec!["question", "list"],
+        vec!["thread", "list"],
+        vec!["thread", "start", "M-X"],
+        vec!["thread", "skip"],
+        vec!["events", "read-new"],
     ] {
         let output = fx.tsk_in(&outside, &command);
         assert!(!output.status.success());
-        assert!(
-            stderr(&output).contains("not inside a git repository"),
-            "{}",
-            stderr(&output)
+        assert_eq!(
+            stderr(&output),
+            "error: not inside a git repository. Run tsk from inside the repository whose ledger you want.\n"
         );
+        assert_eq!(output.status.code(), Some(1), "{:?}", command);
+        assert_eq!(stdout(&output), "", "{:?}", command);
+    }
+}
+
+#[test]
+fn commands_that_need_no_repository_still_run_outside_one() {
+    let fx = Fixture::new();
+    let outside = fx.root.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+
+    for command in [
+        vec!["--version"],
+        vec!["guide", "--help"],
+        vec!["nexus", "list"],
+    ] {
+        let output = fx.tsk_in(&outside, &command);
+        assert_success(&output);
+        assert!(!stderr(&output).contains("not inside a git repository"));
     }
 }
 

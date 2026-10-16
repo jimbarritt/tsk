@@ -20,6 +20,7 @@ use crate::ledger::location::{
 };
 use crate::ledger::manifest::{self, ManifestInfo, DOLT_SUPPORTED_VERSIONS};
 use crate::ledger::push::{PushOutcome, PushResult, PushStatus, MAX_ATTEMPTS};
+use crate::ledger::status::{self, LedgerStatus, RemoteState, SideStatus};
 use crate::mission::model::{
     self, Category, Decision, Document, Mission, Outcome, Question, QuestionStatus, Role, Status,
     Task,
@@ -521,6 +522,78 @@ fn dirty_error(path: &Path) -> String {
 }
 
 impl DoltStore {
+    /// The data side of `status`: the tables that differ from the merge base of the local
+    /// and remote branches, with row counts, and the commits on each side. Changes
+    /// nothing. `online` says the fetch worked, so the commit counts can be trusted.
+    fn data_side(&self, db: &Dolt, online: bool) -> Result<SideStatus, String> {
+        let remote_ref = format!("{}/{}", REMOTE, BRANCH);
+        let has_remote = remote_branch_exists(db)?;
+        let (base, remote) = if has_remote {
+            let base = db
+                .rows(&format!(
+                    "select dolt_merge_base('HEAD', {}) as b",
+                    lit(&remote_ref)
+                ))
+                .ok()
+                .and_then(|rows| rows.first().and_then(|row| text(row, "b")))
+                .unwrap_or_else(|| "HEAD".to_string());
+            let count = |range: String| -> Result<usize, String> {
+                Ok(db.count(&format!(
+                    "select count(*) as c from dolt_log({})",
+                    lit(&range)
+                ))? as usize)
+            };
+            let ahead = count(format!("{}..{}", remote_ref, BRANCH))?;
+            let behind = count(format!("{}..{}", BRANCH, remote_ref))?;
+            let state = if online {
+                RemoteState::from_counts(ahead, behind)
+            } else {
+                RemoteState::Unknown
+            };
+            (base, state)
+        } else if online {
+            ("HEAD".to_string(), RemoteState::Unpublished)
+        } else {
+            ("HEAD".to_string(), RemoteState::Unknown)
+        };
+        let summary = db.rows(&format!(
+            "select from_table_name, to_table_name from dolt_diff_summary({}, 'WORKING')",
+            lit(&base)
+        ))?;
+        let stats = db.rows(&format!(
+            "select table_name, rows_added, rows_modified, rows_deleted from dolt_diff_stat({}, 'WORKING')",
+            lit(&base)
+        ))?;
+        let mut changes = Vec::new();
+        for row in &summary {
+            let name = text(row, "to_table_name")
+                .filter(|n| !n.is_empty())
+                .or_else(|| text(row, "from_table_name"))
+                .unwrap_or_default();
+            let stat = stats
+                .iter()
+                .find(|stat| text(stat, "table_name").as_deref() == Some(name.as_str()));
+            let number = |column: &str| stat.and_then(|stat| integer(stat, column)).unwrap_or(0);
+            changes.push((
+                name,
+                format!(
+                    "added {}\tmodified {}\tdeleted {}",
+                    number("rows_added"),
+                    number("rows_modified"),
+                    number("rows_deleted")
+                ),
+            ));
+        }
+        changes.sort();
+        Ok(SideStatus {
+            changes: changes
+                .into_iter()
+                .map(|(name, counts)| format!("{}\t{}", name, counts))
+                .collect(),
+            remote,
+        })
+    }
+
     /// Refresh the Dolt database, and return the manifest version it holds.
     pub(crate) fn refresh_data(&self, keep_local: bool) -> Result<(RefreshOutcome, i64), String> {
         dolt::ensure_identity()?;
@@ -659,6 +732,70 @@ impl LedgerStore for DoltStore {
         }
         let docs = Git::new(&self.docs_tree()?.root);
         Ok(!docs.run(["status", "--porcelain=v2", "-z"])?.is_empty())
+    }
+
+    fn status(&self) -> Result<LedgerStatus, String> {
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        self.check_current(&db, &location)?;
+        let docs = Git::new(&self.docs_tree()?.root);
+
+        let data_fetch = db.run(["fetch", REMOTE]).map(|_| ());
+        let docs_fetch = fetch_tip(&self.repo.git, &location.docs());
+        let data = self.data_side(&db, data_fetch.is_ok())?;
+        let side = status::worktree_side(&docs, &docs_fetch)?;
+        let docs_ref = location.docs();
+        let fetch_note = match (&data_fetch, &docs_fetch) {
+            (Err(e), _) => Some(status::fetch_failed_note(
+                &format!("{}'s {}", location.label(), location.ref_name()),
+                e,
+            )),
+            (_, Err(e)) => Some(status::fetch_failed_note(
+                &format!("{}'s {}", docs_ref.label(), docs_ref.ref_name()),
+                e,
+            )),
+            _ => None,
+        };
+        Ok(LedgerStatus {
+            data,
+            docs: SideStatus {
+                changes: side
+                    .files
+                    .iter()
+                    .map(|(letter, path)| format!("{}\t{}", letter, path))
+                    .collect(),
+                remote: side.remote,
+            },
+            fetch_note,
+        })
+    }
+
+    fn discard(&self) -> Result<(), String> {
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        self.check_current(&db, &location)?;
+        let docs = Git::new(&self.docs_tree()?.root);
+        // Both remote states are fetched before either side changes, so a fetch that
+        // fails leaves everything as it was.
+        let refused = |e: String| {
+            format!(
+                "{}\n       Nothing was discarded: the ledger cannot be reset to a state that was not fetched",
+                e
+            )
+        };
+        db.run(["fetch", REMOTE]).map_err(refused)?;
+        let docs_tip = fetch_tip(&self.repo.git, &location.docs()).map_err(refused)?;
+
+        let remote_ref = format!("{}/{}", REMOTE, BRANCH);
+        let target = if remote_branch_exists(&db)? {
+            remote_ref.as_str()
+        } else {
+            "HEAD"
+        };
+        db.run(["reset", "--hard", target])?;
+        // A reset leaves a table that was never committed. Clean drops it.
+        db.run(["clean"])?;
+        status::discard_worktree(&docs, docs_tip.as_deref())
     }
 
     fn path(&self) -> Result<PathBuf, String> {
