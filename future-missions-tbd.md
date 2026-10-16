@@ -952,3 +952,15 @@ hold; and one attached personal nexus with links to team nexuses holds the same
 information as a list in the config, in a place cloud sessions read.
 
 Three decisions are open and listed at the end of the analysis. Nothing is decided.
+
+Decided by Jim, 2026-10-16, on the first of the three open decisions, in his own words:
+
+> I think it needs to be decoupled between personal and team. Not a forced thing otherwise everyone needs a personal nexus repo to even participate. It's an optional extra you can do if you want to use tsk for things outside of a specific work repo/ territory
+>
+> Maybe if you do create a personal nexus it can have links to others so perhaps that's a kind of general graph feature of the nexus. Something like related nexus list - but it's the local config that decides which to show in say mission control.
+
+So: a nexus holds a related-nexus list, in git, as a property of every nexus. The local
+config holds the list of attached nexuses and which to show. A personal nexus is optional.
+The analysis in the tsk repo records the shape and what is not built. Two decisions stay
+open there: territory as a property of the (nexus, repo) pair, and where a personal
+nexus holds its own ledger.
