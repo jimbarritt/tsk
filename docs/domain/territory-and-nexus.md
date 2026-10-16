@@ -1,9 +1,23 @@
 # Territory and nexus
 
-Status: concepts settled; several mechanics open. Source: 2026-09-14 bootstrap design
-session. Term definitions are in
+Status: concepts revised 2026-10-16; several mechanics open. Source: 2026-09-14
+bootstrap design session, revised by the analysis in
+[personal-and-team-territories.md](personal-and-team-territories.md). Term definitions are in
 [docs/domain/ubiquitous-language.md](ubiquitous-language.md#territory); this file
 holds the rationale.
+
+## Revised 2026-10-16
+
+The section below records the first design. Two parts of it changed:
+
+- A territory is a nexus-local overlay over repos or missions, not a bounding area. The
+  same repo can be in several territories, one per nexus that indexes it. A territory
+  knows its missions, and a mission does not know its territory.
+- A nexus is optional and is shared by a group of actors. A personal nexus is an
+  optional extra, and a nexus repo may hold a ledger of its own.
+
+The analysis, with an example and the open items, is in
+[personal-and-team-territories.md](personal-and-team-territories.md).
 
 ## Why two separate concepts
 

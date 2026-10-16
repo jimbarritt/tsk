@@ -28,7 +28,6 @@ anything else worth recording belongs in a section below.
 | Field | Value |
 |---|---|
 | ID | {stable identifier, never reused} |
-| Territory | {territory name} |
 | Assignee | {actor, or unassigned} |
 | Blocked by | {mission IDs, or none} |
 
@@ -176,7 +175,6 @@ which mission it belongs to.
 | Field | Value |
 |---|---|
 | ID | M-008-01 |
-| Territory | agentic research |
 | Assignee | cloud agent, Sonnet 5 |
 | Blocked by | M-006 |
 
