@@ -6,7 +6,7 @@ reason.
 The terms form a graph: a mission has tasks, decisions, questions, documents and threads;
 a thread has a mission, an actor and continuations; an actor has a binding. Being able
 to navigate that graph in tsk from different perspectives is what matters (Jim,
-2026-10-16). Two terms divide it. A mission is definition and work: it changes over time,
+2026-10-16). Two terms divide it. A mission is definition of work: it changes over time,
 but it represents state, not execution. A thread is temporal: it represents the
 execution of work (Jim, 2026-10-16).
 
@@ -312,7 +312,7 @@ duration is a second, independent trigger for mission-hood, is undecided.
 ## Mission
 
 The way an agent or a human receives instructions, and the holder of the work's state.
-A mission is definition and work: it changes over time, but it represents state, not
+A mission is definition of work: it changes over time, but it represents state, not
 execution; execution is the [thread](#thread) (Jim, 2026-10-16). A mission has an
 objective, which also serves as its definition of done, and breaks down into tasks.
 Mission is a first-class domain object, not only a link to a parent task, and can hold
