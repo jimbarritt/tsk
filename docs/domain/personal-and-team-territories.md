@@ -115,14 +115,41 @@ both cases.
   blank or agree a label. Nothing in the binary reads it.
 - The trial tests the repo boundary only. Requirements 2 and 3 are not needed for it.
 
+## Decision 2026-10-16: personal and team nexuses are decoupled
+
+Jim, 2026-10-16, on the first open decision:
+
+> I think it needs to be decoupled between personal and team. Not a forced thing otherwise
+> everyone needs a personal nexus repo to even participate. It's an optional extra you can
+> do if you want to use tsk for things outside of a specific work repo/ territory
+>
+> Maybe if you do create a personal nexus it can have links to others so perhaps that's a
+> kind of general graph feature of the nexus. Something like related nexus list - but it's
+> the local config that decides which to show in say mission control.
+
+The shape that follows combines options C and D:
+
+| Where | What it holds |
+|---|---|
+| A nexus, in git | A related-nexus list. The graph. A property of every nexus, team or personal |
+| The local config | The list of nexuses this install attaches, and which of them a surface such as Mission Control shows |
+| Nothing | A personal nexus is optional. The repo-only path is the entry point, and nobody needs a nexus to work in a repo |
+
+The config holds a list in any case: an actor in team A and team B with no personal nexus
+attaches two. A cloud session reads the config of its environment, so the attached list
+is set per environment, by the `SessionStart` hook or by hand. The graph in git is
+visible to any session that reaches one nexus.
+
+Not built: the related-nexus list, a config list with more than one URL, and a show
+filter. `tsk nexus add` replaces the one URL today.
+
 ## Open
 
-Three items need a decision:
+Two items need a decision:
 
-1. One attached nexus with links (D), or a list of nexuses in the config (C).
-2. Whether territory becomes a property of the (nexus, repo) pair, and the briefing's
+1. Whether territory becomes a property of the (nexus, repo) pair, and the briefing's
    Territory row becomes a projection.
-3. Whether the personal nexus repo holds the actor's own ledger in-repo, or as a
+2. Whether the personal nexus repo holds the actor's own ledger in-repo, or as a
    nexus-held ledger with a synthetic ID.
 
 Three items are open with no decision needed yet:
