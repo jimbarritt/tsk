@@ -1359,7 +1359,10 @@ mod cases {
                     {"n": 2, "outcome": "Two", "met": false}
                 ],
                 "blocked_by": [{"id": "M-Q", "blocking": true}],
-                "documents": [{"path": "m/design.md", "role": "design"}]
+                "documents": [{"path": "m/design.md", "role": "design"}],
+                "tasks": [],
+                "decisions": [],
+                "questions": []
             })
         );
         let all = json(&fx.ok(&a, &["mission", "list", "--json"]));
@@ -1376,6 +1379,504 @@ mod cases {
             mission_json(&fx, &a, "M-E")["objective"],
             serde_json::json!([])
         );
+    }
+
+    // --- Tasks, decisions and questions ---
+
+    /// `YYYY-MM-DD`: the tests do not depend on today's date, only on its shape.
+    fn is_date(text: &str) -> bool {
+        let b = text.as_bytes();
+        b.len() == 10
+            && b.iter().enumerate().all(|(i, c)| match i {
+                4 | 7 => *c == b'-',
+                _ => c.is_ascii_digit(),
+            })
+    }
+
+    fn lines(text: &str) -> Vec<Vec<String>> {
+        text.lines()
+            .map(|l| l.split('\t').map(str::to_string).collect())
+            .collect()
+    }
+
+    fn mission_with_tasks(b: Backend, tasks: usize) -> (Fixture, PathBuf) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-T", "Tasks"]);
+        for i in 1..=tasks {
+            assert_eq!(
+                fx.ok(&a, &["task", "add", "M-T", &format!("Task {}", i)]),
+                format!("T-{:02}\n", i)
+            );
+        }
+        (fx, a)
+    }
+
+    pub fn tasks_are_minted_per_mission_listed_and_changed(b: Backend) {
+        let (fx, a) = mission_with_tasks(b, 0);
+        fx.ok(&a, &["mission", "create", "M-U", "Other"]);
+        assert_eq!(fx.ok(&a, &["task", "list", "M-T"]), "");
+        // The counter is per mission and only grows.
+        for i in 1..=12 {
+            assert_eq!(
+                fx.ok(&a, &["task", "add", "M-T", &format!("Task {}", i)]),
+                format!("T-{:02}\n", i)
+            );
+        }
+        assert_eq!(fx.ok(&a, &["task", "add", "M-U", "First of U"]), "T-01\n");
+        assert_eq!(fx.ok(&a, &["task", "add", "M-T", "-dash"]), "T-13\n");
+        let list = fx.ok(&a, &["task", "list", "M-T"]);
+        assert_eq!(list.lines().count(), 13);
+        assert_eq!(list.lines().next().unwrap(), "T-01\ttodo\t-\tTask 1");
+        assert_eq!(list.lines().last().unwrap(), "T-13\ttodo\t-\t-dash");
+        assert_eq!(
+            fx.ok(&a, &["task", "list", "M-U"]),
+            "T-01\ttodo\t-\tFirst of U\n"
+        );
+
+        // Status takes three values.
+        for status in ["in-progress", "done", "todo"] {
+            fx.ok(&a, &["task", "set", "M-T", "T-02", "status", status]);
+            assert_eq!(
+                fx.ok(&a, &["task", "list", "M-T"]).lines().nth(1).unwrap(),
+                format!("T-02\t{}\t-\tTask 2", status)
+            );
+        }
+        fails(
+            &fx,
+            &a,
+            &["task", "set", "M-T", "T-02", "status", "blocked"],
+            "todo, in-progress and done",
+        );
+        fx.ok(
+            &a,
+            &["task", "set", "M-T", "T-02", "description", "Renamed"],
+        );
+        assert_eq!(
+            fx.ok(&a, &["task", "list", "M-T"]).lines().nth(1).unwrap(),
+            "T-02\ttodo\t-\tRenamed"
+        );
+        fails(
+            &fx,
+            &a,
+            &["task", "set", "M-T", "T-02", "colour", "red"],
+            "not a task field",
+        );
+        fails(
+            &fx,
+            &a,
+            &["task", "set", "M-T", "T-02", "description", "two\nlines"],
+            "one line",
+        );
+
+        // Unknown IDs name the ID.
+        fails(
+            &fx,
+            &a,
+            &["task", "add", "M-NONE", "x"],
+            "no such mission: M-NONE",
+        );
+        fails(
+            &fx,
+            &a,
+            &["task", "list", "M-NONE"],
+            "no such mission: M-NONE",
+        );
+        fails(
+            &fx,
+            &a,
+            &["task", "set", "M-T", "T-99", "status", "done"],
+            "M-T has no task T-99",
+        );
+        fails(
+            &fx,
+            &a,
+            &["task", "set", "M-NONE", "T-01", "status", "done"],
+            "M-NONE",
+        );
+        fails(
+            &fx,
+            &a,
+            &["task", "set", "M-T", "task-1", "status", "done"],
+            "not a task ID",
+        );
+        fails(&fx, &a, &["task", "add", "M-T", "bad\nline"], "one line");
+        fails(&fx, &a, &["task", "add", "M-T", "bad\ttab"], "one line");
+        fails(&fx, &a, &["task", "add", "M-T", ""], "cannot be empty");
+        // A refused add mints nothing.
+        assert_eq!(fx.ok(&a, &["task", "add", "M-T", "Fourteenth"]), "T-14\n");
+
+        // The records survive a push and a fresh clone.
+        fx.ok(&a, &["ledger", "push", "Tasks"]);
+        let other = fx.b();
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(
+            fx.ok(&other, &["task", "list", "M-T"]),
+            fx.ok(&a, &["task", "list", "M-T"])
+        );
+        assert_eq!(fx.ok(&other, &["task", "add", "M-T", "From B"]), "T-15\n");
+    }
+
+    pub fn task_blocks_are_checked_and_blocked_is_derived(b: Backend) {
+        let (fx, a) = mission_with_tasks(b, 3);
+        fx.ok(&a, &["mission", "create", "M-U", "Other"]);
+        fx.ok(&a, &["task", "add", "M-U", "In U"]);
+
+        assert_eq!(fx.ok(&a, &["task", "block", "M-T", "T-01", "T-02"]), "");
+        fx.ok(&a, &["task", "block", "M-T", "T-01", "T-03"]);
+        fx.ok(&a, &["task", "block", "M-T", "T-02", "T-03"]);
+        assert_eq!(
+            fx.ok(&a, &["task", "list", "M-T"]),
+            "T-01\ttodo\tT-02,T-03\tTask 1\n\
+             T-02\ttodo\tT-03\tTask 2\n\
+             T-03\ttodo\t-\tTask 3\n"
+        );
+        let json = mission_json(&fx, &a, "M-T");
+        assert_eq!(json["tasks"][0]["blocked"], true);
+        assert_eq!(json["tasks"][0]["id"], "T-01");
+        assert_eq!(
+            json["tasks"][0]["blocked_by"],
+            serde_json::json!([
+                {"id": "T-02", "blocking": true},
+                {"id": "T-03", "blocking": true}
+            ])
+        );
+        assert_eq!(json["tasks"][2]["blocked"], false);
+
+        // Done blockers stop blocking; the link stays.
+        fx.ok(&a, &["task", "set", "M-T", "T-03", "status", "done"]);
+        assert_eq!(
+            fx.ok(&a, &["task", "list", "M-T"]),
+            "T-01\ttodo\tT-02\tTask 1\n\
+             T-02\ttodo\t-\tTask 2\n\
+             T-03\tdone\t-\tTask 3\n"
+        );
+        let json = mission_json(&fx, &a, "M-T");
+        assert_eq!(json["tasks"][1]["blocked"], false);
+        assert_eq!(
+            json["tasks"][0]["blocked_by"],
+            serde_json::json!([
+                {"id": "T-02", "blocking": true},
+                {"id": "T-03", "blocking": false}
+            ])
+        );
+        fx.ok(&a, &["task", "set", "M-T", "T-03", "status", "in-progress"]);
+        assert!(fx.ok(&a, &["task", "list", "M-T"]).contains("T-02,T-03"));
+
+        let before = fx.ok(&a, &["task", "list", "M-T"]);
+        fails(&fx, &a, &["task", "block", "M-T", "T-01", "T-01"], "itself");
+        fails(
+            &fx,
+            &a,
+            &["task", "block", "M-T", "T-01", "T-02"],
+            "already blocked",
+        );
+        fails(
+            &fx,
+            &a,
+            &["task", "block", "M-T", "T-03", "T-01"],
+            "cycle (T-03 -> T-01 -> T-02 -> T-03)",
+        );
+        fails(&fx, &a, &["task", "block", "M-T", "T-01", "T-09"], "T-09");
+        fails(&fx, &a, &["task", "block", "M-T", "T-09", "T-01"], "T-09");
+        fails(
+            &fx,
+            &a,
+            &["task", "block", "M-NONE", "T-01", "T-02"],
+            "M-NONE",
+        );
+        // A task of another mission cannot be a blocker.
+        fails(
+            &fx,
+            &a,
+            &["task", "block", "M-U", "T-01", "T-02"],
+            "M-U has no task T-02",
+        );
+        fails(
+            &fx,
+            &a,
+            &["task", "unblock", "M-T", "T-03", "T-01"],
+            "not blocked",
+        );
+        assert_eq!(fx.ok(&a, &["task", "list", "M-T"]), before);
+
+        assert_eq!(fx.ok(&a, &["task", "unblock", "M-T", "T-01", "T-03"]), "");
+        assert!(fx
+            .ok(&a, &["task", "list", "M-T"])
+            .starts_with("T-01\ttodo\tT-02\tTask 1\n"));
+        fx.ok(&a, &["task", "unblock", "M-T", "T-01", "T-02"]);
+        assert!(fx
+            .ok(&a, &["task", "list", "M-T"])
+            .starts_with("T-01\ttodo\t-\tTask 1\n"));
+        // With the chain cut, the reverse block is allowed.
+        fx.ok(&a, &["task", "unblock", "M-T", "T-02", "T-03"]);
+        fx.ok(&a, &["task", "block", "M-T", "T-03", "T-01"]);
+
+        // Blocks survive a push to another clone.
+        fx.ok(&a, &["ledger", "push", "Blocks"]);
+        let other = fx.b();
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert!(fx
+            .ok(&other, &["task", "list", "M-T"])
+            .contains("T-03\tin-progress\tT-01\tTask 3"));
+    }
+
+    pub fn decisions_are_recorded_with_who_when_and_an_optional_task(b: Backend) {
+        let (fx, a) = mission_with_tasks(b, 2);
+        fx.ok(&a, &["mission", "create", "M-U", "Other"]);
+        fx.ok(&a, &["task", "add", "M-U", "In U"]);
+        assert_eq!(fx.ok(&a, &["decision", "list", "M-T"]), "");
+        assert_eq!(
+            fx.ok(&a, &["decision", "add", "M-T", "Use Dolt", "--by", "Jim"]),
+            ""
+        );
+        fx.ok(
+            &a,
+            &[
+                "decision",
+                "add",
+                "M-T",
+                "Split the task",
+                "--by",
+                "an agent",
+                "--task",
+                "T-02",
+            ],
+        );
+        fx.ok(
+            &a,
+            &["decision", "add", "M-T", "-leading dash", "--by", "Jim"],
+        );
+        let rows = lines(&fx.ok(&a, &["decision", "list", "M-T"]));
+        assert_eq!(rows.len(), 3);
+        // Oldest first: the order they were added.
+        let texts: Vec<&str> = rows.iter().map(|r| r[3].as_str()).collect();
+        assert_eq!(texts, vec!["Use Dolt", "Split the task", "-leading dash"]);
+        for row in &rows {
+            assert_eq!(row.len(), 4);
+            assert!(is_date(&row[0]), "{:?}", row);
+        }
+        assert_eq!(rows[0][1..3], ["Jim", "-"]);
+        assert_eq!(rows[1][1..3], ["an agent", "T-02"]);
+        assert_eq!(fx.ok(&a, &["decision", "list", "M-U"]), "");
+
+        let before = fx.ok(&a, &["decision", "list", "M-T"]);
+        fails(
+            &fx,
+            &a,
+            &[
+                "decision", "add", "M-T", "x", "--by", "Jim", "--task", "T-09",
+            ],
+            "M-T has no task T-09",
+        );
+        // A task of another mission does not count.
+        fails(
+            &fx,
+            &a,
+            &[
+                "decision", "add", "M-U", "x", "--by", "Jim", "--task", "T-02",
+            ],
+            "M-U has no task T-02",
+        );
+        fails(
+            &fx,
+            &a,
+            &[
+                "decision", "add", "M-T", "x", "--by", "Jim", "--task", "nope",
+            ],
+            "not a task ID",
+        );
+        fails(
+            &fx,
+            &a,
+            &["decision", "add", "M-NONE", "x", "--by", "Jim"],
+            "M-NONE",
+        );
+        fails(&fx, &a, &["decision", "list", "M-NONE"], "M-NONE");
+        fails(
+            &fx,
+            &a,
+            &["decision", "add", "M-T", "two\nlines", "--by", "Jim"],
+            "one line",
+        );
+        fails(
+            &fx,
+            &a,
+            &["decision", "add", "M-T", "x", "--by", "Ji\nm"],
+            "one line",
+        );
+        fails(
+            &fx,
+            &a,
+            &["decision", "add", "M-T", "x", "--by", ""],
+            "cannot be empty",
+        );
+        assert_eq!(fx.ok(&a, &["decision", "list", "M-T"]), before);
+
+        let json = mission_json(&fx, &a, "M-T");
+        assert_eq!(json["decisions"][1]["task"], "T-02");
+        assert_eq!(json["decisions"][1]["decided_by"], "an agent");
+        assert_eq!(json["decisions"][0]["task"], serde_json::Value::Null);
+        assert!(is_date(
+            json["decisions"][0]["decided_on"].as_str().unwrap()
+        ));
+
+        fx.ok(&a, &["ledger", "push", "Decisions"]);
+        let other = fx.b();
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(fx.ok(&other, &["decision", "list", "M-T"]), before);
+        fx.ok(&other, &["decision", "add", "M-T", "From B", "--by", "Jim"]);
+        assert_eq!(
+            fx.ok(&other, &["decision", "list", "M-T"]).lines().count(),
+            4
+        );
+    }
+
+    pub fn questions_are_minted_answered_and_listed_while_open(b: Backend) {
+        let (fx, a) = mission_with_tasks(b, 0);
+        fx.ok(&a, &["mission", "create", "M-U", "Other"]);
+        assert_eq!(fx.ok(&a, &["question", "list"]), "");
+        assert_eq!(fx.ok(&a, &["question", "add", "M-T", "Why one?"]), "Q-01\n");
+        assert_eq!(fx.ok(&a, &["question", "add", "M-T", "Why two?"]), "Q-02\n");
+        assert_eq!(
+            fx.ok(&a, &["question", "add", "M-U", "Why in U?"]),
+            "Q-01\n"
+        );
+        assert_eq!(fx.ok(&a, &["question", "add", "M-T", "-dash?"]), "Q-03\n");
+
+        let rows = lines(&fx.ok(&a, &["question", "list"]));
+        assert_eq!(rows.len(), 4);
+        // Across all missions, by mission and then number.
+        let keys: Vec<String> = rows.iter().map(|r| format!("{} {}", r[0], r[1])).collect();
+        assert_eq!(keys, vec!["M-T Q-01", "M-T Q-02", "M-T Q-03", "M-U Q-01"]);
+        for row in &rows {
+            assert_eq!(row.len(), 4);
+            assert!(is_date(&row[2]), "{:?}", row);
+        }
+        assert_eq!(rows[0][3], "Why one?");
+        assert_eq!(fx.ok(&a, &["question", "list", "M-U"]).lines().count(), 1);
+
+        assert_eq!(
+            fx.ok(
+                &a,
+                &["question", "answer", "M-T", "Q-02", "Because.", "--by", "Jim"]
+            ),
+            ""
+        );
+        let open = fx.ok(&a, &["question", "list", "M-T"]);
+        assert_eq!(open.lines().count(), 2);
+        assert!(!open.contains("Why two?"));
+        assert_eq!(fx.ok(&a, &["question", "list"]).lines().count(), 3);
+        let json = mission_json(&fx, &a, "M-T");
+        let q = &json["questions"][1];
+        assert_eq!(q["id"], "Q-02");
+        assert_eq!(q["status"], "answered");
+        assert_eq!(q["answer"], "Because.");
+        assert_eq!(q["answered_by"], "Jim");
+        assert!(is_date(q["answered_on"].as_str().unwrap()));
+        assert_eq!(json["questions"][0]["status"], "open");
+        assert_eq!(json["questions"][0]["answer"], serde_json::Value::Null);
+
+        fails(
+            &fx,
+            &a,
+            &["question", "answer", "M-T", "Q-02", "Again", "--by", "Jim"],
+            "already answered",
+        );
+        fails(
+            &fx,
+            &a,
+            &["question", "answer", "M-T", "Q-09", "x", "--by", "Jim"],
+            "M-T has no question Q-09",
+        );
+        fails(
+            &fx,
+            &a,
+            &["question", "answer", "M-U", "Q-02", "x", "--by", "Jim"],
+            "M-U has no question Q-02",
+        );
+        fails(
+            &fx,
+            &a,
+            &["question", "answer", "M-NONE", "Q-01", "x", "--by", "Jim"],
+            "M-NONE",
+        );
+        fails(
+            &fx,
+            &a,
+            &["question", "answer", "M-T", "T-01", "x", "--by", "Jim"],
+            "not a question ID",
+        );
+        fails(
+            &fx,
+            &a,
+            &[
+                "question",
+                "answer",
+                "M-T",
+                "Q-01",
+                "two\nlines",
+                "--by",
+                "Jim",
+            ],
+            "one line",
+        );
+        fails(
+            &fx,
+            &a,
+            &["question", "add", "M-T", "two\nlines"],
+            "one line",
+        );
+        fails(&fx, &a, &["question", "add", "M-NONE", "x"], "M-NONE");
+        fails(&fx, &a, &["question", "list", "M-NONE"], "M-NONE");
+        // The refused answer left Q-01 open, and nothing was minted.
+        assert_eq!(fx.ok(&a, &["question", "list", "M-T"]), open);
+        assert_eq!(fx.ok(&a, &["question", "add", "M-T", "Next"]), "Q-04\n");
+
+        fx.ok(&a, &["ledger", "push", "Questions"]);
+        let other = fx.b();
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(
+            fx.ok(&other, &["question", "list"]),
+            fx.ok(&a, &["question", "list"])
+        );
+    }
+
+    pub fn two_clones_add_records_to_different_missions_and_the_ledgers_merge(b: Backend) {
+        let fx = Fixture::new(b);
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-ONE", "One"]);
+        fx.ok(&a, &["mission", "create", "M-TWO", "Two"]);
+        fx.ok(&a, &["ledger", "push", "Base"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        fx.ok(&a, &["task", "add", "M-ONE", "From A"]);
+        fx.ok(&a, &["question", "add", "M-ONE", "From A?"]);
+        fx.ok(&other, &["task", "add", "M-TWO", "From B"]);
+        fx.ok(
+            &other,
+            &["decision", "add", "M-TWO", "From B", "--by", "Jim"],
+        );
+        fx.ok(&a, &["ledger", "push", "A"]);
+        fx.ok(&other, &["ledger", "push", "B"]);
+        fx.ok(&a, &["ledger", "fetch"]);
+        for dir in [&a, &other] {
+            fx.ok(dir, &["ledger", "fetch"]);
+            assert_eq!(
+                fx.ok(dir, &["task", "list", "M-ONE"]),
+                "T-01\ttodo\t-\tFrom A\n"
+            );
+            assert_eq!(
+                fx.ok(dir, &["task", "list", "M-TWO"]),
+                "T-01\ttodo\t-\tFrom B\n"
+            );
+            assert_eq!(fx.ok(dir, &["question", "list"]).lines().count(), 1);
+            assert_eq!(
+                fx.ok(dir, &["decision", "list", "M-TWO"]).lines().count(),
+                1
+            );
+        }
     }
 }
 
@@ -1418,6 +1919,11 @@ conformance!(
     mission_writes_stay_local_until_the_push,
     two_clones_add_missions_that_merge_and_one_field_conflicts,
     the_json_record_has_every_field,
+    tasks_are_minted_per_mission_listed_and_changed,
+    task_blocks_are_checked_and_blocked_is_derived,
+    decisions_are_recorded_with_who_when_and_an_optional_task,
+    questions_are_minted_answered_and_listed_while_open,
+    two_clones_add_records_to_different_missions_and_the_ledgers_merge,
 );
 
 conformance!(
@@ -1440,6 +1946,11 @@ conformance!(
     mission_writes_stay_local_until_the_push,
     two_clones_add_missions_that_merge_and_one_field_conflicts,
     the_json_record_has_every_field,
+    tasks_are_minted_per_mission_listed_and_changed,
+    task_blocks_are_checked_and_blocked_is_derived,
+    decisions_are_recorded_with_who_when_and_an_optional_task,
+    questions_are_minted_answered_and_listed_while_open,
+    two_clones_add_records_to_different_missions_and_the_ledgers_merge,
 );
 
 // --- Backend selection and mismatch ---
@@ -1996,9 +2507,15 @@ fn thread_commands_work_on_a_version_two_ledger() {
     );
 }
 
-// --- Mission tables and the version 3 ledger (Dolt backend) ---
+// --- Mission and task tables and the version 4 ledger (Dolt backend) ---
 
-const MISSION_TABLES: [&str; 4] = [
+const TASK_TABLES: [&str; 4] = ["questions", "decisions", "task_blocks", "tasks"];
+
+const MISSION_TABLES: [&str; 8] = [
+    "questions",
+    "decisions",
+    "task_blocks",
+    "tasks",
     "mission_documents",
     "mission_blocks",
     "objective_outcomes",
@@ -2036,8 +2553,136 @@ impl Fixture {
     }
 }
 
+impl Fixture {
+    /// A published Dolt ledger at version 3, as the previous release left it: one mission
+    /// with an objective outcome and a blocker, and no task, decision or question tables.
+    fn version_three_ledger() -> Fixture {
+        let fx = Fixture::new(Backend::Dolt);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-OLD", "Made on three"]);
+        fx.ok(&a, &["mission", "create", "M-DEP", "Dependency"]);
+        fx.ok(&a, &["mission", "block", "M-OLD", "M-DEP"]);
+        fx.ok(&a, &["mission", "objective", "add", "M-OLD", "An outcome"]);
+        fx.ok(&a, &["mission", "set", "M-OLD", "purpose", "Keep me"]);
+        let mut sql: Vec<String> = TASK_TABLES
+            .iter()
+            .map(|t| format!("drop table {}", t))
+            .collect();
+        sql.push("alter table missions drop column next_task".to_string());
+        sql.push("alter table missions drop column next_question".to_string());
+        sql.push("replace into manifest (k, v) values ('version', '3')".to_string());
+        fx.dolt_sql(&a, &sql.join("; "));
+        fx.ok(&a, &["ledger", "push", "A version 3 ledger"]);
+        fx
+    }
+}
+
 #[test]
-fn a_new_dolt_ledger_has_the_mission_tables_at_version_three() {
+fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_upgrades_it() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::version_three_ledger();
+    let (a, other) = (fx.a(), fx.b());
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&other), "3");
+    assert!(!fx.tables(&other).contains("tasks"));
+
+    // Reads see the missions and no records, and write nothing.
+    assert_eq!(fx.ok(&other, &["task", "list", "M-OLD"]), "");
+    assert_eq!(fx.ok(&other, &["decision", "list", "M-OLD"]), "");
+    assert_eq!(fx.ok(&other, &["question", "list"]), "");
+    let before = fx.ok(&other, &["mission", "list", "M-OLD", "--json"]);
+    let parsed = json(&before);
+    assert_eq!(parsed["tasks"], serde_json::json!([]));
+    assert_eq!(parsed["decisions"], serde_json::json!([]));
+    assert_eq!(parsed["questions"], serde_json::json!([]));
+    // A refused write upgrades nothing.
+    let out = fx.tsk(&other, &["task", "add", "M-NONE", "x"]);
+    assert_exit(&out, 1);
+    assert!(stderr(&out).contains("no such mission: M-NONE"));
+    assert_eq!(fx.manifest_version(&other), "3");
+    assert_eq!(
+        fx.dolt_sql(&other, "select count(*) as c from dolt_status"),
+        "c\n0\n"
+    );
+
+    // The first write creates the tables, adds the counters and records version 4.
+    assert_eq!(
+        fx.ok(&other, &["task", "add", "M-OLD", "First on version 3"]),
+        "T-01\n"
+    );
+    assert_eq!(fx.manifest_version(&other), "4");
+    let tables = fx.tables(&other);
+    for table in TASK_TABLES {
+        assert!(tables.lines().any(|t| t == table), "{}: {}", table, tables);
+    }
+    assert_eq!(
+        fx.dolt_sql(
+            &other,
+            "select next_task, next_question from missions order by id"
+        ),
+        "next_task,next_question\n1,1\n2,1\n"
+    );
+    // The mission rows are intact.
+    assert_eq!(
+        fx.ok(&other, &["mission", "list"]),
+        "M-DEP\ttodo\t-\t-\tDependency\nM-OLD\ttodo\tM-DEP\t-\tMade on three\n"
+    );
+    let after = json(&fx.ok(&other, &["mission", "list", "M-OLD", "--json"]));
+    assert_eq!(after["purpose"], "Keep me");
+    assert_eq!(
+        after["objective"],
+        serde_json::json!([{"n": 1, "outcome": "An outcome", "met": false}])
+    );
+    assert_eq!(after["blocked_by"][0]["id"], "M-DEP");
+    assert_eq!(after["tasks"][0]["description"], "First on version 3");
+    // Every record kind works afterwards.
+    fx.ok(&other, &["task", "add", "M-OLD", "Second"]);
+    fx.ok(&other, &["task", "block", "M-OLD", "T-02", "T-01"]);
+    fx.ok(
+        &other,
+        &[
+            "decision", "add", "M-OLD", "Go", "--by", "Jim", "--task", "T-01",
+        ],
+    );
+    assert_eq!(
+        fx.ok(&other, &["question", "add", "M-OLD", "Why?"]),
+        "Q-01\n"
+    );
+
+    // The other clone is still at version 3 until the push.
+    assert_eq!(fx.manifest_version(&a), "3");
+    fx.ok(&other, &["ledger", "push", "First task"]);
+    fx.ok(&a, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&a), "4");
+    assert_eq!(
+        fx.ok(&a, &["task", "list", "M-OLD"]),
+        "T-01\ttodo\t-\tFirst on version 3\nT-02\ttodo\tT-01\tSecond\n"
+    );
+    assert_eq!(fx.ok(&a, &["decision", "list", "M-OLD"]).lines().count(), 1);
+    assert_eq!(fx.ok(&a, &["question", "list"]).lines().count(), 1);
+}
+
+#[test]
+fn a_version_three_ledger_upgrades_at_a_mission_write_too() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::version_three_ledger();
+    let other = fx.b();
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&other), "3");
+    fx.ok(&other, &["mission", "create", "M-NEW", "New"]);
+    assert_eq!(fx.manifest_version(&other), "4");
+    assert_eq!(fx.ok(&other, &["task", "add", "M-OLD", "x"]), "T-01\n");
+}
+
+#[test]
+fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_four() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
@@ -2045,7 +2690,7 @@ fn a_new_dolt_ledger_has_the_mission_tables_at_version_three() {
     let fx = Fixture::new(Backend::Dolt);
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "3");
+    assert_eq!(fx.manifest_version(&a), "4");
     let tables = fx.tables(&a);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -2110,9 +2755,9 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
         .ok(&other, &["thread", "detach"])
         .starts_with("detached:"));
 
-    // The first mission write creates the tables and records version 3 in one change.
+    // The first mission write creates the tables and records version 4 in one change.
     fx.ok(&other, &["mission", "create", "M-X", "First on version 2"]);
-    assert_eq!(fx.manifest_version(&other), "3");
+    assert_eq!(fx.manifest_version(&other), "4");
     let tables = fx.tables(&other);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -2131,13 +2776,13 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
     assert_eq!(fx.manifest_version(&a), "2");
     fx.ok(&other, &["ledger", "push", "First mission"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "3");
+    assert_eq!(fx.manifest_version(&a), "4");
     assert_eq!(
         fx.ok(&a, &["mission", "list"]),
         "M-X\ttodo\t-\t-\tFirst on version 2\n"
     );
     fx.ok(&a, &["mission", "create", "M-Y", "Second"]);
-    assert_eq!(fx.manifest_version(&a), "3");
+    assert_eq!(fx.manifest_version(&a), "4");
 }
 
 #[test]
@@ -2145,7 +2790,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
     // What the previous release does with a Dolt ledger the new release has written:
     // the manifest check is the first thing every command runs. The supported list is
     // faked in a unit test (ledger::manifest); here a version no release knows yet
-    // stands in, because this binary supports 1, 2 and 3.
+    // stands in, because this binary supports 1, 2, 3 and 4.
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
@@ -2153,7 +2798,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
     let fx = Fixture::new(Backend::Dolt);
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '4')");
+    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '5')");
     for args in [
         vec!["mission", "list"],
         vec!["mission", "create", "M-X", "x"],
@@ -2163,8 +2808,8 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
         assert_exit(&out, 1);
         let message = stderr(&out);
         assert!(
-            message.contains("unsupported ledger version 4")
-                && message.contains("supports version 1, 2, 3")
+            message.contains("unsupported ledger version 5")
+                && message.contains("supports version 1, 2, 3, 4")
                 && message.contains("Update tsk"),
             "{:?}: {}",
             args,

@@ -3,6 +3,7 @@
 //! the file and Dolt backends share them. A backend only loads and saves missions.
 
 pub mod model;
+pub mod records;
 
 use std::io::Read;
 
@@ -102,7 +103,7 @@ fn read_stdin() -> Result<String, String> {
 }
 
 /// Load, change one mission by the shared rules and save it. Nothing is saved on an error.
-fn change(
+pub(super) fn change(
     store: &dyn LedgerStore,
     apply: impl FnOnce(&[Mission]) -> Result<Mission, String>,
 ) -> Result<Mission, String> {

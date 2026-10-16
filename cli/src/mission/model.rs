@@ -117,6 +117,65 @@ pub struct Document {
     pub role: Role,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Task {
+    pub seq: i64,
+    pub description: String,
+    pub status: Status,
+    /// The sequence numbers of the tasks of this mission this one waits for, sorted.
+    /// Whether one of them still blocks is derived, never stored.
+    pub blocked_by: Vec<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Decision {
+    pub seq: i64,
+    pub text: String,
+    pub decided_by: String,
+    /// `YYYY-MM-DD`, UTC.
+    pub decided_on: String,
+    pub task: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum QuestionStatus {
+    Open,
+    Answered,
+}
+
+impl QuestionStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            QuestionStatus::Open => "open",
+            QuestionStatus::Answered => "answered",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<QuestionStatus> {
+        match value {
+            "open" => Some(QuestionStatus::Open),
+            "answered" => Some(QuestionStatus::Answered),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Question {
+    pub seq: i64,
+    pub text: String,
+    pub status: QuestionStatus,
+    pub answer: Option<String>,
+    pub answered_by: Option<String>,
+    pub answered_on: Option<String>,
+    pub asked_on: String,
+}
+
+fn one() -> i64 {
+    1
+}
+
 /// One mission. The field order is the key order of the file ledger's JSON file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mission {
@@ -136,6 +195,19 @@ pub struct Mission {
     /// blocks is derived, never stored.
     pub blocked_by: Vec<String>,
     pub documents: Vec<Document>,
+    /// The number the next task gets. It only grows. A file written before tasks existed
+    /// reads as 1.
+    #[serde(default = "one")]
+    pub next_task: i64,
+    /// The number the next question gets. It only grows.
+    #[serde(default = "one")]
+    pub next_question: i64,
+    #[serde(default)]
+    pub tasks: Vec<Task>,
+    #[serde(default)]
+    pub decisions: Vec<Decision>,
+    #[serde(default)]
+    pub questions: Vec<Question>,
 }
 
 // --- Validation ---
@@ -181,14 +253,14 @@ fn check_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn find<'a>(missions: &'a [Mission], id: &str) -> Result<&'a Mission, String> {
+pub fn find<'a>(missions: &'a [Mission], id: &str) -> Result<&'a Mission, String> {
     missions
         .iter()
         .find(|m| m.id == id)
         .ok_or_else(|| no_such_mission(id))
 }
 
-fn no_such_mission(id: &str) -> String {
+pub fn no_such_mission(id: &str) -> String {
     format!("error: no such mission: {}", id)
 }
 
@@ -235,6 +307,11 @@ pub fn create(
         objective: Vec::new(),
         blocked_by: Vec::new(),
         documents: Vec::new(),
+        next_task: 1,
+        next_question: 1,
+        tasks: Vec::new(),
+        decisions: Vec::new(),
+        questions: Vec::new(),
     })
 }
 
@@ -513,6 +590,9 @@ pub struct JsonMission<'a> {
     objective: Vec<JsonOutcome<'a>>,
     blocked_by: Vec<JsonBlocker<'a>>,
     documents: Vec<JsonDocument<'a>>,
+    tasks: Vec<super::records::JsonTask<'a>>,
+    decisions: Vec<super::records::JsonDecision<'a>>,
+    questions: Vec<super::records::JsonQuestion<'a>>,
 }
 
 /// The full record for JSON output, with the derived `blocked` flag. The keys print in
@@ -555,6 +635,9 @@ pub fn to_json<'a>(missions: &[Mission], mission: &'a Mission) -> JsonMission<'a
                 role: d.role.as_str(),
             })
             .collect(),
+        tasks: super::records::json_tasks(mission),
+        decisions: super::records::json_decisions(mission),
+        questions: super::records::json_questions(mission),
     }
 }
 

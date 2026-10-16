@@ -62,6 +62,27 @@ enum Commands {
         #[command(subcommand)]
         action: mission::MissionCommands,
     },
+    #[command(
+        about = "Add, change, block and list the tasks of a mission in the local ledger store; tsk ledger push publishes (runs without tskd)"
+    )]
+    Task {
+        #[command(subcommand)]
+        action: mission::records::TaskCommands,
+    },
+    #[command(
+        about = "Record and list the decisions of a mission in the local ledger store; tsk ledger push publishes (runs without tskd)"
+    )]
+    Decision {
+        #[command(subcommand)]
+        action: mission::records::DecisionCommands,
+    },
+    #[command(
+        about = "Ask, answer and list the questions of a mission in the local ledger store; tsk ledger push publishes (runs without tskd)"
+    )]
+    Question {
+        #[command(subcommand)]
+        action: mission::records::QuestionCommands,
+    },
     #[command(about = "Read and write the user config: attach the nexus")]
     Config {
         #[command(subcommand)]
@@ -130,6 +151,9 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
         Some(Commands::Ledger { action }) => ledger::run(action).map(|()| 0),
         Some(Commands::Events { action }) => events::run(action),
         Some(Commands::Mission { action }) => mission::run(action).map(|()| 0),
+        Some(Commands::Task { action }) => mission::records::run_task(action).map(|()| 0),
+        Some(Commands::Decision { action }) => mission::records::run_decision(action).map(|()| 0),
+        Some(Commands::Question { action }) => mission::records::run_question(action).map(|()| 0),
         Some(Commands::Config { action }) => config::run(action).map(|()| 0),
         Some(Commands::Nexus { action }) => nexus_cmd::run(action).map(|()| 0),
         Some(Commands::InstallPlugin(args)) => install_plugin::run(args).map(|()| 0),
@@ -287,6 +311,34 @@ mod tests {
         }
         assert!(Cli::try_parse_from(["tsk", "mission", "show", "M-X"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "mission", "link", "M-X", "a.md"]).is_err());
+    }
+
+    #[test]
+    fn task_decision_and_question_subcommands_parse() {
+        for args in [
+            vec!["tsk", "task", "add", "M-X", "Do the thing"],
+            vec!["tsk", "task", "add", "M-X", "-dash description"],
+            vec!["tsk", "task", "set", "M-X", "T-01", "status", "done"],
+            vec!["tsk", "task", "block", "M-X", "T-01", "T-02"],
+            vec!["tsk", "task", "unblock", "M-X", "T-01", "T-02"],
+            vec!["tsk", "task", "list", "M-X"],
+            vec!["tsk", "decision", "add", "M-X", "Use Dolt", "--by", "jim"],
+            vec![
+                "tsk", "decision", "add", "M-X", "Use Dolt", "--by", "jim", "--task", "T-01",
+            ],
+            vec!["tsk", "decision", "list", "M-X"],
+            vec!["tsk", "question", "add", "M-X", "Why?"],
+            vec![
+                "tsk", "question", "answer", "M-X", "Q-01", "Because", "--by", "jim",
+            ],
+            vec!["tsk", "question", "list"],
+            vec!["tsk", "question", "list", "M-X"],
+        ] {
+            assert!(Cli::try_parse_from(&args).is_ok(), "{:?}", args);
+        }
+        assert!(Cli::try_parse_from(["tsk", "decision", "add", "M-X", "No who"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "task", "show", "M-X", "T-01"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "task", "list"]).is_err());
     }
 
     #[test]

@@ -56,6 +56,8 @@ pub const MISSION_SCHEMA: &[&str] = &[
      constraints_text longtext null, \
      out_of_scope longtext null, \
      next_objective int not null default 1, \
+     next_task int not null default 1, \
+     next_question int not null default 1, \
      constraint missions_parent_fk foreign key (parent) references missions (id))",
     "create table objective_outcomes (\
      mission_id varchar(64) not null, \
@@ -78,35 +80,97 @@ pub const MISSION_SCHEMA: &[&str] = &[
      constraint mission_documents_mission_fk foreign key (mission_id) references missions (id))",
 ];
 
+/// The task, decision and question tables, created with a new ledger and by the first
+/// record write on a ledger at version 3 or lower. `next_task` and `next_question` on
+/// `missions` are the numbers the next task and question get: they only grow.
+pub const TASK_SCHEMA: &[&str] = &[
+    "create table tasks (\
+     mission_id varchar(64) not null, \
+     seq int not null, \
+     description longtext not null, \
+     status enum('todo','in-progress','done') not null default 'todo', \
+     primary key (mission_id, seq), \
+     constraint tasks_mission_fk foreign key (mission_id) references missions (id))",
+    "create table task_blocks (\
+     mission_id varchar(64) not null, \
+     task_seq int not null, \
+     blocked_by_seq int not null, \
+     primary key (mission_id, task_seq, blocked_by_seq), \
+     constraint task_blocks_task_fk foreign key (mission_id, task_seq) references tasks (mission_id, seq), \
+     constraint task_blocks_by_fk foreign key (mission_id, blocked_by_seq) references tasks (mission_id, seq))",
+    "create table decisions (\
+     mission_id varchar(64) not null, \
+     seq int not null, \
+     text longtext not null, \
+     decided_by varchar(255) not null, \
+     decided_on date not null, \
+     task_seq int null, \
+     primary key (mission_id, seq), \
+     constraint decisions_mission_fk foreign key (mission_id) references missions (id), \
+     constraint decisions_task_fk foreign key (mission_id, task_seq) references tasks (mission_id, seq))",
+    "create table questions (\
+     mission_id varchar(64) not null, \
+     seq int not null, \
+     text longtext not null, \
+     status enum('open','answered') not null default 'open', \
+     answer longtext null, \
+     answered_by varchar(255) null, \
+     answered_on date null, \
+     asked_on date not null, \
+     primary key (mission_id, seq), \
+     constraint questions_mission_fk foreign key (mission_id) references missions (id))",
+];
+
 /// The layout version a new Dolt ledger records: documents live on the `tsk/docs` branch
-/// and missions are rows.
-pub const LAYOUT_VERSION: i64 = 3;
+/// and missions, tasks, decisions and questions are rows.
+pub const LAYOUT_VERSION: i64 = 4;
+/// The layout version with the mission tables and no task, decision or question tables.
+pub const MISSIONS_LAYOUT_VERSION: i64 = 3;
 /// The layout version with documents on the `tsk/docs` branch and no mission tables.
 pub const DOCS_LAYOUT_VERSION: i64 = 2;
 /// The layout version whose documents are rows in the `documents` table.
 pub const LEGACY_LAYOUT_VERSION: i64 = 1;
 
-/// Statements that create the mission tables and record layout version 3. Run on a
-/// version 1 ledger after its documents move, and on a version 2 ledger at the first
-/// mission write.
+/// Statements that create the mission, task, decision and question tables and record the
+/// current layout version. Run on a version 1 ledger after its documents move, and on a
+/// version 2 ledger at the first mission write.
 pub fn mission_upgrade_sql() -> String {
     let mut sql = String::new();
-    for statement in MISSION_SCHEMA {
+    for statement in MISSION_SCHEMA.iter().chain(TASK_SCHEMA) {
         sql.push_str(statement);
         sql.push_str(";\n");
     }
-    sql.push_str(&format!(
+    sql.push_str(&version_sql());
+    sql
+}
+
+/// Statements that take a version 3 ledger to the current version: the counters on
+/// `missions`, the task, decision and question tables, and the manifest row.
+pub fn task_upgrade_sql() -> String {
+    let mut sql = String::from(
+        "alter table missions add column next_task int not null default 1;\n\
+         alter table missions add column next_question int not null default 1;\n",
+    );
+    for statement in TASK_SCHEMA {
+        sql.push_str(statement);
+        sql.push_str(";\n");
+    }
+    sql.push_str(&version_sql());
+    sql
+}
+
+fn version_sql() -> String {
+    format!(
         "replace into manifest (k, v) values ('version', '{}');\n",
         LAYOUT_VERSION
-    ));
-    sql
+    )
 }
 
 /// Statements that create every table and the manifest rows (`version`, and `repo_id`
 /// for a nexus ledger), separated by `;\n`.
 pub fn init_sql(repo_id: Option<&str>) -> String {
     let mut sql = String::new();
-    for statement in SCHEMA.iter().chain(MISSION_SCHEMA) {
+    for statement in SCHEMA.iter().chain(MISSION_SCHEMA).chain(TASK_SCHEMA) {
         sql.push_str(statement);
         sql.push_str(";\n");
     }
@@ -376,6 +440,10 @@ mod tests {
             "objective_outcomes",
             "mission_blocks",
             "mission_documents",
+            "tasks",
+            "task_blocks",
+            "decisions",
+            "questions",
         ] {
             assert!(
                 sql.contains(&format!("create table {} ", table)),
@@ -384,7 +452,7 @@ mod tests {
             );
         }
         assert!(!sql.contains("create table documents"));
-        assert!(sql.contains("('version', '3')"));
+        assert!(sql.contains("('version', '4')"));
         assert!(sql.contains("'repo_id'"));
         assert!(!init_sql(None).contains("repo_id"));
     }
