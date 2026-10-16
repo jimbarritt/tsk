@@ -3,6 +3,13 @@
 Every term tsk's design uses, with its meaning, the alternatives rejected, and the
 reason.
 
+The terms form a graph: a mission has tasks, decisions, questions, documents and threads;
+a thread has a mission, an actor and continuations; an actor has a binding. Being able
+to navigate that graph in tsk from different perspectives is what matters (Jim,
+2026-10-16). Two terms divide it. A mission is definition and work: it changes over time,
+but it represents state, not execution. A thread is temporal: it represents the
+execution of work (Jim, 2026-10-16).
+
 ## Territory
 
 A grouping that a [nexus](#nexus) holds over repos or missions. It is local to the
@@ -48,10 +55,19 @@ ephemeral and defined by the harness (see `docs/kb/session-creation-and-environm
 in the tsk repo), while an actor is the tsk-domain party using one.
 
 Cardinality is the distinguishing fact, and it settles whether a thread is about the
-actor or about the work: a human actor holds many threads and switches between them,
-which is what `thread switch-to` already assumes. An agent session, by contrast, is
-bound to one thread. A different agent session picking up that thread later is a
-different actor holding it, not the same actor switching.
+actor or about the work. A human actor attends to one line of work at a time and
+switches between several. An agent session is bound to one thread and runs beside other
+sessions. A different agent session picking up that thread later is a different actor
+holding it, not the same actor switching.
+
+The human case and the agent case differ in who does the scheduling (Jim, 2026-10-16).
+In the human case there is one attention: "work on thread 1" pauses the others, and one
+thread is active. Jim's earlier use of "thread" named these threads of his attention.
+In the agent case there are many actors at once and no single active one, which is why
+the ledger holds no current mission. The threads of a human's attention are still in the
+model, as the open missions and the latest thread continuation on each; the active one
+is whichever session the human is talking to. Where one session switches between
+threads, with `/tsk:switch-thread`, the session binding is the attention.
 
 This is also why thread identity cannot be borrowed from a session's own platform
 identifier. Confirmed empirically (M-BOOT-02, 2026-09-16): a Claude Code cloud
@@ -70,8 +86,9 @@ in it.
 
 ## Thread
 
-The execution sequence. A thread holds its own context and can be paused, suspended
-and resumed. This is what lets a human or an agent continue a set of tasks from one
+The execution sequence. A thread is temporal: it represents the execution of work,
+where a [mission](#mission) represents the work's state (Jim, 2026-10-16). A thread
+holds its own context and can be paused, suspended and resumed. This is what lets a human or an agent continue a set of tasks from one
 session to the next, possibly as a different actor. See Actor for what "different
 actor" means, and why thread identity is tsk's own rather than borrowed from a
 session's platform identifier.
@@ -79,12 +96,19 @@ session's platform identifier.
 Distinguished from: step, a movement made, independent of people and mostly of time,
 leaving a trail behind similar to a log. Step is not adopted as a unit in tsk.
 
-Relationship to Mission: loose, not fixed. Usually one thread carries the tasks of one
-mission, but a thread is scoped to an actor's continuity, not to a mission's, so the two
-are not required to line up. An actor's thread can carry tasks across several missions
-over its life — a maintenance or coordination actor is the clear case, picking up
-whatever needs attention across missions rather than being handed one. Most threads
-will still be one-to-one with a mission in practice; the model just doesn't force it.
+Relationship to Mission: loose, not fixed. A thread has at most one mission at a time,
+and may have none (decided 2026-10-16, built by M-TSK-SCHEMA T-10): `tsk thread start`
+with no argument mints a thread with no mission, and `tsk thread set mission` attaches
+or changes one later. Each continuation records the mission current when it was
+written, so a thread can carry work across several missions over its life. A mission
+can have several threads, at once or over time, and a thread can be held by several
+actors. Tasks never belong to a thread: they belong to a mission, so a thread that needs
+ad hoc tasks takes an administrative mission such as M-ADMIN-02. Most threads are one
+to one with a mission in practice; the model does not force it.
+
+The four cases: `tsk thread skip` (no thread, nothing persists); a thread without a
+mission (continuity, no tasks); a thread on an administrative mission (continuity and
+ad hoc tasks); a thread on an operational mission (the full model).
 
 ## Thread continuation
 
@@ -93,8 +117,8 @@ that keeps its history. Distinguished from Thread itself: the thread is the iden
 held across every pause and resume; a continuation is one snapshot within it, added each
 time a pause happens.
 
-Each continuation carries a fixed schema: the mission briefing it points at, the task in
-progress, the commits the ledger and the code were each at when the thread paused (`git.ledger.commit`, `git.code.ref` and `git.code.commit`), and
+Each continuation carries a fixed schema: the mission the thread was on, the task in
+progress (checked against the mission's tasks when the mission has a record), the commits the ledger and the code were each at when the thread paused (`git.ledger.commit`, `git.code.ref` and `git.code.commit`), and
 a short written account of what to do next. The commit fields and the record's own
 timestamp come from the `tsk` binary, since it already handles the git side of a pause.
 The what's-next account is the one field a human or an agent writes by judgement.
@@ -103,9 +127,11 @@ Resuming a thread reads the latest continuation by default. Earlier ones stay in
 store and can be read directly, for example to notice a task stalling across several
 pauses.
 
-Named "thread continuation" rather than "continuation" alone because the record already
-lives inside the thread's own directory, so the qualifier keeps the term consistent with
-its location rather than adding one only some readers would need.
+Named "thread continuation" rather than "continuation" alone because, on the file
+ledger, the record lived inside the thread's own directory. Since 2026-10-12 it is a row
+of `continuation_entries` in the Dolt ledger. The command that writes one is
+`tsk thread pause`, and the M-TSK-SCHEMA design doc calls the same record a pause entry.
+One term should win; not decided.
 
 ## Post
 
@@ -141,18 +167,23 @@ established", one level above an individual position).
 
 ## Ledger
 
-The store of a repo's own mission and task data: missions and their briefings, threads,
-thread continuations, and the reports missions leave behind. One ledger per repo. It is
+The store of a repo's own mission and task data: the [records](#record) (missions,
+tasks, decisions, questions, threads, thread continuations, bindings) and the
+[documents](#document) (intelligence, reports, designs, and the briefings of the file
+era). One ledger per repo. It is
 data rather than a line of development, which is why it is kept apart from the
 [artefacts](#artefact) instead of sitting beside them.
 
-Today the ledger is the `tsk/ledger` branch, checked out in the ledger worktree at a fixed path outside the
-repository (`docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`,
-`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md`). A separate branch, not
-a directory committed on `main`, is itself a decision:
-`docs/adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md`. That is the mechanism
-in use, not the definition. The branch is `refs/heads/tsk/ledger`. `tsk/bootstrap` is
-retired.
+Today the ledger is a Dolt database synced over the branch `refs/heads/tsk/ledger`, with
+its documents as Markdown files on a second branch, `refs/heads/tsk/docs` (M-DOLT,
+2026-10-12; M-TSK-SCHEMA T-01, 2026-10-15). Before that it was files on the one branch;
+that history is on `archive/tsk-ledger-files`. A separate branch, not a directory
+committed on `main`, is itself a decision
+(`docs/adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md`); a branch rather than
+a custom ref is `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`,
+and a custom ref by default, with branches as the override for a repo used from Claude
+Code cloud sessions, is decided and not built (M-TSK-SCHEMA T-07). That is the mechanism
+in use, not the definition. `tsk/bootstrap` is retired.
 
 Distinguished from the artefacts: the artefacts are what a mission builds, the ledger is
 the account of the building. A change to one leaves the other untouched, and neither
@@ -167,21 +198,40 @@ actor's own report), record (M-BOOT-02's run record holds that word), chronicle 
 nothing ledger does not), data branch and bootstrap branch (name the mechanism, so they
 rot when the mechanism changes, exactly as "data ref" did).
 
-## Ledger worktree
+## Record
 
-The git linked worktree that holds the [ledger](#ledger) branch beside the managed repo's
-own checkout. It is created with `git worktree add --detach`, so it holds no branch, and
-it sits at a fixed path outside the repository:
-`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger`. The branch it holds
-is `refs/heads/tsk/ledger`.
+A typed row in the ledger's Dolt database: a mission, task, decision, question, thread,
+thread continuation or binding. Written only through `tsk` commands, never by editing a
+file. The records are the source of truth for the state of the work.
 
-One per clone. Every session in that clone shares it. It shares the clone's object store
-and refs, and is not a clone itself. It makes the ledger branch readable and writable
-without a switch of the branch in the code checkout. `tsk ledger fetch` creates and
-refreshes it, and `tsk ledger push` writes from it.
+Core principle, agreed 2026-10-15: structured data is a record, in a typed table that
+rejects a wrong value; unstructured text is a [document](#document). Derived facts, such
+as blocked, are computed from records and never stored.
 
-Distinguished from a [code worktree](#code-worktree): the ledger worktree holds the
-ledger, a code worktree holds the [artefacts](#artefact).
+## Document
+
+A plain Markdown file on the `tsk/docs` branch, referenced from records by path:
+intelligence, a report, a design, or a briefing from the file era. Written with
+`tsk ledger doc put`. Free text that nobody needs to query. A mission links to a
+document with a role: `intelligence`, `report` or `design`.
+
+## Ledger store
+
+The local Dolt database that holds a clone's copy of the [ledger](#ledger), at
+`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db`, with the
+documents checked out beside it from `tsk/docs`. One per clone. Every session in that
+clone shares it. `tsk ledger fetch` creates and refreshes it, and `tsk ledger push`
+commits and pushes from it, documents first. It is a database, not a directory of files:
+nothing opens files in it, and an agent touches it only through `tsk` commands.
+
+Supersedes "ledger worktree", the file-era term for the detached linked worktree that
+held the `tsk/ledger` branch at `.../<clone-id>/ledger`
+(`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md` for why it sits outside
+`.git/`). The `git` backend still uses one. Prose says "ledger store", and never
+"worktree" alone.
+
+Distinguished from a [code worktree](#code-worktree): the ledger store holds the ledger,
+a code worktree holds the [artefacts](#artefact).
 
 ## Code worktree
 
@@ -190,21 +240,45 @@ session, so sessions work in parallel without a shared tree.
 
 A session binds to a [thread](#thread) through a marker file in the code worktree's own
 git directory: `.git/tsk-thread-id` for the main worktree,
-`.git/worktrees/<name>/tsk-thread-id` for a linked one.
+`.git/worktrees/<name>/tsk-thread-id` for a linked one. See [Binding](#binding) for the
+cloud case and the decided move of every binding into the ledger.
 
-Distinguished from the [ledger worktree](#ledger-worktree), which there is one of per
-clone and which holds the ledger, not the code.
+Distinguished from the [ledger store](#ledger-store), which there is one of per clone
+and which holds the ledger, not the code.
 
 Usage: "worktree" never appears unqualified in tsk prose. Write "ledger worktree" or
 "code worktree". "Worktree" alone is acceptable only where it names the git mechanism
 itself, for example `git worktree add` or "a linked worktree" in a description of git,
 and in code identifiers. "Clone" means the managed repo's clone, as in `<clone-id>`, and
-never the ledger worktree.
+never the ledger store.
+
+## Binding
+
+The link from a session or a code worktree to the thread it works. A cloud session's
+binding is a row in the ledger, keyed on the session ID that Claude Code gives it. A code
+worktree's binding is the marker file in its git directory, because a worktree has no
+identity of its own that the ledger could key on. Additive: several actors can bind to
+one thread, and `tsk thread resume` warns when another actor wrote the latest
+continuation.
+
+Decided 2026-10-16, built by M-TSK-SCHEMA T-11: every binding moves to one `bindings`
+table in the ledger, keyed on the cloud session ID, or on the clone ID from
+`.git/tsk-clone-id` plus the worktree name. The marker file goes, and `tsk thread list`
+shows the actors on each thread.
+
+`tsk thread skip` records, locally and never in the ledger, that a session or code
+worktree works without a thread. `start` and `resume` clear it.
 
 ## Task
 
-The unit of work. Nestable to any depth. Every task has an identity, an objective and a
-status from the start, not a line of text in a table.
+The unit of work. A task belongs to a [mission](#mission) and to nothing else: its ID,
+`T-nn`, is minted per mission by a counter that only grows, and a thread never owns one
+(decided 2026-10-16). Every task has an identity, a description and a status (`todo`,
+`in-progress`, `done`) from the start, not a line of text in a table. A task can be
+blocked by other tasks of the same mission; blocked is derived from the blocking tasks'
+status and never stored. Since 0.10.0 a task is a [record](#record), written only through
+`tsk task` commands. Nesting is by mission: a task that outgrows a task becomes a
+sub-mission (see Task scope).
 
 ## Task scope
 
@@ -237,9 +311,19 @@ duration is a second, independent trigger for mission-hood, is undecided.
 
 ## Mission
 
-The way an agent or a human receives instructions. A mission has an objective, which also serves as its
-definition of done, and breaks down into tasks. Mission is a first-class domain object,
-not only a link to a parent task, and can hold its own metadata.
+The way an agent or a human receives instructions, and the holder of the work's state.
+A mission is definition and work: it changes over time, but it represents state, not
+execution; execution is the [thread](#thread) (Jim, 2026-10-16). A mission has an
+objective, which also serves as its definition of done, and breaks down into tasks.
+Mission is a first-class domain object, not only a link to a parent task, and can hold
+its own metadata.
+
+Since 0.9.0 a mission is a [record](#record): ID, name, category, status (`todo`,
+`in-progress`, `done`; an administrative mission stays `in-progress`), parent, purpose,
+decision authority, constraints, out of scope, objective outcomes, blocks on other
+missions, and links to documents. A mission is done when its status is set to `done`;
+tsk does not check its objectives. There is no current mission: a session's mission is
+the one its thread is bound to (Jim, 2026-10-15).
 
 A task becomes a mission at the point it is delegated: handed to a different actor from
 the one holding the parent mission. That is when a briefing is needed, because the
@@ -250,15 +334,16 @@ them is a mission. Most tasks never become missions.
 Tasks are scale-free: a task at a higher level becomes a mission for a sub-agent. The
 common element across levels is the objective.
 
-A mission is one of two categories, set by which subdirectory of the ledger's
-`missions/` it sits in:
+A mission is one of two categories, a column on the record (the file era filed briefings
+under `missions/<category>/`, and documents keep that layout):
 
 - **Operational**: a mission that builds or changes the artefacts.
 - **Administrative**: a mission that keeps the work itself in order, such as capturing
   ideas, tidying, or reviewing missions for drift.
 
-The category says where a mission is filed. It does not change a mission's structure or
-how it is executed.
+The category does not change a mission's structure or how it is executed. An
+administrative mission has no end point, which is why its status stays `in-progress`,
+and why it is the place for ad hoc tasks (M-ADMIN-02).
 
 Rejected: work package, replaced by mission. Rejected: classifying a mission or its
 objective as standing, attainable or maintained.
@@ -267,6 +352,11 @@ objective as standing, attainable or maintained.
 
 The document handed to an agent, rendering a mission for a specific actor. The same
 mission renders differently for a human and for a cloud agent.
+
+In the file era the briefing was the mission. Since M-TSK-SCHEMA the mission is a
+record, and a briefing is a rendering of it, a projection, which is not built yet. What
+stays a [document](#document) is free text: intelligence, reports and designs, linked
+from the mission.
 
 ## Mission report
 
@@ -300,6 +390,22 @@ and a mission does not declare which it carries.
 An objective may also carry a duration, and that is independent of its shape: a measure
 over time can still run for a fixed period.
 
+Stored as objective outcomes, one row each with a `met` flag, numbered per mission by a
+counter that only grows: `tsk mission objective add`, `done` and `remove`.
+
+## Decision
+
+A record of a choice made on a mission: the text, who decided, the date, and the task it
+concerns, if any. Written with `tsk decision add`. A decision has no status; once
+recorded it is a fact. Supersedes the Decisions section of a briefing.
+
+## Question
+
+A record of something not yet answered on a mission: the text and the date asked, and
+once answered, the answer, who answered and when. Status `open` or `answered`.
+`tsk question list` shows the open ones across every mission. Supersedes the Open
+questions section of a briefing.
+
 ## Plan
 
 The product of planning: a provisional sequence of tasks proposed for meeting a
@@ -324,9 +430,10 @@ but those seed the plan rather than fix it: the actor decides the plan, adds the
 it finds implied, and rewrites as it goes. The handover between the two is expected to
 be refined with use.
 
-A plan is a section of a mission briefing, not a document of its own. It is the task
-table the briefing already carries. See `mission-briefing-template.md`. A plan that
-outgrows that table is a signal to delegate: break the work out as sub-missions, each
+A plan is the mission's tasks, in the order and with the blocks they carry, not a
+document of its own. In the file era it was the task table of the briefing (see
+`mission-briefing-template.md`); since 0.10.0 it is the task records. A plan that
+outgrows a mission is a signal to delegate: break the work out as sub-missions, each
 with its own briefing and its own plan. Plans nest as missions nest.
 
 Distinguished from: the mission, which holds the objective and therefore the definition
