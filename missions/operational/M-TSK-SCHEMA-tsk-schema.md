@@ -112,7 +112,9 @@ Drafted 2026-10-15 by thread 25366ae1 from the design doc. Jim told the actor to
 | T-05 | Migrate this repo's ledger: each open mission entered through the commands, each done mission's briefing moved to `tsk/docs` and linked from a bare record, `index.md` and `future-missions-tbd.md` retired, the standing notes moved to a document | TODO |
 | T-06 | Guides and docs: `tsk guide import` rewritten for the commands, the plugin skills, `CLAUDE.md`, `ledger-layout.md`, `session-continuation-design.md` and the user guide updated. Release | TODO |
 | T-07 | Custom ref by default: a repo's ledger and documents use a custom ref outside `refs/heads/*`, and branches under `refs/heads/*` are an override for a repo used from Claude Code cloud sessions. Where the setting lives is open question 9 in the design doc. This repo keeps the override. Conformance tests for both modes. Release | TODO |
+| T-08 | Respond to the feedback in GitHub issue #4 (feedback on 0.10.0 from the dotfiles repo): decide which of its confusions, gaps and suggestions to act on, fold the ones that belong to T-04 to T-06 into those tasks, build the rest as separate changes, and reply on the issue with what was decided. Release | TODO |
 
 Order: T-01, then T-02 to T-04 in order, then T-05, then T-06. T-05 is the test of
 T-01 to T-04 on real data, so T-06 waits for what it finds. T-07 follows T-01, because
-it covers the documents ref as well as the Dolt ref.
+it covers the documents ref as well as the Dolt ref. T-08 starts with a read of issue #4 and
+can run beside T-04.
