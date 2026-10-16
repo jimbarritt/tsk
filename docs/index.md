@@ -17,6 +17,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 - [mission-model.md](domain/mission-model.md): why the mission model is structured this way, grounded in military doctrine.
 - [bootstrap-rationale.md](domain/bootstrap-rationale.md): the stage-zero self-hosting problem, and the plan format gaps behind tsk's task fields.
 - [territory-and-nexus.md](domain/territory-and-nexus.md): why territory and nexus are separate concepts rather than fused.
+- [personal-and-team-territories.md](domain/personal-and-team-territories.md): analysis, 2026-10-16, of tsk without a nexus, two teams sharing one repo from separate nexuses, and where an actor's own cross-cutting work lives: a personal nexus beside team nexuses, with the open decisions.
 - [persistence-and-sync.md](domain/persistence-and-sync.md): the superseded 2026-09-14 custom-ref sync design, kept as a record. ADR 0014 and the Dolt section of ledger-layout.md replace it.
 - [mission-briefing-template.md](domain/mission-briefing-template.md): rendering format for missions as briefings for humans and agents.
 - [session-continuation-design.md](domain/session-continuation-design.md): thread binding, the continuation state store, and the `/start-thread`, `/pause-thread`, `/resume-thread` commands.
