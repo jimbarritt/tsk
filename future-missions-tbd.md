@@ -879,3 +879,41 @@ repo.
   the proactive pattern. No tsk document uses either label.
 
 Captured as an idea only. Nothing is decided.
+
+## The mechanics of durable and proactive running is moving into harnesses, and tsk's main point is the semantic layer
+
+Raised during the Pi Durable research, 2026-10-16. Jim, in his own words:
+
+> a thought I had about what's happening in this marketplace is that actually it's this sort of durable and proactive running part that's sort of becoming commoditized in the harness. And this is like a layer underneath Tusk. So Tusk could have its own continuations. But this is a kind of like an obvious layer that the harnesses will commoditize. I mean, like Claude has like goals and all sorts of and stuff like that. And then there's just this sort of durable and proactive behavior. Is very likely to be something that we don't actually really need to implement, or rather that we implement in Tusk as a shim for agents that don't, for harnesses that don't support it. So like, and it's a bit like the other thing that we looked at, Orca, for example, or some of the other ones. Yeah, exactly. They all sort of start having these kinds of features. So then we just need to keep our semantic layer, which is an interesting thing. So Tusk becomes this. The main point of Tusk is actually the semantic layer. The mechanics is mechanics.
+
+Captured as a position of Jim's, not yet a decision. Jim's claims about Claude goals and
+about Orca were not checked in this session. Evidence from the research in the tsk repo:
+`docs/kb/orchestration-ecosystem/pi-durable.md` and
+`durable-and-proactive-agents-provenance.md` show Temporal, Microsoft, Inngest and Pi
+Durable each building the durable mechanism into a harness or engine.
+
+Open: what tsk's own continuation does when a harness already provides durable runs, and
+which parts become a shim for harnesses that do not. ADR 0013 (tsk works in any harness)
+and ADR 0014 (a storage seam) already point the same way.
+
+## Future mission: the Pi Durable integration experiment
+
+Raised 2026-10-16, after the Pi Durable research. Not started. Nothing is decided.
+
+Purpose: test tsk inside a harness that provides durable and proactive running itself,
+under ADR 0013, so tsk's semantic layer is tested apart from the mechanics.
+
+Candidate scope, from `docs/kb/orchestration-ecosystem/pi-durable.md`:
+
+- A Pi Durable extension, in TypeScript and in the same process, calls the `tsk` binary.
+  This is the adapter under ADR 0013.
+- A durable agent binds to a thread, reads its continuation state, works, and writes a
+  continuation entry. This tests whether tsk's entry adds anything to Pi Durable's own
+  checkpoints and `reset(note)`.
+- A proactive trigger: an event from the ledger's external event queue starts the run.
+- Cost: Pi with Anthropic subscription auth bills per token as extra usage, so the
+  experiment needs an API key. Jim noted the API credits from the Anthropic Haiku 5.5
+  announcement as a way to pay. The amount was not checked.
+
+Open: whether the experiment shares a mission with the parked token-saving experiment
+(ADR 0014, option D), and which model runs it.
