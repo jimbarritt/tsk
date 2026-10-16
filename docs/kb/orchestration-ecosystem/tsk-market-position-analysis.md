@@ -735,6 +735,18 @@ when a harness already provides durable runs, and which parts become a shim.
 A future mission, a Pi Durable integration experiment, tests this. It is recorded in the
 ledger and not started.
 
+### Idea of Jim, 2026-10-16: a Dolt server or a tsk server in place of branches
+
+Pi Durable's storage interface accepts a store the user already runs, such as Postgres.
+Jim's thought: that is another reason Dolt is a good abstraction. In a corporate or
+enterprise setup, a Dolt server, or a tsk server, would replace the branch storage
+mechanism, so no branches are needed.
+
+ADR 0014 decision 4 makes git the transport and says no server. This idea adds a server
+as a second transport behind the same storage seam. It is an idea, not a decision. Open:
+Dolt's own server or a tsk server, whether cloud sessions keep the branch transport, and
+what decision 4 becomes. It is recorded in the ledger.
+
 ## Net position
 
 Do not stop tsk. Do not ship tsk as a head-to-head tracker or orchestrator. Do not plan
