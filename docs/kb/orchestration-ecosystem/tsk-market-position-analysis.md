@@ -710,6 +710,31 @@ Position:
 
 Research: [pi-durable.md](pi-durable.md).
 
+### Position of Jim, 2026-10-16: the mechanics moves into harnesses
+
+Jim's position, from the Pi Durable research: durable and proactive running is becoming
+a feature of the harness. It is a layer underneath tsk. tsk keeps its own continuation,
+and implements durable and proactive behaviour only as a shim for harnesses that lack it.
+The main point of tsk is the semantic layer. The mechanics is mechanics.
+
+Evidence in this document and in [durable-and-proactive-agents-provenance.md](durable-and-proactive-agents-provenance.md):
+
+- Temporal, Microsoft and Inngest each built the durable mechanism into an agent
+  engine, between July 2025 and May 2026.
+- Pi Durable builds checkpoints, forks, handoff and exactly-once submission into the
+  harness itself.
+- Jim noted that Claude has goals, and that Orca and others are starting to gain these
+  features. Those two claims were not checked here.
+
+This is the same direction as the surfaces section and ADR 0013 (tsk works in any
+harness) and ADR 0014 (a storage seam). A harness provides the mechanics, and tsk
+supplies the model of the work: mission, objective, actor, report, and the four
+dimensions. It is a position, not a decision. Open: what tsk's own continuation does
+when a harness already provides durable runs, and which parts become a shim.
+
+A future mission, a Pi Durable integration experiment, tests this. It is recorded in the
+ledger and not started.
+
 ## Net position
 
 Do not stop tsk. Do not ship tsk as a head-to-head tracker or orchestrator. Do not plan
