@@ -1,6 +1,6 @@
 # Personal and team territories
 
-Status: analysis, 2026-10-16. Nothing here is decided. The terms are those in
+Status: analysis, 2026-10-16, with three decisions recorded below. The rest is open. The terms are those in
 [ubiquitous-language.md](ubiquitous-language.md) and the rationale in
 [territory-and-nexus.md](territory-and-nexus.md). The mechanics are those in
 [ledger-layout.md](ledger-layout.md).
@@ -143,17 +143,56 @@ visible to any session that reaches one nexus.
 Not built: the related-nexus list, a config list with more than one URL, and a show
 filter. `tsk nexus add` replaces the one URL today.
 
+## Decision 2026-10-16: territory is an overlay, and a nexus repo holds a ledger
+
+Jim, 2026-10-16, working an example with a repo shared by team A and team B:
+
+> I think the problem is that territory is a kind of nexus local concept that groups
+> repos. So the same repo can be in multiple trrritotires depending on your perspective.
+>
+> One additional factor - what if a mission has no repo? Or is cross cutting multiple
+> repos?
+
+and, on the answer:
+
+> Yes, record it in both. And I think the thing about territories is correct, it's an
+> overlay over the missions so territories know their missions but not the other way
+> round
+
+Two decisions:
+
+1. **Territory is a nexus-local overlay.** A nexus defines a territory and groups repos or
+   missions under it. The same repo or mission can be in several territories, one per
+   nexus that indexes it. A territory knows its missions. A mission does not know its
+   territory. The briefing's Territory row is removed, because a mission stores no
+   territory.
+2. **A nexus repo holds a ledger of its own.** It is for missions that belong to no
+   single repo, or cut across several. A team's cross-repo mission goes in the team
+   nexus's ledger. An actor's cross-cutting work goes in their personal nexus's ledger.
+   This settles where a personal nexus holds its work.
+
+Example, with R1 shared by teams A and B, R2 the actor's own repo, and R3 a team A repo:
+
+| Nexus | Territory | Repos |
+|---|---|---|
+| Team A | `work` | R1, R3 |
+| Team B | `client-x` | R1 |
+| Personal | `collaborations` | R1 |
+| Personal | `own` | R2 |
+
+Mission M-1 is in R1's ledger. Through team A's nexus it is in `work`, through team B's in
+`client-x`, and through the personal nexus in `collaborations`.
+
+Cost: a mission in a nexus repo's ledger has the nexus's access boundary, not a repo's.
+The whole nexus reads it.
+
+Not built: the ledger on a nexus repo and a territory that lists missions. A mission
+model has no repo field. A mission has a repo only through the ledger it sits in.
+
 ## Open
 
-Two items need a decision:
-
-1. Whether territory becomes a property of the (nexus, repo) pair, and the briefing's
-   Territory row becomes a projection.
-2. Whether the personal nexus repo holds the actor's own ledger in-repo, or as a
-   nexus-held ledger with a synthetic ID.
-
-Three items are open with no decision needed yet:
-
+- Whether a territory lists repos, as `nexus.json` does today, or missions directly, or
+  both. Jim's statement is that a territory knows its missions.
 - A thread in the personal ledger that works a task in another repo's ledger. No
   cross-ledger reference exists.
 - Isolation across a link, which the model gives to the territory, has no mechanics.
