@@ -928,9 +928,9 @@ Captured as an idea of Jim's, not a decision. Context from the tsk repo: Pi Dura
 storage interface is small, with memory, SQLite, JSONL and Cloudflare backends, and
 Earendil says it is easy to implement on top of a key-value store or Postgres
 (`docs/kb/orchestration-ecosystem/pi-durable.md`). ADR 0014 decision 4 makes git the
-transport and says no server. This idea adds a server as a second transport behind the
-same storage seam, for settings where a server is acceptable, such as a corporate or
+transport, and the ADR now lists a server as a potential future evolution. This idea adds
+a server as a second transport behind the same storage seam, for settings where a server is acceptable, such as a corporate or
 enterprise one. The branch `tsk/ledger` would not be needed there.
 
 Open: Dolt's own server, or a tsk server. Whether the cloud-session case, which needs no
-server today, keeps the branch transport. What ADR 0014 decision 4 becomes.
+server today, keeps the branch transport. How the seam names a transport that is not git.
