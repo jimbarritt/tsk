@@ -263,10 +263,20 @@ impl LedgerStore for FilesStore {
     fn thread_create(
         &self,
         id: &str,
-        mission_id: &str,
+        mission_id: Option<&str>,
         briefing_path: Option<&str>,
     ) -> Result<(), String> {
         self.tree()?.thread_create(id, mission_id, briefing_path)
+    }
+
+    fn thread_set_mission(
+        &self,
+        id: &str,
+        mission_id: Option<&str>,
+        briefing_path: Option<&str>,
+    ) -> Result<(), String> {
+        self.tree()?
+            .thread_set_mission(id, mission_id, briefing_path)
     }
 
     fn thread_delete(&self, id: &str) -> Result<(), String> {
@@ -534,7 +544,7 @@ impl FileTree {
     fn thread_create(
         &self,
         id: &str,
-        mission_id: &str,
+        mission_id: Option<&str>,
         briefing_path: Option<&str>,
     ) -> Result<(), String> {
         let dir = self.thread_dir(id);
@@ -549,6 +559,21 @@ impl FileTree {
         let store = dir.join(STORE_FILE);
         std::fs::write(&store, "")
             .map_err(|e| format!("error: could not write {}: {}", store.display(), e))
+    }
+
+    fn thread_set_mission(
+        &self,
+        id: &str,
+        mission_id: Option<&str>,
+        briefing_path: Option<&str>,
+    ) -> Result<(), String> {
+        let dir = self.thread_dir(id);
+        if !dir.is_dir() {
+            return Err(format!("error: no such thread: {}", id));
+        }
+        let index = dir.join("index.md");
+        std::fs::write(&index, index_md(id, mission_id, briefing_path))
+            .map_err(|e| format!("error: could not write {}: {}", index.display(), e))
     }
 
     fn thread_delete(&self, id: &str) -> Result<(), String> {
@@ -696,14 +721,50 @@ mod tests {
     }
 
     #[test]
+    fn a_thread_with_no_mission_reads_back_with_none_and_set_mission_rewrites_the_index() {
+        let (_dir, tree) = tree();
+        tree.thread_create("1234abcd", None, None).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(tree.thread_dir("1234abcd").join("index.md")).unwrap(),
+            "# Thread 1234abcd\n"
+        );
+        assert_eq!(tree.thread_info("1234abcd"), ThreadInfo::default());
+
+        tree.thread_set_mission("1234abcd", Some("M-X"), Some("missions/M-X.md"))
+            .unwrap();
+        assert_eq!(
+            tree.thread_info("1234abcd"),
+            ThreadInfo {
+                mission_id: Some("M-X".to_string()),
+                briefing_path: Some("missions/M-X.md".to_string()),
+            }
+        );
+        tree.thread_set_mission("1234abcd", Some("M-Y"), None)
+            .unwrap();
+        assert_eq!(
+            tree.thread_info("1234abcd"),
+            ThreadInfo {
+                mission_id: Some("M-Y".to_string()),
+                briefing_path: None,
+            }
+        );
+        tree.thread_set_mission("1234abcd", None, None).unwrap();
+        assert_eq!(tree.thread_info("1234abcd"), ThreadInfo::default());
+        assert_eq!(
+            tree.thread_set_mission("ffffffff", None, None).unwrap_err(),
+            "error: no such thread: ffffffff"
+        );
+    }
+
+    #[test]
     fn thread_create_writes_index_and_empty_store_and_refuses_an_existing_thread() {
         let (_dir, tree) = tree();
-        tree.thread_create("1234abcd", "M-X", Some("missions/M-X.md"))
+        tree.thread_create("1234abcd", Some("M-X"), Some("missions/M-X.md"))
             .unwrap();
         let thread = tree.thread_dir("1234abcd");
         assert_eq!(
             std::fs::read_to_string(thread.join("index.md")).unwrap(),
-            index_md("1234abcd", "M-X", Some("missions/M-X.md"))
+            index_md("1234abcd", Some("M-X"), Some("missions/M-X.md"))
         );
         assert_eq!(
             std::fs::read_to_string(thread.join(STORE_FILE)).unwrap(),
@@ -717,7 +778,7 @@ mod tests {
             }
         );
         let err = tree
-            .thread_create("1234abcd", "M-X", Some("missions/M-X.md"))
+            .thread_create("1234abcd", Some("M-X"), Some("missions/M-X.md"))
             .unwrap_err();
         assert_eq!(err, "error: threads/1234abcd already exists");
     }
@@ -726,7 +787,8 @@ mod tests {
     fn continuation_lines_append_in_order_and_an_absent_log_is_empty() {
         let (_dir, tree) = tree();
         assert!(tree.continuation_list("1234abcd").unwrap().is_empty());
-        tree.thread_create("1234abcd", "M-X", Some("m.md")).unwrap();
+        tree.thread_create("1234abcd", Some("M-X"), Some("m.md"))
+            .unwrap();
         tree.continuation_append("1234abcd", "{\"n\":1}").unwrap();
         tree.continuation_append("1234abcd", "{\"n\":2}").unwrap();
         assert_eq!(
@@ -754,7 +816,8 @@ mod tests {
         tree.doc_put("missions/b.md", "b").unwrap();
         tree.doc_put("missions/a.md", "a").unwrap();
         tree.doc_put("index.md", "i").unwrap();
-        tree.thread_create("1234abcd", "M-X", Some("m.md")).unwrap();
+        tree.thread_create("1234abcd", Some("M-X"), Some("m.md"))
+            .unwrap();
         tree.events_append("{}\n").unwrap();
         assert_eq!(tree.doc_get("missions/a.md").unwrap().as_deref(), Some("a"));
         assert_eq!(tree.doc_get("missions").unwrap(), None);

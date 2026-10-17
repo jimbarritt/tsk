@@ -201,12 +201,49 @@ mod tests {
         assert!(matches!(
             Cli::try_parse_from(["tsk", "thread", "start", "M-X"]).unwrap().command,
             Some(Commands::Thread { action: thread::ThreadCommands::Start { mission_id, briefing_path: None } })
-                if mission_id == "M-X"
+                if mission_id.as_deref() == Some("M-X")
         ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "thread", "start"])
+                .unwrap()
+                .command,
+            Some(Commands::Thread {
+                action: thread::ThreadCommands::Start {
+                    mission_id: None,
+                    briefing_path: None
+                }
+            })
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "thread", "set", "mission", "M-X"]).unwrap().command,
+            Some(Commands::Thread { action: thread::ThreadCommands::Set { field: thread::SetCommands::Mission { mission_id, thread_id: None, none: false } } })
+                if mission_id.as_deref() == Some("M-X")
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "thread", "set", "mission", "M-X", "1234abcd"]).unwrap().command,
+            Some(Commands::Thread { action: thread::ThreadCommands::Set { field: thread::SetCommands::Mission { mission_id, thread_id: Some(thread), none: false } } })
+                if mission_id.as_deref() == Some("M-X") && thread == "1234abcd"
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "thread", "set", "mission", "--none"])
+                .unwrap()
+                .command,
+            Some(Commands::Thread {
+                action: thread::ThreadCommands::Set {
+                    field: thread::SetCommands::Mission {
+                        mission_id: None,
+                        thread_id: None,
+                        none: true
+                    }
+                }
+            })
+        ));
+        assert!(Cli::try_parse_from(["tsk", "thread", "set", "mission"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "thread", "set"]).is_err());
         assert!(matches!(
             Cli::try_parse_from(["tsk", "thread", "start", "M-X", "missions/M-X.md"]).unwrap().command,
             Some(Commands::Thread { action: thread::ThreadCommands::Start { mission_id, briefing_path: Some(path) } })
-                if mission_id == "M-X" && path == "missions/M-X.md"
+                if mission_id.as_deref() == Some("M-X") && path == "missions/M-X.md"
         ));
         assert!(matches!(
             Cli::try_parse_from(["tsk", "thread", "pause", "1234abcd", "", "-next: tests"]).unwrap().command,

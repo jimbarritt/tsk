@@ -77,10 +77,14 @@ fn entries_of(store: &dyn LedgerStore, id: &str) -> Result<Vec<entry::StoredEntr
 }
 
 /// The file ledger's `threads/<id>/index.md`. A thread names its mission on a `Mission:`
-/// line. A thread for a mission with no record also links the mission's briefing.
-pub fn index_md(id: &str, mission_id: &str, briefing_path: Option<&str>) -> String {
-    let mut text = format!("# Thread {}\n\nMission: {}\n", id, mission_id);
-    if let Some(path) = briefing_path {
+/// line. A thread for a mission with no record also links the mission's briefing. A
+/// thread with no mission has neither line.
+pub fn index_md(id: &str, mission_id: Option<&str>, briefing_path: Option<&str>) -> String {
+    let mut text = format!("# Thread {}\n", id);
+    if let Some(mission_id) = mission_id {
+        text.push_str(&format!("\nMission: {}\n", mission_id));
+    }
+    if let (Some(_), Some(path)) = (mission_id, briefing_path) {
         text.push_str(&format!("Mission briefing: [{}]({})\n", path, path));
     }
     text
@@ -138,7 +142,21 @@ pub fn no_such_mission(mission_id: &str) -> String {
     )
 }
 
-pub fn start(session: &Session, mission_id: &str) -> Result<StartOutcome, String> {
+/// Check that a mission exists. A mission exists when it has a record or, in a ledger not
+/// yet moved to records, a briefing document. Returns the briefing path of a mission with
+/// no record, and `None` for a mission with a record.
+fn checked_mission(store: &dyn LedgerStore, mission_id: &str) -> Result<Option<String>, String> {
+    if store.missions_load()?.iter().any(|m| m.id == mission_id) {
+        return Ok(None);
+    }
+    Ok(Some(
+        find_briefing(store, mission_id)?.ok_or_else(|| no_such_mission(mission_id))?,
+    ))
+}
+
+/// Mint a thread and bind this session or worktree to it. With a mission ID the thread
+/// works that mission (an unknown ID is refused). With none the thread has no mission.
+pub fn start(session: &Session, mission_id: Option<&str>) -> Result<StartOutcome, String> {
     session.refresh()?;
     let store = session.store.as_ref();
     if let Some(binding) = resolve(session)? {
@@ -146,12 +164,9 @@ pub fn start(session: &Session, mission_id: &str) -> Result<StartOutcome, String
             binding.thread_id().to_string(),
         ));
     }
-    // The record is the mission. A ledger not yet moved to records has a briefing.
-    let has_record = store.missions_load()?.iter().any(|m| m.id == mission_id);
-    let briefing = if has_record {
-        None
-    } else {
-        Some(find_briefing(store, mission_id)?.ok_or_else(|| no_such_mission(mission_id))?)
+    let briefing = match mission_id {
+        Some(mission_id) => checked_mission(store, mission_id)?,
+        None => None,
     };
     let id = mint_id(
         &store.describe_threads(),
@@ -161,18 +176,86 @@ pub fn start(session: &Session, mission_id: &str) -> Result<StartOutcome, String
     store.thread_create(&id, mission_id, briefing.as_deref())?;
     bind_current(session, &id)?;
     clear_skip(session)?;
-    session.push(&format!("Start thread {} for mission {}", id, mission_id))?;
+    session.push(&match mission_id {
+        Some(mission_id) => format!("Start thread {} for mission {}", id, mission_id),
+        None => format!("Start thread {} with no mission", id),
+    })?;
     Ok(StartOutcome::Started(id))
 }
 
-/// The task to record: empty stays empty. When the mission has a record, a task ID must
+/// What `tsk thread set mission` did: the thread, and the mission it now works.
+pub struct MissionSet {
+    pub thread_id: String,
+    pub mission_id: Option<String>,
+}
+
+/// Attach a mission to a thread, change it, or detach it (`mission_id` of `None`). The
+/// thread is the one given, else the one this session or worktree is bound to. Earlier
+/// continuation entries keep the mission they were written with.
+pub fn set_mission(
+    session: &Session,
+    mission_id: Option<&str>,
+    target: Option<&str>,
+) -> Result<MissionSet, String> {
+    session.refresh()?;
+    let store = session.store.as_ref();
+    let id = match target {
+        Some(id) => id.to_string(),
+        None => resolve(session)?
+            .map(|b| b.thread_id().to_string())
+            .ok_or_else(|| {
+                "error: no thread binding found for this session or worktree, and no thread id given; nothing to change"
+                    .to_string()
+            })?,
+    };
+    check_thread_id(&id)?;
+    if !store.thread_exists(&id)? {
+        return Err(format!("error: no such thread: {}", id));
+    }
+    let briefing = match mission_id {
+        Some(mission_id) => checked_mission(store, mission_id)?,
+        None => None,
+    };
+    store.thread_set_mission(&id, mission_id, briefing.as_deref())?;
+    session.push(&match mission_id {
+        Some(mission_id) => format!("Set mission of thread {} to {}", id, mission_id),
+        None => format!("Detach thread {} from its mission", id),
+    })?;
+    Ok(MissionSet {
+        thread_id: id,
+        mission_id: mission_id.map(str::to_string),
+    })
+}
+
+/// The error for a task ID on a thread that has no mission.
+pub fn no_mission_for_task(thread_id: &str) -> String {
+    format!(
+        "error: thread {} has no mission, so it has no tasks. Attach a mission with tsk thread set mission <mission-id>, or pass an empty task ID",
+        thread_id
+    )
+}
+
+/// The latest pause entry's what's next for a thread, if it has one.
+pub fn latest_whats_next(store: &dyn LedgerStore, id: &str) -> Result<Option<String>, String> {
+    Ok(entries_of(store, id)?
+        .last()
+        .and_then(|stored| stored.entry.whats_next.clone())
+        .filter(|text| !text.trim().is_empty()))
+}
+
+/// The task to record: empty stays empty. A thread with no mission has no tasks, so a
+/// task ID on it is refused. When the mission has a record, a task ID must
 /// name one of its tasks, and `T-1` is written as `T-01`. A mission with no record has no
 /// tasks to check against.
 fn checked_task(
     missions: &[Mission],
+    thread_id: &str,
     mission_id: Option<&str>,
     task_id: &str,
 ) -> Result<String, String> {
+    if mission_id.is_none() && !task_id.is_empty() {
+        return Err(no_mission_for_task(thread_id));
+    }
     let record = mission_id.and_then(|id| missions.iter().find(|m| m.id == id));
     match record {
         Some(mission) if !task_id.is_empty() => resolve_task(mission, task_id),
@@ -193,7 +276,7 @@ pub fn pause(session: &Session, id: &str, task_id: &str, whats_next: &str) -> Re
     }
     let info = store.thread_info(id)?;
     let mission_id = thread_mission(&info);
-    let task_id = checked_task(&store.missions_load()?, mission_id.as_deref(), task_id)?;
+    let task_id = checked_task(&store.missions_load()?, id, mission_id.as_deref(), task_id)?;
     let ledger_commit = store.head_id()?;
     let code_git = &session.repo.git;
     let code_ref = current_branch_ref(code_git)?;
@@ -496,19 +579,29 @@ mod tests {
     #[test]
     fn index_md_names_the_mission_and_links_a_briefing_only_when_given() {
         assert_eq!(
-            index_md("1234abcd", "M-X", Some("missions/M-X.md")),
+            index_md("1234abcd", Some("M-X"), Some("missions/M-X.md")),
             "# Thread 1234abcd\n\nMission: M-X\nMission briefing: [missions/M-X.md](missions/M-X.md)\n"
         );
         assert_eq!(
-            index_md("1234abcd", "M-X", None),
+            index_md("1234abcd", Some("M-X"), None),
             "# Thread 1234abcd\n\nMission: M-X\n"
         );
     }
 
     #[test]
+    fn index_md_of_a_thread_with_no_mission_has_no_mission_line() {
+        let text = index_md("1234abcd", None, None);
+        assert_eq!(text, "# Thread 1234abcd\n");
+        assert_eq!(index_mission(&text), None);
+        assert_eq!(mission_link(&text), "");
+        // A briefing without a mission is not written.
+        assert_eq!(index_md("1234abcd", None, Some("m.md")), text);
+    }
+
+    #[test]
     fn index_mission_reads_the_mission_line() {
         assert_eq!(
-            index_mission(&index_md("1234abcd", "M-X", Some("missions/M-X.md"))).as_deref(),
+            index_mission(&index_md("1234abcd", Some("M-X"), Some("missions/M-X.md"))).as_deref(),
             Some("M-X")
         );
         assert_eq!(
@@ -521,10 +614,10 @@ mod tests {
     #[test]
     fn mission_link_reads_the_first_briefing_link() {
         assert_eq!(
-            mission_link(&index_md("1234abcd", "M-X", Some("missions/M-X.md"))),
+            mission_link(&index_md("1234abcd", Some("M-X"), Some("missions/M-X.md"))),
             "missions/M-X.md"
         );
-        assert_eq!(mission_link(&index_md("1234abcd", "M-X", None)), "");
+        assert_eq!(mission_link(&index_md("1234abcd", Some("M-X"), None)), "");
         assert_eq!(mission_link("# Thread\n\nno link\n"), "");
         assert_eq!(
             mission_link("Mission briefing: [open ended\n"),
@@ -590,22 +683,30 @@ mod tests {
     #[test]
     fn a_task_is_checked_against_a_mission_with_a_record_only() {
         let missions = vec![mission_with_task()];
-        assert_eq!(checked_task(&missions, Some("M-X"), "T-1").unwrap(), "T-01");
         assert_eq!(
-            checked_task(&missions, Some("M-X"), "T-01").unwrap(),
+            checked_task(&missions, "1234abcd", Some("M-X"), "T-1").unwrap(),
             "T-01"
         );
-        assert_eq!(checked_task(&missions, Some("M-X"), "").unwrap(), "");
-        let err = checked_task(&missions, Some("M-X"), "T-09").unwrap_err();
-        assert!(err.contains("T-09"), "{}", err);
-        assert!(checked_task(&missions, Some("M-X"), "later").is_err());
         assert_eq!(
-            checked_task(&missions, Some("M-Y"), "T-09").unwrap(),
-            "T-09"
+            checked_task(&missions, "1234abcd", Some("M-X"), "T-01").unwrap(),
+            "T-01"
         );
         assert_eq!(
-            checked_task(&missions, None, "anything").unwrap(),
-            "anything"
+            checked_task(&missions, "1234abcd", Some("M-X"), "").unwrap(),
+            ""
+        );
+        let err = checked_task(&missions, "1234abcd", Some("M-X"), "T-09").unwrap_err();
+        assert!(err.contains("T-09"), "{}", err);
+        assert!(checked_task(&missions, "1234abcd", Some("M-X"), "later").is_err());
+        assert_eq!(
+            checked_task(&missions, "1234abcd", Some("M-Y"), "T-09").unwrap(),
+            "T-09"
+        );
+        // A thread with no mission has no tasks.
+        assert_eq!(checked_task(&missions, "1234abcd", None, "").unwrap(), "");
+        assert_eq!(
+            checked_task(&missions, "1234abcd", None, "anything").unwrap_err(),
+            "error: thread 1234abcd has no mission, so it has no tasks. Attach a mission with tsk thread set mission <mission-id>, or pass an empty task ID"
         );
     }
 

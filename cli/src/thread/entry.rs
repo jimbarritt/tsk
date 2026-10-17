@@ -4,7 +4,7 @@ pub const STORE_FILE: &str = "continuation-state.jsonl";
 
 #[derive(Serialize)]
 pub struct NewEntry<'a> {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Null for a thread with no mission.
     pub mission_id: Option<&'a str>,
     /// The briefing path of a thread whose mission has no record.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -135,13 +135,19 @@ mod tests {
     }
 
     #[test]
-    fn new_entry_without_a_known_mission_writes_neither_field() {
+    fn new_entry_without_a_mission_writes_a_null_mission_id_and_no_mission_link() {
         let entry = NewEntry {
             mission_id: None,
             mission_link: None,
             ..new_entry()
         };
-        assert!(entry.to_line().starts_with("{\"task_id\""));
+        let line = entry.to_line();
+        assert!(
+            line.starts_with("{\"mission_id\":null,\"task_id\""),
+            "{}",
+            line
+        );
+        assert!(!line.contains("mission_link"), "{}", line);
     }
 
     #[test]

@@ -2460,6 +2460,337 @@ mod cases {
         assert!(!context.contains("No thread binding"), "{}", context);
     }
 
+    /// Every stored continuation entry of a thread, oldest first, as the ledger holds them.
+    fn stored_entries(fx: &Fixture, dir: &Path, id: &str) -> Vec<serde_json::Value> {
+        match fx.backend {
+            Backend::Git => {
+                let file = fx
+                    .ledger_path(dir)
+                    .join("threads")
+                    .join(id)
+                    .join("continuation-state.jsonl");
+                std::fs::read_to_string(file)
+                    .unwrap()
+                    .lines()
+                    .map(json)
+                    .collect()
+            }
+            Backend::Dolt => {
+                let out = Command::new("dolt")
+                    .args([
+                        "sql",
+                        "-r",
+                        "json",
+                        "-q",
+                        &format!(
+                            "select entry from continuation_entries where thread_id = '{}' order by seq",
+                            id
+                        ),
+                    ])
+                    .current_dir(fx.ledger_path(dir))
+                    .env("HOME", fx.home())
+                    .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+                    .output()
+                    .unwrap();
+                assert!(out.status.success(), "{}", stderr(&out));
+                json(&stdout(&out))["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|row| json(row["entry"].as_str().unwrap()))
+                    .collect()
+            }
+        }
+    }
+
+    /// True when the ledger stores no mission for the thread: SQL NULL on Dolt, no
+    /// `Mission:` line on the file ledger.
+    fn stores_no_mission(fx: &Fixture, dir: &Path, id: &str) -> bool {
+        match fx.backend {
+            Backend::Dolt => {
+                let counted = fx.dolt_sql(
+                    dir,
+                    &format!(
+                        "select count(*) as c from threads where thread_id = '{}' and mission_id is null and briefing_path is null",
+                        id
+                    ),
+                );
+                counted.lines().nth(1) == Some("1")
+            }
+            Backend::Git => {
+                let index = fx
+                    .ledger_path(dir)
+                    .join("threads")
+                    .join(id)
+                    .join("index.md");
+                let text = std::fs::read_to_string(index).unwrap();
+                !text.contains("Mission")
+            }
+        }
+    }
+
+    const NO_MISSION_ERROR: &str = "has no mission, so it has no tasks. Attach a mission with tsk thread set mission <mission-id>, or pass an empty task ID";
+
+    pub fn a_thread_can_start_with_no_mission_and_pause_with_an_empty_task(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let a = fx.a();
+        fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
+        fx.ok(&a, &["task", "add", "M-REC", "First task"]);
+        fx.ok(&a, &["ledger", "push", "Add M-REC"]);
+
+        // Start with no argument mints a thread with no mission, and clears the skip.
+        fx.ok(&a, &["thread", "skip"]);
+        assert_eq!(fx.guard_reason(&a, None), None);
+        let before = fx.remote_ledger();
+        let id = fx.started(&a, &["thread", "start"]);
+        assert_ne!(fx.remote_ledger(), before);
+        assert!(stores_no_mission(&fx, &a, &id));
+        assert_eq!(fx.guard_reason(&a, None), None);
+        assert_eq!(
+            fx.ok(&a, &["thread", "binding", "--no-fetch"]),
+            format!("worktree:{}\n", id)
+        );
+        let row = fx.thread_row(&a, &id);
+        assert!(row["mission_id"].is_null(), "{}", row);
+        assert_eq!(row["mission_link"], "");
+        assert!(row["latest_whats_next"].is_null(), "{}", row);
+        // Resume of a thread with no entries prints no entry and does not fail.
+        let resumed = json(&fx.ok(&a, &["thread", "resume", &id]));
+        assert_eq!(resumed["thread_id"], id.as_str());
+        assert_eq!(resumed["latest"], serde_json::json!({}));
+
+        // A second start with a binding in place asks for a resume.
+        let again = fx.tsk(&a, &["thread", "start"]);
+        assert_exit(&again, 2);
+        assert_eq!(stdout(&again), format!("resume-required:{}\n", id));
+
+        // The skip is cleared by the start: once detached, the Stop hook check asks again.
+        fx.ok(&a, &["thread", "detach"]);
+        assert!(fx.guard_reason(&a, None).is_some());
+        fx.ok(&a, &["thread", "resume", &id]);
+
+        // A task ID is refused, with the exact message, and nothing is written.
+        let before = fx.remote_ledger();
+        let refused = fx.tsk(&a, &["thread", "pause", &id, "T-01", "x"]);
+        assert_exit(&refused, 1);
+        assert_eq!(
+            stderr(&refused).trim_end(),
+            format!("error: thread {} {}", id, NO_MISSION_ERROR)
+        );
+        assert_eq!(stdout(&refused), "");
+        assert_eq!(fx.remote_ledger(), before);
+        assert_exit(&fx.tsk(&a, &["thread", "pause", &id, "later", "x"]), 1);
+
+        // An empty task ID is accepted, and the entry records a null mission.
+        assert_eq!(
+            fx.ok(&a, &["thread", "pause", &id, "", "Review the draft"]),
+            format!("paused:{}\n", id)
+        );
+        let latest = fx.latest_entry(&a, &id);
+        assert!(latest["mission_id"].is_null(), "{}", latest);
+        assert!(latest.get("mission_link").is_none(), "{}", latest);
+        assert_eq!(latest["task_id"], "");
+        assert_eq!(latest["whats_next"], "Review the draft");
+        let stored = stored_entries(&fx, &a, &id);
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].get("mission_id"), Some(&serde_json::Value::Null));
+        let row = fx.thread_row(&a, &id);
+        assert!(row["mission_id"].is_null(), "{}", row);
+        assert_eq!(row["latest_whats_next"], "Review the draft");
+
+        // A cloud session starts a thread with no mission too.
+        fx.ok(&a, &["thread", "detach"]);
+        let cloud = fx.tsk_cloud(&a, "cse_none", &["thread", "start"]);
+        assert_success(&cloud);
+        let cloud_id = stdout(&cloud)
+            .trim_end()
+            .strip_prefix("started:")
+            .unwrap()
+            .to_string();
+        assert!(fx.thread_row(&a, &cloud_id)["mission_id"].is_null());
+        assert_eq!(
+            stdout(&fx.tsk_cloud(&a, "cse_none", &["thread", "binding"])),
+            format!("cloud:{}\n", cloud_id)
+        );
+    }
+
+    pub fn thread_set_mission_attaches_changes_and_detaches_a_mission(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let a = fx.a();
+        fx.ok(&a, &["mission", "create", "M-ONE", "First mission"]);
+        fx.ok(&a, &["mission", "create", "M-TWO", "Second mission"]);
+        fx.ok(&a, &["task", "add", "M-ONE", "One task"]);
+        fx.ok(&a, &["ledger", "push", "Add the missions"]);
+
+        let id = fx.started(&a, &["thread", "start"]);
+        fx.ok(&a, &["thread", "pause", &id, "", "before the mission"]);
+
+        // An unknown mission is refused, by name, and nothing is written.
+        let before = fx.remote_ledger();
+        let refused = fx.tsk(&a, &["thread", "set", "mission", "M-NONE"]);
+        assert_exit(&refused, 1);
+        assert!(
+            stderr(&refused).contains("no such mission: M-NONE"),
+            "{}",
+            stderr(&refused)
+        );
+        assert_eq!(stdout(&refused), "");
+        assert_eq!(fx.remote_ledger(), before);
+        assert!(stores_no_mission(&fx, &a, &id));
+
+        // The bound thread is the default.
+        assert_eq!(
+            fx.ok(&a, &["thread", "set", "mission", "M-ONE"]),
+            format!("mission-set:{}:M-ONE\n", id)
+        );
+        assert_ne!(fx.remote_ledger(), before);
+        let row = fx.thread_row(&a, &id);
+        assert_eq!(row["mission_id"], "M-ONE");
+        assert_eq!(row["mission_link"], "");
+
+        // A pause now checks the task against the mission, and records the mission. The
+        // entry written before keeps its null mission.
+        fx.ok(&a, &["thread", "pause", &id, "T-1", "with the mission"]);
+        let latest = fx.latest_entry(&a, &id);
+        assert_eq!(latest["mission_id"], "M-ONE");
+        assert_eq!(latest["task_id"], "T-01");
+        assert_exit(&fx.tsk(&a, &["thread", "pause", &id, "T-09", "x"]), 1);
+        let stored = stored_entries(&fx, &a, &id);
+        assert_eq!(stored.len(), 2);
+        assert!(stored[0]["mission_id"].is_null(), "{}", stored[0]);
+        assert_eq!(stored[0]["whats_next"], "before the mission");
+        assert_eq!(stored[1]["mission_id"], "M-ONE");
+
+        // The mission changes with an explicit thread ID, and the earlier entry keeps M-ONE.
+        fx.ok(&a, &["thread", "detach"]);
+        assert_eq!(
+            fx.ok(&a, &["thread", "set", "mission", "M-TWO", &id]),
+            format!("mission-set:{}:M-TWO\n", id)
+        );
+        assert_eq!(fx.thread_row(&a, &id)["mission_id"], "M-TWO");
+        fx.ok(&a, &["thread", "resume", &id]);
+        fx.ok(&a, &["thread", "pause", &id, "", "on the second mission"]);
+        let stored = stored_entries(&fx, &a, &id);
+        assert_eq!(stored.len(), 3);
+        assert_eq!(stored[1]["mission_id"], "M-ONE");
+        assert_eq!(stored[2]["mission_id"], "M-TWO");
+        // M-TWO has no tasks, so a task is refused by the mission record.
+        assert_exit(&fx.tsk(&a, &["thread", "pause", &id, "T-01", "x"]), 1);
+
+        // A mission known only by its briefing stores the briefing path.
+        fx.ok(&a, &["thread", "set", "mission", "M-CONF-01"]);
+        let row = fx.thread_row(&a, &id);
+        assert_eq!(row["mission_id"], "M-CONF-01");
+        assert_eq!(row["mission_link"], BRIEFING);
+
+        // Another clone sees the change.
+        let b_clone = fx.b();
+        assert_eq!(fx.thread_row(&b_clone, &id)["mission_id"], "M-CONF-01");
+
+        // --none detaches the mission, and the briefing path goes with it.
+        assert_eq!(
+            fx.ok(&a, &["thread", "set", "mission", "--none"]),
+            format!("mission-cleared:{}\n", id)
+        );
+        assert!(stores_no_mission(&fx, &a, &id));
+        let row = fx.thread_row(&a, &id);
+        assert!(row["mission_id"].is_null(), "{}", row);
+        assert_eq!(row["mission_link"], "");
+        let refused = fx.tsk(&a, &["thread", "pause", &id, "T-01", "x"]);
+        assert_exit(&refused, 1);
+        assert!(stderr(&refused).contains(NO_MISSION_ERROR));
+        // The entries are untouched.
+        let stored = stored_entries(&fx, &a, &id);
+        assert_eq!(stored.len(), 3);
+        assert_eq!(stored[1]["mission_id"], "M-ONE");
+
+        // --none with an explicit thread ID, after a mission is set again.
+        fx.ok(&a, &["thread", "set", "mission", "M-ONE"]);
+        fx.ok(&a, &["thread", "detach"]);
+        assert_eq!(
+            fx.ok(&a, &["thread", "set", "mission", "--none", &id]),
+            format!("mission-cleared:{}\n", id)
+        );
+        assert!(stores_no_mission(&fx, &a, &id));
+
+        // Refusals: no binding and no thread ID, an unknown thread, a bad ID, and --none
+        // with a mission ID.
+        let unbound = fx.tsk(&a, &["thread", "set", "mission", "M-ONE"]);
+        assert_exit(&unbound, 1);
+        assert!(
+            stderr(&unbound).contains("no thread binding found"),
+            "{}",
+            stderr(&unbound)
+        );
+        let unknown = fx.tsk(&a, &["thread", "set", "mission", "M-ONE", "zzzzzzzz"]);
+        assert_exit(&unknown, 1);
+        assert!(
+            stderr(&unknown).contains("no such thread: zzzzzzzz"),
+            "{}",
+            stderr(&unknown)
+        );
+        assert_exit(
+            &fx.tsk(&a, &["thread", "set", "mission", "M-ONE", "bad"]),
+            1,
+        );
+        let both = fx.tsk(&a, &["thread", "set", "mission", "--none", "M-ONE", &id]);
+        assert_exit(&both, 1);
+        assert!(stderr(&both).contains("--none"), "{}", stderr(&both));
+        assert!(stores_no_mission(&fx, &a, &id));
+    }
+
+    pub fn session_start_says_a_bound_thread_with_no_mission_has_no_tasks(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-REC", "Recorded mission"]);
+        fx.ok(&a, &["task", "add", "M-REC", "Open one"]);
+        fx.ok(&a, &["ledger", "push", "Add the mission"]);
+        let id = fx.started(&a, &["thread", "start"]);
+
+        let binding = format!(
+            "An existing thread binding was found: worktree:{}. Run /tsk:resume-thread {} next.",
+            id, id
+        );
+        let attach = "To attach a mission, run `tsk thread set mission <mission-id>`.";
+
+        // No pause entry yet.
+        for (session, format) in [("s-nm-1", "claude"), ("s-nm-2", "copilot")] {
+            let context = fx.session_context(&a, session, format);
+            let expected = format!(
+                "{} This thread has no mission, so it has no tasks. Its latest what's next: none yet. {}",
+                binding, attach
+            );
+            assert!(context.contains(&expected), "{}", context);
+            assert!(
+                !context.contains("This thread works mission"),
+                "{}",
+                context
+            );
+        }
+
+        // With a pause entry, its what's next.
+        fx.ok(&a, &["thread", "pause", &id, "", "Review the draft"]);
+        for (session, format) in [("s-nm-3", "claude"), ("s-nm-4", "copilot")] {
+            let context = fx.session_context(&a, session, format);
+            let expected = format!(
+                "{} This thread has no mission, so it has no tasks. Its latest what's next: Review the draft. {}",
+                binding, attach
+            );
+            assert!(context.contains(&expected), "{}", context);
+        }
+
+        // With a mission, the context is the mission's, and says nothing of "no mission".
+        fx.ok(&a, &["thread", "set", "mission", "M-REC"]);
+        let context = fx.session_context(&a, "s-nm-5", "claude");
+        assert!(
+            context.contains("This thread works mission M-REC (todo): Recorded mission."),
+            "{}",
+            context
+        );
+        assert!(!context.contains("has no mission"), "{}", context);
+    }
+
     // --- Status, discard and decision dates ---
 
     /// The change line `status` prints for a mission record written locally.
@@ -2993,6 +3324,9 @@ conformance!(
     session_start_keeps_the_index_hint_for_a_bound_mission_with_no_record,
     session_start_shows_the_empty_ledger_note_only_without_records_and_documents,
     session_start_says_a_skipped_session_works_without_a_thread,
+    a_thread_can_start_with_no_mission_and_pause_with_an_empty_task,
+    thread_set_mission_attaches_changes_and_detaches_a_mission,
+    session_start_says_a_bound_thread_with_no_mission_has_no_tasks,
     thread_commands_carry_local_record_and_document_changes_to_the_remote,
     status_and_discard_report_and_drop_local_changes,
     status_counts_commits_ahead_and_behind_origin,
@@ -3037,6 +3371,9 @@ conformance!(
     session_start_keeps_the_index_hint_for_a_bound_mission_with_no_record,
     session_start_shows_the_empty_ledger_note_only_without_records_and_documents,
     session_start_says_a_skipped_session_works_without_a_thread,
+    a_thread_can_start_with_no_mission_and_pause_with_an_empty_task,
+    thread_set_mission_attaches_changes_and_detaches_a_mission,
+    session_start_says_a_bound_thread_with_no_mission_has_no_tasks,
     thread_commands_carry_local_record_and_document_changes_to_the_remote,
     status_and_discard_report_and_drop_local_changes,
     status_counts_commits_ahead_and_behind_origin,

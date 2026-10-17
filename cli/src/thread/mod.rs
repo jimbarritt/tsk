@@ -21,11 +21,13 @@ use session::Session;
 #[derive(Subcommand)]
 pub enum ThreadCommands {
     #[command(
-        about = "Mint a thread for a mission, bind this session or worktree to it, and push; prints started:<thread-id>, or resume-required:<thread-id> with exit status 2 when a binding exists. The mission must have a record, or a briefing document at missions/<category>/<ID>-<slug>.md; an unknown ID is refused. Clears tsk thread skip"
+        about = "Mint a thread, bind this session or worktree to it, and push; prints started:<thread-id>, or resume-required:<thread-id> with exit status 2 when a binding exists. With a mission ID the thread works that mission, which must have a record, or a briefing document at missions/<category>/<ID>-<slug>.md; an unknown ID is refused. With no mission ID the thread has no mission and no tasks; tsk thread set mission attaches one later. Clears tsk thread skip"
     )]
     Start {
-        #[arg(help = "Mission ID, for example M-TSK-SCHEMA")]
-        mission_id: String,
+        #[arg(
+            help = "Mission ID, for example M-TSK-SCHEMA; omit it to start a thread with no mission"
+        )]
+        mission_id: Option<String>,
         #[arg(
             hide = true,
             help = "No longer needed. Accepted and ignored, so older plugin skills keep working"
@@ -33,7 +35,7 @@ pub enum ThreadCommands {
         briefing_path: Option<String>,
     },
     #[command(
-        about = "Append a continuation state entry to a thread and push; prints paused:<thread-id>. The mission comes from the thread. When the mission has a record, a task ID must name one of its tasks"
+        about = "Append a continuation state entry to a thread and push; prints paused:<thread-id>. The mission comes from the thread. When the mission has a record, a task ID must name one of its tasks. A thread with no mission has no tasks: its task ID must be empty"
     )]
     Pause {
         #[arg(help = "Thread ID")]
@@ -61,6 +63,11 @@ pub enum ThreadCommands {
     Resume {
         #[arg(help = "Thread ID")]
         thread_id: String,
+    },
+    #[command(about = "Change a field of a thread; the one field today is the mission")]
+    Set {
+        #[command(subcommand)]
+        field: SetCommands,
     },
     #[command(
         about = "Remove this session's or worktree's binding without deleting the thread; prints detached:<thread-id>"
@@ -110,6 +117,27 @@ pub enum ThreadCommands {
             help = "In a Claude Code cloud session (CLAUDE_CODE_REMOTE=true), install the tsk plugin first, as tsk install-plugin does; only claude-cli is accepted. Step lines go to stderr. A failure adds a warning to the context"
         )]
         install_plugin: Option<crate::install_plugin::Target>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SetCommands {
+    #[command(
+        about = "Attach a mission to a thread, or change or remove its mission, and push; prints mission-set:<thread-id>:<mission-id>, or mission-cleared:<thread-id> with --none. The mission must have a record, or a briefing document at missions/<category>/<ID>-<slug>.md; an unknown ID is refused. Earlier continuation entries keep the mission they were written with"
+    )]
+    Mission {
+        #[arg(
+            help = "Mission ID, for example M-TSK-SCHEMA; with --none, the thread ID instead",
+            required_unless_present = "none"
+        )]
+        mission_id: Option<String>,
+        #[arg(help = "Thread ID; defaults to the thread this session or worktree is bound to")]
+        thread_id: Option<String>,
+        #[arg(
+            long,
+            help = "Remove the thread's mission instead of setting one; takes the thread ID alone"
+        )]
+        none: bool,
     },
 }
 
@@ -188,7 +216,7 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                     "note: the briefing path argument of tsk thread start is no longer needed and is ignored"
                 );
             }
-            match ops::start(&session, &mission_id)? {
+            match ops::start(&session, mission_id.as_deref())? {
                 StartOutcome::Started(id) => {
                     println!("started:{}", id);
                     Ok(0)
@@ -217,6 +245,33 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
             };
             ops::pause(&session, &thread_id, &task_id, &whats_next)?;
             println!("paused:{}", thread_id);
+            Ok(0)
+        }
+        ThreadCommands::Set {
+            field:
+                SetCommands::Mission {
+                    mission_id,
+                    thread_id,
+                    none,
+                },
+        } => {
+            // With --none the only positional is the thread ID.
+            let (mission_id, thread_id) = if none {
+                if thread_id.is_some() {
+                    return Err(
+                        "error: --none takes no mission ID: tsk thread set mission --none [<thread-id>]"
+                            .to_string(),
+                    );
+                }
+                (None, mission_id)
+            } else {
+                (mission_id, thread_id)
+            };
+            let done = ops::set_mission(&session, mission_id.as_deref(), thread_id.as_deref())?;
+            match done.mission_id {
+                Some(mission_id) => println!("mission-set:{}:{}", done.thread_id, mission_id),
+                None => println!("mission-cleared:{}", done.thread_id),
+            }
             Ok(0)
         }
         ThreadCommands::Skip => {

@@ -77,8 +77,10 @@ tsk ledger status [--porcelain]          print Local (what is not pushed) and Or
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
 tsk ledger migrate-to-dolt               one-off: move a file ledger into a Dolt database and push it
 
-tsk thread start <mission-id>                                          mint and bind a thread for a mission, push
+tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push
 tsk thread pause <thread-id> <task-id> <whats-next>                   append a continuation state entry, push
+tsk thread set mission <mission-id> [<thread-id>]                     attach or change a thread's mission, push
+tsk thread set mission --none [<thread-id>]                           remove a thread's mission, push
 tsk thread resume <thread-id>                                         bind to a thread, print its latest entry
 tsk thread detach                                                     remove this session's or code worktree's binding
 tsk thread skip                                                       work without a thread; local to this clone, never pushed
@@ -97,7 +99,9 @@ tsk events advance-watermark <count>                                      set th
 `<mission-id>` is a mission with a record, or a mission with a briefing document at
 `missions/<category>/<mission-id>-<slug>.md`. `tsk thread start` refuses an unknown ID.
 `<task-id>` can be empty. When the thread's mission has a record, `tsk thread pause`
-refuses a task that is not one of its tasks, and writes `T-5` as `T-01`. The old forms
+refuses a task that is not one of its tasks, and writes `T-5` as `T-01`. A thread started
+with no mission ID has no mission and no tasks: its task ID must be empty, and
+`tsk thread set mission <mission-id>` attaches a mission later. The old forms
 `thread start <mission-id> <briefing-path>` and
 `thread pause <thread-id> <mission-link> <task-id> <whats-next>` still work. The path and
 the link are ignored.
@@ -220,12 +224,13 @@ stderr.
 | Command | Stdout on success | Other exits |
 |---|---|---|
 | `thread start` | `started:<thread-id>` | `resume-required:<thread-id>` and exit status 2 when a binding exists |
-| `thread pause` | `paused:<thread-id>` | exit 1 when the managed repo's `HEAD` is not on any branch on origin |
+| `thread pause` | `paused:<thread-id>` | exit 1 when the managed repo's `HEAD` is not on any branch on origin, or when a thread with no mission gets a task ID |
+| `thread set mission` | `mission-set:<thread-id>:<mission-id>`, or `mission-cleared:<thread-id>` with `--none` | exit 1 for an unknown mission or thread, or with no thread ID and no binding |
 | `thread resume` | `{"thread_id":"...","latest":{...},"warning":"..."}` | |
 | `thread detach` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding |
 | `thread stop` | `stopped:<thread-id>` | exit 1 with no binding and no thread ID given |
 | `thread skip` | `skipped` | |
-| `thread list` | one compact JSON object per line: `id`, `mission_id`, `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp` | |
+| `thread list` | one compact JSON object per line: `id`, `mission_id` (null for a thread with no mission), `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp` | |
 | `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding |
 | `thread guard` | nothing when bound, after `thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | |
 
