@@ -137,6 +137,12 @@ Stated by Jim, 2026-10-15.
   that name it. This follows the rule that the work's facts are records and reasoned
   documents sit with what they explain, and it serves the aim of navigating the graph
   from different perspectives. Decided by Jim, 2026-10-16.
+- Reading one mission in full: there is still no `show` command and no Markdown
+  output. `tsk mission list <id> --json` prints the whole record, and the agent guide
+  says so. Projections, which render records as Markdown for people, are planned (plan
+  task T-14); until they exist the agent renders its own summary from the JSON. This
+  keeps the decision of 2026-10-15 after issue #5 asked for `mission show`. Decided by
+  Jim, 2026-10-17.
 
 ## Custom refs by default, branches for cloud sessions
 
