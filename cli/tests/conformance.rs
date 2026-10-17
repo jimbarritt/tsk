@@ -118,6 +118,40 @@ impl Fixture {
         fixture
     }
 
+    /// A fixture that costs many `tsk` and `dolt` runs to build is built once per test
+    /// process, then copied for each test that asks for it. `build` returns the fixture
+    /// and a note a test may need from it (a thread ID, say). The copy is a real
+    /// filesystem copy. Every file that holds the path of the built fixture, such as a
+    /// git remote URL or a Dolt remote, is rewritten to the path of the copy.
+    fn cached(
+        key: &str,
+        backend: Backend,
+        build: impl FnOnce() -> (Fixture, String),
+    ) -> (Fixture, String) {
+        let (template, built_at, note) = {
+            let mut templates = TEMPLATES.lock().unwrap_or_else(|e| e.into_inner());
+            if !templates.contains_key(key) {
+                let (built, note) = build();
+                let dir = template_store().join(key);
+                run_cp(&built.root.path().join("."), &dir);
+                let built_at = built.root.path().to_string_lossy().into_owned();
+                templates.insert(key.to_string(), (dir, built_at, note));
+            }
+            templates[key].clone()
+        };
+        let fixture = Fixture {
+            root: tempfile::tempdir().unwrap(),
+            backend,
+        };
+        run_cp(&template.join("."), fixture.root.path());
+        rewrite_paths(
+            fixture.root.path(),
+            &built_at,
+            &fixture.root.path().to_string_lossy(),
+        );
+        (fixture, note)
+    }
+
     fn origin(&self) -> PathBuf {
         self.root.path().join("origin.git")
     }
@@ -283,11 +317,92 @@ impl Fixture {
 
     /// A ledger with the briefing published from clone A.
     fn with_briefing(backend: Backend) -> Fixture {
+        Fixture::cached(&format!("briefing-{}", backend.name()), backend, || {
+            (Fixture::build_with_briefing(backend), String::new())
+        })
+        .0
+    }
+
+    fn build_with_briefing(backend: Backend) -> Fixture {
         let fx = Fixture::new(backend);
         fx.ok(&fx.a(), &["ledger", "fetch"]);
         fx.put(&fx.a(), BRIEFING, "# Mission: conformance\n");
         fx.ok(&fx.a(), &["ledger", "push", "Add the briefing"]);
         fx
+    }
+
+    /// A new ledger fetched into clone A, which publishes nothing.
+    fn fetched(backend: Backend) -> Fixture {
+        Fixture::cached(&format!("fetched-{}", backend.name()), backend, || {
+            let fx = Fixture::new(backend);
+            fx.ok(&fx.a(), &["ledger", "fetch"]);
+            (fx, String::new())
+        })
+        .0
+    }
+}
+
+type Templates = std::collections::BTreeMap<String, (PathBuf, String, String)>;
+
+static TEMPLATES: std::sync::Mutex<Templates> = std::sync::Mutex::new(Templates::new());
+
+/// The directory that holds this process's fixture templates, under the target
+/// directory. The next test run removes it, with any other store whose process has
+/// ended.
+fn template_store() -> PathBuf {
+    static STORE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    STORE
+        .get_or_init(|| {
+            let parent = Path::new(env!("CARGO_TARGET_TMPDIR"));
+            let prefix = "conformance-templates-";
+            if let Ok(entries) = std::fs::read_dir(parent) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if let Some(pid) = name.strip_prefix(prefix) {
+                        if !Path::new("/proc").join(pid).exists() {
+                            let _ = std::fs::remove_dir_all(entry.path());
+                        }
+                    }
+                }
+            }
+            let dir = parent.join(format!("{}{}", prefix, std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            dir
+        })
+        .clone()
+}
+
+/// `cp -a from to`, which keeps modes, times and links. `from` ends in `/.` to copy the
+/// content of a directory.
+fn run_cp(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    let output = Command::new("cp")
+        .arg("-a")
+        .arg(from)
+        .arg(to)
+        .output()
+        .expect("failed to run cp");
+    assert!(output.status.success(), "cp failed: {}", stderr(&output));
+}
+
+/// Replace `old` by `new` in every file under `dir` that holds it. A file that holds it
+/// and is not UTF-8 text fails the test: a byte replacement could corrupt it.
+fn rewrite_paths(dir: &Path, old: &str, new: &str) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        let kind = std::fs::symlink_metadata(&path).unwrap().file_type();
+        if kind.is_dir() {
+            rewrite_paths(&path, old, new);
+        } else if kind.is_file() {
+            let bytes = std::fs::read(&path).unwrap();
+            if !bytes.windows(old.len()).any(|w| w == old.as_bytes()) {
+                continue;
+            }
+            let text = String::from_utf8(bytes)
+                .unwrap_or_else(|_| panic!("{} holds a path and is not text", path.display()));
+            std::fs::write(&path, text.replace(old, new)).unwrap();
+        }
     }
 }
 
@@ -536,9 +651,8 @@ mod cases {
     }
 
     pub fn documents_round_trip_between_clones(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let (a, other) = (fx.a(), fx.b());
-        fx.ok(&a, &["ledger", "fetch"]);
         let awkward = "no newline at end \"quoted\" 'single' \\ back\n\ttab; drop table documents; -- \u{e9} \u{65e5}\u{672c} \u{1f600}\r\nlast";
         fx.put(&a, "missions/b.md", awkward);
         fx.put(&a, "missions/a.md", "a");
@@ -989,9 +1103,8 @@ mod cases {
     }
 
     pub fn events_append_read_new_and_advance_the_watermark(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let (a, other) = (fx.a(), fx.b());
-        fx.ok(&a, &["ledger", "fetch"]);
         assert_eq!(
             fx.ok(&a, &["events", "read-new"]),
             "{\"new_count\":0,\"total_count\":0,\"events\":[]}\n"
@@ -1042,9 +1155,8 @@ mod cases {
     }
 
     pub fn a_stale_push_is_merged_when_different_rows_changed(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let (a, other) = (fx.a(), fx.b());
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.put(&a, "base.md", "base\n");
         fx.ok(&a, &["ledger", "push", "Base"]);
         fx.ok(&other, &["ledger", "fetch"]);
@@ -1067,9 +1179,8 @@ mod cases {
     }
 
     pub fn a_same_row_conflict_stops_and_leaves_the_remote_unchanged(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let (a, other) = (fx.a(), fx.b());
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.put(&a, "shared.md", "base\n");
         fx.ok(&a, &["ledger", "push", "Base"]);
         fx.ok(&other, &["ledger", "fetch"]);
@@ -1092,9 +1203,8 @@ mod cases {
     }
 
     pub fn doc_path_prints_the_file_and_bad_paths_are_refused(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.put(&a, "missions/p.md", "x\n");
 
         let printed = fx.ok(&a, &["ledger", "doc", "path", "missions/p.md"]);
@@ -1136,9 +1246,8 @@ mod cases {
     }
 
     pub fn documents_that_the_ledger_does_not_reserve_follow_the_backend(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         // The file ledger keeps threads/ for itself. Documents on the docs branch have
         // no reserved names.
         let put = fx.tsk_stdin(&a, &["ledger", "doc", "put", "threads/note.md"], "n\n");
@@ -1169,9 +1278,8 @@ mod cases {
     }
 
     pub fn missions_are_created_and_listed_one_per_line(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         assert_eq!(fx.ok(&a, &["mission", "list"]), "");
         assert_eq!(fx.ok(&a, &["mission", "create", "M-B-TWO", "Second"]), "");
         fx.ok(&a, &["mission", "create", "M-A1", "First one"]);
@@ -1248,9 +1356,8 @@ mod cases {
     }
 
     pub fn every_mission_field_round_trips(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let (a, other) = (fx.a(), fx.b());
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-F", "Fields"]);
         fx.ok(&a, &["ledger", "push", "Base"]);
         fx.ok(&other, &["ledger", "fetch"]);
@@ -1313,9 +1420,8 @@ mod cases {
     }
 
     pub fn status_accepts_three_values_and_an_administrative_mission_keeps_one(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-OP", "Operational"]);
         fx.ok(
             &a,
@@ -1360,9 +1466,8 @@ mod cases {
     }
 
     pub fn blocks_are_checked_and_blocked_is_derived(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let (a, other) = (fx.a(), fx.b());
-        fx.ok(&a, &["ledger", "fetch"]);
         for (id, name) in [("M-A", "Alpha"), ("M-B", "Beta"), ("M-C", "Gamma")] {
             fx.ok(&a, &["mission", "create", id, name]);
         }
@@ -1449,9 +1554,8 @@ mod cases {
     }
 
     pub fn objective_outcomes_are_numbered_and_numbers_are_not_reused(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-O", "Objectives"]);
         assert_eq!(
             fx.ok(&a, &["mission", "objective", "add", "M-O", "First"]),
@@ -1530,9 +1634,8 @@ mod cases {
     }
 
     pub fn documents_are_linked_by_path_and_checked_at_push(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-D", "Documents"]);
         fx.put(&a, "missions/M-D/report.md", "# Report\n");
 
@@ -1663,9 +1766,8 @@ mod cases {
     }
 
     pub fn mission_writes_stay_local_until_the_push(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let (a, other) = (fx.a(), fx.b());
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-BASE", "Base"]);
         fx.ok(&a, &["ledger", "push", "Base"]);
         fx.ok(&other, &["ledger", "fetch"]);
@@ -1696,9 +1798,8 @@ mod cases {
     }
 
     pub fn two_clones_add_missions_that_merge_and_one_field_conflicts(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let (a, other) = (fx.a(), fx.b());
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-BASE", "Base"]);
         fx.ok(&a, &["ledger", "push", "Base"]);
         fx.ok(&other, &["ledger", "fetch"]);
@@ -1752,9 +1853,8 @@ mod cases {
     }
 
     pub fn the_json_record_has_every_field(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-P", "Parent"]);
         fx.ok(&a, &["mission", "create", "M-Q", "Blocker"]);
         fx.ok(&a, &["mission", "create", "M-J", "Json", "--parent", "M-P"]);
@@ -1845,9 +1945,8 @@ mod cases {
     }
 
     fn mission_with_tasks(b: Backend, tasks: usize) -> (Fixture, PathBuf) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-T", "Tasks"]);
         for i in 1..=tasks {
             assert_eq!(
@@ -2291,9 +2390,8 @@ mod cases {
     }
 
     pub fn two_clones_add_records_to_different_missions_and_the_ledgers_merge(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let (a, other) = (fx.a(), fx.b());
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-ONE", "One"]);
         fx.ok(&a, &["mission", "create", "M-TWO", "Two"]);
         fx.ok(&a, &["ledger", "push", "Base"]);
@@ -2395,9 +2493,8 @@ mod cases {
     }
 
     pub fn thread_pause_checks_the_task_against_the_mission_record(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
         fx.ok(&a, &["task", "add", "M-REC", "First task"]);
         fx.put(&a, "missions/operational/M-LEG-legacy.md", "# Legacy\n");
@@ -2556,9 +2653,8 @@ mod cases {
     }
 
     pub fn the_stop_hook_check_passes_when_the_ledger_has_no_missions(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         assert_eq!(fx.guard_reason(&a, None), None);
         assert_eq!(stdout(&fx.guard(&a, None)), "");
 
@@ -2636,9 +2732,8 @@ mod cases {
     }
 
     pub fn session_start_names_the_bound_mission_with_its_open_tasks(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-REC", "Recorded mission"]);
         fx.ok(&a, &["mission", "create", "M-DONE", "Finished mission"]);
         fx.ok(&a, &["mission", "set", "M-DONE", "status", "done"]);
@@ -2707,9 +2802,8 @@ mod cases {
     }
 
     pub fn thread_commands_carry_local_record_and_document_changes_to_the_remote(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let (a, other) = (fx.a(), fx.b());
-        fx.ok(&a, &["ledger", "fetch"]);
 
         // Records and a document written since the last push.
         fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
@@ -2799,9 +2893,8 @@ mod cases {
     pub fn session_start_shows_the_empty_ledger_note_only_without_records_and_documents(
         b: Backend,
     ) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         let empty = fx.session_context(&a, "s-empty", "claude");
         assert!(empty.contains("run `tsk guide import`"), "{}", empty);
         // The unbound prompt names `tsk mission list`, never the retired index.
@@ -3104,9 +3197,8 @@ mod cases {
     }
 
     pub fn session_start_says_a_bound_thread_with_no_mission_has_no_tasks(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-REC", "Recorded mission"]);
         fx.ok(&a, &["task", "add", "M-REC", "Open one"]);
         fx.ok(&a, &["ledger", "push", "Add the mission"]);
@@ -3952,9 +4044,8 @@ mod cases {
     pub fn constraints_and_out_of_scope_are_numbered_lists_whose_numbers_are_not_reused(
         b: Backend,
     ) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let (a, other) = (fx.a(), fx.b());
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-L", "Lists"]);
         fx.ok(&a, &["mission", "create", "M-U", "Untouched"]);
         for (command, key, noun) in [
@@ -4065,9 +4156,8 @@ mod cases {
     }
 
     pub fn mission_set_refuses_the_list_fields_and_keeps_the_text_fields(b: Backend) {
-        let fx = Fixture::new(b);
+        let fx = Fixture::fetched(b);
         let a = fx.a();
-        fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-S", "Set"]);
         fx.ok(&a, &["mission", "constraint", "add", "M-S", "keep"]);
         let before = mission_json(&fx, &a, "M-S");
@@ -4364,9 +4454,8 @@ fn dolt_session_start_exports_the_database_path_and_warns_about_pending_commits(
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::new(Backend::Dolt);
+    let fx = Fixture::fetched(Backend::Dolt);
     let a = fx.a();
-    fx.ok(&a, &["ledger", "fetch"]);
     fx.put(&a, "index.md", "# Dolt\n");
     fx.ok(&a, &["ledger", "push", "Publish"]);
 
@@ -4451,9 +4540,8 @@ fn session_start_names_the_import_guide_only_while_the_ledger_has_no_missions() 
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::new(Backend::Dolt);
+    let fx = Fixture::fetched(Backend::Dolt);
     let a = fx.a();
-    fx.ok(&a, &["ledger", "fetch"]);
     let session_start = |session: &str| {
         let mut child = fx
             .command(&a, "dolt", &["thread", "session-start"])
@@ -4510,9 +4598,8 @@ fn dolt_documents_are_plain_files_on_the_docs_branch_and_dolt_files_on_the_ledge
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::new(Backend::Dolt);
+    let fx = Fixture::fetched(Backend::Dolt);
     let (a, other) = (fx.a(), fx.b());
-    fx.ok(&a, &["ledger", "fetch"]);
     fx.put(&a, "missions/M-X.md", AWKWARD);
     fx.put(&a, "notes/empty.md", "");
     let pushed = fx.ok(&a, &["ledger", "push", "Add documents"]);
@@ -4675,9 +4762,8 @@ fn a_stale_docs_push_is_rebased_for_different_files_and_refused_for_the_same_fil
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::new(Backend::Dolt);
+    let fx = Fixture::fetched(Backend::Dolt);
     let (a, other) = (fx.a(), fx.b());
-    fx.ok(&a, &["ledger", "fetch"]);
     fx.put(&a, "base.md", "base\n");
     fx.ok(&a, &["ledger", "push", "Base"]);
     fx.ok(&other, &["ledger", "fetch"]);
@@ -4852,6 +4938,13 @@ impl Fixture {
     /// A published Dolt ledger at version 2, as the previous release left it: clone A
     /// drops the mission tables, records the version and pushes.
     fn version_two_ledger() -> Fixture {
+        Fixture::cached("version-two", Backend::Dolt, || {
+            (Fixture::build_version_two_ledger(), String::new())
+        })
+        .0
+    }
+
+    fn build_version_two_ledger() -> Fixture {
         let fx = Fixture::new(Backend::Dolt);
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
@@ -4873,6 +4966,13 @@ impl Fixture {
     /// A published Dolt ledger at version 3, as the previous release left it: one mission
     /// with an objective outcome and a blocker, and no task, decision or question tables.
     fn version_three_ledger() -> Fixture {
+        Fixture::cached("version-three", Backend::Dolt, || {
+            (Fixture::build_version_three_ledger(), String::new())
+        })
+        .0
+    }
+
+    fn build_version_three_ledger() -> Fixture {
         let fx = Fixture::new(Backend::Dolt);
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
@@ -5007,9 +5107,8 @@ fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_eight() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::new(Backend::Dolt);
+    let fx = Fixture::fetched(Backend::Dolt);
     let a = fx.a();
-    fx.ok(&a, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&a), "8");
     let tables = fx.tables(&a);
     for table in MISSION_TABLES {
@@ -5168,6 +5267,13 @@ impl Fixture {
     /// has no `mission_id`, its `briefing_path` is not null, and it holds one legacy
     /// thread for the briefing of M-CONF-01.
     fn version_four_ledger() -> Fixture {
+        Fixture::cached("version-four", Backend::Dolt, || {
+            (Fixture::build_version_four_ledger(), String::new())
+        })
+        .0
+    }
+
+    fn build_version_four_ledger() -> Fixture {
         let fx = Fixture::new(Backend::Dolt);
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
@@ -5264,9 +5370,8 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::new(Backend::Dolt);
+    let fx = Fixture::fetched(Backend::Dolt);
     let a = fx.a();
-    fx.ok(&a, &["ledger", "fetch"]);
     fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '9')");
     for args in [
         vec!["mission", "list"],
@@ -5416,6 +5521,13 @@ impl Fixture {
     /// A published Dolt ledger at version 5, as the previous release left it: a mission
     /// with a task and a decision, and a `decisions` table without `adr_path`.
     fn version_five_ledger() -> Fixture {
+        Fixture::cached("version-five", Backend::Dolt, || {
+            (Fixture::build_version_five_ledger(), String::new())
+        })
+        .0
+    }
+
+    fn build_version_five_ledger() -> Fixture {
         let fx = Fixture::new(Backend::Dolt);
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
@@ -5582,6 +5694,13 @@ impl Fixture {
     /// M-OLD holds lines with blanks, padding and a Windows line break, M-BLANK holds
     /// only white space, and M-NULL holds nothing.
     fn version_six_ledger() -> Fixture {
+        Fixture::cached("version-six", Backend::Dolt, || {
+            (Fixture::build_version_six_ledger(), String::new())
+        })
+        .0
+    }
+
+    fn build_version_six_ledger() -> Fixture {
         let fx = Fixture::new(Backend::Dolt);
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
@@ -5800,9 +5919,8 @@ fn a_thread_write_moves_the_lists_of_a_version_six_ledger_too() {
 
 #[test]
 fn the_file_ledger_reads_a_record_that_holds_its_lists_as_strings() {
-    let fx = Fixture::new(Backend::Git);
+    let fx = Fixture::fetched(Backend::Git);
     let (a, other) = (fx.a(), fx.b());
-    fx.ok(&a, &["ledger", "fetch"]);
     fx.ok(&a, &["mission", "create", "M-OLD", "Old record"]);
     // The record as the previous release wrote it: both lists are strings, and the
     // counters do not exist.
@@ -5874,8 +5992,17 @@ impl Fixture {
     /// are rows of `cloud_session_bindings`, and the one thread is bound by `cse_old`.
     /// Returns the thread ID.
     fn version_seven_ledger() -> (Fixture, String) {
-        let fx = Fixture::with_briefing(Backend::Dolt);
+        Fixture::cached(
+            "version-seven",
+            Backend::Dolt,
+            Fixture::build_version_seven_ledger,
+        )
+    }
+
+    fn build_version_seven_ledger() -> (Fixture, String) {
+        let fx = Fixture::build_with_briefing(Backend::Dolt);
         let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
         let start = fx.tsk_cloud(&a, "cse_old", &["thread", "start", "M-CONF-01"]);
         assert_success(&start);
         let id = stdout(&start)
