@@ -5,8 +5,11 @@ description: Reference for the tsk command line: the ledger, threads and binding
 
 # tsk: agent context
 
-tsk tracks missions and the threads that work them. The missions, threads and their
-continuation state live in a **ledger**: a Dolt database synced over a git branch,
+tsk tracks missions and the threads that work them. The missions, their tasks, decisions
+and questions, the threads and their continuation state live in a **ledger**. They are
+records, typed rows in a Dolt database, written only through `tsk` commands. Free text
+(intelligence, research, reports) is Markdown documents on a second branch. The ledger is a
+Dolt database synced over a git branch,
 `refs/heads/tsk/ledger` on the managed repo's `origin` by default, cloned to a local
 ledger store (`ledger-db`) outside the repository. For a repo that cannot hold a ledger branch, the ledger is
 `refs/heads/ledgers/<repo-id>` in the nexus repo (see Nexus ledgers below). The `ledger`, `thread` and `events` commands run in the `tsk` binary alone, with no
@@ -19,9 +22,13 @@ Design references in the tsk repository: every ledger file and format is in
 ## Core concepts
 
 A **thread** is one line of work on a mission. Its ID is 8 characters from `[0-9a-z]`.
-Each thread has a directory on the ledger, `threads/<thread-id>/`, that holds `index.md`
-(the mission, with a link to its briefing when it has no record) and `continuation-state.jsonl` (one continuation state
-entry per pause).
+A thread names a mission, or has none, and holds one continuation state entry per pause.
+The file ledger keeps a thread as a directory, `threads/<thread-id>/`, with `index.md`
+and `continuation-state.jsonl`. The Dolt ledger keeps it in tables.
+
+To see the state of the work, run `tsk mission list` for the missions, `tsk mission list
+<id> --json` for one mission in full, `tsk task list <id>`, `tsk decision list <id>` and
+`tsk question list`. There is no index document and no briefing document to read.
 
 A **binding** ties the current session or code worktree to a thread:
 
@@ -78,7 +85,7 @@ tsk nexus register-repo [--id <id>] [--territory <id>] [--territory-name <name>]
 tsk ledger fetch                         fetch the ledger branch (creating a new ledger when it does not exist), refresh the local ledger store, print the path
 tsk ledger path                          print the ledger store path (the Dolt database); no fetch, no writes
 tsk ledger push "<message>"              commit every local ledger change, pull and push; prints the ledger commit
-tsk ledger doc get <path>                print a document's body (index.md, future-missions-tbd.md, missions/...)
+tsk ledger doc get <path>                print a document's body
 tsk ledger doc put <path> [<file>]       write a document from <file>, or from stdin; changes the local store only
 tsk ledger doc list [<prefix>]           list document paths, optionally under a prefix
 tsk ledger doc rm <path>                 remove a document; changes the local store only
@@ -97,7 +104,8 @@ tsk thread stop [<thread-id>]                                         delete a t
 tsk thread list                                                       list threads, most recently paused first
 tsk thread binding [--no-fetch]                                       print the current binding
 tsk thread guard                                                      Stop hook check for a binding; never fetches
-tsk thread session-start                                              SessionStart hook: fetch the ledger, export TSK_LEDGER_WT, print the hook output JSON
+tsk thread session-start [--format claude|copilot] [--plugin-version <semver>]
+                                                                      SessionStart hook: fetch the ledger, export TSK_LEDGER_WT, print the hook output JSON; warns when the plugin is older than this tsk expects
 
 tsk events append <source> <event-type> <action> <repo> <payload-file>   queue one event envelope, push
 tsk events append-batch [--source <s>] [--action <a>]                    queue every NDJSON event line on stdin, push once
@@ -105,15 +113,15 @@ tsk events read-new                                                       print 
 tsk events advance-watermark <count>                                      set the watermark to <count>, push
 ```
 
-`<mission-id>` is a mission with a record, or a mission with a briefing document at
-`missions/<category>/<mission-id>-<slug>.md`. `tsk thread start` refuses an unknown ID.
+`<mission-id>` is a mission with a record, for example `M-TSK-SCHEMA`. `tsk thread start`
+refuses an unknown ID.
 `<task-id>` can be empty. When the thread's mission has a record, `tsk thread pause`
 refuses a task that is not one of its tasks, and writes `T-5` as `T-01`. A thread started
 with no mission ID has no mission and no tasks: its task ID must be empty, and
 `tsk thread set mission <mission-id>` attaches a mission later. The old forms
 `thread start <mission-id> <briefing-path>` and
-`thread pause <thread-id> <mission-link> <task-id> <whats-next>` still work. The path and
-the link are ignored.
+`thread pause <thread-id> <mission-link> <task-id> <whats-next>` still work, with a note on
+stderr. The path and the link are ignored. Do not use them.
 
 ### Ledger
 
@@ -126,14 +134,18 @@ run `dolt` against it by hand. The `git` backend (the file ledger) is selected w
 Documents are plain Markdown files on a second branch, `refs/heads/tsk/docs` (on a nexus
 ledger, `refs/heads/ledgers/<repo-id>-docs`). They are checked out as a worktree beside the
 database, at `.../tsk/repos/<clone-id>/docs`. Read and change them with `tsk ledger doc`.
-Read the index with `tsk ledger doc get index.md` and a briefing with
-`tsk ledger doc get missions/<group>/<file>.md`. To change one, run
+Documents hold intelligence, research and reports. They do not hold state: a mission's
+purpose, tasks, decisions and questions are records, and a document must not repeat them.
+Link a document to its mission with `tsk mission link`. To write one, run
 `tsk ledger doc put <path>` (body on stdin, or a file argument), then
 `tsk ledger push "<message>"`. `doc put` and `doc rm` change the local worktree only.
 `tsk ledger doc path <path>` prints the absolute path of the document's file, to open it
 in another tool. `tsk ledger push` pushes the documents first and the Dolt data second, so
 a record never names a document the remote lacks. A rejected documents push stops it
 with exit 1 and the Dolt data stays unpushed. Run it again.
+
+The first `tsk` write on 0.14.0 upgrades the ledger to layout 8, and an older binary then
+stops with `unsupported ledger version`. Run `tsk self-update` to bring it up to date.
 
 A ledger at version 1 still keeps its documents in a Dolt table. Every command except
 `tsk ledger fetch` refuses it with `this ledger stores its documents in Dolt (version 1)`.
@@ -179,7 +191,8 @@ continuation state entry holds the Dolt commit hash. An older `tsk` finds no
 ### Missions
 
 A mission is data. Create and change it only with `tsk mission` commands, and never edit a
-mission row, file or briefing by any other route. Every command changes the local store
+mission row or file by any other route. A mission is done when its status is set to `done`.
+tsk does not check its objectives or tasks. Every command changes the local store
 only. `tsk ledger push` publishes.
 
 ```
@@ -309,4 +322,5 @@ The plugin provides `/tsk:start-thread`, `/tsk:pause-thread`, `/tsk:resume-threa
 
 No single command switches threads. To switch: `tsk thread binding` to find the current
 thread, `tsk thread detach`, optionally `tsk thread stop <old-thread-id>`, then
-`tsk thread resume <new-thread-id>`. `tsk thread list` gives the candidates.
+`tsk thread resume <new-thread-id>`. `tsk thread list` gives the candidates. To work with no
+thread at all, run `tsk thread skip`.

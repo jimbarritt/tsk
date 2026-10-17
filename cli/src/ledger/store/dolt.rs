@@ -1239,10 +1239,6 @@ impl LedgerStore for DoltStore {
             None => data,
         }
     }
-
-    fn read_index_hint(&self, _path: &Path) -> String {
-        "Read the index next with `tsk ledger doc get index.md`.".to_string()
-    }
 }
 
 impl DoltStore {

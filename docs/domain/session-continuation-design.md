@@ -104,10 +104,11 @@ Each thread has a directory, `threads/<slug>/`, holding the following. In the Do
 the directory is a row of the `threads` table: `mission_id`, and `briefing_path` only for a
 mission with no record.
 
-- `index.md`: a stable pointer. It names the mission by ID (`Mission: <id>`). A thread for
-  a mission with no record also links the mission briefing document. A thread made
-  before the ID was stored has the link only, and the reader derives the ID from the
-  link's file name.
+- `index.md` (file ledger only): a stable pointer. It names the mission by ID
+  (`Mission: <id>`). A thread for a mission with no record also links the mission
+  briefing document. A thread made before the ID was stored has the link only, and the
+  reader derives the ID from the link's file name. The Dolt ledger holds the mission ID
+  in the `threads` row.
 - `continuation-state.jsonl`: an append only store of continuation contexts that were
   passed between thread pause and resume. Named "thread continuation" in
   `docs/domain/ubiquitous-language.md`, qualified because the record already lives
@@ -267,7 +268,14 @@ work and prints the context message. It extends the ledger fetch with:
 3. If not found, prompt the agent to ask the human directly, as a structured question
    (`AskUserQuestion`: selectable options plus free text), not a plain message: no
    thread found, which mission do they want to work, with an initial inference offered
-   as a candidate option. Once answered, the agent runs `/tsk:start-thread`.
+   as a candidate option. The candidates come from `tsk mission list`. Once answered, the
+   agent runs `/tsk:start-thread`. A person who wants no thread gets `tsk thread skip`.
+4. If the ledger holds mission records and the session is unbound, the context also says
+   `Run `tsk mission list` to see the missions.` It does not name `index.md`, which the
+   record model retires. A bound thread gets its mission and open tasks instead.
+5. If the plugin that loaded the hook is older than the plugin version the binary
+   expects, the context says so and names the update command. The hook passes its own
+   version with `--plugin-version`.
 
 The hook never creates a thread itself. Both branches end by naming a command and
 letting the agent invoke it, not by the hook doing the loading or the asking itself.

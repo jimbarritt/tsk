@@ -2,6 +2,18 @@
 
 Start at [docs/index.md](docs/index.md) to find design docs, domain model, user guide, and ADRs by topic.
 
+## Migration note (2026-10-17)
+
+Missions, objectives, constraints, out of scope, tasks, decisions, questions and thread
+state are now records: typed rows in the Dolt database, written through `tsk` commands.
+The ledger is at layout 8. Markdown briefings and `index.md` are no longer the state of
+the work. Documents stay Markdown on `tsk/docs` for intelligence, research and reports.
+
+- The first `tsk` write on 0.14.0 or later upgrades a ledger to layout 8. A binary older
+  than that then stops with `unsupported ledger version`. Update it with `tsk self-update`.
+- Read state with `tsk mission list`. Do not look for `index.md` or a briefing.
+- `tsk guide import` describes how to bring a plan into the ledger as records.
+
 ## Migration note (2026-10-12)
 
 The ledger moved from files on `tsk/ledger` to a Dolt database in one commit. A session
@@ -66,13 +78,13 @@ the clone directory being renamed or moved. See
 `.git/`.
 
 **The ledger store is a Dolt database, not a directory of files.** Do not open files in
-it. Read and write documents with `tsk ledger doc` (below). The documents themselves are
-Markdown files on a second branch, `refs/heads/tsk/docs`, checked out as a worktree beside
-the database. Write them with `tsk ledger doc put`, and find a file on disk with
+it. It holds records, and the `tsk` commands read and write them. Documents are Markdown
+files on a second branch, `refs/heads/tsk/docs`, checked out as a worktree beside the
+database. Read and write them with `tsk ledger doc` (below), and find a file on disk with
 `tsk ledger doc path <path>`. `tsk ledger push` pushes the documents first and the Dolt
-data second. The backend is `dolt` by
-default. `[ledger] backend = "git"` in `${XDG_CONFIG_HOME:-$HOME/.config}/tsk/config.toml`,
-or `TSK_LEDGER_BACKEND=git`, selects the file ledger. This repo uses the default.
+data second. The backend is `dolt` by default. `[ledger] backend = "git"` in
+`${XDG_CONFIG_HOME:-$HOME/.config}/tsk/config.toml`, or `TSK_LEDGER_BACKEND=git`, selects
+the file ledger. This repo uses the default.
 
 **To read the path, use `tsk ledger path`, not `tsk ledger fetch`.** The fetch also
 refreshes the ledger store to origin's latest, so calling it merely to resolve a path
@@ -100,11 +112,6 @@ passes full ref names to git and is not affected. A git command you run by hand 
 `git fetch origin refs/heads/tsk/ledger`, then read `FETCH_HEAD`. Anything shorter is a
 guess, not a check.
 
-Read the index with `tsk ledger doc get index.md` for current state and next steps, then
-the briefing for the mission you are working, with
-`tsk ledger doc get missions/<group>/<file>.md`. `tsk ledger doc list missions/` lists
-the briefings.
-
 This repo overrides the user's global `~/.claude/CLAUDE.md` on task and mission
 tracking. Ignore any instruction there to read or maintain a plan file, and do not
 invoke any plan skill it names (`load-plan`, `update-plan`, `pause-plan`,
@@ -112,16 +119,49 @@ invoke any plan skill it names (`load-plan`, `update-plan`, `pause-plan`,
 Do not read `~/.planning/{project}/plan.md` or any other home-directory plan file
 for this repo. The ledger is the sole source of truth for task and mission state here.
 
-To update the index or a mission file, write it with `tsk ledger doc put <path>` (body on
-stdin, or a file as the second argument), then run
-`just ledger-push "<describe the update>"` from the repo root, or
-`tsk ledger push "<describe the update>"`. `doc put` changes the local store only. The
-push commits it in Dolt, pulls the latest ledger, and pushes back, up to 5 attempts. A
-merge conflict stops the push with exit 1 and names the conflicting tables. The local
-commit stays.
-
 Prose says "ledger store" for the local Dolt database and "code worktree" for a worktree
 of this repo's code. It never says "worktree" alone.
+
+### Records and documents
+
+The ledger holds records (state) and documents (free text). Read the state with these
+commands:
+
+```bash
+tsk mission list                 # every mission: id, status, blocked-by, parent, name
+tsk mission list <id> --json     # one mission in full: purpose, constraints, out of scope,
+                                 # objectives, blocks, linked documents, tasks, decisions,
+                                 # questions
+tsk task list <id>               # the tasks of a mission
+tsk decision list <id>           # the decisions of a mission
+tsk question list [<id>]         # the open questions
+```
+
+`tsk mission list` is the index. There is no `index.md` and no briefing to read. Write
+state with the record commands: `tsk mission create|set|block|objective|constraint|
+out-of-scope|link`, `tsk task add|set|block`, `tsk decision add`, `tsk question
+add|edit|answer`. Run `tsk <command> --help` for the syntax, or load the `tsk` skill.
+A mission is done when its status is set to `done`. tsk does not check its objectives.
+
+Do not repeat a record in a document. Write a document only for free text (intelligence,
+research, reports, designs) with `tsk ledger doc put <path>` (body on stdin, or a file as
+the second argument), and link it to its mission with `tsk mission link <id> <path> --role
+intelligence|report|design`. Read one with `tsk ledger doc get <path>`, and list them with
+`tsk ledger doc list [<prefix>]`.
+
+Every write changes the local ledger store only. Then:
+
+- `tsk ledger status` shows what is not pushed, and whether origin is ahead.
+- `tsk ledger push "<describe the update>"` (or `just ledger-push "<describe the update>"`
+  from the repo root) commits it in Dolt, pulls the latest ledger, and pushes back, up to
+  5 attempts. A merge conflict stops the push with exit 1 and names the conflicting
+  tables. The local commit stays.
+- `tsk ledger discard` lists what it would drop, and `tsk ledger discard --yes` drops
+  every local change before the push. Never use `dolt reset`.
+
+<!-- LEAD: confirm the T-05 migration ran before merging this section -->
+This repo's missions are records. A mission that is done has a bare record, with its
+final briefing as a document linked to it.
 
 Design rationale for this setup: `docs/domain/bootstrap-rationale.md` and
 `docs/domain/ledger-layout.md`.

@@ -1,5 +1,12 @@
 # Mission Briefing Template
 
+Since tsk 0.9.0 a mission is a record in the ledger, and its tasks, decisions and
+questions are records too. Nobody writes a briefing by hand, and an agent does not write a
+briefing document that repeats the records. A briefing is a projection of the records.
+Projections are planned and not built yet. This template stays as the shape a projection
+will take. Until then, an agent that needs a summary renders its own from
+`tsk mission list <id> --json`.
+
 A briefing is a rendering of a mission for a specific actor. The same mission renders
 differently for a human and for a cloud agent. This template is the rendering format.
 

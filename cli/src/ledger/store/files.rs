@@ -365,10 +365,6 @@ impl LedgerStore for FilesStore {
     fn pending_inspect_hint(&self, path: &Path, remote_head: &str) -> String {
         format!("git -C '{}' log -p {}..HEAD", path.display(), remote_head)
     }
-
-    fn read_index_hint(&self, path: &Path) -> String {
-        format!("Read {}/index.md next.", path.display())
-    }
 }
 
 /// File operations on a materialised ledger worktree.

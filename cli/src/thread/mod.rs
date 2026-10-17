@@ -117,6 +117,12 @@ pub enum ThreadCommands {
             help = "In a Claude Code cloud session (CLAUDE_CODE_REMOTE=true), install the tsk plugin first, as tsk install-plugin does; only claude-cli is accepted. Step lines go to stderr. A failure adds a warning to the context"
         )]
         install_plugin: Option<crate::install_plugin::Target>,
+        #[arg(
+            long,
+            value_name = "SEMVER",
+            help = "The version of the tsk plugin loaded in this session. When it is lower than the plugin version this tsk expects, the context asks for a plugin update; an absent or unparseable value adds nothing"
+        )]
+        plugin_version: Option<String>,
     },
 }
 
@@ -194,6 +200,7 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
     if let ThreadCommands::SessionStart {
         format,
         install_plugin,
+        plugin_version,
     } = action
     {
         if install_plugin == Some(crate::install_plugin::Target::CopilotCli) {
@@ -202,7 +209,11 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                     .to_string(),
             );
         }
-        return Ok(session_start::run(format, install_plugin.is_some()));
+        return Ok(session_start::run(
+            format,
+            install_plugin.is_some(),
+            plugin_version.as_deref(),
+        ));
     }
 
     let session = Session::discover()?;

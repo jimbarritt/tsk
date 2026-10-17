@@ -23,3 +23,6 @@ untouched. To delete the thread as well, use the `tsk:stop-thread` skill instead
      code worktree was detached from.
    - Exit 1: no binding was found, so there is nothing to detach. Report this
      plainly, not as an error to fix.
+
+To continue without any thread after detaching, run `tsk thread skip`. To bind a thread
+later, use `tsk:start-thread` or `tsk:resume-thread`.

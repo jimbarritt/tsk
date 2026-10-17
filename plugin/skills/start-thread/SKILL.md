@@ -10,8 +10,8 @@ Backs the `/tsk:start-thread` command. This skill is the agent-facing wrapper ar
 
 1. **Resolve the mission argument.** You were given a mission reference, by name,
    ID, or natural language. Resolve it to the mission's stable ID, e.g.
-   `M-TSK-SCHEMA`. List the missions with `tsk mission list`, or, for a ledger with no
-   mission records yet, read the mission tree that `tsk ledger doc get index.md` prints.
+   `M-TSK-SCHEMA`. List the missions with `tsk mission list`, and read one in full with
+   `tsk mission list <id> --json`.
 
    If you cannot resolve the reference to an actual mission, stop and ask rather
    than guessing. Do not invent an ID.
@@ -28,8 +28,8 @@ Backs the `/tsk:start-thread` command. This skill is the agent-facing wrapper ar
    tsk thread start "<mission-id>"
    ```
 
-   The command checks that the mission exists, as a record or as a briefing
-   document. It does not trust your resolution alone.
+   The command checks that the mission has a record. It does not trust your resolution
+   alone.
 
    For a thread with no mission, run it with no argument:
 
@@ -46,3 +46,7 @@ Backs the `/tsk:start-thread` command. This skill is the agent-facing wrapper ar
      `tsk:resume-thread` skill with that thread ID instead of proceeding here.
    - Exit 1: the mission ID is unknown, or another error occurred. Report the
      command's stderr and stop. Do not retry with a guessed ID.
+
+If I want to work with no thread at all, run `tsk thread skip` instead. It records that
+this session or code worktree works without a thread, and the Stop hook stops asking for
+one. It is local to this clone and is never pushed.

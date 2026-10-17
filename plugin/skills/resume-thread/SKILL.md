@@ -28,8 +28,8 @@ refuse.
 2. **If `warning` is non-empty**, surface it to me plainly before going further.
    Do not silently take over a thread another actor is or was working.
 
-3. **Present the fixed-shape summary**, reading `latest.mission_id` (or
-   `latest.mission_link` in an older entry), `latest.task_id` and `latest.whats_next`
+3. **Present the fixed-shape summary**, reading `latest.mission_id`,
+   `latest.task_id` and `latest.whats_next`
    (if `latest` is `{}`, say so instead of inventing a summary):
 
    ```
@@ -39,9 +39,8 @@ refuse.
    ```
 
    Resolve `<mission title>` from `latest.mission_id`: `tsk mission list <mission-id>`
-   prints the name. For an older entry that has only `latest.mission_link`, read the
-   briefing with `tsk ledger doc get <mission_link>` if you need the title. Do not just
-   repeat the raw ID or link.
+   prints the name. Do not just repeat the raw ID. Run `tsk task list <mission-id>` if
+   `latest.task_id` is set and you need the task's description.
 
    A thread can have no mission: `latest.mission_id` is null, or `latest` is `{}`. Then
    write `we are working on no mission (this thread has no mission, so it has no

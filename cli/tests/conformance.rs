@@ -2587,7 +2587,8 @@ mod cases {
         let fx = Fixture::with_briefing(b);
         let a = fx.a();
         let reason = fx.guard_reason(&a, None).expect("blocks");
-        assert!(reason.contains("index.md"), "{}", reason);
+        assert!(reason.contains("`tsk mission list`"), "{}", reason);
+        assert!(!reason.contains("index.md"), "{}", reason);
         assert!(reason.contains("`tsk thread skip`"), "{}", reason);
     }
 
@@ -2781,12 +2782,12 @@ mod cases {
         assert_exit(&fx.tsk(&a, &["ledger", "fetch"]), 1);
     }
 
-    pub fn session_start_keeps_the_index_hint_for_a_bound_mission_with_no_record(b: Backend) {
+    pub fn session_start_names_no_index_for_a_bound_mission_with_no_record(b: Backend) {
         let fx = Fixture::with_briefing(b);
         let a = fx.a();
         let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
         let context = fx.session_context(&a, "s-legacy", "claude");
-        assert!(context.contains("index.md"), "{}", context);
+        assert!(!context.contains("index.md"), "{}", context);
         assert!(
             !context.contains("This thread works mission"),
             "{}",
@@ -2803,8 +2804,9 @@ mod cases {
         fx.ok(&a, &["ledger", "fetch"]);
         let empty = fx.session_context(&a, "s-empty", "claude");
         assert!(empty.contains("run `tsk guide import`"), "{}", empty);
-        // Without records the unbound prompt stays as it was, and gains the skip choice.
-        assert!(empty.contains("index.md"), "{}", empty);
+        // The unbound prompt names `tsk mission list`, never the retired index.
+        assert!(!empty.contains("index.md"), "{}", empty);
+        assert!(empty.contains("`tsk mission list`"), "{}", empty);
         assert!(empty.contains("`tsk thread skip`"), "{}", empty);
 
         fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
@@ -4161,7 +4163,7 @@ conformance!(
     a_mission_document_alone_makes_the_stop_hook_check_block,
     skip_silences_the_stop_hook_check_until_a_thread_starts_or_resumes,
     session_start_names_the_bound_mission_with_its_open_tasks,
-    session_start_keeps_the_index_hint_for_a_bound_mission_with_no_record,
+    session_start_names_no_index_for_a_bound_mission_with_no_record,
     session_start_shows_the_empty_ledger_note_only_without_records_and_documents,
     session_start_says_a_skipped_session_works_without_a_thread,
     a_thread_can_start_with_no_mission_and_pause_with_an_empty_task,
@@ -4219,7 +4221,7 @@ conformance!(
     a_mission_document_alone_makes_the_stop_hook_check_block,
     skip_silences_the_stop_hook_check_until_a_thread_starts_or_resumes,
     session_start_names_the_bound_mission_with_its_open_tasks,
-    session_start_keeps_the_index_hint_for_a_bound_mission_with_no_record,
+    session_start_names_no_index_for_a_bound_mission_with_no_record,
     session_start_shows_the_empty_ledger_note_only_without_records_and_documents,
     session_start_says_a_skipped_session_works_without_a_thread,
     a_thread_can_start_with_no_mission_and_pause_with_an_empty_task,
@@ -4431,12 +4433,7 @@ fn dolt_session_start_exports_the_database_path_and_warns_about_pending_commits(
         .unwrap()
         .to_string();
     assert!(context.contains("WARNING"), "{}", context);
-    assert!(
-        context.contains("Read the index next with `tsk ledger doc get index.md`."),
-        "{}",
-        context
-    );
-    assert!(!context.contains("/index.md next"), "{}", context);
+    assert!(!context.contains("index.md"), "{}", context);
     assert!(
         context.contains("dolt log origin/main..main"),
         "{}",

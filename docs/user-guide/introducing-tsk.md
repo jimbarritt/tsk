@@ -64,15 +64,16 @@ Instructions fall on a scale by size:
 
 - An ad hoc instruction gets carried out directly.
 - A **task** sits in the ledger under a thread.
-- A **mission** has a briefing: an objective the agent breaks into its
+- A **mission** is a record in the ledger: an objective the agent breaks into its
   own tasks and implementation, any constraints that apply, and, on
   completion, a mission report describing the outcome, written back into
-  the ledger.
+  the ledger as a document.
 
-A mission briefing states the outcome required, not the method: the
-receiving agent works out the mechanism. A mission briefing also states
-intel: standing references such as where architecture decisions or other
-documentation live, and any references specific to that piece of work.
+A mission states the outcome required, not the method: the receiving agent works out
+the mechanism. A mission also links intel: standing references such as where
+architecture decisions or other documentation live, and any references specific to that
+piece of work. A briefing is a rendering of the mission record for a person or an agent.
+tsk does not render it yet.
 
 ## Ubiquitous language
 
