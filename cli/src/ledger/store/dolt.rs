@@ -20,7 +20,7 @@ use crate::ledger::location::{
 };
 use crate::ledger::manifest::{self, ManifestInfo, DOLT_SUPPORTED_VERSIONS};
 use crate::ledger::push::{PushOutcome, PushResult, PushStatus, MAX_ATTEMPTS};
-use crate::ledger::status::{self, LedgerStatus, RemoteState, SideStatus};
+use crate::ledger::status::{self, Change, ChangeKind, LedgerStatus, RemoteState, SideStatus};
 use crate::mission::model::{
     self, Category, Decision, Document, Mission, Outcome, Question, QuestionStatus, Role, Status,
     Task,
@@ -573,31 +573,19 @@ impl DoltStore {
                 .iter()
                 .find(|stat| text(stat, "table_name").as_deref() == Some(name.as_str()));
             let number = |column: &str| stat.and_then(|stat| integer(stat, column)).unwrap_or(0);
-            let counts = format!(
-                "added {}\tmodified {}\tdeleted {}",
-                number("rows_added"),
-                number("rows_modified"),
-                number("rows_deleted")
-            );
             let schema = flag(row, "schema_change");
-            let rows_changed = flag(row, "data_change") || stat.is_some();
-            changes.push((
+            changes.push(Change {
                 name,
-                match (rows_changed, schema) {
-                    (false, true) => "schema changed".to_string(),
-                    (true, true) => format!("{}\tschema changed", counts),
-                    _ => counts,
+                kind: ChangeKind::Table {
+                    added: number("rows_added"),
+                    modified: number("rows_modified"),
+                    deleted: number("rows_deleted"),
+                    schema,
                 },
-            ));
+            });
         }
-        changes.sort();
-        Ok(SideStatus {
-            changes: changes
-                .into_iter()
-                .map(|(name, counts)| format!("{}\t{}", name, counts))
-                .collect(),
-            remote,
-        })
+        changes.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(SideStatus { changes, remote })
     }
 
     /// Refresh the Dolt database, and return the manifest version it holds.
@@ -765,10 +753,11 @@ impl LedgerStore for DoltStore {
                 changes: side
                     .files
                     .iter()
-                    .map(|(letter, path)| format!("{}\t{}", letter, path))
+                    .map(|(letter, path)| Change::file(*letter, path))
                     .collect(),
                 remote: side.remote,
             },
+            shared_branch: false,
             fetch_note,
         })
     }

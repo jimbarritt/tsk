@@ -33,6 +33,24 @@ impl RemoteState {
         }
     }
 
+    /// Local commits origin lacks.
+    pub fn ahead(&self) -> usize {
+        match self {
+            RemoteState::Ahead(n) => *n,
+            RemoteState::Diverged { ahead, .. } => *ahead,
+            _ => 0,
+        }
+    }
+
+    /// Origin commits the local state lacks.
+    pub fn behind(&self) -> usize {
+        match self {
+            RemoteState::Behind(n) => *n,
+            RemoteState::Diverged { behind, .. } => *behind,
+            _ => 0,
+        }
+    }
+
     pub fn render(&self) -> String {
         match self {
             RemoteState::UpToDate => "up to date".to_string(),
@@ -47,11 +65,98 @@ impl RemoteState {
     }
 }
 
+/// One change not pushed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Change {
+    /// A table name, or a file path.
+    pub name: String,
+    pub kind: ChangeKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangeKind {
+    /// A Dolt table: rows added, modified and deleted, and whether the schema changed.
+    Table {
+        added: i64,
+        modified: i64,
+        deleted: i64,
+        schema: bool,
+    },
+    /// A file: `A`, `M` or `D`.
+    File(char),
+}
+
+impl Change {
+    pub fn file(letter: char, path: &str) -> Change {
+        Change {
+            name: path.to_string(),
+            kind: ChangeKind::File(letter),
+        }
+    }
+
+    /// The tab-separated columns of the `--porcelain` line after the side's name.
+    pub fn porcelain(&self) -> String {
+        match &self.kind {
+            ChangeKind::File(letter) => format!("{}\t{}", letter, self.name),
+            ChangeKind::Table {
+                added,
+                modified,
+                deleted,
+                schema,
+            } => {
+                if *added + *modified + *deleted == 0 && *schema {
+                    return format!("{}\tschema changed", self.name);
+                }
+                let mut text = format!(
+                    "{}\tadded {}\tmodified {}\tdeleted {}",
+                    self.name, added, modified, deleted
+                );
+                if *schema {
+                    text.push_str("\tschema changed");
+                }
+                text
+            }
+        }
+    }
+
+    /// What changed, in words: `1 added, 2 modified`, `schema changed`, `added`.
+    pub fn describe(&self) -> String {
+        match &self.kind {
+            ChangeKind::File('A') => "added".to_string(),
+            ChangeKind::File('D') => "deleted".to_string(),
+            ChangeKind::File(_) => "modified".to_string(),
+            ChangeKind::Table {
+                added,
+                modified,
+                deleted,
+                schema,
+            } => {
+                let mut parts: Vec<String> = [
+                    (added, "added"),
+                    (modified, "modified"),
+                    (deleted, "deleted"),
+                ]
+                .iter()
+                .filter(|(n, _)| **n > 0)
+                .map(|(n, word)| format!("{} {}", n, word))
+                .collect();
+                if *schema {
+                    parts.push("schema changed".to_string());
+                }
+                if parts.is_empty() {
+                    "changed".to_string()
+                } else {
+                    parts.join(", ")
+                }
+            }
+        }
+    }
+}
+
 /// One side of a ledger: its data, or its documents.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SideStatus {
-    /// One entry per change. Each is the tab-separated columns after the side's name.
-    pub changes: Vec<String>,
+    pub changes: Vec<Change>,
     pub remote: RemoteState,
 }
 
@@ -65,8 +170,36 @@ impl SideStatus {
 pub struct LedgerStatus {
     pub data: SideStatus,
     pub docs: SideStatus,
+    /// True when data and documents sit on one branch (the file ledger), so the two
+    /// sides share one set of commits and are counted once.
+    pub shared_branch: bool,
     /// Set when origin could not be fetched: one line, ready for stderr.
     pub fetch_note: Option<String>,
+}
+
+const LABEL_WIDTH: usize = 8;
+const DETAIL_INDENT: usize = 10;
+
+fn plural(n: usize, noun: &str) -> String {
+    if n == 1 {
+        format!("{} {}", n, noun)
+    } else {
+        format!("{} {}s", n, noun)
+    }
+}
+
+fn labelled(label: &str, text: &str) -> String {
+    format!("{:<width$}{}", label, text, width = LABEL_WIDTH)
+}
+
+/// `1 data commit and 2 document commits`: the non-zero parts, joined.
+fn commit_parts(parts: &[(&str, usize)]) -> String {
+    parts
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(noun, n)| plural(*n, &format!("{} commit", noun)))
+        .collect::<Vec<_>>()
+        .join(" and ")
 }
 
 impl LedgerStatus {
@@ -74,8 +207,8 @@ impl LedgerStatus {
         self.data.is_clean() && self.docs.is_clean()
     }
 
-    /// The change lines only: `data` or `docs`, then `clean` or `local changes`, then one
-    /// line per change.
+    /// The `--porcelain` change lines: `data` or `docs`, then `clean` or `local changes`,
+    /// then one line per change.
     pub fn changes_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
         for (name, side) in [("data", &self.data), ("docs", &self.docs)] {
@@ -84,18 +217,143 @@ impl LedgerStatus {
             } else {
                 lines.push(format!("{}\tlocal changes", name));
                 for change in &side.changes {
-                    lines.push(format!("{}\t{}", name, change));
+                    lines.push(format!("{}\t{}", name, change.porcelain()));
                 }
             }
         }
         lines
     }
 
-    /// The whole `tsk ledger status` output.
+    /// The whole `tsk ledger status --porcelain` output.
     pub fn lines(&self) -> Vec<String> {
         let mut lines = self.changes_lines();
         lines.push(format!("data\tremote\t{}", self.data.remote.render()));
         lines.push(format!("docs\tremote\t{}", self.docs.remote.render()));
+        lines
+    }
+
+    fn ahead(&self) -> (usize, usize) {
+        let docs = if self.shared_branch {
+            0
+        } else {
+            self.docs.remote.ahead()
+        };
+        (self.data.remote.ahead(), docs)
+    }
+
+    fn behind(&self) -> (usize, usize) {
+        let docs = if self.shared_branch {
+            0
+        } else {
+            self.docs.remote.behind()
+        };
+        (self.data.remote.behind(), docs)
+    }
+
+    /// The nouns the commit counts use: data and documents, or the one ledger branch.
+    fn nouns(&self) -> (&'static str, &'static str) {
+        if self.shared_branch {
+            ("ledger", "")
+        } else {
+            ("data", "document")
+        }
+    }
+
+    /// The `Local` block of the human output: the headline, then the detail lines.
+    pub fn human_local(&self) -> Vec<String> {
+        let changes: Vec<(&str, &Change)> = self
+            .data
+            .changes
+            .iter()
+            .map(|c| ("data", c))
+            .chain(self.docs.changes.iter().map(|c| ("docs", c)))
+            .collect();
+        let (a_data, a_docs) = self.ahead();
+        let commits = a_data + a_docs;
+        let mut lines = Vec::new();
+        if changes.is_empty() {
+            if commits == 0 {
+                lines.push(labelled("Local", "nothing to push"));
+            } else {
+                lines.push(labelled(
+                    "Local",
+                    &format!("{} not pushed", plural(commits, "commit")),
+                ));
+            }
+            return lines;
+        }
+        lines.push(labelled(
+            "Local",
+            &format!("{} not pushed", plural(changes.len(), "change")),
+        ));
+        let name_width = changes.iter().map(|(_, c)| c.name.chars().count()).max();
+        let name_width = name_width.unwrap_or(0);
+        for (store, change) in &changes {
+            lines.push(format!(
+                "{}{}  {:<nw$}  {}",
+                " ".repeat(DETAIL_INDENT),
+                store,
+                change.name,
+                change.describe(),
+                nw = name_width
+            ));
+        }
+        if commits > 0 {
+            lines.push(format!(
+                "{}plus {} not pushed",
+                " ".repeat(LABEL_WIDTH),
+                plural(commits, "commit")
+            ));
+        }
+        lines
+    }
+
+    /// The `Origin` line of the human output.
+    pub fn human_origin(&self) -> String {
+        let remotes = [&self.data.remote, &self.docs.remote];
+        let text = if remotes.iter().any(|r| **r == RemoteState::Unknown) {
+            "unknown (could not reach origin)".to_string()
+        } else if remotes.iter().any(|r| **r == RemoteState::Unpublished) {
+            "not published yet (tsk ledger push creates it)".to_string()
+        } else {
+            let (d_noun, doc_noun) = self.nouns();
+            let (a_data, a_docs) = self.ahead();
+            let (b_data, b_docs) = self.behind();
+            let push = [(d_noun, a_data), (doc_noun, a_docs)];
+            let fetch = [(d_noun, b_data), (doc_noun, b_docs)];
+            let (push_n, fetch_n) = (a_data + a_docs, b_data + b_docs);
+            match (push_n, fetch_n) {
+                (0, 0) => "up to date".to_string(),
+                (0, _) => format!("{} to fetch (tsk ledger fetch)", commit_parts(&fetch)),
+                (_, 0) => format!("{} not on origin (tsk ledger push)", commit_parts(&push)),
+                _ => {
+                    let push_text = commit_parts(&push);
+                    let single_noun = |parts: &[(&str, usize); 2]| {
+                        parts.iter().filter(|(_, n)| *n > 0).count() == 1
+                    };
+                    let same_noun = single_noun(&push)
+                        && single_noun(&fetch)
+                        && push.iter().position(|(_, n)| *n > 0)
+                            == fetch.iter().position(|(_, n)| *n > 0);
+                    let fetch_text = if same_noun {
+                        fetch_n.to_string()
+                    } else {
+                        commit_parts(&fetch)
+                    };
+                    format!(
+                        "diverged: {} to push, {} to fetch (tsk ledger push merges them)",
+                        push_text, fetch_text
+                    )
+                }
+            }
+        };
+        labelled("Origin", &text)
+    }
+
+    /// The whole human `tsk ledger status` output.
+    pub fn human_lines(&self) -> Vec<String> {
+        let mut lines = self.human_local();
+        lines.push(self.human_origin());
         lines
     }
 }
@@ -254,20 +512,38 @@ mod tests {
         assert!(parse_name_status("").is_empty());
     }
 
-    fn side(changes: &[&str], remote: RemoteState) -> SideStatus {
-        SideStatus {
-            changes: changes.iter().map(|c| c.to_string()).collect(),
-            remote,
+    fn table(name: &str, added: i64, modified: i64, deleted: i64, schema: bool) -> Change {
+        Change {
+            name: name.to_string(),
+            kind: ChangeKind::Table {
+                added,
+                modified,
+                deleted,
+                schema,
+            },
         }
     }
 
-    #[test]
-    fn a_clean_ledger_prints_four_lines() {
-        let status = LedgerStatus {
-            data: side(&[], RemoteState::UpToDate),
-            docs: side(&[], RemoteState::UpToDate),
+    fn side(changes: Vec<Change>, remote: RemoteState) -> SideStatus {
+        SideStatus { changes, remote }
+    }
+
+    fn status(data: SideStatus, docs: SideStatus) -> LedgerStatus {
+        LedgerStatus {
+            data,
+            docs,
+            shared_branch: false,
             fetch_note: None,
-        };
+        }
+    }
+
+    fn clean(remote: RemoteState) -> LedgerStatus {
+        status(side(vec![], remote.clone()), side(vec![], remote))
+    }
+
+    #[test]
+    fn a_clean_ledger_prints_four_porcelain_lines() {
+        let status = clean(RemoteState::UpToDate);
         assert!(status.is_clean());
         assert_eq!(
             status.lines(),
@@ -281,21 +557,29 @@ mod tests {
     }
 
     #[test]
-    fn local_changes_print_one_line_each_and_the_discard_summary_leaves_out_the_remote() {
-        let status = LedgerStatus {
-            data: side(
-                &["missions\tadded 1\tmodified 0\tdeleted 0"],
+    fn porcelain_prints_one_line_per_change() {
+        let status = status(
+            side(
+                vec![
+                    table("missions", 1, 0, 0, false),
+                    table("watermark", 0, 0, 0, true),
+                    table("tasks", 2, 1, 0, true),
+                ],
                 RemoteState::Ahead(1),
             ),
-            docs: side(&["A\tnotes.md", "D\told.md"], RemoteState::Behind(2)),
-            fetch_note: None,
-        };
+            side(
+                vec![Change::file('A', "notes.md"), Change::file('D', "old.md")],
+                RemoteState::Behind(2),
+            ),
+        );
         assert!(!status.is_clean());
         assert_eq!(
             status.lines(),
             vec![
                 "data\tlocal changes",
                 "data\tmissions\tadded 1\tmodified 0\tdeleted 0",
+                "data\twatermark\tschema changed",
+                "data\ttasks\tadded 2\tmodified 1\tdeleted 0\tschema changed",
                 "docs\tlocal changes",
                 "docs\tA\tnotes.md",
                 "docs\tD\told.md",
@@ -303,7 +587,155 @@ mod tests {
                 "docs\tremote\tbehind 2",
             ]
         );
-        assert_eq!(status.changes_lines().len(), 5);
+        assert_eq!(status.changes_lines().len(), 7);
+    }
+
+    #[test]
+    fn the_human_form_for_a_clean_ledger() {
+        assert_eq!(
+            clean(RemoteState::UpToDate).human_lines(),
+            vec!["Local   nothing to push", "Origin  up to date"]
+        );
+    }
+
+    #[test]
+    fn the_human_form_lists_changes_aligned_under_the_headline() {
+        let s = status(
+            side(
+                vec![
+                    table("missions", 1, 0, 0, false),
+                    table("tasks", 1, 0, 0, false),
+                ],
+                RemoteState::UpToDate,
+            ),
+            side(vec![Change::file('M', "index.md")], RemoteState::UpToDate),
+        );
+        assert_eq!(
+            s.human_local(),
+            vec![
+                "Local   3 changes not pushed",
+                "          data  missions  1 added",
+                "          data  tasks     1 added",
+                "          docs  index.md  modified",
+            ]
+        );
+        let one = status(
+            side(vec![table("m", 0, 2, 3, true)], RemoteState::UpToDate),
+            side(vec![], RemoteState::UpToDate),
+        );
+        assert_eq!(
+            one.human_local(),
+            vec![
+                "Local   1 change not pushed",
+                "          data  m  2 modified, 3 deleted, schema changed",
+            ]
+        );
+        let schema_only = status(
+            side(vec![table("m", 0, 0, 0, true)], RemoteState::UpToDate),
+            side(vec![], RemoteState::UpToDate),
+        );
+        assert!(schema_only.human_local()[1].ends_with("m  schema changed"));
+    }
+
+    #[test]
+    fn unpushed_commits_are_counted_after_the_changes_or_alone() {
+        let with_changes = status(
+            side(vec![table("m", 1, 0, 0, false)], RemoteState::Ahead(1)),
+            side(vec![], RemoteState::Ahead(1)),
+        );
+        assert_eq!(
+            with_changes.human_local(),
+            vec![
+                "Local   1 change not pushed",
+                "          data  m  1 added",
+                "        plus 2 commits not pushed",
+            ]
+        );
+        assert_eq!(
+            status(
+                side(vec![], RemoteState::Ahead(1)),
+                side(vec![], RemoteState::UpToDate)
+            )
+            .human_local(),
+            vec!["Local   1 commit not pushed"]
+        );
+    }
+
+    fn origin(data: RemoteState, docs: RemoteState) -> String {
+        status(side(vec![], data), side(vec![], docs)).human_origin()
+    }
+
+    #[test]
+    fn the_origin_line_names_each_state() {
+        use RemoteState::*;
+        assert_eq!(
+            origin(Behind(2), Behind(1)),
+            "Origin  2 data commits and 1 document commit to fetch (tsk ledger fetch)"
+        );
+        assert_eq!(
+            origin(Behind(1), UpToDate),
+            "Origin  1 data commit to fetch (tsk ledger fetch)"
+        );
+        assert_eq!(
+            origin(UpToDate, Behind(3)),
+            "Origin  3 document commits to fetch (tsk ledger fetch)"
+        );
+        assert_eq!(
+            origin(Ahead(1), UpToDate),
+            "Origin  1 data commit not on origin (tsk ledger push)"
+        );
+        assert_eq!(
+            origin(Ahead(1), Ahead(2)),
+            "Origin  1 data commit and 2 document commits not on origin (tsk ledger push)"
+        );
+        assert_eq!(
+            origin(RemoteState::from_counts(1, 2), UpToDate),
+            "Origin  diverged: 1 data commit to push, 2 to fetch (tsk ledger push merges them)"
+        );
+        assert_eq!(
+            origin(
+                RemoteState::from_counts(1, 1),
+                RemoteState::from_counts(1, 1)
+            ),
+            "Origin  diverged: 1 data commit and 1 document commit to push, 1 data commit and 1 document commit to fetch (tsk ledger push merges them)"
+        );
+        assert_eq!(
+            origin(Ahead(1), Behind(1)),
+            "Origin  diverged: 1 data commit to push, 1 document commit to fetch (tsk ledger push merges them)"
+        );
+        assert_eq!(
+            origin(Unpublished, Unpublished),
+            "Origin  not published yet (tsk ledger push creates it)"
+        );
+        assert_eq!(
+            origin(Unknown, Unknown),
+            "Origin  unknown (could not reach origin)"
+        );
+    }
+
+    #[test]
+    fn one_shared_branch_is_counted_once_and_named_the_ledger() {
+        let mut s = clean(RemoteState::Behind(2));
+        s.shared_branch = true;
+        assert_eq!(
+            s.human_origin(),
+            "Origin  2 ledger commits to fetch (tsk ledger fetch)"
+        );
+        let mut s = clean(RemoteState::Ahead(1));
+        s.shared_branch = true;
+        assert_eq!(s.human_local(), vec!["Local   1 commit not pushed"]);
+    }
+
+    #[test]
+    fn the_human_form_holds_no_tab_and_no_trailing_space() {
+        let s = status(
+            side(vec![table("m", 1, 0, 0, false)], RemoteState::Ahead(1)),
+            side(vec![Change::file('A', "a.md")], RemoteState::Unknown),
+        );
+        for line in s.human_lines() {
+            assert!(!line.contains('\t'), "{:?}", line);
+            assert_eq!(line, line.trim_end(), "{:?}", line);
+        }
     }
 
     #[test]

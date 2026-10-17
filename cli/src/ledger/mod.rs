@@ -34,9 +34,15 @@ pub enum LedgerCommands {
         message: String,
     },
     #[command(
-        about = "Print what is not pushed, one fact per line: data and documents, clean or local changes with a line per changed table or file, and whether origin is ahead or behind; fetches the remote refs and changes nothing else"
+        about = "Print two answers, Local (what is not pushed, with a line per changed table or file) and Origin (whether it is ahead or behind); --porcelain prints tab-separated facts instead; fetches the remote refs and changes nothing else"
     )]
-    Status,
+    Status {
+        #[arg(
+            long,
+            help = "Print one tab-separated fact per line, the stable form for scripts, instead of the Local and Origin summary"
+        )]
+        porcelain: bool,
+    },
     #[command(
         about = "Drop every local change that is not pushed, in the data and the documents, and reset both to origin's state; without --yes it prints what it would drop and exits 1"
     )]
@@ -46,6 +52,11 @@ pub enum LedgerCommands {
             help = "Discard now. Without it nothing changes and the changes are printed"
         )]
         yes: bool,
+        #[arg(
+            long,
+            help = "Print the changes as tab-separated lines, the stable form for scripts, instead of the Local summary"
+        )]
+        porcelain: bool,
     },
     #[command(
         name = "migrate-to-dolt",
@@ -141,17 +152,22 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             println!("{}", report.head);
             Ok(())
         }
-        LedgerCommands::Status => {
+        LedgerCommands::Status { porcelain } => {
             let status = store.status()?;
             if let Some(note) = &status.fetch_note {
                 eprintln!("{}", note);
             }
-            for line in status.lines() {
+            let lines = if porcelain {
+                status.lines()
+            } else {
+                status.human_lines()
+            };
+            for line in lines {
                 println!("{}", line);
             }
             Ok(())
         }
-        LedgerCommands::Discard { yes } => run_discard(store.as_ref(), yes),
+        LedgerCommands::Discard { yes, porcelain } => run_discard(store.as_ref(), yes, porcelain),
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
         LedgerCommands::MigrateToDolt { .. } | LedgerCommands::MigrateDocs { .. } => {
             unreachable!("handled before the store opens")
@@ -160,13 +176,18 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
 }
 
 /// `tsk ledger discard`. Without `yes` it prints the local changes and refuses.
-fn run_discard(store: &dyn LedgerStore, yes: bool) -> Result<(), String> {
+fn run_discard(store: &dyn LedgerStore, yes: bool, porcelain: bool) -> Result<(), String> {
     if !yes {
         let status = store.status()?;
         if let Some(note) = &status.fetch_note {
             eprintln!("{}", note);
         }
-        for line in status.changes_lines() {
+        let lines = if porcelain {
+            status.changes_lines()
+        } else {
+            status.human_local()
+        };
+        for line in lines {
             println!("{}", line);
         }
         if status.is_clean() {

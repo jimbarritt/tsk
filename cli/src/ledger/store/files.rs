@@ -13,7 +13,7 @@ use crate::events::queue::{
 use crate::ledger::git::Git;
 use crate::ledger::location::{state_root_from_env, worktree_path, Repo};
 use crate::ledger::manifest::{self, ManifestInfo, MANIFEST_FILE};
-use crate::ledger::status::{self, LedgerStatus, SideStatus};
+use crate::ledger::status::{self, Change, LedgerStatus, SideStatus};
 use crate::ledger::{fetch, push};
 use crate::mission::model::{self, Mission};
 use crate::thread::entry::STORE_FILE;
@@ -128,7 +128,7 @@ impl LedgerStore for FilesStore {
         let side = status::worktree_side(&wt, &fetched)?;
         let (mut data, mut docs) = (Vec::new(), Vec::new());
         for (letter, path) in side.files {
-            let line = format!("{}\t{}", letter, path);
+            let line = Change::file(letter, &path);
             if is_data_path(&path) {
                 data.push(line);
             } else {
@@ -145,6 +145,7 @@ impl LedgerStore for FilesStore {
                 changes: docs,
                 remote: side.remote,
             },
+            shared_branch: true,
             fetch_note: fetched.err().map(|e| {
                 status::fetch_failed_note(
                     &format!("{}'s {}", location.label(), location.ref_name()),

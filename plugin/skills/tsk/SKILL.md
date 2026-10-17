@@ -73,8 +73,8 @@ tsk ledger doc get <path>                print a document's body (index.md, futu
 tsk ledger doc put <path> [<file>]       write a document from <file>, or from stdin; changes the local store only
 tsk ledger doc list [<prefix>]           list document paths, optionally under a prefix
 tsk ledger doc rm <path>                 remove a document; changes the local store only
-tsk ledger status                        print what is not pushed (data, documents) and whether origin is ahead or behind; read-only
-tsk ledger discard [--yes]               drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
+tsk ledger status [--porcelain]          print Local (what is not pushed) and Origin (ahead or behind); --porcelain prints tab-separated facts for scripts; read-only
+tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
 tsk ledger migrate-to-dolt               one-off: move a file ledger into a Dolt database and push it
 
 tsk thread start <mission-id>                                          mint and bind a thread for a mission, push
@@ -127,16 +127,20 @@ A ledger at version 1 still keeps its documents in a Dolt table. Every command e
 Run `tsk ledger migrate-docs` once. It moves the documents to `tsk/docs` and prints
 `migrated-docs:<count>`. `--dry-run` checks the move and pushes nothing.
 
-To see what is not pushed, run `tsk ledger status`. It prints one fact per line, with no
-header: `data` and `docs` each `clean` or `local changes`, then a line per changed table
-(with counts of rows added, modified and deleted) or per changed file (`A`, `M` or `D`),
-then `data<TAB>remote<TAB>...` and `docs<TAB>remote<TAB>...`, which say `up to date`,
-`ahead N`, `behind N`, `diverged ahead N behind N`, `unknown` (origin could not be
-fetched) or `unpublished` (origin holds no such branch yet). It fetches the remote refs
-and changes nothing else.
+To see what is not pushed, run `tsk ledger status`. It prints two answers for a person:
+`Local   nothing to push` or `Local   N changes not pushed` with a detail line per changed
+table or document, then `Origin` with `up to date`, `N data commits ... to fetch`, `... not
+on origin`, `diverged: ...`, `not published yet` or `unknown`. It fetches the remote refs and
+changes nothing else. **An agent that parses the output uses `tsk ledger status --porcelain`**,
+which prints one tab-separated fact per line with no header: `data` and `docs` each `clean`
+or `local changes`, then a line per changed table (with counts of rows added, modified and
+deleted, or `schema changed`) or per changed file (`A`, `M` or `D`), then
+`data<TAB>remote<TAB>...` and `docs<TAB>remote<TAB>...`, which say `up to date`, `ahead N`,
+`behind N`, `diverged ahead N behind N`, `unknown` or `unpublished`. The default form may
+change; the porcelain form is stable.
 
 To undo work that is not pushed, such as a trial mission, run `tsk ledger discard`. It
-prints what it would drop and exits 1. Run `tsk ledger discard --yes` to drop every local
+prints what it would drop (the `Local` block, or the porcelain lines with `--porcelain`) and exits 1. Run `tsk ledger discard --yes` to drop every local
 change in the data and the documents, including local commits that origin lacks, and
 reset both to origin's state. It prints `discarded`. It leaves thread bindings alone.
 **Use `tsk ledger discard`, never `dolt reset`, `dolt clean` or `git reset` against the
