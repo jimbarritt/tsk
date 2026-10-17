@@ -85,10 +85,10 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `7`. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `8`. |
 | `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the mission the thread works, and is null for a thread with no mission. `briefing_path` is the mission's briefing document, stored only when the mission has no record. Together they replace `threads/<thread-id>/index.md`. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
-| `cloud_session_bindings` | `session_id` varchar(255), primary key; `thread_id` varchar(64); `registered_at` varchar(32) | One row per cloud session binding. It replaces `threads/lookup-by-cloud-session.json`. |
+| `bindings` | `actor` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `thread_id` varchar(64); `registered_at` varchar(32) | One row per bound actor, of either kind. The actor key of a cloud session is the session ID (`cse_...`). The actor key of a local code worktree is `<clone-id>/<worktree-name>`: the ID in `.git/tsk-clone-id`, a slash, and `main` for the main worktree or the name of the linked worktree. A bind sets or replaces the actor's row. `thread stop` deletes every row that names the stopped thread. There is no foreign key to `threads`. It replaces `threads/lookup-by-cloud-session.json` and the `tsk-thread-id` marker files. A ledger below version 8 holds the cloud rows in `cloud_session_bindings` (`session_id`, `thread_id`, `registered_at`) instead. |
 | `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of [`queue.ndjson`](#external-eventsqueuendjson). |
 | `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` varchar(32) | One row, `id` 1, the processed position of the queue. No row reads as `0`. It replaces `watermark.json`. |
 | `missions` | `id` varchar(64), primary key; `name` varchar(255); `category` enum(`operational`, `administrative`); `status` enum(`todo`, `in-progress`, `done`), default `todo`; `parent` varchar(64), null, foreign key to `missions(id)`; `purpose`, `decision_authority` longtext, null; `next_objective`, `next_task`, `next_question`, `next_constraint`, `next_out_of_scope` int, default 1 | One row per mission. Empty text is stored as null. Each `next_` column is the number the next objective outcome, task, question, constraint or out-of-scope item gets. It only grows, so a number is never reused. A ledger below version 7 has two more columns, `constraints_text` and `out_of_scope` (longtext, null), in place of the last two counters. |
@@ -318,20 +318,22 @@ documents, so a trial mission can be undone without `dolt reset`. It is destruct
   committed), and in the documents worktree `git reset --hard <fetched tip>` and
   `git clean -fd`. The `git` backend resets its one worktree the same way. When origin
   holds no such branch, the reset target is the local `HEAD`. It prints `discarded`.
-- It does not touch thread state that lives outside the ledger: `tsk-thread-id` and
-  `tsk-thread-skip` in the git directory.
+- It does not touch thread state that lives outside the ledger: `tsk-thread-skip` in the
+  git directory. A binding is a ledger row, so `discard` drops a binding that is not
+  pushed, like any other local change.
 
 Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::discard`).
 
 ### Manifest version
 
-The `version` row of the `manifest` table is `7` for a ledger whose constraints and out of
-scope are tables of their own, `6` for a ledger whose `decisions` table has
+The `version` row of the `manifest` table is `8` for a ledger whose bindings, of cloud
+sessions and of code worktrees, are rows of `bindings`, `7` for a ledger whose constraints
+and out of scope are tables of their own with the bindings still in `cloud_session_bindings`, `6` for a ledger whose `decisions` table has
 `adr_path`, `5` for a ledger whose `threads` table has
 `mission_id`, `4` for a ledger with the mission, task, decision and question tables and the
 older `threads` table, `3` for a ledger with the mission tables only, and `2` for a
 ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
-backend accepts versions 1, 2, 3, 4, 5, 6 and 7. Version 1 is a ledger that still keeps its
+backend accepts versions 1, 2, 3, 4, 5, 6, 7 and 8. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger is refused by every command except `tsk ledger fetch`,
@@ -341,26 +343,26 @@ documents in a `documents` table.
 - A version 2 ledger works for everything it did before. The mission read commands behave
   as an empty mission set and write nothing. The first mission write command creates the
   mission, task, decision and question tables, adds `mission_id` to `threads` and makes
-  `briefing_path` nullable, and sets the `version` row to `7` in the same local Dolt
+  `briefing_path` nullable, and sets the `version` row to `8` in the same local Dolt
   change as the mission, so `tsk ledger push` publishes both. The tables are created in
   their newest shape.
 - A version 3 ledger works for everything it did before. The task, decision and question
   read commands behave as if the mission had none, and write nothing. The first write
   command of any of the four kinds (`mission`, `task`, `decision` or `question`) adds the
   columns `next_task` and `next_question` to `missions`, creates the four new tables, alters
-  `threads` as above and sets the `version` row to `7` in the same local Dolt change as the
+  `threads` as above and sets the `version` row to `8` in the same local Dolt change as the
   record, so `tsk ledger push` publishes both. A write that fails a check upgrades nothing.
 - A version 4 ledger works for everything it did before. `thread list` derives each
   thread's mission ID from its briefing path. The first write that needs the new column
-  alters `threads` and sets the `version` row to `7` in the same local Dolt change:
+  alters `threads` and sets the `version` row to `8` in the same local Dolt change:
   `tsk thread start`, `tsk thread set mission`, and a mission, task, decision or question write.
   Reads, `thread skip` and a `thread pause` upgrade nothing, and neither does a write that is refused.
-  A version 2, 3, 4, 5 or 6 ledger takes the whole chain of changes up to version 7 at its first
+  A version 2, 3, 4, 5 or 6 ledger takes the whole chain of changes up to version 8 at its first
   such write.
 - A version 5 ledger works for everything it did before. `decision list` prints `-` as the
   ADR path of every decision, and `mission list --json` prints `adr` as null. The first
   write of any of the four kinds adds `decisions.adr_path` with
-  `alter table decisions add column` and the later steps, and sets the `version` row to `7`
+  `alter table decisions add column` and the later steps, and sets the `version` row to `8`
   in the same local Dolt change as the record. Reads, and a write that is refused (a path that is not a
   file included), upgrade nothing. `tsk ledger status` labels the upgrade; see
   [Status and discard](#status-and-discard).
@@ -379,17 +381,32 @@ documents in a `documents` table.
   3. sets each counter to the number after the last item, or leaves it at 1 for a mission
      with no item;
   4. drops `constraints_text` and `out_of_scope`;
-  5. sets the `version` row to `7`.
+  5. sets the `version` row to `8`, after the bindings step below.
   The same step runs for a ledger at version 3, 4 or 5, in the same chain. `tsk ledger
   status` labels the upgrade, and shows the new list rows as added rows of the two tables.
-- A `tsk` binary from before version 7 does not know the version. It stops at its manifest
-  check with `unsupported ledger version 7`, before it writes. The binary needs updating.
+- A version 7 ledger works for everything it did before. The bindings are read from
+  `cloud_session_bindings` as cloud rows: `thread binding`, `thread guard`,
+  `thread session-start`, `thread resume` and `thread list` see them, and a read upgrades
+  nothing. A worktree has no row there, so the older `tsk-thread-id` marker file still
+  binds it until a write. The first write that reaches a binding (`thread start`,
+  `thread resume`, `thread detach`, `thread stop`, or the marker migration in
+  [`tsk-thread-id`](#tsk-thread-id)) does these in one local
+  Dolt change with the write:
+  1. creates `bindings`;
+  2. copies every `cloud_session_bindings` row into it as kind `cloud`;
+  3. drops `cloud_session_bindings`;
+  4. sets the `version` row to `8`.
+  The same step ends the chain for a ledger at version 2 to 6, and for the first write of
+  any other kind that upgrades it. A write that is refused upgrades nothing. `tsk ledger
+  status` labels the upgrade and does not show the copied rows as changes.
+- A `tsk` binary from before version 8 does not know the version. It stops at its manifest
+  check with `unsupported ledger version 8`, before it writes. The binary needs updating.
   The file ledger's `.tsk-ledger.toml` stays at version 1.
 
 ### Migration
 
 `tsk ledger migrate-to-dolt` moves a file ledger to the Dolt backend. It runs with
-either backend selected. The new ledger is version 7: it has no `documents` table, it has the mission, task, decision and question tables, and
+either backend selected. The new ledger is version 8: it has no `documents` table, it has the mission, task, decision and question tables, and
 its documents are written as files on `tsk/docs`. It:
 
 1. Fetches the file ledger ref and checks its manifest. It stops when the ref is absent
@@ -1080,6 +1097,29 @@ The cloud session binding map. A single JSON object keyed by the
 - Bind sets or replaces the entry for the current session ID. Detach deletes that one
   key. Stop deletes every entry whose `thread_id` is the stopped thread, for any
   session.
+
+### `threads/.worktree-bindings/<actor>.json`
+
+The bindings of local code worktrees on the file ledger, one file for each worktree. The
+directory starts with a dot, so it is not a thread. The file name is the worktree actor key,
+`<clone-id>/<worktree-name>`, with every byte outside `A-Za-z0-9._-` written as `%XX` (so
+`/` is `%2F`), and `.json`. The content is a JSON object:
+
+```json
+{
+  "actor": "tsk-1a2b3c4d/main",
+  "thread_id": "9qo5iin0",
+  "registered_at": "2026-10-17T10:00:00Z"
+}
+```
+
+One file for each actor keeps two clones that bind at the same time from changing the same
+file, so their pushes do not conflict in a rebase. A bind writes the file, replacing the
+actor's earlier one. Detach deletes it. Stop deletes every file whose `thread_id` is the
+stopped thread. `thread list` shows these files and the entries of
+[`lookup-by-cloud-session.json`](#threadslookup-by-cloud-sessionjson) as actors.
+`tsk ledger migrate-to-dolt` carries both into `bindings`, with kind `cloud` or `worktree`.
+The manifest stays at version 1.
 - Only used when `CLAUDE_CODE_REMOTE_SESSION_ID` is set. A code worktree binds through
   `tsk-thread-id` (see [Local-only files](#local-only-files)) and never writes this file.
 
@@ -1172,22 +1212,28 @@ entry. Never pushed.
 
 ### `tsk-thread-id`
 
-Path: `$(git rev-parse --path-format=absolute --git-dir)/tsk-thread-id`. The git dir,
-not the common dir: `.git/tsk-thread-id` in the main code worktree,
-`.git/worktrees/<name>/tsk-thread-id` in a linked one. One per code worktree.
+No longer written. Before version 8 of the Dolt layout, and in the file ledger before this
+change, this file was the binding of a code worktree:
+`$(git rev-parse --path-format=absolute --git-dir)/tsk-thread-id`, that is `.git/tsk-thread-id` in
+the main code worktree and `.git/worktrees/<name>/tsk-thread-id` in a linked one. Content: a
+thread ID and a trailing newline.
 
-Content: a thread ID and a trailing newline. Readers strip all whitespace. An absent or
-empty file means no code worktree binding.
+A code worktree's binding is now a `bindings` row of kind `worktree`, keyed on
+`<clone-id>/<worktree-name>`. The first command that resolves a worktree binding, finds
+this file and finds no row for the worktree's actor key writes the row from the file and
+removes the file. The row is a local ledger change, pushed with the next push. Rules:
 
-Written by `thread start` and `thread resume` when `CLAUDE_CODE_REMOTE_SESSION_ID` is not
-set. Deleted by `thread detach`, and by `thread stop` when it names the stopped thread.
-Never pushed: a marker in another clone or code worktree that names a stopped thread stays
-there, stale.
+- A command that reads the ledger store as it is and never fetches (`thread guard`,
+  `thread binding --no-fetch`) reads a marker file but does not migrate it.
+- A worktree that has a row and a marker keeps the row and loses the file.
+- When no ledger store exists yet, the file is read as it is and nothing fails.
+- When the ledger refuses the write, the file stays and still binds.
+- After the migration nothing writes the file again.
 
 ### `tsk-thread-skip`
 
-Path: `$(git rev-parse --path-format=absolute --git-dir)/tsk-thread-skip`, beside
-`tsk-thread-id`. In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` set) the file is
+Path: `$(git rev-parse --path-format=absolute --git-dir)/tsk-thread-skip`, in
+the git directory's other files. In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` set) the file is
 `tsk-thread-skip-<session-id>`, with every character outside `A-Za-z0-9_-` replaced by `_`,
 so each cloud session skips for itself.
 
@@ -1507,7 +1553,7 @@ what the harness expects until then.
 | `thread-resume.sh` | `{"thread_id":"...","latest":{...},"warning":"..."}` (`latest` is `{}` with no entry; `warning` is empty unless another actor wrote to the thread) | | `tsk thread resume <thread-id>` |
 | `thread-detach.sh` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread detach` |
 | `thread-stop.sh` | `stopped:<thread-id>` | | `tsk thread stop [<thread-id>]` |
-| `thread-list.sh` | one compact JSON object per line: `id`, `mission_id` (`null` for a thread with no mission), `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry) | | `tsk thread list` |
+| `thread-list.sh` | one compact JSON object per line: `id`, `mission_id` (`null` for a thread with no mission), `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry), `actors` (an array of `{"actor", "kind"}`, one for each session or worktree bound to the thread, oldest binding first; `kind` is `cloud` or `worktree`; empty when none is bound) | | `tsk thread list` |
 | `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger worktree |
 | (none) | `mission-set:<thread-id>:<mission-id>`, or `mission-cleared:<thread-id>` with `--none` | exit 1 for an unknown mission or thread, or with no thread ID and no binding | `tsk thread set mission <mission-id> [<thread-id>]`, `tsk thread set mission --none [<thread-id>]` |
 | `thread-binding-guard.sh` | nothing when bound, after `tsk thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | | `tsk thread guard` |

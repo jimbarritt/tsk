@@ -58,7 +58,7 @@ pub enum ThreadCommands {
         legacy_whats_next: Option<String>,
     },
     #[command(
-        about = "Bind this session or worktree to a thread, additively, and print its latest continuation state entry as JSON with a warning when another actor wrote to it"
+        about = "Bind this session or worktree to a thread, replacing its earlier binding, and print its latest continuation state entry as JSON with a warning when another actor wrote to it. A cloud session pushes the binding. A worktree binding is a local ledger change that goes out with the next push"
     )]
     Resume {
         #[arg(help = "Thread ID")]
@@ -70,7 +70,7 @@ pub enum ThreadCommands {
         field: SetCommands,
     },
     #[command(
-        about = "Remove this session's or worktree's binding without deleting the thread; prints detached:<thread-id>"
+        about = "Remove this session's or worktree's binding without deleting the thread; prints detached:<thread-id>. Every binding, of a cloud session or a worktree, is a row in the ledger. A cloud session pushes the change. A worktree detach is a local ledger change that goes out with the next push"
     )]
     Detach,
     #[command(
@@ -78,18 +78,18 @@ pub enum ThreadCommands {
     )]
     Skip,
     #[command(
-        about = "Delete a thread, its continuation state and every cloud session binding to it, and push; prints stopped:<thread-id>"
+        about = "Delete a thread, its continuation state and every binding to it, cloud or worktree, and push; prints stopped:<thread-id>"
     )]
     Stop {
         #[arg(help = "Thread ID; defaults to the thread this session or worktree is bound to")]
         thread_id: Option<String>,
     },
     #[command(
-        about = "List every thread on the ledger as one JSON object per line, most recently paused first"
+        about = "List every thread on the ledger as one JSON object per line, most recently paused first. Each row has actors: the sessions and worktrees bound to the thread, as {\"actor\", \"kind\"} objects, empty when none is"
     )]
     List,
     #[command(
-        about = "Print this session's or worktree's binding as cloud:<thread-id> or worktree:<thread-id>; exit status 1 and no output with no binding"
+        about = "Print this session's or worktree's binding as cloud:<thread-id> or worktree:<thread-id>; exit status 1 and no output with no binding. A worktree that still has a tsk-thread-id marker file gets a binding row from it, and the file is removed (not with --no-fetch)"
     )]
     Binding {
         #[arg(long, help = "Read the existing ledger worktree without fetching")]

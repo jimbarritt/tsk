@@ -4,7 +4,7 @@
 //! git-file backend in [`files`] keeps the ledger as files in a detached git worktree.
 //! The Dolt backend in [`dolt`] (an external `dolt` binary and SQL tables) implements
 //! the same trait. No method takes or returns a filesystem path as a way to reach
-//! content: documents, threads, continuation entries, cloud session bindings and
+//! content: documents, threads, continuation entries, bindings and
 //! external events are addressed by logical keys. The few paths in this module
 //! (`RefreshOutcome::path`, `LedgerStore::path`) name where the store lives, for the
 //! operator to read.
@@ -15,7 +15,6 @@ pub mod files;
 use std::path::{Component, Path, PathBuf};
 
 use crate::mission::model::Mission;
-use crate::thread::lookup::Lookup;
 
 use super::manifest::ManifestInfo;
 use super::status::LedgerStatus;
@@ -47,6 +46,41 @@ pub struct PushReport {
     pub head: String,
     /// True when the remote already held the local state and nothing was pushed.
     pub already_on_remote: bool,
+}
+
+/// What kind of actor a binding names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BindingKind {
+    /// A Claude Code cloud session. The actor key is the session ID.
+    Cloud,
+    /// A local code worktree. The actor key is `<clone-id>/<worktree-name>`.
+    Worktree,
+}
+
+impl BindingKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BindingKind::Cloud => "cloud",
+            BindingKind::Worktree => "worktree",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<BindingKind> {
+        match text {
+            "cloud" => Some(BindingKind::Cloud),
+            "worktree" => Some(BindingKind::Worktree),
+            _ => None,
+        }
+    }
+}
+
+/// One row of the bindings: an actor and the thread it works.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BindingRow {
+    pub actor: String,
+    pub kind: BindingKind,
+    pub thread_id: String,
+    pub registered_at: String,
 }
 
 /// The mission and briefing a thread stores. A thread made before layout version 5 has
@@ -178,15 +212,20 @@ pub trait LedgerStore {
     /// skipped. Empty for a thread with no log.
     fn continuation_list(&self, id: &str) -> Result<Vec<String>, String>;
 
-    // --- Cloud session bindings ---
+    // --- Bindings ---
 
-    /// The whole cloud session lookup. Empty when nothing is bound.
-    fn cloud_lookup(&self) -> Result<Lookup, String>;
-    fn cloud_bind(&self, session: &str, thread_id: &str, registered_at: &str)
-        -> Result<(), String>;
-    fn cloud_unbind(&self, session: &str) -> Result<(), String>;
-    /// Remove every session bound to a thread.
-    fn cloud_unbind_thread(&self, thread_id: &str) -> Result<(), String>;
+    /// Every binding, sorted by registration time and then actor. Empty when nothing is
+    /// bound. A Dolt ledger below version 8 reads its `cloud_session_bindings` table as
+    /// cloud rows and upgrades nothing.
+    fn bindings_list(&self) -> Result<Vec<BindingRow>, String>;
+    /// Bind an actor to a thread, replacing the actor's earlier binding. The first call on
+    /// a Dolt ledger below version 8 upgrades it. The change stays local until the next
+    /// push.
+    fn binding_set(&self, row: &BindingRow) -> Result<(), String>;
+    /// Remove an actor's binding, if it has one.
+    fn binding_remove(&self, actor: &str) -> Result<(), String>;
+    /// Remove every binding to a thread, of either kind.
+    fn binding_remove_thread(&self, thread_id: &str) -> Result<(), String>;
 
     // --- External events ---
 

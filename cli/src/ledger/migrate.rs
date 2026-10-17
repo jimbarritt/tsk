@@ -26,7 +26,7 @@ use crate::ledger::push::{commit_changes, parse_push_status};
 use crate::ledger::store::dolt::{create_database_with, remote_tip, remote_url, DoltStore};
 use crate::ledger::store::{check_document_path, LedgerStore};
 use crate::thread::entry::STORE_FILE;
-use crate::thread::lookup::LOOKUP_FILE;
+use crate::thread::lookup::{WorktreeBinding, LOOKUP_FILE, WORKTREE_BINDINGS_DIR};
 use crate::thread::ops::{index_mission, mission_link};
 
 const INDEX_FILE: &str = "index.md";
@@ -41,8 +41,8 @@ struct Records {
     documents: Vec<(String, String)>,
     /// Thread ID, briefing path and continuation entries, sorted by ID.
     threads: Vec<ThreadRecord>,
-    /// Session, thread ID and registration time.
-    bindings: Vec<(String, String, String)>,
+    /// Actor, kind (`cloud` or `worktree`), thread ID and registration time.
+    bindings: Vec<(String, String, String, String)>,
     events: Vec<String>,
     /// Processed-through count and update time, when the file ledger has a watermark.
     watermark: Option<(u64, String)>,
@@ -68,7 +68,7 @@ impl Records {
 
     fn summary(&self) -> String {
         format!(
-            "{} documents, {} threads, {} continuation entries, {} cloud bindings, {} events",
+            "{} documents, {} threads, {} continuation entries, {} bindings, {} events",
             self.documents.len(),
             self.threads.len(),
             self.entry_count(),
@@ -491,6 +491,7 @@ fn read_records(git: &Git, commit: &str) -> Result<Records, String> {
     let mut records = Records::default();
     let mut threads: BTreeMap<String, (Option<String>, Option<String>)> = BTreeMap::new();
     let mut lookup_text = None;
+    let mut worktree_texts: Vec<(String, String)> = Vec::new();
     let mut queue_text = None;
     let mut watermark_text = None;
     let mut manifest_text = None;
@@ -505,6 +506,14 @@ fn read_records(git: &Git, commit: &str) -> Result<Records, String> {
         } else if let Some(rest) = path.strip_prefix("threads/") {
             if rest == LOOKUP_FILE {
                 lookup_text = Some(text(path)?);
+                continue;
+            }
+            if let Some(file) = rest
+                .strip_prefix(WORKTREE_BINDINGS_DIR)
+                .and_then(|r| r.strip_prefix('/'))
+                .filter(|f| f.ends_with(".json") && !f.contains('/'))
+            {
+                worktree_texts.push((file.to_string(), text(path)?));
                 continue;
             }
             match rest.split_once('/') {
@@ -577,25 +586,39 @@ fn read_records(git: &Git, commit: &str) -> Result<Records, String> {
 
     if let Some(text) = lookup_text {
         let lookup = crate::thread::lookup::Lookup::parse(&text, Path::new(LOOKUP_FILE))?;
-        for (session, binding) in lookup.entries() {
+        for (actor, binding) in lookup.entries() {
             if !binding.extra.is_empty() {
                 records.warnings.push(format!(
                     "the binding for session {} carries fields other than thread_id and registered_at; they are not migrated",
-                    session
+                    actor
                 ));
             }
             if binding.thread_id.is_none() || binding.registered_at.is_none() {
                 records.warnings.push(format!(
                     "the binding for session {} lacks thread_id or registered_at; the missing value is stored empty",
-                    session
+                    actor
                 ));
             }
             records.bindings.push((
-                session.clone(),
+                actor.clone(),
+                "cloud".to_string(),
                 binding.thread_id.clone().unwrap_or_default(),
                 binding.registered_at.clone().unwrap_or_default(),
             ));
         }
+    }
+    worktree_texts.sort();
+    for (file, text) in &worktree_texts {
+        let binding = WorktreeBinding::parse(
+            text,
+            Path::new(&format!("threads/{}/{}", WORKTREE_BINDINGS_DIR, file)),
+        )?;
+        records.bindings.push((
+            binding.actor,
+            "worktree".to_string(),
+            binding.thread_id,
+            binding.registered_at,
+        ));
     }
 
     if let Some(text) = queue_text {
@@ -669,12 +692,12 @@ fn insert_sql(records: &Records) -> String {
             .collect(),
     );
     batch(
-        "cloud_session_bindings",
-        "session_id, thread_id, registered_at",
+        "bindings",
+        "actor, kind, thread_id, registered_at",
         records
             .bindings
             .iter()
-            .map(|(s, t, r)| format!("({}, {}, {})", lit(s), lit(t), lit(r)))
+            .map(|(a, k, t, r)| format!("({}, {}, {}, {})", lit(a), lit(k), lit(t), lit(r)))
             .collect(),
     );
     batch(
@@ -751,20 +774,20 @@ fn verify(store: &dyn LedgerStore, records: &Records) -> Result<(), String> {
 
     let mut expected = records.bindings.clone();
     expected.sort();
-    let mut found: Vec<(String, String, String)> = store
-        .cloud_lookup()?
-        .entries()
-        .iter()
-        .map(|(session, binding)| {
+    let mut found: Vec<(String, String, String, String)> = store
+        .bindings_list()?
+        .into_iter()
+        .map(|row| {
             (
-                session.clone(),
-                binding.thread_id.clone().unwrap_or_default(),
-                binding.registered_at.clone().unwrap_or_default(),
+                row.actor,
+                row.kind.as_str().to_string(),
+                row.thread_id,
+                row.registered_at,
             )
         })
         .collect();
     found.sort();
-    expect("the cloud session bindings", expected, found)?;
+    expect("the bindings", expected, found)?;
 
     let events = (!records.events.is_empty()).then(|| records.events.clone());
     expect("the external events", events, store.events_list()?)?;

@@ -9,7 +9,9 @@ pub const SUPPORTED_VERSIONS: &[i64] = &[1];
 /// tables. Version 5 adds `threads.mission_id` and lets `threads.briefing_path` be null.
 /// Version 6 adds `decisions.adr_path`. Version 7 moves the constraints and out-of-scope
 /// text of a mission into the `mission_constraints` and `mission_out_of_scope` tables.
-pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5, 6, 7];
+/// Version 8 replaces `cloud_session_bindings` with `bindings`, which also holds the
+/// bindings of local worktrees.
+pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8];
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
@@ -145,8 +147,22 @@ mod tests {
     }
 
     #[test]
-    fn the_dolt_list_accepts_versions_one_to_seven_and_rejects_eight() {
-        for ok in [1, 2, 3, 4, 5, 6, 7] {
+    fn a_binary_that_knows_versions_one_to_seven_stops_at_a_version_eight_ledger() {
+        // What the previous release does with a Dolt ledger at version 8.
+        let err =
+            check_values(8, None, None, "the manifest table", &[1, 2, 3, 4, 5, 6, 7]).unwrap_err();
+        assert!(err.contains("unsupported ledger version 8"), "{}", err);
+        assert!(
+            err.contains("supports version 1, 2, 3, 4, 5, 6, 7"),
+            "{}",
+            err
+        );
+        assert!(err.contains("Update tsk"), "{}", err);
+    }
+
+    #[test]
+    fn the_dolt_list_accepts_versions_one_to_eight_and_rejects_nine() {
+        for ok in [1, 2, 3, 4, 5, 6, 7, 8] {
             assert_eq!(
                 check_values(
                     ok,
@@ -160,10 +176,10 @@ mod tests {
             );
         }
         let err =
-            check_values(8, None, None, "the manifest table", DOLT_SUPPORTED_VERSIONS).unwrap_err();
-        assert!(err.contains("unsupported ledger version 8"), "{}", err);
+            check_values(9, None, None, "the manifest table", DOLT_SUPPORTED_VERSIONS).unwrap_err();
+        assert!(err.contains("unsupported ledger version 9"), "{}", err);
         assert!(
-            err.contains("supports version 1, 2, 3, 4, 5, 6, 7"),
+            err.contains("supports version 1, 2, 3, 4, 5, 6, 7, 8"),
             "{}",
             err
         );

@@ -5,13 +5,11 @@ use serde::Serialize;
 
 use crate::ledger::git::Git;
 use crate::ledger::location::mint_token;
-use crate::ledger::store::{LedgerStore, ThreadInfo};
+use crate::ledger::store::{BindingKind, LedgerStore, ThreadInfo};
 use crate::mission::model::Mission;
 use crate::mission::records::resolve_task;
 
-use super::binding::{
-    bind_cloud, bind_current, clear_skip, remove_marker, resolve, write_marker, Binding,
-};
+use super::binding::{bind_current, clear_skip, remove_marker, resolve, unbind_current, Binding};
 use super::clock::utc_now;
 use super::entry::{self, parse_store, CodeState, GitState, LedgerState, NewEntry};
 use super::session::Session;
@@ -37,6 +35,15 @@ pub struct ListRow {
     pub mission_link: String,
     pub latest_whats_next: Option<String>,
     pub latest_timestamp: Option<String>,
+    /// The actors bound to the thread, oldest binding first. Empty when none is.
+    pub actors: Vec<ListActor>,
+}
+
+/// One actor bound to a thread, as `tsk thread list` prints it.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct ListActor {
+    pub actor: String,
+    pub kind: &'static str,
 }
 
 fn check_thread_id(id: &str) -> Result<(), String> {
@@ -416,14 +423,17 @@ pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
     let current = session.actor_urn();
     let warning = takeover_warning(id, &prior_actors(&entries), &current);
 
-    match &session.cloud_session {
-        Some(cloud) => {
-            if resolve(session)? != Some(Binding::Cloud(id.to_string())) {
-                bind_cloud(session, cloud, id)?;
-                session.push(&format!("Bind {} to thread {}", current, id))?;
-            }
+    // A cloud session pushes its binding. A worktree binding is a local ledger change,
+    // pushed with the next push, as a record write is.
+    let bound = match &session.cloud_session {
+        Some(_) => Binding::Cloud(id.to_string()),
+        None => Binding::Worktree(id.to_string()),
+    };
+    if resolve(session)? != Some(bound) {
+        bind_current(session, id)?;
+        if session.cloud_session.is_some() {
+            session.push(&format!("Bind {} to thread {}", current, id))?;
         }
-        None => write_marker(session, id)?,
     }
     clear_skip(session)?;
 
@@ -451,16 +461,14 @@ pub fn detach(session: &Session) -> Result<String, String> {
     let binding = resolve(session)?.ok_or_else(|| {
         "error: no thread binding found for this session or worktree; nothing to detach".to_string()
     })?;
-    match (&binding, &session.cloud_session) {
-        (Binding::Cloud(id), Some(cloud)) => {
-            session.store.cloud_unbind(cloud)?;
-            session.push(&format!(
-                "Detach {} from thread {}",
-                session.actor_urn(),
-                id
-            ))?;
-        }
-        _ => remove_marker(session)?,
+    // A cloud session pushes its detach. A worktree detach is a local ledger change,
+    // pushed with the next push.
+    if unbind_current(session)? == BindingKind::Cloud {
+        session.push(&format!(
+            "Detach {} from thread {}",
+            session.actor_urn(),
+            binding.thread_id()
+        ))?;
     }
     Ok(binding.thread_id().to_string())
 }
@@ -486,7 +494,7 @@ pub fn stop(session: &Session, target: Option<&str>) -> Result<String, String> {
     if current == Some(Binding::Worktree(id.clone())) {
         remove_marker(session)?;
     }
-    store.cloud_unbind_thread(&id)?;
+    store.binding_remove_thread(&id)?;
     store.thread_delete(&id)?;
     session.push(&format!("Stop thread {}", id))?;
     Ok(id)
@@ -506,6 +514,7 @@ pub fn mission_link(index_md: &str) -> String {
 }
 
 pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
+    let bindings = store.bindings_list()?;
     let mut rows = Vec::new();
     for name in store.thread_ids()? {
         let info = store.thread_info(&name)?;
@@ -516,6 +525,14 @@ pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
             mission_link: info.briefing_path.unwrap_or_default(),
             latest_whats_next: latest.and_then(|e| e.whats_next.clone()),
             latest_timestamp: latest.and_then(|e| e.timestamp.clone()),
+            actors: bindings
+                .iter()
+                .filter(|binding| binding.thread_id == name)
+                .map(|binding| ListActor {
+                    actor: binding.actor.clone(),
+                    kind: binding.kind.as_str(),
+                })
+                .collect(),
             id: name,
         });
     }
@@ -774,6 +791,7 @@ mod tests {
             mission_link: String::new(),
             latest_whats_next: None,
             latest_timestamp: ts.map(str::to_string),
+            actors: Vec::new(),
         }
     }
 
@@ -797,10 +815,23 @@ mod tests {
             mission_link: "m.md".to_string(),
             latest_whats_next: None,
             latest_timestamp: None,
+            actors: vec![
+                ListActor {
+                    actor: "cse_1".to_string(),
+                    kind: "cloud",
+                },
+                ListActor {
+                    actor: "tsk-1a2b/main".to_string(),
+                    kind: "worktree",
+                },
+            ],
         };
         assert_eq!(
             serde_json::to_string(&r).unwrap(),
-            "{\"id\":\"1234abcd\",\"mission_id\":\"M-X\",\"mission_link\":\"m.md\",\"latest_whats_next\":null,\"latest_timestamp\":null}"
+            "{\"id\":\"1234abcd\",\"mission_id\":\"M-X\",\"mission_link\":\"m.md\",\"latest_whats_next\":null,\"latest_timestamp\":null,\"actors\":[{\"actor\":\"cse_1\",\"kind\":\"cloud\"},{\"actor\":\"tsk-1a2b/main\",\"kind\":\"worktree\"}]}"
         );
+        assert!(serde_json::to_string(&row("1234abcd", None))
+            .unwrap()
+            .ends_with("\"actors\":[]}"));
     }
 }

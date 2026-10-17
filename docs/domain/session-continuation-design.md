@@ -28,8 +28,19 @@ every channel.
 
 | Channel | Binding mechanism |
 |---|---|
-| Cloud session | `CLAUDE_CODE_REMOTE_SESSION_ID` looked up in `threads/lookup-by-cloud-session.json` on the ledger |
-| Code worktree | A thread-ID marker file written inside the code worktree's own git metadata |
+| Cloud session | A row of the `bindings` table, keyed on `CLAUDE_CODE_REMOTE_SESSION_ID` |
+| Code worktree | A row of the same table, keyed on the clone ID and the worktree name |
+
+Every binding is one row of the ledger's `bindings` table: the actor key, its kind
+(`cloud` or `worktree`), the thread ID and the registration time. An actor has one row, so
+binding it to another thread replaces the row. A thread can have any number of rows. The
+table has no foreign key to `threads`: `tsk thread stop` deletes the thread and every row
+that names it, of either kind. On the file ledger the cloud rows are the JSON map `threads/lookup-by-cloud-session.json`
+and the worktree rows are one file each under `threads/.worktree-bindings/`.
+
+`tsk thread list` shows the actors of each thread in `actors`, an array of
+`{"actor", "kind"}`. `tsk thread binding` prints `cloud:<thread-id>` or
+`worktree:<thread-id>` for the row of the current actor.
 
 ### Cloud session binding
 
@@ -41,16 +52,9 @@ A second variable, `CLAUDE_CODE_SESSION_ID`, is a different UUID: a lower-level
 container or instance identifier, not the platform session ID. A binding must use
 `CLAUDE_CODE_REMOTE_SESSION_ID`, never the other one.
 
-The lookup lives at `threads/lookup-by-cloud-session.json` on the ledger, keyed on
-the session ID, each entry:
-
-```json
-{ "thread_id": "<slug>", "registered_at": "<timestamp>" }
-```
-
-A shared, durable map is needed here because a cloud session's identity is a string
-with no persistent local file store attached to it that survives the session's
-container being reclaimed and reopened.
+The actor key of a cloud session is the session ID. A shared, durable table is needed
+here because a cloud session's identity is a string with no persistent local file store
+attached to it that survives the session's container being reclaimed and reopened.
 
 ### Code worktree binding
 
@@ -68,23 +72,29 @@ removing a code worktree frees its name, and a later, unrelated code worktree cr
 same directory basename is assigned the same name. `git worktree list --porcelain`
 does not expose `<name>` directly; it has to be derived from `--git-dir`.
 
-Because of that recycling risk, the binding does not key on `<name>`. Instead, tsk
-writes its own thread ID directly into a marker file:
+The name is unique only within one clone, and the ledger is shared by every clone. So the
+actor key of a code worktree is `<clone-id>/<worktree-name>`. The clone ID is the one in
+`.git/tsk-clone-id`, minted once per clone from the clone directory's name and a random
+suffix, and kept when the directory moves. The worktree name is `main` for the main
+worktree and the basename of `--git-dir` for a linked one. Two clones never share a key. A
+recycled worktree name in one clone reuses the key, and so the old row: the new
+worktree's first bind replaces it.
 
-```
-$(git rev-parse --git-dir)/tsk-thread-id
-```
+Decided 2026-10-16, built by M-TSK-SCHEMA T-11. Before that, the binding of a code
+worktree was a marker file, `$(git rev-parse --git-dir)/tsk-thread-id`, with the thread ID in
+it. The first command that resolves a worktree binding, finds the file and finds no row
+for the actor key writes the row from the file and removes the file. Nothing writes the file
+again. A bind or a detach of a worktree is a ledger write that stays local until the next
+push, as a record write does. A cloud session's bind and detach push at once. Until that
+push the ledger store has a local change, so `tsk ledger fetch` and the `tsk events`
+commands refuse over it, and a thread command keeps it while it refreshes.
 
-One uniform rule, main worktree included: `--git-dir` already resolves to a distinct
-path per worktree (`.git/worktrees/<name>` for a linked one, `.git` itself for the
-main one), so the marker never collides even though the main worktree's `.git` is
-otherwise shared object and ref storage that every linked worktree also reads via
-`--git-common-dir`.
+The Stop hook check and `tsk thread binding --no-fetch` read the local ledger store only
+and never fetch, so they work offline. They read one table with one query, and they read
+a marker file that is still there without migrating it.
 
-No separate lookup map exists for code worktrees. The marker file is the whole binding: it
-is colocated with the code worktree, has no name to key on, and so has no recycling problem
-to guard against. Two code worktrees can each hold a marker pointing at the same thread with
-no coordination needed, since each marker is its own file.
+`tsk thread skip` stays a file in the git directory, `tsk-thread-skip`. It is local to
+the clone and never in the ledger.
 
 ## Thread identity and the threads directory
 
@@ -120,7 +130,7 @@ One JSON object per line, appended, never rewritten. Fields:
 | What's next | Agent | A short account of where things stand |
 | Git state | Binary | A nested `git` object. `git.ledger.commit` is the commit the ledger branch was at when the pause began, read before this entry is appended. It cannot be the commit the push creates: that commit holds this entry, so its hash is unknown here. `git.code.ref` is the full ref of the branch the code worktree is on at pause time. `git.code.commit` is the commit at its `HEAD`. |
 | Timestamp | Script | When the entry was appended |
-| Written by | Script | `urn:tsk:worktree:<name>` or `urn:tsk:cloudsession:<session-id>`, naming the binding that wrote this entry |
+| Written by | Script | `urn:tsk:worktree:<name>` or `urn:tsk:cloudsession:<session-id>`, naming the actor that wrote this entry. For a worktree, `<name>` is the basename of the git directory (`.git` for a main worktree). It is not the `bindings` actor key, and an entry written before the `bindings` table keeps it |
 
 The commit and timestamp fields are deterministic: a script captures them, since the
 same script already handles the git side of a pause. The mission comes from the thread.
@@ -141,12 +151,12 @@ Backed by a deterministic script. Invoked explicitly, or via a natural-language
 request naming a mission.
 
 1. Resolve the current binding: check `CLAUDE_CODE_REMOTE_SESSION_ID` first; if absent,
-   resolve the code worktree marker.
+   use the actor key of the code worktree. Both are rows of `bindings`.
 2. If a thread already exists for that binding, this is a resume, not a start (see
    `/resume-thread`).
 3. If none exists, mint a new thread ID, create the thread with its mission (or with no
-   mission, when no mission argument is given), and write the binding (the cloud lookup
-   entry, or the code worktree marker file). Starting clears a `tsk thread skip`.
+   mission, when no mission argument is given), and write the binding (the `bindings` row of
+   the session or the code worktree). Starting clears a `tsk thread skip`.
 4. The mission argument is resolved and validated twice: the agent resolves a
    natural-language mission reference to an actual mission ID before running the
    command, and `tsk thread start <mission-id>` validates that ID independently rather
@@ -223,24 +233,24 @@ proceeds.
 ### `/detach-thread`
 
 Backed by `tsk thread detach`. Removes only the current session's or code worktree's own
-binding: the cloud lookup entry, or the code worktree marker file. The thread itself, its
+binding: its `bindings` row. The thread itself, its
 continuation state, and any other actor's binding to it are untouched.
 
 ### `/stop-thread [<thread-id>]`
 
 Backed by `tsk thread stop`. Detaches the current binding, if it points at the target
 thread, deletes the thread's directory (`index.md` and `continuation-state.jsonl`),
-and purges every cloud-session lookup entry still pointing at it — a thread that no
+and deletes every `bindings` row still pointing at it, of either kind. A thread that no
 longer exists cannot be a valid binding target for anyone. With no argument it
 targets the thread currently bound; given an explicit thread ID, it targets that
 thread instead, regardless of the current binding — how `/switch-thread` composes it
 below.
 
-A code worktree marker in some other code worktree that still names the stopped thread cannot
-be reached or cleaned up from here: it is local metadata inside that other
-code worktree's own git directory, invisible to this script. It goes stale silently, the
-same limitation code worktree markers already carry generally (no separate lookup map
-exists for them either: see Code worktree binding above).
+A marker file from before the `bindings` table, in some other code worktree, that still
+names the stopped thread cannot be reached or cleaned up from here: it is local metadata
+inside that other code worktree's own git directory, invisible to this script. It goes
+stale silently, and its first resolve there writes a row for a thread that no longer
+exists. Every other binding is a row, so stopping the thread clears it.
 
 ### `/switch-thread [<thread-id>]`
 
@@ -255,7 +265,7 @@ which to resume.
 The `SessionStart` hook runs `tsk thread session-start`, which does the tsk-specific
 work and prints the context message. It extends the ledger fetch with:
 
-1. Resolve the current binding (cloud session ID, or code worktree marker).
+1. Resolve the current binding (the `bindings` row of the cloud session ID, or of the code worktree).
 2. If found, prompt the agent to run `/tsk:resume-thread <thread-id>` with the resolved ID.
 3. If not found, prompt the agent to ask the human directly, as a structured question
    (`AskUserQuestion`: selectable options plus free text), not a plain message: no
@@ -290,10 +300,10 @@ verification work might later want, and `/goal` is documented as built for the
 unsupervised context, not this design's supervised-interactive scope.
 
 **Why the check does not fetch.** `tsk thread guard` resolves the binding
-from the existing ledger worktree and the code worktree's marker, and never runs
-`tsk ledger fetch`. Refreshing over the network on every turn would be slow and
-liable to fail transiently, and it is unnecessary here: a binding this session itself
-wrote is already reflected in its own ledger worktree checkout without being fetched again.
+from the existing ledger store, with one query, and never runs `tsk ledger fetch`.
+Refreshing over the network on every turn would be slow and liable to fail transiently,
+and it is unnecessary here: a binding this session itself wrote is already in its own
+ledger store without being fetched again.
 
 **Safety valve.** The guard does not track its own attempt count. Claude Code overrides
 a `Stop` hook that blocks eight times in a row without progress, which is the actual
@@ -305,5 +315,4 @@ trying a ninth time.
 to any mission. The `/clear` scenario is not covered by a live run: no tool call lets
 an agent trigger `/clear` on itself, the same limitation M-BOOT-02-01's report
 recorded. The guarantee holds by construction instead: the guard depends on no
-conversational state, only on the code worktree marker or the cloud lookup entry, neither
-of which `/clear` changes, so its behaviour cannot differ before and after one.
+conversational state, only on the actor's `bindings` row, which `/clear` does not change, so its behaviour cannot differ before and after one.
