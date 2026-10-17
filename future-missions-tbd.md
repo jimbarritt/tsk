@@ -984,3 +984,28 @@ team's cross-repo mission goes in the team nexus's ledger, and an actor's cross-
 work in their personal nexus's ledger. The cost is that such a mission has the nexus's
 access boundary. The analysis in the tsk repo has the example. Open there: whether a
 territory lists repos, missions, or both.
+
+## Beads as a backing store for tsk: table-by-table comparison, and a cheap probe
+
+Raised by Jim, 2026-10-17, after the news of beads' first birthday. Jim asked how much
+difference it would make to use beads as the backing store for tsk, and asked for it to be
+recorded as an idea only. Nothing is decided.
+
+The analysis is in `docs/kb/orchestration-ecosystem/beads-as-backing-store-analysis.md` in
+the tsk repo, under "Update 2026-10-17". In short: of tsk's 14 Dolt tables, four fit
+beads cleanly (`mission_blocks`, `task_blocks`, `tasks`, `questions`), four fit with a loss
+of typing (`missions`, `objective_outcomes`, `decisions`, `mission_documents`), and five
+have no home in beads (`threads`, `continuation_entries`, `cloud_session_bindings`,
+`external_events`, `watermark`). Beads can back Navigation and cannot back tsk. The finding
+supports ADR 0014. It needs no change to the ADR.
+
+Idea: a cheap probe. Export tsk's missions and tasks to beads' JSONL import format, open
+them with `bd list` and `bd ready`, and note what the readiness queue shows against tsk's.
+This tests the arrangement of beads for Navigation only.
+
+Conditions that would reopen the question, from the analysis: a released `bd` with
+user-installed Types that carry a JSON Schema, the BDP Write profile adopted, and a `bd`
+command that sets a branch ref for sync.
+
+Open: whether `bd` imports a custom type and status from JSONL without prior
+configuration, and whether beads' `comments` table can serve as an append-only log.
