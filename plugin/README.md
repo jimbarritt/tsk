@@ -15,7 +15,7 @@ this repository. They hold the minimum logic: see
 | Skill | Runs |
 |---|---|
 | `tsk` | Reference for the `tsk` command line. |
-| `start-thread` | `tsk thread start` |
+| `start-thread` | `tsk thread start`, with or without a mission ID |
 | `pause-thread` | `tsk thread pause` |
 | `resume-thread` | `tsk thread resume` |
 | `switch-thread` | `tsk thread detach`, `tsk thread stop` when asked, then the `resume-thread` skill |

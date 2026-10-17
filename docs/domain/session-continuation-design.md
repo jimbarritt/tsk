@@ -144,15 +144,23 @@ request naming a mission.
    resolve the code worktree marker.
 2. If a thread already exists for that binding, this is a resume, not a start (see
    `/resume-thread`).
-3. If none exists, mint a new thread ID, create the thread with its mission, and write the
-   binding (the cloud lookup entry, or the code worktree marker file). Starting clears a
-   `tsk thread skip`.
+3. If none exists, mint a new thread ID, create the thread with its mission (or with no
+   mission, when no mission argument is given), and write the binding (the cloud lookup
+   entry, or the code worktree marker file). Starting clears a `tsk thread skip`.
 4. The mission argument is resolved and validated twice: the agent resolves a
    natural-language mission reference to an actual mission ID before running the
    command, and `tsk thread start <mission-id>` validates that ID independently rather
    than trusting the agent's resolution alone. The mission must have a record, or, in a
    ledger not yet moved to records, a briefing document. The thread stores the briefing
    path only in the second case.
+5. `tsk thread start` with no mission argument mints a thread with no mission. Use it for
+   continuity without a mission. The thread has no tasks: tasks belong to missions, and a
+   thread that needs ad hoc tasks takes an administrative mission such as `M-ADMIN-02`.
+   `tsk thread set mission <mission-id> [<thread-id>]` attaches a mission later or changes
+   it, and `tsk thread set mission --none [<thread-id>]` removes it. Entries already
+   written keep the mission they were written with. The session start context for a bound
+   thread with no mission says so, gives the thread's latest what's next (or `none yet`),
+   and names `tsk thread set mission <mission-id>`.
 
 Everything in this path is scriptable. No agent judgement is needed once the mission
 argument is resolved.
@@ -163,7 +171,9 @@ Writes one continuation state entry, through `tsk thread pause`. The command cap
 the commit hashes, the branch and the timestamp, and takes the mission from the thread;
 the agent supplies the task ID and what's-next text as arguments:
 `tsk thread pause <thread-id> <task-id> <whats-next>`. The task ID can be empty. When the
-mission has a record, a task ID that is not one of its tasks stops the pause.
+mission has a record, a task ID that is not one of its tasks stops the pause. A thread with
+no mission has no tasks: its task ID must be empty, and any other value stops the pause.
+The entry records the mission current at the pause, `null` for a thread with no mission.
 
 The pause rule: `HEAD` of the code worktree must be reachable from some branch on origin,
 not only from origin's default branch, because work happens on feature branches and in

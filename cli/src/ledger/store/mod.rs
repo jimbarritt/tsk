@@ -143,13 +143,23 @@ pub trait LedgerStore {
     // --- Threads ---
 
     fn thread_exists(&self, id: &str) -> Result<bool, String>;
-    /// Create a thread with an empty continuation log, the mission it works and, for a
-    /// mission with no record, its briefing path. Fails when the thread exists. The first
-    /// call on a Dolt ledger below version 5 upgrades it.
+    /// Create a thread with an empty continuation log, the mission it works (none for a
+    /// thread with no mission) and, for a mission with no record, its briefing path.
+    /// Fails when the thread exists. The first call on a Dolt ledger below version 5
+    /// upgrades it.
     fn thread_create(
         &self,
         id: &str,
-        mission_id: &str,
+        mission_id: Option<&str>,
+        briefing_path: Option<&str>,
+    ) -> Result<(), String>;
+    /// Replace the mission and briefing path of an existing thread. Both `None` detaches
+    /// the thread from its mission. Earlier continuation entries are not touched. The
+    /// first call on a Dolt ledger below version 5 upgrades it.
+    fn thread_set_mission(
+        &self,
+        id: &str,
+        mission_id: Option<&str>,
         briefing_path: Option<&str>,
     ) -> Result<(), String>;
     /// Delete a thread and its continuation log.

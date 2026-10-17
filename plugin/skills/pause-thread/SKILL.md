@@ -26,7 +26,10 @@ suggest an automated trigger for it.
    not freshly decided). The mission comes from the thread.
    - `<task-id>`: the task in progress when the thread paused, for example `T-05`. It
      can be empty. When the thread's mission has a record, it must be a task of that
-     mission.
+     mission. When the thread has no mission (the session start context says so),
+     pass an empty task ID: a thread with no mission has no tasks, and the command
+     refuses a task ID. To give the thread a mission first, run
+     `tsk thread set mission <mission-id>`.
    - `<whats-next>`: a short, concrete account of where things stand, specific
      enough that a different actor, reading only this line, knows what to do
      next.

@@ -13,7 +13,7 @@ use crate::mission::model::{Mission, Status};
 use crate::mission::records::task_line;
 
 use super::binding::{is_skipped, open_mission_lines, resolve, unbound_prompt};
-use super::ops::thread_mission;
+use super::ops::{latest_whats_next, thread_mission};
 use super::session::Session;
 
 pub const ENV_FILE_VAR: &str = "CLAUDE_ENV_FILE";
@@ -240,6 +240,22 @@ pub fn thread_message(binding: Option<&str>, unbound_prompt: &str) -> String {
     }
 }
 
+/// What the session start says about a bound thread that has no mission, after the
+/// binding sentence: it has no tasks, what its latest pause entry says is next, and the
+/// command that attaches a mission.
+pub fn no_mission_context(latest_whats_next: Option<&str>) -> String {
+    let text = latest_whats_next.map_or("none yet", str::trim);
+    let stop = if text.ends_with(['.', '!', '?']) {
+        ""
+    } else {
+        "."
+    };
+    format!(
+        "This thread has no mission, so it has no tasks. Its latest what's next: {}{} To attach a mission, run `tsk thread set mission <mission-id>`.",
+        text, stop
+    )
+}
+
 /// Said instead of the unbound prompt when this session or worktree skipped a thread.
 pub const SKIPPED_MESSAGE: &str = "This session or worktree works without a thread (tsk thread skip). To bind one, run /tsk:start-thread <mission-id>, or /tsk:resume-thread <thread-id> for an existing thread.";
 
@@ -329,16 +345,24 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
     } else {
         String::new()
     };
+    let mut no_mission = None;
     if let Some(binding) = &binding {
+        let id = binding.thread_id();
         let thread_mission = store
-            .thread_info(binding.thread_id())
+            .thread_info(id)
             .ok()
             .and_then(|info| thread_mission(&info));
-        if let Some(mission) = thread_mission
-            .as_deref()
-            .and_then(|id| missions.iter().find(|m| m.id == id))
-        {
-            read_hint = mission_context(mission);
+        match thread_mission.as_deref() {
+            Some(mission_id) => {
+                if let Some(mission) = missions.iter().find(|m| m.id == mission_id) {
+                    read_hint = mission_context(mission);
+                }
+            }
+            None if store.thread_exists(id).unwrap_or(false) => {
+                let latest = latest_whats_next(store, id).ok().flatten();
+                no_mission = Some(no_mission_context(latest.as_deref()));
+            }
+            None => {}
         }
     }
     let prompt = if is_skipped(session) {
@@ -346,6 +370,11 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
     } else {
         unbound_prompt(&open_mission_lines(&missions))
     };
+    let mut thread_text = thread_message(binding.map(|b| b.to_string()).as_deref(), &prompt);
+    if let Some(no_mission) = no_mission {
+        thread_text.push(' ');
+        thread_text.push_str(&no_mission);
+    }
     let mut context = fetched_context(
         &outcome.path,
         &read_hint,
@@ -353,7 +382,7 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
             &outcome,
             store.pending_inspect_hint(&outcome.path, &outcome.remote_head),
         ),
-        &thread_message(binding.map(|b| b.to_string()).as_deref(), &prompt),
+        &thread_text,
     );
     if store.has_local_changes().unwrap_or(false) {
         push_part(&mut context, LOCAL_CHANGES_NOTE);
@@ -529,6 +558,22 @@ mod tests {
         );
         assert_eq!(thread_message(None, UNBOUND_PROMPT), UNBOUND_PROMPT);
         assert_eq!(thread_message(None, "Pick."), "Pick.");
+    }
+
+    #[test]
+    fn no_mission_context_gives_the_latest_whats_next_and_the_attach_command() {
+        assert_eq!(
+            no_mission_context(Some("Review the draft")),
+            "This thread has no mission, so it has no tasks. Its latest what's next: Review the draft. To attach a mission, run `tsk thread set mission <mission-id>`."
+        );
+        assert_eq!(
+            no_mission_context(Some("Done.")),
+            "This thread has no mission, so it has no tasks. Its latest what's next: Done. To attach a mission, run `tsk thread set mission <mission-id>`."
+        );
+        assert_eq!(
+            no_mission_context(None),
+            "This thread has no mission, so it has no tasks. Its latest what's next: none yet. To attach a mission, run `tsk thread set mission <mission-id>`."
+        );
     }
 
     fn input(session_id: Option<&str>, source: Option<&str>) -> HookInput {

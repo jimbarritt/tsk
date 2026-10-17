@@ -43,5 +43,10 @@ refuse.
    briefing with `tsk ledger doc get <mission_link>` if you need the title. Do not just
    repeat the raw ID or link.
 
+   A thread can have no mission: `latest.mission_id` is null, or `latest` is `{}`. Then
+   write `we are working on no mission (this thread has no mission, so it has no
+   tasks)` for the second line. Offer `tsk thread set mission <mission-id>` if I want
+   to attach one.
+
 4. **Ask whether to continue** with this thread, or do something else. Do not
    assume continuation.

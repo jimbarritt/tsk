@@ -914,7 +914,7 @@ impl LedgerStore for DoltStore {
     fn thread_create(
         &self,
         id: &str,
-        mission_id: &str,
+        mission_id: Option<&str>,
         briefing_path: Option<&str>,
     ) -> Result<(), String> {
         let db = self.db()?;
@@ -932,7 +932,32 @@ impl LedgerStore for DoltStore {
             "insert into threads (thread_id, briefing_path, mission_id) values ({}, {}, {});",
             lit(id),
             briefing_path.map_or("NULL".to_string(), lit),
-            lit(mission_id)
+            mission_id.map_or("NULL".to_string(), lit)
+        ));
+        db.exec(&sql)
+    }
+
+    fn thread_set_mission(
+        &self,
+        id: &str,
+        mission_id: Option<&str>,
+        briefing_path: Option<&str>,
+    ) -> Result<(), String> {
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        let version = self.check_current(&db, &location)?;
+        if !self.thread_exists(id)? {
+            return Err(format!("error: no such thread: {}", id));
+        }
+        let mut sql = String::new();
+        if version < dolt::LAYOUT_VERSION {
+            sql.push_str(&dolt::upgrade_sql(version));
+        }
+        sql.push_str(&format!(
+            "update threads set briefing_path = {}, mission_id = {} where thread_id = {};",
+            briefing_path.map_or("NULL".to_string(), lit),
+            mission_id.map_or("NULL".to_string(), lit),
+            lit(id)
         ));
         db.exec(&sql)
     }
