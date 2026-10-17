@@ -58,7 +58,7 @@ pub enum ThreadCommands {
         legacy_whats_next: Option<String>,
     },
     #[command(
-        about = "Bind this session or worktree to a thread, replacing its earlier binding, and print its latest continuation state entry as JSON with a warning when another actor wrote to it. A cloud session pushes the binding. A worktree binding is a local ledger change that goes out with the next push"
+        about = "Bind this session or worktree to a thread, replacing its earlier binding, and print its latest continuation state entry as JSON with a warning when another actor wrote to it, and push. When origin is away a worktree binding prints a note and succeeds, and goes out with the next push"
     )]
     Resume {
         #[arg(help = "Thread ID")]
@@ -70,7 +70,7 @@ pub enum ThreadCommands {
         field: SetCommands,
     },
     #[command(
-        about = "Remove this session's or worktree's binding without deleting the thread; prints detached:<thread-id>. Every binding, of a cloud session or a worktree, is a row in the ledger. A cloud session pushes the change. A worktree detach is a local ledger change that goes out with the next push"
+        about = "Remove this session's or worktree's binding without deleting the thread, and push; prints detached:<thread-id>. Every binding is a row in the ledger. When origin is away a worktree detach prints a note and succeeds, and the change goes out with the next push"
     )]
     Detach,
     #[command(

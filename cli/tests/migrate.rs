@@ -329,9 +329,11 @@ impl Fixture {
         assert_success(&child.wait_with_output().unwrap());
         self.ok(&a, "git", &["events", "advance-watermark", "1"]);
 
+        // The resume binds clone B's worktree and pushes, so the list that follows names it.
+        let resume = self.ok(&b, "git", &["thread", "resume", &id]);
         Before {
             list: self.ok(&a, "git", &["thread", "list"]),
-            resume: self.ok(&b, "git", &["thread", "resume", &id]),
+            resume,
             events: self.ok(&a, "git", &["events", "read-new"]),
             thread_id: id,
         }
@@ -422,7 +424,7 @@ fn a_file_ledger_migrates_and_reads_back_identically_from_a_fresh_clone() {
     assert_eq!(stdout(&dry), "dry-run:ok\n");
     assert!(
         stderr(&dry)
-            .contains("4 documents, 2 threads, 2 continuation entries, 2 bindings, 2 events"),
+            .contains("4 documents, 2 threads, 2 continuation entries, 3 bindings, 2 events"),
         "{}",
         stderr(&dry)
     );
@@ -524,8 +526,6 @@ fn a_file_ledger_migrates_and_reads_back_identically_from_a_fresh_clone() {
         fx.ok(&c, "dolt", &["thread", "resume", &before.thread_id]),
         before.resume
     );
-    // The resume bound this worktree, a local change that the events commands refuse over.
-    fx.ok(&c, "dolt", &["ledger", "push", "Bind the fresh clone"]);
     assert_eq!(fx.ok(&c, "dolt", &["events", "read-new"]), before.events);
 
     fx.ok(

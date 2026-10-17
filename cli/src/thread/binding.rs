@@ -150,8 +150,7 @@ pub fn remove_marker(session: &Session) -> Result<(), String> {
 }
 
 /// Bind this session or worktree to a thread, replacing its earlier binding. A local
-/// bind is a ledger write that stays local until the next push; a cloud session's caller
-/// pushes it at once. A marker file left over from before is
+/// bind is a ledger write: the caller pushes it. A marker file left over from before is
 /// removed.
 pub fn bind_current(session: &Session, thread_id: &str) -> Result<(), String> {
     let (actor, kind) = session.actor_key()?.ok_or_else(no_clone_id)?;

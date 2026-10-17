@@ -84,10 +84,7 @@ Decided 2026-10-16, built by M-TSK-SCHEMA T-11. Before that, the binding of a co
 worktree was a marker file, `$(git rev-parse --git-dir)/tsk-thread-id`, with the thread ID in
 it. The first command that resolves a worktree binding, finds the file and finds no row
 for the actor key writes the row from the file and removes the file. Nothing writes the file
-again. A bind or a detach of a worktree is a ledger write that stays local until the next
-push, as a record write does. A cloud session's bind and detach push at once. Until that
-push the ledger store has a local change, so `tsk ledger fetch` and the `tsk events`
-commands refuse over it, and a thread command keeps it while it refreshes.
+again. A bind or a detach of a worktree is a ledger write, and the command pushes it with any pending local records and documents, as a cloud session's does. A failed push does not fail a worktree command: the binding is valid in the local store, so the command prints `note: the binding is saved locally; run tsk ledger push when origin is reachable` and exits 0. A worktree command also goes on when its first refresh fails and a local store exists. A cloud command still fails on either.
 
 The Stop hook check and `tsk thread binding --no-fetch` read the local ledger store only
 and never fetch, so they work offline. They read one table with one query, and they read

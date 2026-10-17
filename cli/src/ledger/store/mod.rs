@@ -219,8 +219,8 @@ pub trait LedgerStore {
     /// cloud rows and upgrades nothing.
     fn bindings_list(&self) -> Result<Vec<BindingRow>, String>;
     /// Bind an actor to a thread, replacing the actor's earlier binding. The first call on
-    /// a Dolt ledger below version 8 upgrades it. The change stays local until the next
-    /// push.
+    /// a Dolt ledger below version 8 upgrades it. The change is local until the caller
+    /// pushes it.
     fn binding_set(&self, row: &BindingRow) -> Result<(), String>;
     /// Remove an actor's binding, if it has one.
     fn binding_remove(&self, actor: &str) -> Result<(), String>;

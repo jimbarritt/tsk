@@ -625,9 +625,6 @@ mod cases {
         );
         assert_exit(&fx.tsk(&a, &["thread", "binding", "--no-fetch"]), 1);
         assert_exit(&fx.tsk(&a, &["thread", "start", "M-NONE"]), 1);
-        // The detach is a local ledger change. Pushing it lets this clone read what the
-        // other clone writes next: a store with local changes is not moved to origin.
-        fx.ok(&a, &["ledger", "push", "Detach the worktree"]);
 
         let resumed = json(&fx.ok(&other, &["thread", "resume", &id]));
         assert_eq!(resumed["thread_id"], id.as_str());
@@ -925,6 +922,70 @@ mod cases {
         expected.sort();
         assert_eq!(fx.actors_of(&a, &id), expected);
         assert_eq!(fx.actors_of(&other, &id), expected);
+    }
+
+    pub fn a_worktree_resume_and_detach_push_and_leave_the_store_clean(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let (a, other) = (fx.a(), fx.b());
+        let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
+        fx.ok(&a, &["thread", "detach"]);
+        let after_detach = fx.remote_ledger();
+        fx.ok(&a, &["thread", "resume", &id]);
+        assert_ne!(fx.remote_ledger(), after_detach);
+
+        // Nothing is left to push: a plain fetch works and the status is clean.
+        fx.ok(&a, &["ledger", "fetch"]);
+        let status = fx.ok(&a, &["ledger", "status", "--porcelain"]);
+        assert!(status.contains("data\tclean"), "{}", status);
+        assert!(!status.contains("local changes"), "{}", status);
+        fx.ok(&a, &["thread", "detach"]);
+        fx.ok(&a, &["ledger", "fetch"]);
+        let status = fx.ok(&a, &["ledger", "status", "--porcelain"]);
+        assert!(status.contains("data\tclean"), "{}", status);
+
+        // Pending records go out with the bind.
+        fx.ok(&a, &["mission", "create", "M-PEND", "Pending"]);
+        fx.ok(&a, &["thread", "resume", &id]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert!(fx.ok(&other, &["mission", "list"]).contains("M-PEND"));
+        assert_eq!(
+            fx.actors_of(&other, &id),
+            vec![format!("worktree:{}", fx.main_actor(&a))]
+        );
+    }
+
+    pub fn a_worktree_resume_with_origin_away_keeps_the_binding_locally(b: Backend) {
+        let fx = Fixture::with_briefing(b);
+        let a = fx.a();
+        let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
+        fx.ok(&a, &["thread", "detach"]);
+
+        let moved = fx.root.path().join("origin-away.git");
+        std::fs::rename(fx.origin(), &moved).unwrap();
+        let resume = fx.tsk(&a, &["thread", "resume", &id]);
+        assert_success(&resume);
+        assert_eq!(json(&stdout(&resume))["thread_id"], id.as_str());
+        assert!(
+            stderr(&resume).contains(
+                "note: the binding is saved locally; run tsk ledger push when origin is reachable"
+            ),
+            "{}",
+            stderr(&resume)
+        );
+        assert_eq!(
+            fx.ok(&a, &["thread", "binding", "--no-fetch"]),
+            format!("worktree:{}\n", id)
+        );
+        assert_eq!(fx.guard_reason(&a, None), None);
+
+        let detach = fx.tsk(&a, &["thread", "detach"]);
+        assert_success(&detach);
+        assert!(stderr(&detach).contains("the binding is saved locally"));
+        assert_exit(&fx.tsk(&a, &["thread", "binding", "--no-fetch"]), 1);
+
+        // Origin returns and the next push carries the change.
+        std::fs::rename(&moved, fx.origin()).unwrap();
+        fx.ok(&a, &["ledger", "push", "Back online"]);
     }
 
     pub fn events_append_read_new_and_advance_the_watermark(b: Backend) {
@@ -2696,13 +2757,9 @@ mod cases {
         fx.ok(&other, &["ledger", "fetch"]);
         assert_eq!(fx.ok(&other, &["task", "list", "M-REC"]).lines().count(), 2);
         assert_eq!(fx.latest_entry(&other, &id)["task_id"], "T-02");
-        // The resume bound the other clone's worktree, a local change that a plain fetch
-        // refuses over. Pushing it clears the way.
-        assert_exit(&fx.tsk(&other, &["ledger", "fetch"]), 1);
-        fx.ok(&other, &["ledger", "push", "Bind the other worktree"]);
 
         // Session start with the changes pending again, and a detach that does not refuse
-        // them. A worktree detach pushes nothing: the changes wait for the next push.
+        // them. A worktree detach pushes like a cloud one, with the pending records.
         fx.ok(&a, &["mission", "create", "M-TWO", "Two"]);
         let context = fx.session_context(&a, "s-local-3", "claude");
         assert!(
@@ -4076,6 +4133,8 @@ conformance!(
     two_actors_bind_one_thread_and_stop_clears_every_kind,
     rebinding_replaces_the_old_binding_of_an_actor,
     two_clones_bind_their_worktrees_at_once_and_both_pushes_succeed,
+    a_worktree_resume_and_detach_push_and_leave_the_store_clean,
+    a_worktree_resume_with_origin_away_keeps_the_binding_locally,
     events_append_read_new_and_advance_the_watermark,
     a_stale_push_is_merged_when_different_rows_changed,
     a_same_row_conflict_stops_and_leaves_the_remote_unchanged,
@@ -4132,6 +4191,8 @@ conformance!(
     two_actors_bind_one_thread_and_stop_clears_every_kind,
     rebinding_replaces_the_old_binding_of_an_actor,
     two_clones_bind_their_worktrees_at_once_and_both_pushes_succeed,
+    a_worktree_resume_and_detach_push_and_leave_the_store_clean,
+    a_worktree_resume_with_origin_away_keeps_the_binding_locally,
     events_append_read_new_and_advance_the_watermark,
     a_stale_push_is_merged_when_different_rows_changed,
     a_same_row_conflict_stops_and_leaves_the_remote_unchanged,
