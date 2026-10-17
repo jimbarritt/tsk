@@ -138,7 +138,9 @@ on origin`, `diverged: ...`, `not published yet` or `unknown`. It fetches the re
 changes nothing else. **An agent that parses the output uses `tsk ledger status --porcelain`**,
 which prints one tab-separated fact per line with no header: `data` and `docs` each `clean`
 or `local changes`, then a line per changed table (with counts of rows added, modified and
-deleted, or `schema changed`) or per changed file (`A`, `M` or `D`), then
+deleted, or `schema changed`; a write that upgraded the schema prints one
+`data<TAB>upgrade<TAB>schema upgraded to version N` line instead of the `manifest` and
+schema-only table lines) or per changed file (`A`, `M` or `D`), then
 `data<TAB>remote<TAB>...` and `docs<TAB>remote<TAB>...`, which say `up to date`, `ahead N`,
 `behind N`, `diverged ahead N behind N`, `unknown` or `unpublished`. The default form may
 change; the porcelain form is stable.
@@ -200,6 +202,7 @@ tsk task list <mission>
 tsk decision add <mission> "<text>" --by <who> [--task T-nn] [--on YYYY-MM-DD]
 tsk decision list <mission>
 tsk question add <mission> "<text>"           # prints the new ID, Q-01 upward
+tsk question edit <mission> <q> "<text>"      # rewrites an open question; an answered one is refused
 tsk question answer <mission> <q> "<text>" --by <who>
 tsk question list [<mission>]                 # open questions, all missions when none is given
 ```

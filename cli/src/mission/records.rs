@@ -334,6 +334,38 @@ pub fn question_add(
     Ok(mission)
 }
 
+pub fn question_edit(
+    missions: &[Mission],
+    id: &str,
+    question: &str,
+    text: &str,
+) -> Result<Mission, String> {
+    let mut mission = model::find(missions, id)?.clone();
+    let seq = parse_question(question)?;
+    check_line("a question", text)?;
+    let mission_id = mission.id.clone();
+    let found = mission
+        .questions
+        .iter_mut()
+        .find(|q| q.seq == seq)
+        .ok_or_else(|| {
+            format!(
+                "error: {} has no question {}",
+                mission_id,
+                question_label(seq)
+            )
+        })?;
+    if found.status == QuestionStatus::Answered {
+        return Err(format!(
+            "error: {} of {} is answered; it cannot be edited",
+            question_label(seq),
+            mission_id
+        ));
+    }
+    found.text = text.to_string();
+    Ok(mission)
+}
+
 pub fn question_answer(
     missions: &[Mission],
     id: &str,
@@ -594,6 +626,15 @@ pub enum QuestionCommands {
         #[arg(allow_hyphen_values = true, help = "One-line text of the question")]
         text: String,
     },
+    #[command(
+        about = "Rewrite the text of an open question; an answered question cannot be edited"
+    )]
+    Edit {
+        mission: String,
+        question: String,
+        #[arg(allow_hyphen_values = true, help = "One-line new text of the question")]
+        text: String,
+    },
     #[command(about = "Answer an open question")]
     Answer {
         mission: String,
@@ -696,6 +737,13 @@ pub fn run_question_with(store: &dyn LedgerStore, action: QuestionCommands) -> R
             let date = today();
             let saved = change(store, |all| question_add(all, &mission, &text, &date))?;
             println!("{}", question_label(saved.next_question - 1));
+        }
+        QuestionCommands::Edit {
+            mission,
+            question,
+            text,
+        } => {
+            change(store, |all| question_edit(all, &mission, &question, &text))?;
         }
         QuestionCommands::Answer {
             mission,
@@ -853,6 +901,27 @@ mod tests {
             question_answer(&all, "M-A", "Q-02", "x", "jim", "2026-01-04")
                 .unwrap_err()
                 .contains("Q-02")
+        );
+    }
+
+    #[test]
+    fn only_an_open_question_is_edited() {
+        let mut all = one_mission();
+        let m = question_add(&all, "M-A", "Why?", "2026-01-02").unwrap();
+        put(&mut all, m);
+        let m = question_edit(&all, "M-A", "Q-01", "Why not?").unwrap();
+        assert_eq!(m.questions[0].text, "Why not?");
+        assert_eq!(m.questions[0].asked_on, "2026-01-02");
+        put(&mut all, m);
+        assert!(question_edit(&all, "M-A", "Q-01", "a\nb").is_err());
+        assert!(question_edit(&all, "M-A", "Q-02", "x")
+            .unwrap_err()
+            .contains("has no question Q-02"));
+        let m = question_answer(&all, "M-A", "Q-01", "Because.", "jim", "2026-01-03").unwrap();
+        put(&mut all, m);
+        assert_eq!(
+            question_edit(&all, "M-A", "Q-01", "Late").unwrap_err(),
+            "error: Q-01 of M-A is answered; it cannot be edited"
         );
     }
 

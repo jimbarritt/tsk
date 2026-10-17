@@ -585,6 +585,19 @@ impl DoltStore {
             });
         }
         changes.sort_by(|a, b| a.name.cmp(&b.name));
+        // A schema upgrade is the one change a write makes that the person did not ask
+        // for: label it, and drop the lines it caused.
+        if has_remote {
+            let local = manifest_version_of(db, None);
+            let origin = manifest_version_of(db, Some(&remote_ref));
+            if let (Some(local), Some(origin)) = (local, origin) {
+                if local != origin {
+                    changes = status::label_upgrade(changes, local, origin, &mut |table| {
+                        edited_rows(db, &base, table)
+                    })?;
+                }
+            }
+        }
         Ok(SideStatus { changes, remote })
     }
 
@@ -1607,6 +1620,75 @@ fn read_records(
 /// A `date` column as `YYYY-MM-DD`. Dolt's JSON output may carry a time part.
 fn date(row: &serde_json::Value, column: &str) -> Option<String> {
     text(row, column).map(|v| v.chars().take(10).collect())
+}
+
+/// A revision as the plain string literal `as of` needs, which takes no `CONVERT`. Only
+/// a branch name or a commit hash reaches here; any other character is dropped.
+fn plain(revision: &str) -> String {
+    let safe: String = revision
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.' | '~' | '^'))
+        .collect();
+    format!("'{}'", safe)
+}
+
+/// The manifest version at `revision`, or in the working set when it is `None`. `None`
+/// when the manifest cannot be read there.
+fn manifest_version_of(db: &Dolt, revision: Option<&str>) -> Option<i64> {
+    let as_of = revision.map_or(String::new(), |r| format!(" as of {}", plain(r)));
+    let rows = db
+        .rows(&format!(
+            "select v from manifest{} where k = 'version'",
+            as_of
+        ))
+        .ok()?;
+    rows.first()
+        .and_then(|row| text(row, "v"))
+        .and_then(|v| v.trim().parse().ok())
+}
+
+/// The rows of `table` that differ between `base` and the working set in a column the
+/// table has on both sides. A schema change makes Dolt count every row as modified; this
+/// counts only the rows whose own values changed.
+fn edited_rows(db: &Dolt, base: &str, table: &str) -> Result<i64, String> {
+    let now: Vec<String> = db
+        .rows(&format!(
+            "select column_name from information_schema.columns where table_schema = database() and table_name = {}",
+            lit(table)
+        ))?
+        .iter()
+        .filter_map(|row| text(row, "COLUMN_NAME").or_else(|| text(row, "column_name")))
+        .collect();
+    let before = db.rows(&format!(
+        "show create table `{}` as of {}",
+        table.replace('`', "``"),
+        plain(base)
+    ));
+    // A table that did not exist at the base has no earlier columns: every row is new.
+    let Ok(before) = before else {
+        return Ok(0);
+    };
+    let create = before
+        .first()
+        .and_then(|row| text(row, "Create Table"))
+        .unwrap_or_default();
+    let common: Vec<&String> = now
+        .iter()
+        .filter(|column| create.contains(&format!("\n  `{}` ", column)))
+        .collect();
+    let diff = db.rows(&format!(
+        "select * from dolt_diff({}, 'WORKING', {}) where diff_type = 'modified'",
+        lit(base),
+        lit(table)
+    ))?;
+    Ok(diff
+        .iter()
+        .filter(|row| {
+            common
+                .iter()
+                .any(|c| row.get(format!("from_{}", c)) != row.get(format!("to_{}", c)))
+        })
+        .count() as i64)
 }
 
 /// Merge the remote branch into the local one. A conflict aborts the merge and fails;

@@ -84,9 +84,20 @@ pub enum ChangeKind {
     },
     /// A file: `A`, `M` or `D`.
     File(char),
+    /// The local manifest version differs from origin's: the schema was upgraded by a
+    /// write. The manifest line and the schema-only table lines it caused are not shown.
+    Upgrade { version: i64, origin: i64 },
 }
 
 impl Change {
+    /// The label for a schema upgrade, to version `version` while origin has `origin`.
+    pub fn upgrade(version: i64, origin: i64) -> Change {
+        Change {
+            name: "upgrade".to_string(),
+            kind: ChangeKind::Upgrade { version, origin },
+        }
+    }
+
     pub fn file(letter: char, path: &str) -> Change {
         Change {
             name: path.to_string(),
@@ -98,6 +109,9 @@ impl Change {
     pub fn porcelain(&self) -> String {
         match &self.kind {
             ChangeKind::File(letter) => format!("{}\t{}", letter, self.name),
+            ChangeKind::Upgrade { version, .. } => {
+                format!("{}\tschema upgraded to version {}", self.name, version)
+            }
             ChangeKind::Table {
                 added,
                 modified,
@@ -125,6 +139,12 @@ impl Change {
             ChangeKind::File('A') => "added".to_string(),
             ChangeKind::File('D') => "deleted".to_string(),
             ChangeKind::File(_) => "modified".to_string(),
+            ChangeKind::Upgrade { version, origin } => {
+                format!(
+                    "schema upgraded to version {} (origin has {})",
+                    version, origin
+                )
+            }
             ChangeKind::Table {
                 added,
                 modified,
@@ -151,6 +171,56 @@ impl Change {
             }
         }
     }
+}
+
+/// Label a schema upgrade among the changes of a Dolt ledger. `version` is the local
+/// manifest version and `origin` the version origin holds, and they differ. The manifest
+/// line goes, and so does every table line whose only change is its schema. A table whose
+/// schema changed and whose rows changed keeps its line with the rows the person changed:
+/// `real_modified` counts the rows of a table whose own columns differ, which tells a row
+/// the upgrade touched from a row that was edited. The label comes first and counts as
+/// one change.
+pub fn label_upgrade(
+    changes: Vec<Change>,
+    version: i64,
+    origin: i64,
+    real_modified: &mut dyn FnMut(&str) -> Result<i64, String>,
+) -> Result<Vec<Change>, String> {
+    let mut labelled = vec![Change::upgrade(version, origin)];
+    for change in changes {
+        if change.name == "manifest" {
+            continue;
+        }
+        let kind = match change.kind {
+            ChangeKind::Table {
+                added,
+                modified,
+                deleted,
+                schema: true,
+            } => {
+                let modified = if modified > 0 {
+                    real_modified(&change.name)?
+                } else {
+                    0
+                };
+                if added + modified + deleted == 0 {
+                    continue;
+                }
+                ChangeKind::Table {
+                    added,
+                    modified,
+                    deleted,
+                    schema: false,
+                }
+            }
+            other => other,
+        };
+        labelled.push(Change {
+            name: change.name,
+            kind,
+        });
+    }
+    Ok(labelled)
 }
 
 /// One side of a ledger: its data, or its documents.
@@ -588,6 +658,48 @@ mod tests {
             ]
         );
         assert_eq!(status.changes_lines().len(), 7);
+    }
+
+    #[test]
+    fn an_upgrade_label_replaces_the_manifest_and_schema_only_lines() {
+        let changes = vec![
+            table("manifest", 0, 1, 0, false),
+            table("missions", 1, 1, 0, true),
+            table("tasks", 0, 0, 0, true),
+            table("threads", 0, 2, 0, true),
+            table("decisions", 0, 1, 0, false),
+        ];
+        // The upgrade touched the modified rows of `missions` and `threads`: none of
+        // them was edited.
+        let mut real = |_: &str| -> Result<i64, String> { Ok(0) };
+        let labelled = label_upgrade(changes, 6, 5, &mut real).unwrap();
+        assert_eq!(
+            labelled
+                .iter()
+                .map(|c| (c.name.as_str(), c.describe()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "upgrade",
+                    "schema upgraded to version 6 (origin has 5)".to_string()
+                ),
+                ("missions", "1 added".to_string()),
+                ("decisions", "1 modified".to_string()),
+            ]
+        );
+        assert_eq!(
+            labelled[0].porcelain(),
+            "upgrade\tschema upgraded to version 6"
+        );
+        let s = status(
+            side(labelled, RemoteState::UpToDate),
+            side(vec![], RemoteState::UpToDate),
+        );
+        assert_eq!(s.human_local()[0], "Local   3 changes not pushed");
+        assert_eq!(
+            s.human_local()[1],
+            "          data  upgrade    schema upgraded to version 6 (origin has 5)"
+        );
     }
 
     #[test]
