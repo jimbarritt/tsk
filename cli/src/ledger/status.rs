@@ -223,6 +223,37 @@ pub fn label_upgrade(
     Ok(labelled)
 }
 
+/// Hide the rows a schema upgrade copied from table `from` into table `to` before it
+/// dropped `from`. `copied` is the number of rows `from` held at the base: that many
+/// deleted rows leave `from`'s line and that many added rows leave `to`'s line. A line
+/// with nothing left to say goes. Rows a person changed on top of the copy stay.
+pub fn hide_copied_rows(changes: Vec<Change>, from: &str, to: &str, copied: i64) -> Vec<Change> {
+    changes
+        .into_iter()
+        .filter_map(|mut change| {
+            if let ChangeKind::Table {
+                added,
+                modified,
+                deleted,
+                schema,
+            } = &mut change.kind
+            {
+                if change.name == from {
+                    *deleted = (*deleted - copied).max(0);
+                } else if change.name == to {
+                    *added = (*added - copied).max(0);
+                } else {
+                    return Some(change);
+                }
+                if *added + *modified + *deleted == 0 && !*schema {
+                    return None;
+                }
+            }
+            Some(change)
+        })
+        .collect()
+}
+
 /// One side of a ledger: its data, or its documents.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SideStatus {
@@ -700,6 +731,49 @@ mod tests {
             s.human_local()[1],
             "          data  upgrade    schema upgraded to version 6 (origin has 5)"
         );
+    }
+
+    #[test]
+    fn rows_copied_by_an_upgrade_leave_both_table_lines() {
+        let table = |name: &str, added, deleted| Change {
+            name: name.to_string(),
+            kind: ChangeKind::Table {
+                added,
+                modified: 0,
+                deleted,
+                schema: false,
+            },
+        };
+        let hidden = hide_copied_rows(
+            vec![
+                table("bindings", 3, 0),
+                table("cloud_session_bindings", 0, 2),
+                table("threads", 1, 0),
+            ],
+            "cloud_session_bindings",
+            "bindings",
+            2,
+        );
+        assert_eq!(
+            hidden
+                .iter()
+                .map(|c| (c.name.as_str(), c.describe()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("bindings", "1 added".to_string()),
+                ("threads", "1 added".to_string())
+            ]
+        );
+        let all = hide_copied_rows(
+            vec![
+                table("bindings", 2, 0),
+                table("cloud_session_bindings", 0, 2),
+            ],
+            "cloud_session_bindings",
+            "bindings",
+            2,
+        );
+        assert!(all.is_empty());
     }
 
     #[test]

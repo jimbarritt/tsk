@@ -65,7 +65,7 @@ future-missions-tbd.md          ideas not yet shaped into briefings
 `tsk ledger doc get <path>` prints a document, `tsk ledger doc list [<prefix>]` lists
 them, `tsk ledger doc put <path> [<file>]` writes one (stdin when no file is given), and
 `tsk ledger doc rm <path>` removes one. The last two change the local store only. Run
-`tsk ledger push "<message>"` to send the change. Threads, cloud session bindings,
+`tsk ledger push "<message>"` to send the change. Threads, bindings,
 continuation state entries and the external event queue are tables, which the
 `tsk thread` and `tsk events` commands read and write.
 
@@ -141,10 +141,10 @@ a session ID and source does the work, and a second run exits with no output.
 1. Fetches `tsk/ledger` and refreshes the ledger store, exporting
    `$TSK_LEDGER_WT`. The context it prints tells the agent to read the index with
    `tsk ledger doc get index.md`.
-2. Resolves the current binding: the cloud session ID
-   (`CLAUDE_CODE_REMOTE_SESSION_ID`, looked up in
-   `threads/lookup-by-cloud-session.json`) if there is one, otherwise the
-   `tsk-thread-id` marker file in the code worktree's own git metadata.
+2. Resolves the current binding, a row of the ledger's `bindings` table: the row of the
+   cloud session ID (`CLAUDE_CODE_REMOTE_SESSION_ID`) if there is one, otherwise the row
+   of the code worktree (`<clone-id>/<worktree-name>`). A `tsk-thread-id` marker file
+   from an older tsk becomes a row the first time a command resolves it.
 3. Tells the agent what to do next: run `/resume-thread <id>` when a binding is
    found, or ask which mission to work and then run `/start-thread` when none is.
 

@@ -17,10 +17,13 @@ use crate::ledger::status::{self, Change, LedgerStatus, SideStatus};
 use crate::ledger::{fetch, push};
 use crate::mission::model::{self, Mission};
 use crate::thread::entry::STORE_FILE;
-use crate::thread::lookup::{lookup_path, CloudBinding, Lookup};
+use crate::thread::lookup::{
+    lookup_path, worktree_binding_file_name, worktree_bindings_dir, CloudBinding, Lookup,
+    WorktreeBinding,
+};
 use crate::thread::ops::{index_md, index_mission, mission_link};
 
-use super::{LedgerStore, PushReport, RefreshOutcome, ThreadInfo};
+use super::{BindingKind, BindingRow, LedgerStore, PushReport, RefreshOutcome, ThreadInfo};
 
 const THREADS_DIR: &str = "threads";
 /// The top-level directory of record files. One JSON file per mission sits in
@@ -299,25 +302,20 @@ impl LedgerStore for FilesStore {
         self.tree()?.continuation_list(id)
     }
 
-    fn cloud_lookup(&self) -> Result<Lookup, String> {
-        self.tree()?.cloud_lookup()
+    fn bindings_list(&self) -> Result<Vec<BindingRow>, String> {
+        self.tree()?.bindings_list()
     }
 
-    fn cloud_bind(
-        &self,
-        session: &str,
-        thread_id: &str,
-        registered_at: &str,
-    ) -> Result<(), String> {
-        self.tree()?.cloud_bind(session, thread_id, registered_at)
+    fn binding_set(&self, row: &BindingRow) -> Result<(), String> {
+        self.tree()?.binding_set(row)
     }
 
-    fn cloud_unbind(&self, session: &str) -> Result<(), String> {
-        self.tree()?.cloud_unbind(session)
+    fn binding_remove(&self, actor: &str) -> Result<(), String> {
+        self.tree()?.binding_remove(actor)
     }
 
-    fn cloud_unbind_thread(&self, thread_id: &str) -> Result<(), String> {
-        self.tree()?.cloud_unbind_thread(thread_id)
+    fn binding_remove_thread(&self, thread_id: &str) -> Result<(), String> {
+        self.tree()?.binding_remove_thread(thread_id)
     }
 
     fn events_append(&self, lines: &str) -> Result<(), String> {
@@ -390,6 +388,14 @@ fn read_optional(path: &Path) -> Result<Option<String>, String> {
     }
 }
 
+fn remove_if_present(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("error: could not remove {}: {}", path.display(), e)),
+    }
+}
+
 fn ensure_parent(path: &Path) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)
@@ -446,6 +452,47 @@ impl FileTree {
 
     fn thread_dir(&self, id: &str) -> PathBuf {
         self.root.join(THREADS_DIR).join(id)
+    }
+
+    /// Change the cloud session lookup. A file that does not exist is not created for a
+    /// change that leaves it empty.
+    fn edit_lookup(&self, change: impl FnOnce(&mut Lookup)) -> Result<(), String> {
+        let path = lookup_path(&self.root);
+        let existing = Lookup::read(&path)?;
+        let before = existing.clone().unwrap_or_default();
+        let mut lookup = before.clone();
+        change(&mut lookup);
+        if existing.is_none() && lookup == before {
+            return Ok(());
+        }
+        lookup.write(&path)
+    }
+
+    fn worktree_binding_path(&self, actor: &str) -> PathBuf {
+        worktree_bindings_dir(&self.root).join(worktree_binding_file_name(actor))
+    }
+
+    /// Every worktree binding file, sorted by file name.
+    fn worktree_bindings(&self) -> Result<Vec<WorktreeBinding>, String> {
+        let dir = worktree_bindings_dir(&self.root);
+        let mut files: Vec<PathBuf> = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
+                .collect(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(format!("error: could not read {}: {}", dir.display(), e)),
+        };
+        files.sort();
+        files
+            .iter()
+            .map(|path| {
+                let text = std::fs::read_to_string(path)
+                    .map_err(|e| format!("error: could not read {}: {}", path.display(), e))?;
+                WorktreeBinding::parse(&text, path)
+            })
+            .collect()
     }
 
     fn queue_path(&self) -> PathBuf {
@@ -637,34 +684,65 @@ impl FileTree {
             .unwrap_or_default())
     }
 
-    fn cloud_lookup(&self) -> Result<Lookup, String> {
-        Ok(Lookup::read(&lookup_path(&self.root))?.unwrap_or_default())
+    fn bindings_list(&self) -> Result<Vec<BindingRow>, String> {
+        let lookup = Lookup::read(&lookup_path(&self.root))?.unwrap_or_default();
+        let mut rows: Vec<BindingRow> = lookup
+            .entries()
+            .iter()
+            .map(|(actor, binding)| BindingRow {
+                actor: actor.clone(),
+                kind: BindingKind::Cloud,
+                thread_id: binding.thread_id.clone().unwrap_or_default(),
+                registered_at: binding.registered_at.clone().unwrap_or_default(),
+            })
+            .collect();
+        rows.extend(
+            self.worktree_bindings()?
+                .into_iter()
+                .map(|binding| BindingRow {
+                    actor: binding.actor,
+                    kind: BindingKind::Worktree,
+                    thread_id: binding.thread_id,
+                    registered_at: binding.registered_at,
+                }),
+        );
+        rows.sort_by(|a, b| (&a.registered_at, &a.actor).cmp(&(&b.registered_at, &b.actor)));
+        Ok(rows)
     }
 
-    fn cloud_bind(
-        &self,
-        session: &str,
-        thread_id: &str,
-        registered_at: &str,
-    ) -> Result<(), String> {
-        let path = lookup_path(&self.root);
-        let mut lookup = Lookup::read(&path)?.unwrap_or_default();
-        lookup.set(session, CloudBinding::new(thread_id, registered_at));
-        lookup.write(&path)
+    fn binding_set(&self, row: &BindingRow) -> Result<(), String> {
+        match row.kind {
+            BindingKind::Cloud => self.edit_lookup(|lookup| {
+                lookup.set(
+                    &row.actor,
+                    CloudBinding::new(&row.thread_id, &row.registered_at),
+                )
+            }),
+            BindingKind::Worktree => {
+                let path = self.worktree_binding_path(&row.actor);
+                ensure_parent(&path)?;
+                let binding = WorktreeBinding {
+                    actor: row.actor.clone(),
+                    thread_id: row.thread_id.clone(),
+                    registered_at: row.registered_at.clone(),
+                };
+                std::fs::write(&path, binding.to_json())
+                    .map_err(|e| format!("error: could not write {}: {}", path.display(), e))
+            }
+        }
     }
 
-    fn cloud_unbind(&self, session: &str) -> Result<(), String> {
-        let path = lookup_path(&self.root);
-        let mut lookup = Lookup::read(&path)?.unwrap_or_default();
-        lookup.remove(session);
-        lookup.write(&path)
+    fn binding_remove(&self, actor: &str) -> Result<(), String> {
+        self.edit_lookup(|lookup| lookup.remove(actor))?;
+        remove_if_present(&self.worktree_binding_path(actor))
     }
 
-    fn cloud_unbind_thread(&self, thread_id: &str) -> Result<(), String> {
-        let path = lookup_path(&self.root);
-        if let Some(mut lookup) = Lookup::read(&path)? {
-            lookup.remove_thread(thread_id);
-            lookup.write(&path)?;
+    fn binding_remove_thread(&self, thread_id: &str) -> Result<(), String> {
+        self.edit_lookup(|lookup| lookup.remove_thread(thread_id))?;
+        for binding in self.worktree_bindings()? {
+            if binding.thread_id == thread_id {
+                remove_if_present(&self.worktree_binding_path(&binding.actor))?;
+            }
         }
         Ok(())
     }
@@ -801,13 +879,49 @@ mod tests {
     #[test]
     fn bind_cloud_creates_the_lookup_when_absent() {
         let (_dir, tree) = tree();
-        tree.cloud_bind("cse_a", "1234abcd", "2026-10-03T00:00:00Z")
-            .unwrap();
-        let lookup = tree.cloud_lookup().unwrap();
-        assert_eq!(lookup.thread_for("cse_a"), Some("1234abcd"));
+        let row = BindingRow {
+            actor: "cse_a".into(),
+            kind: BindingKind::Cloud,
+            thread_id: "1234abcd".into(),
+            registered_at: "2026-10-03T00:00:00Z".into(),
+        };
+        tree.binding_set(&row).unwrap();
+        assert_eq!(tree.bindings_list().unwrap(), vec![row]);
         assert!(tree.root.join(THREADS_DIR).join(LOOKUP_FILE).is_file());
-        tree.cloud_unbind_thread("1234abcd").unwrap();
-        assert_eq!(tree.cloud_lookup().unwrap().thread_for("cse_a"), None);
+        assert!(!worktree_bindings_dir(&tree.root).exists());
+        tree.binding_remove_thread("1234abcd").unwrap();
+        assert!(tree.bindings_list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_worktree_binding_is_one_file_for_its_actor() {
+        let (_dir, tree) = tree();
+        let row = |actor: &str, thread: &str| BindingRow {
+            actor: actor.into(),
+            kind: BindingKind::Worktree,
+            thread_id: thread.into(),
+            registered_at: "2026-10-03T00:00:00Z".into(),
+        };
+        tree.binding_set(&row("c-1/main", "1234abcd")).unwrap();
+        tree.binding_set(&row("c-1/side", "1234abcd")).unwrap();
+        tree.binding_set(&row("c-1/main", "5678efgh")).unwrap();
+        let dir = worktree_bindings_dir(&tree.root);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        assert!(dir.join("c-1%2Fmain.json").is_file());
+        assert_eq!(
+            tree.bindings_list().unwrap(),
+            vec![row("c-1/main", "5678efgh"), row("c-1/side", "1234abcd")]
+        );
+        // The directory is not a thread.
+        assert!(tree.thread_ids().unwrap().is_empty());
+        tree.binding_remove_thread("1234abcd").unwrap();
+        assert_eq!(
+            tree.bindings_list().unwrap(),
+            vec![row("c-1/main", "5678efgh")]
+        );
+        tree.binding_remove("c-1/main").unwrap();
+        tree.binding_remove("c-1/main").unwrap();
+        assert!(tree.bindings_list().unwrap().is_empty());
     }
 
     #[test]

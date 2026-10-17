@@ -261,7 +261,7 @@ impl Fixture {
             .collect()
     }
 
-    /// A file ledger with documents, two threads (one cloud bound), continuation
+    /// A file ledger with documents, two threads (one cloud bound, one worktree bound), continuation
     /// entries, events and a watermark, all published by clone A with the git backend.
     fn file_ledger(&self) -> Before {
         let (a, b) = (self.a(), self.b());
@@ -422,7 +422,7 @@ fn a_file_ledger_migrates_and_reads_back_identically_from_a_fresh_clone() {
     assert_eq!(stdout(&dry), "dry-run:ok\n");
     assert!(
         stderr(&dry)
-            .contains("4 documents, 2 threads, 2 continuation entries, 1 cloud bindings, 2 events"),
+            .contains("4 documents, 2 threads, 2 continuation entries, 2 bindings, 2 events"),
         "{}",
         stderr(&dry)
     );
@@ -524,6 +524,8 @@ fn a_file_ledger_migrates_and_reads_back_identically_from_a_fresh_clone() {
         fx.ok(&c, "dolt", &["thread", "resume", &before.thread_id]),
         before.resume
     );
+    // The resume bound this worktree, a local change that the events commands refuse over.
+    fx.ok(&c, "dolt", &["ledger", "push", "Bind the fresh clone"]);
     assert_eq!(fx.ok(&c, "dolt", &["events", "read-new"]), before.events);
 
     fx.ok(
@@ -853,10 +855,10 @@ fn migrate_docs_moves_every_document_byte_for_byte_and_a_fresh_clone_reads_them(
         "Documents of the tsk ledger. Written by tsk ledger doc put.\n"
     );
 
-    // The database: no table, version 7, and one Dolt commit for the change.
+    // The database: no table, version 8, and one Dolt commit for the change.
     assert_eq!(
         fx.dolt_sql(&a, "select v from manifest where k = 'version'"),
-        "v\n7\n"
+        "v\n8\n"
     );
     // The migrated thread gained the mission column, still null.
     assert_eq!(
@@ -870,6 +872,7 @@ fn migrate_docs_moves_every_document_byte_for_byte_and_a_fresh_clone_reads_them(
         "missions",
         "mission_constraints",
         "mission_out_of_scope",
+        "bindings",
         "tasks",
         "task_blocks",
         "decisions",
@@ -933,16 +936,16 @@ fn an_older_tsk_stops_at_the_manifest_check_of_a_version_it_does_not_know() {
     need_dolt!();
     let fx = Fixture::new();
     // A version this tsk does not know stands in for what this tsk meets in a later release.
-    fx.old_ledger("8", &[], "");
+    fx.old_ledger("9", &[], "");
     let out = fx.tsk(&fx.a(), "dolt", &["ledger", "fetch"]);
-    assert_fails(&out, "unsupported ledger version 8");
+    assert_fails(&out, "unsupported ledger version 9");
     assert!(
-        stderr(&out).contains("supports version 1, 2, 3, 4, 5, 6, 7"),
+        stderr(&out).contains("supports version 1, 2, 3, 4, 5, 6, 7, 8"),
         "{}",
         stderr(&out)
     );
     let out = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-docs"]);
-    assert_fails(&out, "unsupported ledger version 8");
+    assert_fails(&out, "unsupported ledger version 9");
     assert_eq!(fx.remote_ref(DOCS_REF), None);
 }
 

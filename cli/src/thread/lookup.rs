@@ -7,6 +7,47 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::ledger::location::mint_token;
 
 pub const LOOKUP_FILE: &str = "lookup-by-cloud-session.json";
+/// The directory under `threads/` that holds the file ledger's bindings of local
+/// worktrees, one file for each worktree actor. A directory with a leading dot is not a
+/// thread. One file per actor keeps two clones that bind at the same time from changing
+/// the same file, which would conflict in a rebase.
+pub const WORKTREE_BINDINGS_DIR: &str = ".worktree-bindings";
+
+/// One worktree binding in the file ledger: the content of its file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorktreeBinding {
+    pub actor: String,
+    pub thread_id: String,
+    pub registered_at: String,
+}
+
+impl WorktreeBinding {
+    pub fn parse(text: &str, path: &Path) -> Result<WorktreeBinding, String> {
+        serde_json::from_str(text)
+            .map_err(|e| format!("error: {} is not a worktree binding: {}", path.display(), e))
+    }
+
+    pub fn to_json(&self) -> String {
+        let mut text = serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string());
+        text.push('\n');
+        text
+    }
+}
+
+/// The file name of a worktree actor's binding: the actor key with every byte outside
+/// `A-Za-z0-9._-` as `%XX`, and `.json`.
+pub fn worktree_binding_file_name(actor: &str) -> String {
+    let mut name = String::new();
+    for byte in actor.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-') {
+            name.push(byte as char);
+        } else {
+            name.push_str(&format!("%{:02X}", byte));
+        }
+    }
+    name.push_str(".json");
+    name
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudBinding {
@@ -37,6 +78,10 @@ pub fn lookup_path(wt: &Path) -> PathBuf {
     wt.join("threads").join(LOOKUP_FILE)
 }
 
+pub fn worktree_bindings_dir(wt: &Path) -> PathBuf {
+    wt.join("threads").join(WORKTREE_BINDINGS_DIR)
+}
+
 impl Lookup {
     pub fn parse(text: &str, path: &Path) -> Result<Lookup, String> {
         serde_json::from_str(text).map_err(|e| {
@@ -61,6 +106,7 @@ impl Lookup {
         &self.entries
     }
 
+    #[cfg(test)]
     pub fn thread_for(&self, session: &str) -> Option<&str> {
         self.entries
             .iter()
@@ -149,6 +195,32 @@ mod tests {
 
     fn parse(text: &str) -> Lookup {
         Lookup::parse(text, Path::new("lookup")).unwrap()
+    }
+
+    #[test]
+    fn a_worktree_binding_file_name_encodes_the_actor_key() {
+        assert_eq!(
+            worktree_binding_file_name("tsk-1a2b3c4d/main"),
+            "tsk-1a2b3c4d%2Fmain.json"
+        );
+        assert_eq!(
+            worktree_binding_file_name("work.2_x/feat ure"),
+            "work.2_x%2Ffeat%20ure.json"
+        );
+    }
+
+    #[test]
+    fn a_worktree_binding_round_trips() {
+        let binding = WorktreeBinding {
+            actor: "c-1/main".into(),
+            thread_id: "1234abcd".into(),
+            registered_at: "2026-10-17T00:00:00Z".into(),
+        };
+        assert_eq!(
+            WorktreeBinding::parse(&binding.to_json(), Path::new("f")).unwrap(),
+            binding
+        );
+        assert!(WorktreeBinding::parse("[]", Path::new("f")).is_err());
     }
 
     #[test]

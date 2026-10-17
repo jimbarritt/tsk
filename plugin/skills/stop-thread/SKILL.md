@@ -1,6 +1,6 @@
 ---
 name: stop-thread
-description: Detach this session or code worktree from its current tsk thread, then delete the thread entirely, including its directory, continuation state, and every cloud session binding to it. Invoke explicitly as /tsk:stop-thread. Destructive.
+description: Detach this session or code worktree from its current tsk thread, then delete the thread entirely, including its directory, continuation state, and every binding to it. Invoke explicitly as /tsk:stop-thread. Destructive.
 ---
 
 Backs the `/tsk:stop-thread` command. This skill is the agent-facing wrapper around
@@ -24,11 +24,10 @@ thread you mean to end, not merely pause. `tsk:pause-thread` is for that.
    ```
 
    It detaches the current binding first, if it points at the target thread,
-   deletes `threads/<id>/`, and purges every cloud session binding still
-   pointing at it. A binding marker in some *other* code worktree naming this
-   thread cannot be reached from here and goes stale silently, the same
-   limitation the binding design already accepts for code worktree markers
-   generally.
+   deletes the thread and its continuation state, and deletes every binding row
+   still pointing at it, of cloud sessions and of code worktrees. A marker file
+   named `tsk-thread-id` that an older tsk left in some *other* code worktree
+   cannot be reached from here and goes stale silently.
 
 3. **Handle the result.**
    - Exit 0, output `stopped:<thread-id>`: tell me the thread was stopped and

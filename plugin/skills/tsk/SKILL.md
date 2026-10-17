@@ -25,13 +25,22 @@ entry per pause).
 
 A **binding** ties the current session or code worktree to a thread:
 
-- In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` set), the binding is an entry in
-  `threads/lookup-by-cloud-session.json` on the ledger.
-- Otherwise, the binding is the file `tsk-thread-id` in the code worktree's own git
-  directory (`git rev-parse --git-dir`). It is never pushed.
+Every binding is one row of the ledger's `bindings` table, keyed on the actor:
 
-More than one session or code worktree can bind to the same thread. Resuming a thread that
-another actor wrote to binds anyway, and prints a warning.
+- In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` set), the actor is the session ID.
+- Otherwise, the actor is the code worktree: `<clone-id>/<worktree-name>`, where the clone
+  ID is in `.git/tsk-clone-id` and the worktree name is `main` for the main worktree or the
+  name of the linked worktree.
+
+An actor has one binding, so binding it again replaces the old one. More than one session
+or code worktree can bind to the same thread, and `tsk thread list` shows them in `actors`,
+an array of `{"actor", "kind"}` objects (`cloud` or `worktree`), empty when none is bound.
+Resuming a thread that another actor wrote to binds anyway, and prints a warning.
+
+Older tsk versions kept the binding of a code worktree in the file `tsk-thread-id` in its
+git directory. The first tsk command that resolves such a binding writes the row from the
+file and removes the file. Do not write the file. `tsk thread skip` is still a local file
+and is never in the ledger.
 
 ## Upgrading tsk
 

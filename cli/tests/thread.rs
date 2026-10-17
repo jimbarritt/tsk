@@ -94,6 +94,16 @@ impl Fixture {
         self.work().join(".git").join("tsk-thread-id")
     }
 
+    /// The actor key the main worktree of the work clone has in the ledger.
+    fn worktree_actor(&self) -> String {
+        let id = std::fs::read_to_string(self.work().join(".git").join("tsk-clone-id")).unwrap();
+        format!("{}/main", id.trim())
+    }
+
+    fn binding(&self) -> String {
+        stdout(&self.tsk(&["thread", "binding"]))
+    }
+
     fn push_ledger(&self) {
         git(
             &self.seed(),
@@ -313,10 +323,20 @@ fn start_mints_scaffolds_binds_the_worktree_and_pushes() {
             .unwrap(),
         ""
     );
-    assert_eq!(
-        std::fs::read_to_string(fx.marker()).unwrap(),
-        format!("{}\n", id)
-    );
+    // The binding is a row in the ledger, keyed on the worktree actor. No marker file.
+    assert!(!fx.marker().exists());
+    assert_eq!(fx.binding(), format!("worktree:{}\n", id));
+    // One file for the worktree actor, in a directory that is not a thread.
+    let actor = fx.worktree_actor();
+    let file = fx
+        .origin_file(&format!(
+            "threads/.worktree-bindings/{}.json",
+            actor.replace('/', "%2F")
+        ))
+        .expect("the worktree binding was pushed");
+    let row = json(&file);
+    assert_eq!(row["actor"], actor.as_str());
+    assert_eq!(row["thread_id"], id.as_str());
     assert!(fx
         .origin_file("threads/lookup-by-cloud-session.json")
         .is_none());
@@ -619,10 +639,9 @@ fn resume_prints_the_latest_entry_and_binds_the_worktree() {
     assert_eq!(result["latest"]["task_id"], "T-02");
     assert_eq!(result["latest"]["whats_next"], "second");
     assert_eq!(result["warning"], "");
-    assert_eq!(
-        std::fs::read_to_string(fx.marker()).unwrap(),
-        format!("{}\n", id)
-    );
+    assert!(!fx.marker().exists());
+    assert_eq!(fx.binding(), format!("worktree:{}\n", id));
+    // The binding is a local ledger change until the next push.
     assert_eq!(fx.origin_ledger_sha(), before);
 }
 
@@ -658,7 +677,8 @@ fn resume_warns_and_still_binds_when_another_actor_wrote_to_the_thread() {
         "thread 2222bbbb is already associated with other actor(s): urn:tsk:cloudsession:cse_other,urn:tsk:worktree:feature"
     );
     assert_eq!(result["latest"]["whats_next"], "b");
-    assert_eq!(std::fs::read_to_string(fx.marker()).unwrap(), "2222bbbb\n");
+    assert!(!fx.marker().exists());
+    assert_eq!(fx.binding(), "worktree:2222bbbb\n");
 }
 
 #[test]
@@ -743,7 +763,7 @@ fn resume_in_a_cloud_session_binds_once_and_pushes() {
 }
 
 #[test]
-fn detach_removes_the_worktree_marker_only() {
+fn detach_removes_the_worktree_binding_locally_and_pushes_nothing() {
     let fx = Fixture::new();
     let id = fx.start();
     let before = fx.origin_ledger_sha();
@@ -753,6 +773,7 @@ fn detach_removes_the_worktree_marker_only() {
     assert_success(&output);
     assert_eq!(stdout(&output), format!("detached:{}\n", id));
     assert!(!fx.marker().exists());
+    assert_exit(&fx.tsk(&["thread", "binding"]), 1);
     assert_eq!(fx.origin_ledger_sha(), before);
     assert!(fx
         .origin_file(&format!("threads/{}/index.md", id))
@@ -792,7 +813,7 @@ fn detach_in_a_cloud_session_removes_only_its_lookup_entry() {
 }
 
 #[test]
-fn stop_deletes_the_bound_thread_and_its_marker() {
+fn stop_deletes_the_bound_thread_and_its_binding() {
     let fx = Fixture::new();
     let id = fx.start();
 
@@ -801,6 +822,13 @@ fn stop_deletes_the_bound_thread_and_its_marker() {
     assert_success(&output);
     assert_eq!(stdout(&output), format!("stopped:{}\n", id));
     assert!(!fx.marker().exists());
+    assert_exit(&fx.tsk(&["thread", "binding"]), 1);
+    assert!(fx
+        .origin_file(&format!(
+            "threads/.worktree-bindings/{}.json",
+            fx.worktree_actor().replace('/', "%2F")
+        ))
+        .is_none());
     assert!(fx
         .origin_file(&format!("threads/{}/index.md", id))
         .is_none());
@@ -809,7 +837,7 @@ fn stop_deletes_the_bound_thread_and_its_marker() {
 }
 
 #[test]
-fn stop_by_id_purges_every_cloud_binding_and_keeps_an_unrelated_marker() {
+fn stop_by_id_purges_every_cloud_binding_and_keeps_an_unrelated_worktree_binding() {
     let fx = Fixture::new();
     fx.seed_thread("7777aaaa", "");
     fx.seed_thread("8888bbbb", "");
@@ -828,7 +856,7 @@ fn stop_by_id_purges_every_cloud_binding_and_keeps_an_unrelated_marker() {
         fx.origin_file("threads/lookup-by-cloud-session.json").unwrap(),
         "{\n  \"cse_b\": {\n    \"thread_id\": \"8888bbbb\",\n    \"registered_at\": \"2026-10-02T00:00:00Z\"\n  }\n}\n"
     );
-    assert_eq!(std::fs::read_to_string(fx.marker()).unwrap(), "8888bbbb\n");
+    assert_eq!(fx.binding(), "worktree:8888bbbb\n");
 }
 
 #[test]
@@ -871,9 +899,9 @@ fn list_prints_one_compact_object_per_thread_newest_first() {
     assert_eq!(
         lines,
         vec![
-            format!("{{\"id\":\"cccc0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":\"newer\",\"latest_timestamp\":\"2026-10-01T00:00:00Z\"}}", BRIEFING),
-            format!("{{\"id\":\"bbbb0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":\"older\",\"latest_timestamp\":\"2026-09-01T00:00:00Z\"}}", BRIEFING),
-            format!("{{\"id\":\"aaaa0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":null,\"latest_timestamp\":null}}", BRIEFING),
+            format!("{{\"id\":\"cccc0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":\"newer\",\"latest_timestamp\":\"2026-10-01T00:00:00Z\",\"actors\":[]}}", BRIEFING),
+            format!("{{\"id\":\"bbbb0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":\"older\",\"latest_timestamp\":\"2026-09-01T00:00:00Z\",\"actors\":[]}}", BRIEFING),
+            format!("{{\"id\":\"aaaa0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":null,\"latest_timestamp\":null,\"actors\":[]}}", BRIEFING),
         ]
     );
 }

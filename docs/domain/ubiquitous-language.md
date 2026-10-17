@@ -238,10 +238,9 @@ a code worktree holds the [artefacts](#artefact).
 A worktree of the managed repo's code, the main one or a linked one. Typically one per
 session, so sessions work in parallel without a shared tree.
 
-A session binds to a [thread](#thread) through a marker file in the code worktree's own
-git directory: `.git/tsk-thread-id` for the main worktree,
-`.git/worktrees/<name>/tsk-thread-id` for a linked one. See [Binding](#binding) for the
-cloud case and the decided move of every binding into the ledger.
+A session binds to a [thread](#thread) through a row of the ledger's `bindings` table,
+keyed on `<clone-id>/<worktree-name>`: `main` for the main worktree, the worktree's name
+for a linked one. See [Binding](#binding).
 
 Distinguished from the [ledger store](#ledger-store), which there is one of per clone
 and which holds the ledger, not the code.
@@ -255,16 +254,15 @@ never the ledger store.
 ## Binding
 
 The link from a session or a code worktree to the thread it works. A cloud session's
-binding is a row in the ledger, keyed on the session ID that Claude Code gives it. A code
-worktree's binding is the marker file in its git directory, because a worktree has no
-identity of its own that the ledger could key on. Additive: several actors can bind to
-one thread, and `tsk thread resume` warns when another actor wrote the latest
-continuation.
+binding is a row of the ledger's `bindings` table, keyed on the session ID that Claude
+Code gives it. A code worktree's binding is a row of the same table, keyed on the clone ID
+from `.git/tsk-clone-id`, a slash, and the worktree name. An actor has one binding.
+Several actors can bind to one thread, `tsk thread list` shows them in `actors`, and
+`tsk thread resume` warns when another actor wrote the latest continuation.
 
-Decided 2026-10-16, built by M-TSK-SCHEMA T-11: every binding moves to one `bindings`
-table in the ledger, keyed on the cloud session ID, or on the clone ID from
-`.git/tsk-clone-id` plus the worktree name. The marker file goes, and `tsk thread list`
-shows the actors on each thread.
+Decided 2026-10-16, built by M-TSK-SCHEMA T-11: every binding is a row of one table. The
+`tsk-thread-id` marker file that a code worktree used to hold becomes a row the first time
+a command resolves it, and nothing writes the file again.
 
 `tsk thread skip` records, locally and never in the ledger, that a session or code
 worktree works without a thread. `start` and `resume` clear it.

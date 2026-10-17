@@ -1,6 +1,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::ledger::store::{BindingKind, BindingRow};
 use crate::mission::model::{self, Mission, Status};
 
 use super::clock::utc_now;
@@ -50,24 +51,78 @@ impl fmt::Display for Binding {
     }
 }
 
+/// This session's binding. A cloud session is looked up by its session ID. A local code
+/// worktree is looked up by its actor key. A worktree that has no row but still has the
+/// older marker file gets a row from the file, and the file is removed: a local write,
+/// pushed with the next push. With no ledger store yet the marker is read as it is.
 pub fn resolve(session: &Session) -> Result<Option<Binding>, String> {
-    match &session.cloud_session {
-        Some(cloud) => Ok(session
-            .store
-            .cloud_lookup()?
-            .thread_for(cloud)
-            .map(str::to_string)
-            .map(Binding::Cloud)),
-        None => Ok(read_marker(&session.marker_path())?.map(Binding::Worktree)),
-    }
+    resolve_with(session, true)
 }
 
+/// [`resolve`] for a command that reads the ledger store as it is and never fetches or
+/// writes: it reads a marker file but does not migrate it. `None` when the store does not
+/// exist.
 pub fn resolve_local(session: &Session) -> Result<Option<Binding>, String> {
     if session.store.exists_locally()? {
-        resolve(session)
+        resolve_with(session, false)
     } else {
         Ok(None)
     }
+}
+
+fn binding_of(row: &BindingRow) -> Option<Binding> {
+    if row.thread_id.is_empty() {
+        return None;
+    }
+    Some(match row.kind {
+        BindingKind::Cloud => Binding::Cloud(row.thread_id.clone()),
+        BindingKind::Worktree => Binding::Worktree(row.thread_id.clone()),
+    })
+}
+
+fn resolve_with(session: &Session, migrate: bool) -> Result<Option<Binding>, String> {
+    if session.cloud_session.is_some() {
+        let Some((actor, _)) = session.actor_key()? else {
+            return Ok(None);
+        };
+        return Ok(session
+            .store
+            .bindings_list()?
+            .iter()
+            .find(|row| row.actor == actor)
+            .and_then(binding_of));
+    }
+    let marker = read_marker(&session.marker_path())?;
+    let from_marker = || marker.clone().map(Binding::Worktree);
+    let actor = match session.actor_key()? {
+        Some((actor, _)) if session.store.exists_locally()? => actor,
+        _ => return Ok(from_marker()),
+    };
+    let rows = match session.store.bindings_list() {
+        Ok(rows) => rows,
+        Err(_) if marker.is_some() => return Ok(from_marker()),
+        Err(e) => return Err(e),
+    };
+    if let Some(row) = rows.iter().find(|row| row.actor == actor) {
+        if marker.is_some() && migrate {
+            // The row is the binding. A marker beside it is left over from before.
+            let _ = remove_marker(session);
+        }
+        return Ok(binding_of(row));
+    }
+    if let (Some(id), true) = (&marker, migrate) {
+        let row = BindingRow {
+            actor,
+            kind: BindingKind::Worktree,
+            thread_id: id.clone(),
+            registered_at: utc_now(),
+        };
+        // A ledger that refuses the write keeps the marker, and the binding still reads.
+        if session.store.binding_set(&row).is_ok() {
+            let _ = remove_marker(session);
+        }
+    }
+    Ok(from_marker())
 }
 
 pub fn read_marker(marker: &Path) -> Result<Option<String>, String> {
@@ -79,12 +134,6 @@ pub fn read_marker(marker: &Path) -> Result<Option<String>, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("error: could not read {}: {}", marker.display(), e)),
     }
-}
-
-pub fn write_marker(session: &Session, thread_id: &str) -> Result<(), String> {
-    let marker = session.marker_path();
-    std::fs::write(&marker, format!("{}\n", thread_id))
-        .map_err(|e| format!("error: could not write {}: {}", marker.display(), e))
 }
 
 pub fn remove_marker(session: &Session) -> Result<(), String> {
@@ -100,8 +149,38 @@ pub fn remove_marker(session: &Session) -> Result<(), String> {
     }
 }
 
-pub fn bind_cloud(session: &Session, cloud: &str, thread_id: &str) -> Result<(), String> {
-    session.store.cloud_bind(cloud, thread_id, &utc_now())
+/// Bind this session or worktree to a thread, replacing its earlier binding. A local
+/// bind is a ledger write that stays local until the next push; a cloud session's caller
+/// pushes it at once. A marker file left over from before is
+/// removed.
+pub fn bind_current(session: &Session, thread_id: &str) -> Result<(), String> {
+    let (actor, kind) = session.actor_key()?.ok_or_else(no_clone_id)?;
+    session.store.binding_set(&BindingRow {
+        actor,
+        kind,
+        thread_id: thread_id.to_string(),
+        registered_at: utc_now(),
+    })?;
+    if kind == BindingKind::Worktree {
+        remove_marker(session)?;
+    }
+    Ok(())
+}
+
+/// Remove this session's or worktree's binding, and a marker file left over from before.
+/// Returns the kind it removed.
+pub fn unbind_current(session: &Session) -> Result<BindingKind, String> {
+    let (actor, kind) = session.actor_key()?.ok_or_else(no_clone_id)?;
+    session.store.binding_remove(&actor)?;
+    if kind == BindingKind::Worktree {
+        remove_marker(session)?;
+    }
+    Ok(kind)
+}
+
+fn no_clone_id() -> String {
+    "error: this clone has no clone id yet, so it has no ledger store to hold a binding. Run tsk ledger fetch first"
+        .to_string()
 }
 
 /// The missions not done, as `tsk mission list` prints them.
@@ -153,13 +232,6 @@ pub fn clear_skip(session: &Session) -> Result<(), String> {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(format!("error: could not remove {}: {}", path.display(), e)),
-    }
-}
-
-pub fn bind_current(session: &Session, thread_id: &str) -> Result<(), String> {
-    match &session.cloud_session {
-        Some(cloud) => bind_cloud(session, cloud, thread_id),
-        None => write_marker(session, thread_id),
     }
 }
 

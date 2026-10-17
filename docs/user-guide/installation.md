@@ -158,7 +158,8 @@ Copilot runs the plugin's hooks from `plugin/hooks.json`:
 - `agentStop` blocks the end of a turn when the session has no thread binding.
 
 Copilot loads plugins and hooks only in a folder you have trusted. Outside a Claude
-cloud session, a thread binds to the code worktree through `.git/tsk-thread-id`.
+cloud session, a thread binds to the code worktree through a row of the ledger's
+`bindings` table.
 
 The Copilot hooks are untested in a live Copilot session. The install, the skills and
 the hook commands are tested on their own.

@@ -25,10 +25,9 @@ use crate::mission::model::{
     self, Category, Decision, Document, Item, Mission, Outcome, Question, QuestionStatus, Role,
     Status, Task,
 };
-use crate::thread::lookup::{CloudBinding, Lookup};
 
 use super::files::FileTree;
-use super::{LedgerStore, PushReport, RefreshOutcome, ThreadInfo};
+use super::{BindingKind, BindingRow, LedgerStore, PushReport, RefreshOutcome, ThreadInfo};
 
 const MANIFEST_SOURCE: &str = "the manifest table";
 
@@ -595,6 +594,24 @@ impl DoltStore {
                     changes = status::label_upgrade(changes, local, origin, &mut |table| {
                         edited_rows(db, &base, table)
                     })?;
+                    // The version 8 upgrade copies the cloud rows into `bindings` and drops
+                    // the old table: the copies are not changes the person made.
+                    if origin < dolt::BINDINGS_LAYOUT_VERSION
+                        && local >= dolt::BINDINGS_LAYOUT_VERSION
+                    {
+                        let copied = db
+                            .count(&format!(
+                                "select count(*) as c from cloud_session_bindings as of {}",
+                                plain(&base)
+                            ))
+                            .unwrap_or(0);
+                        changes = status::hide_copied_rows(
+                            changes,
+                            "cloud_session_bindings",
+                            "bindings",
+                            copied,
+                        );
+                    }
                 }
             }
         }
@@ -1048,51 +1065,63 @@ impl LedgerStore for DoltStore {
             .collect())
     }
 
-    fn cloud_lookup(&self) -> Result<Lookup, String> {
-        let rows = self.db()?.rows(
-            "select session_id, thread_id, registered_at from cloud_session_bindings \
-             order by registered_at, session_id",
-        )?;
-        let mut lookup = Lookup::default();
-        for row in &rows {
-            if let Some(session) = text(row, "session_id") {
-                lookup.set(
-                    &session,
-                    CloudBinding::new(
-                        &text(row, "thread_id").unwrap_or_default(),
-                        &text(row, "registered_at").unwrap_or_default(),
-                    ),
-                );
-            }
-        }
-        Ok(lookup)
+    fn bindings_list(&self) -> Result<Vec<BindingRow>, String> {
+        let db = self.db()?;
+        // One query on a current ledger. A ledger below version 8 has no `bindings` table:
+        // its cloud rows are read from the old table, and nothing is upgraded.
+        let (rows, legacy) = match db.rows(
+            "select actor, kind, thread_id, registered_at from bindings \
+             order by registered_at, actor",
+        ) {
+            Ok(rows) => (rows, false),
+            Err(e) if e.contains("table not found: bindings") => (
+                db.rows(
+                    "select session_id as actor, 'cloud' as kind, thread_id, registered_at \
+                     from cloud_session_bindings order by registered_at, session_id",
+                )?,
+                true,
+            ),
+            Err(e) => return Err(e),
+        };
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                let kind = if legacy {
+                    BindingKind::Cloud
+                } else {
+                    BindingKind::parse(&text(row, "kind")?)?
+                };
+                Some(BindingRow {
+                    actor: text(row, "actor")?,
+                    kind,
+                    thread_id: text(row, "thread_id").unwrap_or_default(),
+                    registered_at: text(row, "registered_at").unwrap_or_default(),
+                })
+            })
+            .collect())
     }
 
-    fn cloud_bind(
-        &self,
-        session: &str,
-        thread_id: &str,
-        registered_at: &str,
-    ) -> Result<(), String> {
-        self.db()?.exec(&format!(
-            "replace into cloud_session_bindings (session_id, thread_id, registered_at) \
-             values ({}, {}, {});",
-            lit(session),
-            lit(thread_id),
-            lit(registered_at)
+    fn binding_set(&self, row: &BindingRow) -> Result<(), String> {
+        self.write_bindings(&format!(
+            "replace into bindings (actor, kind, thread_id, registered_at) \
+             values ({}, {}, {}, {});",
+            lit(&row.actor),
+            lit(row.kind.as_str()),
+            lit(&row.thread_id),
+            lit(&row.registered_at)
         ))
     }
 
-    fn cloud_unbind(&self, session: &str) -> Result<(), String> {
-        self.db()?.exec(&format!(
-            "delete from cloud_session_bindings where session_id = {};",
-            lit(session)
+    fn binding_remove(&self, actor: &str) -> Result<(), String> {
+        self.write_bindings(&format!(
+            "delete from bindings where actor = {};",
+            lit(actor)
         ))
     }
 
-    fn cloud_unbind_thread(&self, thread_id: &str) -> Result<(), String> {
-        self.db()?.exec(&format!(
-            "delete from cloud_session_bindings where thread_id = {};",
+    fn binding_remove_thread(&self, thread_id: &str) -> Result<(), String> {
+        self.write_bindings(&format!(
+            "delete from bindings where thread_id = {};",
             lit(thread_id)
         ))
     }
@@ -1217,6 +1246,21 @@ impl LedgerStore for DoltStore {
 }
 
 impl DoltStore {
+    /// Run a write on `bindings` in one transaction. A ledger below version 8 is upgraded
+    /// first, in the same transaction, so the write lands on the new table. A refused
+    /// write upgrades nothing: the checks come first.
+    fn write_bindings(&self, sql: &str) -> Result<(), String> {
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        let version = self.check_current(&db, &location)?;
+        let mut script = String::new();
+        if version < dolt::LAYOUT_VERSION {
+            script.push_str(&self.upgrade_script(&db, version)?);
+        }
+        script.push_str(sql);
+        db.exec(&script)
+    }
+
     /// The statements that take a ledger at `version` to the newest layout. From versions 3
     /// to 6 the old text of every mission's constraints and out-of-scope columns is read
     /// here and split into items, which the statements insert before they drop the columns.
