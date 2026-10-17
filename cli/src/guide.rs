@@ -22,6 +22,31 @@ This guide is for an agent. It explains how tsk stores work, so you can move a p
 any format into the tsk ledger. tsk does not parse other plan formats. You read the plan
 and write it into the ledger through `tsk` commands.
 
+## Records and documents: read this first
+
+Since tsk 0.9.0 the ledger holds two kinds of thing.
+
+- **Records** are the source of truth for the state of the work: missions, tasks,
+  decisions, questions, objectives, blocks, and the links from a mission to documents.
+  They are typed rows in the database. Write them only through the `tsk mission`,
+  `tsk task`, `tsk decision` and `tsk question` commands.
+- **Documents** are free text: intelligence, reports and designs. Write them with
+  `tsk ledger doc put`, and link them to a mission with `tsk mission link`.
+
+Do not write the same fact in both places. A briefing document that repeats a mission's
+purpose, decisions, questions or plan drifts away from the records, and the records win.
+
+To read a mission in full, run `tsk mission list <id> --json`. It prints the whole
+record: purpose, constraints, objectives, blocks, linked documents, tasks, decisions and
+questions, open and answered. `tsk mission list` with no ID lists every mission, one per
+line. There is no command that prints a mission as Markdown yet. Projections, which
+render the records as Markdown for people, are planned. Until they exist, read the JSON
+and write the summary or table you need yourself, for the person you are working with.
+
+The rest of this guide describes the document form of a plan, which tsk 0.6.0 used. It is
+being rewritten for the record commands. Where it conflicts with this section, follow
+this section.
+
 ## Rules
 
 - Write the ledger only through `tsk` commands. The ledger is a Dolt database. Do not
@@ -143,6 +168,14 @@ mod tests {
         assert!(IMPORT.contains("tsk ledger push"));
         assert!(IMPORT.contains("Do not read or clone the tsk source code"));
         assert!(IMPORT.ends_with('\n'));
+    }
+
+    #[test]
+    fn the_import_guide_says_records_are_the_truth_and_how_to_read_a_mission() {
+        assert!(IMPORT.contains("source of truth"));
+        assert!(IMPORT.contains("tsk mission list <id> --json"));
+        assert!(IMPORT.contains("Projections"));
+        assert!(IMPORT.contains("write the summary or table you need yourself"));
     }
 
     #[test]
