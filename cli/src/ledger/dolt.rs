@@ -389,6 +389,28 @@ impl Dolt {
         parse_rows(&stdout)
     }
 
+    /// Run several queries in one `dolt sql` process and return the rows of each, in
+    /// order. A statement with no rows prints an empty object, so the result always
+    /// holds one entry per query. The first failing statement stops the script and fails
+    /// the whole call. Every query must be one statement.
+    pub fn rows_each(&self, queries: &[String]) -> Result<Vec<Vec<Value>>, String> {
+        if queries.is_empty() {
+            return Ok(Vec::new());
+        }
+        let script: String = queries.iter().map(|q| format!("{};\n", q)).collect();
+        let args = vec!["sql".to_string(), "-r".to_string(), "json".to_string()];
+        let stdout = self.pipe(&args, &script)?;
+        let results = parse_result_sets(&stdout)?;
+        if results.len() != queries.len() {
+            return Err(format!(
+                "error: dolt printed {} result sets for {} queries",
+                results.len(),
+                queries.len()
+            ));
+        }
+        Ok(results)
+    }
+
     /// Run write statements in one transaction: all of them apply, or none.
     pub fn exec(&self, sql: &str) -> Result<(), String> {
         let script = format!("start transaction;\n{}\ncommit;\n", sql);
@@ -421,13 +443,7 @@ impl Dolt {
 
     /// The first column of the first row of a query, read as an integer.
     pub fn count(&self, sql: &str) -> Result<i64, String> {
-        let rows = self.rows(sql)?;
-        Ok(rows
-            .first()
-            .and_then(|row| row.as_object())
-            .and_then(|map| map.values().next())
-            .and_then(Value::as_i64)
-            .unwrap_or(0))
+        Ok(first_count(&self.rows(sql)?))
     }
 
     /// The commit hash of `HEAD`.
@@ -442,6 +458,15 @@ impl Dolt {
             .and_then(|row| text(row, "h"))
             .ok_or_else(|| format!("error: dolt could not resolve {}", revision))
     }
+}
+
+/// The first column of the first row, read as an integer, or 0.
+pub fn first_count(rows: &[Value]) -> i64 {
+    rows.first()
+        .and_then(|row| row.as_object())
+        .and_then(|map| map.values().next())
+        .and_then(Value::as_i64)
+        .unwrap_or(0)
 }
 
 /// Make sure Dolt has a commit identity. A machine with none gets `tsk <tsk@localhost>`
@@ -474,6 +499,19 @@ pub fn flag(row: &Value, column: &str) -> bool {
         Some(Value::Number(n)) => n.as_i64() == Some(1),
         _ => false,
     }
+}
+
+fn parse_result_sets(stdout: &str) -> Result<Vec<Vec<Value>>, String> {
+    let mut sets = Vec::new();
+    for result in serde_json::Deserializer::from_str(stdout).into_iter::<Value>() {
+        let result =
+            result.map_err(|e| format!("error: dolt printed output that is not JSON: {}", e))?;
+        sets.push(match result.get("rows") {
+            Some(Value::Array(found)) => found.clone(),
+            _ => Vec::new(),
+        });
+    }
+    Ok(sets)
 }
 
 fn parse_rows(stdout: &str) -> Result<Vec<Value>, String> {

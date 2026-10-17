@@ -7,6 +7,7 @@
 //! [`crate::ledger::docs`]). A version 1 ledger still keeps them in a `documents` table
 //! until `tsk ledger migrate-docs` moves them.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use crate::ledger::docs;
@@ -41,6 +42,10 @@ pub struct DoltStore {
     /// Reads from this database instead of the one at the clone's usual path. The
     /// migration uses it to check a database it has built but not yet moved into place.
     db_override: Option<PathBuf>,
+    /// The database and layout version of the last manifest check that found the current
+    /// layout. Later checks in the same process reuse it, which saves a `dolt` process
+    /// each. Anything that can move the database to another state clears it.
+    checked: RefCell<Option<(PathBuf, i64)>>,
 }
 
 impl DoltStore {
@@ -51,6 +56,7 @@ impl DoltStore {
             repo,
             state_root,
             db_override: None,
+            checked: RefCell::new(None),
         })
     }
 
@@ -100,28 +106,34 @@ impl DoltStore {
     }
 
     fn manifest_rows(&self, db: &Dolt) -> Result<ManifestInfo, String> {
-        let rows = db.rows("select k, v from manifest")?;
-        let value = |key: &str| {
-            rows.iter()
-                .find(|row| text(row, "k").as_deref() == Some(key))
-                .and_then(|row| text(row, "v"))
-        };
-        let version = value("version").ok_or_else(|| {
-            "error: the ledger's manifest table has no version row; it is not a tsk ledger"
-                .to_string()
-        })?;
-        let version = version.trim().parse::<i64>().map_err(|_| {
-            format!(
-                "error: the ledger's manifest version '{}' is not a number",
-                version
-            )
-        })?;
-        Ok(ManifestInfo {
-            version,
-            repo_id: value("repo_id"),
-        })
+        manifest_from_rows(&db.rows(MANIFEST_QUERY)?)
     }
+}
 
+const MANIFEST_QUERY: &str = "select k, v from manifest";
+
+fn manifest_from_rows(rows: &[serde_json::Value]) -> Result<ManifestInfo, String> {
+    let value = |key: &str| {
+        rows.iter()
+            .find(|row| text(row, "k").as_deref() == Some(key))
+            .and_then(|row| text(row, "v"))
+    };
+    let version = value("version").ok_or_else(|| {
+        "error: the ledger's manifest table has no version row; it is not a tsk ledger".to_string()
+    })?;
+    let version = version.trim().parse::<i64>().map_err(|_| {
+        format!(
+            "error: the ledger's manifest version '{}' is not a number",
+            version
+        )
+    })?;
+    Ok(ManifestInfo {
+        version,
+        repo_id: value("repo_id"),
+    })
+}
+
+impl DoltStore {
     /// The manifest check every Dolt command makes. Versions 1 and 2 pass: it returns the
     /// version, and the caller decides what a version 1 ledger may do.
     fn check_manifest_of(&self, db: &Dolt, location: &LedgerLocation) -> Result<i64, String> {
@@ -138,11 +150,26 @@ impl DoltStore {
     /// The manifest check of a command that needs the documents on the branch: a version
     /// 1 ledger is refused with the way out.
     fn check_current(&self, db: &Dolt, location: &LedgerLocation) -> Result<i64, String> {
+        if let Some((dir, version)) = &*self.checked.borrow() {
+            if dir == db.dir() {
+                return Ok(*version);
+            }
+        }
         let version = self.check_manifest_of(db, location)?;
         if version == LEGACY_LAYOUT_VERSION {
             return Err(VERSION_1_REFUSAL.to_string());
         }
+        self.remember_checked(db, version);
         Ok(version)
+    }
+
+    fn remember_checked(&self, db: &Dolt, version: i64) {
+        *self.checked.borrow_mut() =
+            (version == dolt::LAYOUT_VERSION).then(|| (db.dir().to_path_buf(), version));
+    }
+
+    fn forget_checked(&self) {
+        *self.checked.borrow_mut() = None;
     }
 
     /// The worktree of the documents branch, when this clone has an id.
@@ -236,6 +263,7 @@ impl DoltStore {
         docs_changed: bool,
         notes: &mut dyn FnMut(&str),
     ) -> Result<PushReport, String> {
+        self.forget_checked();
         let path = db.dir().to_path_buf();
         let outcome = |result: PushResult, commit: String| PushOutcome {
             location: location.clone(),
@@ -262,12 +290,37 @@ impl DoltStore {
         let remote_ref = format!("{}/{}", REMOTE, BRANCH);
         for attempt in 1..=MAX_ATTEMPTS {
             db.run(["fetch", REMOTE])?;
-            if remote_branch_exists(db)? {
-                let rows = db.rows(&format!(
-                    "select dolt_merge_base('HEAD', {r}) = hashof('HEAD') as head_in_remote, \
-                     dolt_merge_base('HEAD', {r}) = hashof({r}) as remote_in_head",
-                    r = lit(&remote_ref)
-                ));
+            // The branch check, the merge base and the remote tip read in one process.
+            // When the batch fails (no remote branch yet, say), they read one by one.
+            let flags_query = format!(
+                "select dolt_merge_base('HEAD', {r}) = hashof('HEAD') as head_in_remote, \
+                 dolt_merge_base('HEAD', {r}) = hashof({r}) as remote_in_head",
+                r = lit(&remote_ref)
+            );
+            let batched = db
+                .rows_each(&[
+                    remote_branch_query(),
+                    flags_query.clone(),
+                    hash_query(&remote_ref),
+                ])
+                .ok()
+                .filter(|sets| dolt::first_count(&sets[0]) > 0);
+            let known = batched.map(|sets| (sets[1].first().cloned(), sets[2].first().cloned()));
+            if let Some((flags, tip)) = known {
+                let (head_in_remote, remote_in_head) = flags
+                    .map(|row| (flag(&row, "head_in_remote"), flag(&row, "remote_in_head")))
+                    .unwrap_or((false, false));
+                if head_in_remote {
+                    let tip = tip
+                        .and_then(|row| text(&row, "h"))
+                        .ok_or_else(|| format!("error: dolt could not resolve {}", remote_ref))?;
+                    return Ok(finish(outcome(PushResult::AlreadyOnRemote, tip), notes));
+                }
+                if !remote_in_head {
+                    merge_remote(db, &remote_ref)?;
+                }
+            } else if remote_branch_exists(db)? {
+                let rows = db.rows(&flags_query);
                 let (head_in_remote, remote_in_head) = match rows {
                     Ok(rows) => rows
                         .first()
@@ -453,11 +506,23 @@ pub(crate) fn create_database_with(
     })
 }
 
-fn verify_remote(db: &Dolt, url: &str, location: &LedgerLocation) -> Result<(), String> {
-    let rows = db.rows(&format!(
+fn remote_query() -> String {
+    format!(
         "select url, params from dolt_remotes where name = {}",
         lit(REMOTE)
-    ))?;
+    )
+}
+
+fn verify_remote(db: &Dolt, url: &str, location: &LedgerLocation) -> Result<(), String> {
+    verify_remote_rows(db, &db.rows(&remote_query())?, url, location)
+}
+
+fn verify_remote_rows(
+    db: &Dolt,
+    rows: &[serde_json::Value],
+    url: &str,
+    location: &LedgerLocation,
+) -> Result<(), String> {
     let row = rows.first().ok_or_else(|| {
         format!(
             "error: {} is a Dolt database with no '{}' remote; move it aside and re-run",
@@ -484,13 +549,19 @@ fn verify_remote(db: &Dolt, url: &str, location: &LedgerLocation) -> Result<(), 
     Ok(())
 }
 
-fn pending_commits(db: &Dolt) -> Result<Vec<String>, String> {
-    let rows = db.rows(&format!(
+fn pending_query() -> String {
+    format!(
         "select commit_hash, message from dolt_log({})",
         lit(&format!("{}/{}..{}", REMOTE, BRANCH, BRANCH))
-    ))?;
-    Ok(rows
-        .iter()
+    )
+}
+
+fn pending_commits(db: &Dolt) -> Result<Vec<String>, String> {
+    Ok(pending_from_rows(&db.rows(&pending_query())?))
+}
+
+fn pending_from_rows(rows: &[serde_json::Value]) -> Vec<String> {
+    rows.iter()
         .map(|row| {
             let hash = text(row, "commit_hash").unwrap_or_default();
             let message = text(row, "message").unwrap_or_default();
@@ -500,14 +571,22 @@ fn pending_commits(db: &Dolt) -> Result<Vec<String>, String> {
                 message.lines().next().unwrap_or("")
             )
         })
-        .collect())
+        .collect()
+}
+
+fn remote_branch_query() -> String {
+    format!(
+        "select count(*) as c from dolt_remote_branches where name = {}",
+        lit(REMOTE_BRANCH_NAME)
+    )
+}
+
+fn hash_query(revision: &str) -> String {
+    format!("select hashof({}) as h", lit(revision))
 }
 
 fn remote_branch_exists(db: &Dolt) -> Result<bool, String> {
-    Ok(db.count(&format!(
-        "select count(*) as c from dolt_remote_branches where name = {}",
-        lit(REMOTE_BRANCH_NAME)
-    ))? > 0)
+    Ok(db.count(&remote_branch_query())? > 0)
 }
 
 fn dirty_error(path: &Path) -> String {
@@ -525,24 +604,45 @@ impl DoltStore {
     /// nothing. `online` says the fetch worked, so the commit counts can be trusted.
     fn data_side(&self, db: &Dolt, online: bool) -> Result<SideStatus, String> {
         let remote_ref = format!("{}/{}", REMOTE, BRANCH);
-        let has_remote = remote_branch_exists(db)?;
-        let (base, remote) = if has_remote {
-            let base = db
-                .rows(&format!(
-                    "select dolt_merge_base('HEAD', {}) as b",
-                    lit(&remote_ref)
-                ))
-                .ok()
-                .and_then(|rows| rows.first().and_then(|row| text(row, "b")))
-                .unwrap_or_else(|| "HEAD".to_string());
-            let count = |range: String| -> Result<usize, String> {
-                Ok(db.count(&format!(
-                    "select count(*) as c from dolt_log({})",
-                    lit(&range)
-                ))? as usize)
+        // Each step reads in one `dolt sql` process. When a batch fails, the step reads
+        // query by query instead, which gives the same result or the same error.
+        let (has_remote, local_version) =
+            match db.rows_each(&[remote_branch_query(), manifest_version_query(None)]) {
+                Ok(sets) => (dolt::first_count(&sets[0]) > 0, version_of_rows(&sets[1])),
+                Err(_) => (remote_branch_exists(db)?, manifest_version_of(db, None)),
             };
-            let ahead = count(format!("{}..{}", remote_ref, BRANCH))?;
-            let behind = count(format!("{}..{}", BRANCH, remote_ref))?;
+        let (base, remote) = if has_remote {
+            let queries = [
+                format!("select dolt_merge_base('HEAD', {}) as b", lit(&remote_ref)),
+                format!(
+                    "select count(*) as c from dolt_log({})",
+                    lit(&format!("{}..{}", remote_ref, BRANCH))
+                ),
+                format!(
+                    "select count(*) as c from dolt_log({})",
+                    lit(&format!("{}..{}", BRANCH, remote_ref))
+                ),
+            ];
+            let (base, ahead, behind) = match db.rows_each(&queries) {
+                Ok(sets) => (
+                    sets[0]
+                        .first()
+                        .and_then(|row| text(row, "b"))
+                        .unwrap_or_else(|| "HEAD".to_string()),
+                    dolt::first_count(&sets[1]) as usize,
+                    dolt::first_count(&sets[2]) as usize,
+                ),
+                Err(_) => {
+                    let base = db
+                        .rows(&queries[0])
+                        .ok()
+                        .and_then(|rows| rows.first().and_then(|row| text(row, "b")))
+                        .unwrap_or_else(|| "HEAD".to_string());
+                    let ahead = db.count(&queries[1])? as usize;
+                    let behind = db.count(&queries[2])? as usize;
+                    (base, ahead, behind)
+                }
+            };
             let state = if online {
                 RemoteState::from_counts(ahead, behind)
             } else {
@@ -554,14 +654,30 @@ impl DoltStore {
         } else {
             ("HEAD".to_string(), RemoteState::Unknown)
         };
-        let summary = db.rows(&format!(
-            "select from_table_name, to_table_name, data_change, schema_change from dolt_diff_summary({}, 'WORKING')",
-            lit(&base)
-        ))?;
-        let stats = db.rows(&format!(
-            "select table_name, rows_added, rows_modified, rows_deleted from dolt_diff_stat({}, 'WORKING')",
-            lit(&base)
-        ))?;
+        let summary_query = format!("select from_table_name, to_table_name, data_change, schema_change from dolt_diff_summary({}, 'WORKING')", lit(&base));
+        let stats_query = format!("select table_name, rows_added, rows_modified, rows_deleted from dolt_diff_stat({}, 'WORKING')", lit(&base));
+        let mut queries = vec![summary_query, stats_query];
+        if has_remote {
+            queries.push(manifest_version_query(Some(&remote_ref)));
+        }
+        let (summary, stats, origin_version) = match db.rows_each(&queries) {
+            Ok(mut sets) => {
+                let origin = sets.get(2).and_then(|rows| version_of_rows(rows));
+                sets.truncate(2);
+                let stats = sets.pop().unwrap_or_default();
+                let summary = sets.pop().unwrap_or_default();
+                (summary, stats, origin)
+            }
+            Err(_) => (
+                db.rows(&queries[0])?,
+                db.rows(&queries[1])?,
+                if has_remote {
+                    manifest_version_of(db, Some(&remote_ref))
+                } else {
+                    None
+                },
+            ),
+        };
         let mut changes = Vec::new();
         for row in &summary {
             let name = text(row, "to_table_name")
@@ -587,9 +703,7 @@ impl DoltStore {
         // A schema upgrade is the one change a write makes that the person did not ask
         // for: label it, and drop the lines it caused.
         if has_remote {
-            let local = manifest_version_of(db, None);
-            let origin = manifest_version_of(db, Some(&remote_ref));
-            if let (Some(local), Some(origin)) = (local, origin) {
+            if let (Some(local), Some(origin)) = (local_version, origin_version) {
                 if local != origin {
                     changes = status::label_upgrade(changes, local, origin, &mut |table| {
                         edited_rows(db, &base, table)
@@ -620,6 +734,7 @@ impl DoltStore {
 
     /// Refresh the Dolt database, and return the manifest version it holds.
     pub(crate) fn refresh_data(&self, keep_local: bool) -> Result<(RefreshOutcome, i64), String> {
+        self.forget_checked();
         dolt::ensure_identity()?;
         let location = self.repo.location(&self.state_root)?;
         let clone_id = self.repo.ensure_clone_id()?;
@@ -667,8 +782,21 @@ impl DoltStore {
         let mut pending = Vec::new();
         if present {
             db = Dolt::new(&path);
-            verify_remote(&db, &url, &location)?;
-            dirty = db.count("select count(*) as c from dolt_status")? > 0;
+            // The remote check and the dirty check read in one process. When the batch
+            // fails, they read one by one, which gives the same result or error.
+            match db.rows_each(&[
+                remote_query(),
+                "select count(*) as c from dolt_status".to_string(),
+            ]) {
+                Ok(sets) => {
+                    verify_remote_rows(&db, &sets[0], &url, &location)?;
+                    dirty = dolt::first_count(&sets[1]) > 0;
+                }
+                Err(_) => {
+                    verify_remote(&db, &url, &location)?;
+                    dirty = db.count("select count(*) as c from dolt_status")? > 0;
+                }
+            }
             if dirty && !keep_local {
                 return Err(dirty_error(&path));
             }
@@ -687,20 +815,41 @@ impl DoltStore {
             Dolt::new(parent).run(["clone", "--ref", location.ref_name(), url.as_str(), &name])?;
             db = Dolt::new(&path);
         }
-        if !remote_branch_exists(&db)? {
-            return Err(format!(
-                "error: {} on {} holds no Dolt branch '{}'; it is not a Dolt ledger",
-                location.ref_name(),
-                location.label(),
-                BRANCH
-            ));
-        }
-        let remote_head = db.hash_of(&format!("{}/{}", REMOTE, BRANCH))?;
+        // One process for the three reads. When the batch fails (the remote branch is
+        // missing, say), they read one by one, which gives the same error.
+        let remote_ref = format!("{}/{}", REMOTE, BRANCH);
+        let mut queries = vec![remote_branch_query(), hash_query(&remote_ref)];
         if present {
-            pending = pending_commits(&db)?;
-            if pending.is_empty() && !dirty {
-                db.run(["reset", "--hard", &format!("{}/{}", REMOTE, BRANCH)])?;
+            queries.push(pending_query());
+        }
+        let batched = db.rows_each(&queries).ok().filter(|sets| {
+            dolt::first_count(&sets[0]) > 0 && sets[1].first().and_then(|r| text(r, "h")).is_some()
+        });
+        let remote_head = if let Some(sets) = batched {
+            if present {
+                pending = pending_from_rows(&sets[2]);
             }
+            sets[1]
+                .first()
+                .and_then(|r| text(r, "h"))
+                .unwrap_or_default()
+        } else {
+            if !remote_branch_exists(&db)? {
+                return Err(format!(
+                    "error: {} on {} holds no Dolt branch '{}'; it is not a Dolt ledger",
+                    location.ref_name(),
+                    location.label(),
+                    BRANCH
+                ));
+            }
+            let head = db.hash_of(&remote_ref)?;
+            if present {
+                pending = pending_commits(&db)?;
+            }
+            head
+        };
+        if present && pending.is_empty() && !dirty {
+            db.run(["reset", "--hard", &format!("{}/{}", REMOTE, BRANCH)])?;
         }
         let version = self.check_manifest_of(&db, &location)?;
         let pending_note = (!pending.is_empty()).then(|| {
@@ -793,6 +942,7 @@ impl LedgerStore for DoltStore {
     }
 
     fn discard(&self) -> Result<(), String> {
+        self.forget_checked();
         let db = self.db()?;
         let location = self.repo.location(&self.state_root)?;
         self.check_current(&db, &location)?;
@@ -1284,11 +1434,54 @@ impl DoltStore {
     /// Every mission in `db`. A version 2 ledger has no mission tables: it has no
     /// missions. A version 1 ledger is refused.
     fn missions_in(&self, db: &Dolt, location: &LedgerLocation) -> Result<Vec<Mission>, String> {
+        if let Some(missions) = self.missions_in_one_call(db, location)? {
+            return Ok(missions);
+        }
         let version = self.check_current(db, location)?;
         if version < dolt::MISSIONS_LAYOUT_VERSION {
             return Ok(Vec::new());
         }
         read_missions(db, version)
+    }
+
+    /// The common read, in one `dolt sql` process: the manifest and every query of the
+    /// current layout. `None` when the ledger is not at the current layout or the batch
+    /// fails, and the caller then reads it query by query, which gives the same result
+    /// or the same error.
+    fn missions_in_one_call(
+        &self,
+        db: &Dolt,
+        location: &LedgerLocation,
+    ) -> Result<Option<Vec<Mission>>, String> {
+        let mut queries = vec![MANIFEST_QUERY.to_string()];
+        let mut recorded = Vec::new();
+        read_missions_with(dolt::LAYOUT_VERSION, &mut |sql| {
+            recorded.push(sql.to_string());
+            Ok(Vec::new())
+        })?;
+        queries.extend(recorded);
+        let Ok(mut results) = db.rows_each(&queries) else {
+            return Ok(None);
+        };
+        let info = manifest_from_rows(&results.remove(0))?;
+        if info.version != dolt::LAYOUT_VERSION {
+            return Ok(None);
+        }
+        manifest::check_values(
+            info.version,
+            info.repo_id.as_deref(),
+            location.repo_id(),
+            MANIFEST_SOURCE,
+            DOLT_SUPPORTED_VERSIONS,
+        )?;
+        self.remember_checked(db, info.version);
+        let mut results = results.into_iter();
+        let missions = read_missions_with(dolt::LAYOUT_VERSION, &mut |_| {
+            results
+                .next()
+                .ok_or_else(|| "error: a batched read ran out of results".to_string())
+        })?;
+        Ok(Some(missions))
     }
 
     /// A fresh clone meets a ref that holds a file ledger: stop with the way out.
@@ -1563,6 +1756,15 @@ fn save_sql(mission: &Mission) -> String {
 /// decisions and questions when the layout `version` has the tables. A version 3 ledger
 /// has no task, decision or question tables.
 fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
+    read_missions_with(version, &mut |sql| db.rows(sql))
+}
+
+/// Read the missions with every query going through `rows`, so a caller can run the
+/// queries one by one or replay the results of a batch.
+fn read_missions_with(
+    version: i64,
+    rows: &mut dyn FnMut(&str) -> Result<Vec<serde_json::Value>, String>,
+) -> Result<Vec<Mission>, String> {
     let with_records = version >= dolt::TASKS_LAYOUT_VERSION;
     let bad = |column: &str, id: &str| {
         format!(
@@ -1582,7 +1784,7 @@ fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
     } else {
         ", constraints_text, out_of_scope"
     });
-    for row in db.rows(&format!(
+    for row in rows(&format!(
         "select id, name, category, status, parent, purpose, decision_authority, {} \
          from missions order by id",
         columns
@@ -1616,7 +1818,7 @@ fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
     let slot = |missions: &mut Vec<Mission>, id: &str| -> Option<usize> {
         missions.iter().position(|m| m.id == id)
     };
-    for row in db.rows(
+    for row in rows(
         "select mission_id, seq, outcome, met from objective_outcomes order by mission_id, seq",
     )? {
         let id = text(&row, "mission_id").unwrap_or_default();
@@ -1630,7 +1832,7 @@ fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
     }
     if with_lists {
         for (table, pick) in [("mission_constraints", 0), ("mission_out_of_scope", 1)] {
-            for row in db.rows(&format!(
+            for row in rows(&format!(
                 "select mission_id, seq, text from {} order by mission_id, seq",
                 table
             ))? {
@@ -1648,7 +1850,7 @@ fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
             }
         }
     }
-    for row in db.rows(
+    for row in rows(
         "select mission_id, blocked_by_id from mission_blocks order by mission_id, blocked_by_id",
     )? {
         let id = text(&row, "mission_id").unwrap_or_default();
@@ -1659,7 +1861,7 @@ fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
         }
     }
     for row in
-        db.rows("select mission_id, path, role from mission_documents order by mission_id, path")?
+        rows("select mission_id, path, role from mission_documents order by mission_id, path")?
     {
         let id = text(&row, "mission_id").unwrap_or_default();
         if let Some(at) = slot(&mut missions, &id) {
@@ -1671,7 +1873,12 @@ fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
         }
     }
     if with_records {
-        read_records(db, &mut missions, version >= dolt::ADR_LAYOUT_VERSION, &bad)?;
+        read_records(
+            rows,
+            &mut missions,
+            version >= dolt::ADR_LAYOUT_VERSION,
+            &bad,
+        )?;
     }
     for mission in &mut missions {
         mission.follow_list_counters();
@@ -1681,14 +1888,14 @@ fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
 
 /// Read every task with its blockers, and every decision and question.
 fn read_records(
-    db: &Dolt,
+    rows: &mut dyn FnMut(&str) -> Result<Vec<serde_json::Value>, String>,
     missions: &mut [Mission],
     with_adr: bool,
     bad: &dyn Fn(&str, &str) -> String,
 ) -> Result<(), String> {
     let slot = |missions: &[Mission], id: &str| missions.iter().position(|m| m.id == id);
     for row in
-        db.rows("select mission_id, seq, description, status from tasks order by mission_id, seq")?
+        rows("select mission_id, seq, description, status from tasks order by mission_id, seq")?
     {
         let id = text(&row, "mission_id").unwrap_or_default();
         if let Some(at) = slot(missions, &id) {
@@ -1701,7 +1908,7 @@ fn read_records(
             });
         }
     }
-    for row in db.rows(
+    for row in rows(
         "select mission_id, task_seq, blocked_by_seq from task_blocks \
          order by mission_id, task_seq, blocked_by_seq",
     )? {
@@ -1720,7 +1927,7 @@ fn read_records(
     } else {
         "null as adr_path"
     };
-    for row in db.rows(&format!(
+    for row in rows(&format!(
         "select mission_id, seq, text, decided_by, decided_on, task_seq, {} from decisions \
          order by mission_id, seq",
         adr
@@ -1737,7 +1944,7 @@ fn read_records(
             });
         }
     }
-    for row in db.rows(
+    for row in rows(
         "select mission_id, seq, text, status, answer, answered_by, answered_on, asked_on \
          from questions order by mission_id, seq",
     )? {
@@ -1776,13 +1983,15 @@ fn plain(revision: &str) -> String {
 /// The manifest version at `revision`, or in the working set when it is `None`. `None`
 /// when the manifest cannot be read there.
 fn manifest_version_of(db: &Dolt, revision: Option<&str>) -> Option<i64> {
+    version_of_rows(&db.rows(&manifest_version_query(revision)).ok()?)
+}
+
+fn manifest_version_query(revision: Option<&str>) -> String {
     let as_of = revision.map_or(String::new(), |r| format!(" as of {}", plain(r)));
-    let rows = db
-        .rows(&format!(
-            "select v from manifest{} where k = 'version'",
-            as_of
-        ))
-        .ok()?;
+    format!("select v from manifest{} where k = 'version'", as_of)
+}
+
+fn version_of_rows(rows: &[serde_json::Value]) -> Option<i64> {
     rows.first()
         .and_then(|row| text(row, "v"))
         .and_then(|v| v.trim().parse().ok())
