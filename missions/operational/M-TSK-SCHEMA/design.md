@@ -143,6 +143,12 @@ Stated by Jim, 2026-10-15.
   task T-14); until they exist the agent renders its own summary from the JSON. This
   keeps the decision of 2026-10-15 after issue #5 asked for `mission show`. Decided by
   Jim, 2026-10-17.
+- Constraints and out of scope are structured lists, not single text values: each is a
+  list of one-line items, one row each, numbered per mission as objective outcomes
+  are. This supersedes the earlier decision that they are text fields set by
+  `mission set`; purpose and decision authority stay text fields. Prompted by issue #5,
+  where an agent had to join a list into one paragraph. Decided by Jim, 2026-10-17.
+  Plan task T-15.
 
 ## Custom refs by default, branches for cloud sessions
 
