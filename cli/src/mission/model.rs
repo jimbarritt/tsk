@@ -4,14 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const FIELDS: &[&str] = &[
-    "name",
-    "status",
-    "purpose",
-    "constraints",
-    "out-of-scope",
-    "decision-authority",
-];
+pub const FIELDS: &[&str] = &["name", "status", "purpose", "decision-authority"];
 
 const MAX_NAME_CHARS: usize = 255;
 
@@ -111,6 +104,69 @@ pub struct Outcome {
     pub met: bool,
 }
 
+/// One line of a mission's constraints or out-of-scope list, numbered like an objective
+/// outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Item {
+    pub seq: i64,
+    pub text: String,
+}
+
+/// Which of the two lists of a mission an operation works on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListKind {
+    Constraint,
+    OutOfScope,
+}
+
+impl ListKind {
+    /// How an error names one item: `a constraint`.
+    fn noun(self) -> &'static str {
+        match self {
+            ListKind::Constraint => "constraint",
+            ListKind::OutOfScope => "out-of-scope item",
+        }
+    }
+
+    fn article(self) -> &'static str {
+        match self {
+            ListKind::Constraint => "a",
+            ListKind::OutOfScope => "an",
+        }
+    }
+}
+
+/// The items a text value held before the lists existed: one per line, trimmed, empty
+/// lines skipped, numbered from 1 in order.
+pub fn lines_to_items(text: &str) -> Vec<Item> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .enumerate()
+        .map(|(at, line)| Item {
+            seq: at as i64 + 1,
+            text: line.to_string(),
+        })
+        .collect()
+}
+
+/// Read a list that an older file holds as one string, or the list form.
+fn items_or_text<'de, D>(deserializer: D) -> Result<Vec<Item>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Form {
+        Text(String),
+        Items(Vec<Item>),
+    }
+    Ok(match Form::deserialize(deserializer)? {
+        Form::Text(text) => lines_to_items(&text),
+        Form::Items(items) => items,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
     pub path: String,
@@ -190,8 +246,12 @@ pub struct Mission {
     pub parent: Option<String>,
     pub purpose: String,
     pub decision_authority: String,
-    pub constraints: String,
-    pub out_of_scope: String,
+    /// One line each, numbered per mission. A file written before the lists existed holds
+    /// a string here and reads as one item per non-empty line.
+    #[serde(default, deserialize_with = "items_or_text")]
+    pub constraints: Vec<Item>,
+    #[serde(default, deserialize_with = "items_or_text")]
+    pub out_of_scope: Vec<Item>,
     /// The number the next objective outcome gets. It only grows.
     pub next_objective: i64,
     pub objective: Vec<Outcome>,
@@ -206,12 +266,28 @@ pub struct Mission {
     /// The number the next question gets. It only grows.
     #[serde(default = "one")]
     pub next_question: i64,
+    /// The number the next constraint gets. It only grows.
+    #[serde(default = "one")]
+    pub next_constraint: i64,
+    /// The number the next out-of-scope item gets. It only grows.
+    #[serde(default = "one")]
+    pub next_out_of_scope: i64,
     #[serde(default)]
     pub tasks: Vec<Task>,
     #[serde(default)]
     pub decisions: Vec<Decision>,
     #[serde(default)]
     pub questions: Vec<Question>,
+}
+
+impl Mission {
+    /// Make the constraint and out-of-scope counters follow the rows. A file written
+    /// before the lists existed holds strings, which read as rows with no counter.
+    pub fn follow_list_counters(&mut self) {
+        let after = |items: &[Item]| items.iter().map(|i| i.seq + 1).max().unwrap_or(1);
+        self.next_constraint = self.next_constraint.max(after(&self.constraints));
+        self.next_out_of_scope = self.next_out_of_scope.max(after(&self.out_of_scope));
+    }
 }
 
 // --- Validation ---
@@ -305,14 +381,16 @@ pub fn create(
         parent: parent.map(str::to_string),
         purpose: String::new(),
         decision_authority: String::new(),
-        constraints: String::new(),
-        out_of_scope: String::new(),
+        constraints: Vec::new(),
+        out_of_scope: Vec::new(),
         next_objective: 1,
         objective: Vec::new(),
         blocked_by: Vec::new(),
         documents: Vec::new(),
         next_task: 1,
         next_question: 1,
+        next_constraint: 1,
+        next_out_of_scope: 1,
         tasks: Vec::new(),
         decisions: Vec::new(),
         questions: Vec::new(),
@@ -337,8 +415,18 @@ pub fn set(missions: &[Mission], id: &str, field: &str, value: &str) -> Result<M
             mission.status = status;
         }
         "purpose" => mission.purpose = value.to_string(),
-        "constraints" => mission.constraints = value.to_string(),
-        "out-of-scope" => mission.out_of_scope = value.to_string(),
+        "constraints" => {
+            return Err(
+                "error: constraints are a list now; use tsk mission constraint add|remove|list"
+                    .to_string(),
+            )
+        }
+        "out-of-scope" => {
+            return Err(
+                "error: out-of-scope is a list now; use tsk mission out-of-scope add|remove|list"
+                    .to_string(),
+            )
+        }
         "decision-authority" => mission.decision_authority = value.to_string(),
         other => {
             return Err(format!(
@@ -462,6 +550,66 @@ pub fn objective_remove(missions: &[Mission], id: &str, n: i64) -> Result<Missio
     Ok(mission)
 }
 
+/// The list and the counter of `kind`.
+fn list_of(mission: &mut Mission, kind: ListKind) -> (&mut Vec<Item>, &mut i64) {
+    match kind {
+        ListKind::Constraint => (&mut mission.constraints, &mut mission.next_constraint),
+        ListKind::OutOfScope => (&mut mission.out_of_scope, &mut mission.next_out_of_scope),
+    }
+}
+
+pub fn item_add(
+    missions: &[Mission],
+    id: &str,
+    kind: ListKind,
+    text: &str,
+) -> Result<Mission, String> {
+    let mut mission = find(missions, id)?.clone();
+    if text.trim().is_empty() {
+        return Err(format!(
+            "error: {} {} cannot be empty",
+            kind.article(),
+            kind.noun()
+        ));
+    }
+    if text.contains(['\n', '\r']) {
+        return Err(format!(
+            "error: {} {} is one line",
+            kind.article(),
+            kind.noun()
+        ));
+    }
+    let (items, next) = list_of(&mut mission, kind);
+    // A counter that is behind the rows, as in a file written by hand, never repeats a number.
+    let seq = (*next).max(items.iter().map(|i| i.seq + 1).max().unwrap_or(1));
+    items.push(Item {
+        seq,
+        text: text.to_string(),
+    });
+    *next = seq + 1;
+    Ok(mission)
+}
+
+pub fn item_remove(
+    missions: &[Mission],
+    id: &str,
+    kind: ListKind,
+    n: i64,
+) -> Result<Mission, String> {
+    let mut mission = find(missions, id)?.clone();
+    let (items, _) = list_of(&mut mission, kind);
+    if !items.iter().any(|i| i.seq == n) {
+        return Err(format!("error: {} has no {} {}", id, kind.noun(), n));
+    }
+    items.retain(|i| i.seq != n);
+    Ok(mission)
+}
+
+/// One `constraint list` or `out-of-scope list` line: n, text, tab-separated.
+pub fn item_line(item: &Item) -> String {
+    format!("{}\t{}", item.seq, item.text)
+}
+
 pub fn link(
     missions: &[Mission],
     id: &str,
@@ -568,6 +716,22 @@ pub struct JsonOutcome<'a> {
 }
 
 #[derive(Serialize)]
+pub struct JsonItem<'a> {
+    n: i64,
+    text: &'a str,
+}
+
+fn json_items(items: &[Item]) -> Vec<JsonItem<'_>> {
+    items
+        .iter()
+        .map(|i| JsonItem {
+            n: i.seq,
+            text: &i.text,
+        })
+        .collect()
+}
+
+#[derive(Serialize)]
 pub struct JsonBlocker<'a> {
     id: &'a str,
     blocking: bool,
@@ -589,8 +753,8 @@ pub struct JsonMission<'a> {
     blocked: bool,
     purpose: &'a str,
     decision_authority: &'a str,
-    constraints: &'a str,
-    out_of_scope: &'a str,
+    constraints: Vec<JsonItem<'a>>,
+    out_of_scope: Vec<JsonItem<'a>>,
     objective: Vec<JsonOutcome<'a>>,
     blocked_by: Vec<JsonBlocker<'a>>,
     documents: Vec<JsonDocument<'a>>,
@@ -612,8 +776,8 @@ pub fn to_json<'a>(missions: &[Mission], mission: &'a Mission) -> JsonMission<'a
         blocked: !blockers.is_empty(),
         purpose: &mission.purpose,
         decision_authority: &mission.decision_authority,
-        constraints: &mission.constraints,
-        out_of_scope: &mission.out_of_scope,
+        constraints: json_items(&mission.constraints),
+        out_of_scope: json_items(&mission.out_of_scope),
         objective: mission
             .objective
             .iter()
@@ -742,6 +906,113 @@ mod tests {
         assert!(objective_met(&all, "M-A", 3, true)
             .unwrap_err()
             .contains("no objective outcome 3"));
+    }
+
+    #[test]
+    fn a_text_value_becomes_one_item_per_non_empty_line() {
+        let items = lines_to_items("  first \n\n\tsecond\r\n   \nthird");
+        assert_eq!(
+            items,
+            vec![
+                Item {
+                    seq: 1,
+                    text: "first".into()
+                },
+                Item {
+                    seq: 2,
+                    text: "second".into()
+                },
+                Item {
+                    seq: 3,
+                    text: "third".into()
+                },
+            ]
+        );
+        assert!(lines_to_items("").is_empty());
+        assert!(lines_to_items(" \n\t\n").is_empty());
+    }
+
+    #[test]
+    fn a_record_with_strings_reads_as_lists_and_one_with_lists_reads_as_they_are() {
+        let old = r#"{"id":"M-A","name":"A","category":"operational","status":"todo","parent":null,
+            "purpose":"","decision_authority":"","constraints":"one\ntwo","out_of_scope":"",
+            "next_objective":1,"objective":[],"blocked_by":[],"documents":[]}"#;
+        let mission: Mission = serde_json::from_str(old).unwrap();
+        assert_eq!(mission.constraints.len(), 2);
+        assert_eq!(
+            mission.constraints[1],
+            Item {
+                seq: 2,
+                text: "two".into()
+            }
+        );
+        assert!(mission.out_of_scope.is_empty());
+        assert_eq!(mission.next_constraint, 1);
+        // The next number still follows the rows.
+        let all = [mission];
+        let added = item_add(&all, "M-A", ListKind::Constraint, "three").unwrap();
+        assert_eq!(added.constraints[2].seq, 3);
+        assert_eq!(added.next_constraint, 4);
+        // Written back, the list form reads as itself.
+        let text = serde_json::to_string(&added).unwrap();
+        assert!(
+            text.contains(r#""constraints":[{"seq":1,"text":"one"}"#),
+            "{}",
+            text
+        );
+        let again: Mission = serde_json::from_str(&text).unwrap();
+        assert_eq!(again, added);
+    }
+
+    #[test]
+    fn item_numbers_are_never_reused_and_a_missing_number_is_an_error() {
+        let mut all = Vec::new();
+        mk(&mut all, "M-A");
+        for text in ["one", "two", "three"] {
+            let m = item_add(&all, "M-A", ListKind::OutOfScope, text).unwrap();
+            put(&mut all, m);
+        }
+        let m = item_remove(&all, "M-A", ListKind::OutOfScope, 3).unwrap();
+        put(&mut all, m);
+        let m = item_add(&all, "M-A", ListKind::OutOfScope, "four").unwrap();
+        assert_eq!(m.out_of_scope.last().unwrap().seq, 4);
+        assert!(m.constraints.is_empty());
+        put(&mut all, m);
+        assert_eq!(
+            item_remove(&all, "M-A", ListKind::OutOfScope, 3).unwrap_err(),
+            "error: M-A has no out-of-scope item 3"
+        );
+        assert_eq!(
+            item_remove(&all, "M-A", ListKind::Constraint, 1).unwrap_err(),
+            "error: M-A has no constraint 1"
+        );
+        for bad in ["", "  ", "a\nb", "a\rb"] {
+            assert!(
+                item_add(&all, "M-A", ListKind::Constraint, bad).is_err(),
+                "{:?}",
+                bad
+            );
+        }
+    }
+
+    #[test]
+    fn the_list_fields_are_not_set() {
+        let mut all = Vec::new();
+        mk(&mut all, "M-A");
+        assert_eq!(
+            set(&all, "M-A", "constraints", "x").unwrap_err(),
+            "error: constraints are a list now; use tsk mission constraint add|remove|list"
+        );
+        assert_eq!(
+            set(&all, "M-A", "out-of-scope", "x").unwrap_err(),
+            "error: out-of-scope is a list now; use tsk mission out-of-scope add|remove|list"
+        );
+        let err = set(&all, "M-A", "bogus", "x").unwrap_err();
+        assert!(
+            err.contains("name, status, purpose, decision-authority"),
+            "{}",
+            err
+        );
     }
 
     #[test]

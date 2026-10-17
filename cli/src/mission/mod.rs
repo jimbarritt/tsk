@@ -10,7 +10,7 @@ use std::io::Read;
 use clap::Subcommand;
 
 use crate::ledger::store::{self, check_docs_path, LedgerStore};
-use model::{Category, Mission};
+use model::{Category, ListKind, Mission};
 
 #[derive(Subcommand)]
 pub enum MissionCommands {
@@ -28,7 +28,7 @@ pub enum MissionCommands {
         parent: Option<String>,
     },
     #[command(
-        about = "Set a field: name, status, purpose, constraints, out-of-scope or decision-authority; the value is read from stdin when it is -"
+        about = "Set a field: name, status, purpose or decision-authority; the value is read from stdin when it is -. Constraints and out-of-scope are lists: see the constraint and out-of-scope commands"
     )]
     Set {
         id: String,
@@ -48,6 +48,19 @@ pub enum MissionCommands {
     Objective {
         #[command(subcommand)]
         action: ObjectiveCommands,
+    },
+    #[command(about = "Add, remove and list the constraints of a mission, one line each")]
+    Constraint {
+        #[command(subcommand)]
+        action: ItemCommands,
+    },
+    #[command(
+        name = "out-of-scope",
+        about = "Add, remove and list what is out of scope for a mission, one line each"
+    )]
+    OutOfScope {
+        #[command(subcommand)]
+        action: ItemCommands,
     },
     #[command(about = "Link a document on the tsk/docs branch to a mission")]
     Link {
@@ -84,6 +97,20 @@ pub enum ObjectiveCommands {
     #[command(about = "Remove outcome n; its number is not reused")]
     Remove { id: String, n: i64 },
     #[command(about = "List the outcomes: n, met or open, outcome")]
+    List { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum ItemCommands {
+    #[command(about = "Add an item; prints its number")]
+    Add {
+        id: String,
+        #[arg(allow_hyphen_values = true, help = "One-line text")]
+        text: String,
+    },
+    #[command(about = "Remove item n; its number is not reused")]
+    Remove { id: String, n: i64 },
+    #[command(about = "List the items: n, text")]
     List { id: String },
 }
 
@@ -150,6 +177,8 @@ pub fn run_with(store: &dyn LedgerStore, action: MissionCommands) -> Result<(), 
             change(store, |missions| model::unblock(missions, &id, &by_id))?;
         }
         MissionCommands::Objective { action } => objective(store, action)?,
+        MissionCommands::Constraint { action } => items(store, ListKind::Constraint, action)?,
+        MissionCommands::OutOfScope { action } => items(store, ListKind::OutOfScope, action)?,
         MissionCommands::Link { id, path, role } => {
             // The stored path is the normalised one; a path that cannot be a document
             // on the branch does not exist.
@@ -197,6 +226,36 @@ fn objective(store: &dyn LedgerStore, action: ObjectiveCommands) -> Result<(), S
                 .ok_or_else(|| format!("error: no such mission: {}", id))?;
             for outcome in &mission.objective {
                 println!("{}", model::objective_line(outcome));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn items(store: &dyn LedgerStore, kind: ListKind, action: ItemCommands) -> Result<(), String> {
+    match action {
+        ItemCommands::Add { id, text } => {
+            let saved = change(store, |missions| {
+                model::item_add(missions, &id, kind, &text)
+            })?;
+            let next = match kind {
+                ListKind::Constraint => saved.next_constraint,
+                ListKind::OutOfScope => saved.next_out_of_scope,
+            };
+            println!("{}", next - 1);
+        }
+        ItemCommands::Remove { id, n } => {
+            change(store, |missions| model::item_remove(missions, &id, kind, n))?;
+        }
+        ItemCommands::List { id } => {
+            let missions = store.missions_load()?;
+            let mission = model::find(&missions, &id)?;
+            let shown = match kind {
+                ListKind::Constraint => &mission.constraints,
+                ListKind::OutOfScope => &mission.out_of_scope,
+            };
+            for item in shown {
+                println!("{}", model::item_line(item));
             }
         }
     }

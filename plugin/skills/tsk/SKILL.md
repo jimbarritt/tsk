@@ -175,7 +175,9 @@ only. `tsk ledger push` publishes.
 
 ```
 tsk mission create <id> <name> [--category operational|administrative] [--parent <id>]
-tsk mission set <id> <field> <value>          # name, status, purpose, constraints, out-of-scope, decision-authority; `-` reads stdin
+tsk mission set <id> <field> <value>          # name, status, purpose, decision-authority; `-` reads stdin
+tsk mission constraint add <id> "<text>"      # prints n; also remove <id> <n> and list <id>
+tsk mission out-of-scope add <id> "<text>"    # prints n; also remove <id> <n> and list <id>
 tsk mission block <id> <by-id>                # and unblock
 tsk mission objective add <id> <outcome>      # prints n; also done, undone, remove, list
 tsk mission link <id> <path> --role <intelligence|report|design>   # and unlink
@@ -187,6 +189,13 @@ Blocked is derived: a mission is blocked while any mission it names in `block` i
 `done`. `list` prints `id`, `status`, `blocked-by`, `parent` and `name`, tab-separated.
 `list <id> --json` prints the full record. A linked path must be a document on `tsk/docs`,
 written with `tsk ledger doc put`.
+
+Constraints and out of scope are lists of one-line items, numbered per mission as objective
+outcomes are, and a number is never reused. Add one item per command, and do not write a
+paragraph: `tsk mission constraint add M-X "No new crates"`. `constraint list` and
+`out-of-scope list` print the number and the text, tab-separated. `mission set constraints`
+and `mission set out-of-scope` are refused. In `list <id> --json` both are arrays of
+`{"n": 1, "text": "..."}`.
 
 ### Tasks, decisions and questions
 

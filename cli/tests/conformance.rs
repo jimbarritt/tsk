@@ -918,8 +918,6 @@ mod cases {
         let multi = "Line one \"quoted\" 'single' \\ back\n\ttabbed; drop table missions; --\n\u{e9} \u{65e5}\u{672c} \u{1f600}\r\nlast, no newline";
         for (field, key) in [
             ("purpose", "purpose"),
-            ("constraints", "constraints"),
-            ("out-of-scope", "out_of_scope"),
             ("decision-authority", "decision_authority"),
         ] {
             let set = fx.tsk_stdin(&a, &["mission", "set", "M-F", field, "-"], multi);
@@ -930,19 +928,21 @@ mod cases {
             &a,
             &["mission", "set", "M-F", "purpose", "from the argument"],
         );
-        fx.ok(&a, &["mission", "set", "M-F", "constraints", "-dash start"]);
+        fx.ok(&a, &["mission", "constraint", "add", "M-F", "-dash start"]);
         assert_success(&fx.tsk_stdin(
             &a,
             &["mission", "set", "M-F", "status", "-"],
             "in-progress\n",
         ));
-        fx.ok(&a, &["mission", "set", "M-F", "out-of-scope", ""]);
 
         let record = mission_json(&fx, &a, "M-F");
         assert_eq!(record["name"], name);
         assert_eq!(record["purpose"], "from the argument");
-        assert_eq!(record["constraints"], "-dash start");
-        assert_eq!(record["out_of_scope"], "");
+        assert_eq!(
+            record["constraints"],
+            serde_json::json!([{"n": 1, "text": "-dash start"}])
+        );
+        assert_eq!(record["out_of_scope"], serde_json::json!([]));
         assert_eq!(record["decision_authority"], multi);
         assert_eq!(record["status"], "in-progress");
 
@@ -950,7 +950,7 @@ mod cases {
             &fx,
             &a,
             &["mission", "set", "M-F", "colour", "red"],
-            "name, status, purpose, constraints, out-of-scope, decision-authority",
+            "name, status, purpose, decision-authority",
         );
         fails(
             &fx,
@@ -1377,13 +1377,16 @@ mod cases {
         fx.ok(&a, &["ledger", "push", "A sets the purpose"]);
         fx.ok(
             &other,
-            &["mission", "set", "M-BASE", "constraints", "from b"],
+            &["mission", "constraint", "add", "M-BASE", "from b"],
         );
-        assert_success(&fx.tsk(&other, &["ledger", "push", "B sets the constraints"]));
+        assert_success(&fx.tsk(&other, &["ledger", "push", "B adds a constraint"]));
         fx.ok(&a, &["ledger", "fetch"]);
         let merged = mission_json(&fx, &a, "M-BASE");
         assert_eq!(merged["purpose"], "from a");
-        assert_eq!(merged["constraints"], "from b");
+        assert_eq!(
+            merged["constraints"],
+            serde_json::json!([{"n": 1, "text": "from b"}])
+        );
 
         // The same field of the same mission: stop, name it, leave the remote alone.
         fx.ok(&other, &["ledger", "fetch"]);
@@ -1414,6 +1417,18 @@ mod cases {
         fx.ok(&a, &["mission", "create", "M-Q", "Blocker"]);
         fx.ok(&a, &["mission", "create", "M-J", "Json", "--parent", "M-P"]);
         fx.ok(&a, &["mission", "set", "M-J", "purpose", "Why"]);
+        fx.ok(
+            &a,
+            &["mission", "constraint", "add", "M-J", "No new crates"],
+        );
+        fx.ok(
+            &a,
+            &["mission", "constraint", "add", "M-J", "Both backends"],
+        );
+        fx.ok(
+            &a,
+            &["mission", "out-of-scope", "add", "M-J", "Projections"],
+        );
         fx.ok(&a, &["mission", "objective", "add", "M-J", "One"]);
         fx.ok(&a, &["mission", "objective", "add", "M-J", "Two"]);
         fx.ok(&a, &["mission", "objective", "done", "M-J", "1"]);
@@ -1437,8 +1452,11 @@ mod cases {
                 "blocked": true,
                 "purpose": "Why",
                 "decision_authority": "",
-                "constraints": "",
-                "out_of_scope": "",
+                "constraints": [
+                    {"n": 1, "text": "No new crates"},
+                    {"n": 2, "text": "Both backends"}
+                ],
+                "out_of_scope": [{"n": 1, "text": "Projections"}],
                 "objective": [
                     {"n": 1, "outcome": "One", "met": true},
                     {"n": 2, "outcome": "Two", "met": false}
@@ -3586,6 +3604,161 @@ mod cases {
         fx.ok(&other, &["ledger", "fetch"]);
         assert_eq!(fx.ok(&other, &["decision", "list", "--adr", adr]), before);
     }
+
+    pub fn constraints_and_out_of_scope_are_numbered_lists_whose_numbers_are_not_reused(
+        b: Backend,
+    ) {
+        let fx = Fixture::new(b);
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-L", "Lists"]);
+        fx.ok(&a, &["mission", "create", "M-U", "Untouched"]);
+        for (command, key, noun) in [
+            ("constraint", "constraints", "constraint"),
+            ("out-of-scope", "out_of_scope", "out-of-scope item"),
+        ] {
+            let list = |dir: &Path, id: &str| fx.ok(dir, &["mission", command, "list", id]);
+            assert_eq!(list(&a, "M-L"), "", "{}", command);
+            assert_eq!(mission_json(&fx, &a, "M-L")[key], serde_json::json!([]));
+            for (text, number) in [("one", "1"), ("two", "2"), ("three", "3")] {
+                assert_eq!(
+                    fx.ok(&a, &["mission", command, "add", "M-L", text]),
+                    format!("{}\n", number),
+                    "{}",
+                    command
+                );
+            }
+            assert_eq!(list(&a, "M-L"), "1\tone\n2\ttwo\n3\tthree\n");
+            assert_eq!(
+                mission_json(&fx, &a, "M-L")[key],
+                serde_json::json!([
+                    {"n": 1, "text": "one"},
+                    {"n": 2, "text": "two"},
+                    {"n": 3, "text": "three"}
+                ])
+            );
+
+            // A removed number stays gone, the highest one included.
+            assert_eq!(fx.ok(&a, &["mission", command, "remove", "M-L", "2"]), "");
+            assert_eq!(list(&a, "M-L"), "1\tone\n3\tthree\n");
+            assert_eq!(
+                fx.ok(&a, &["mission", command, "add", "M-L", "four"]),
+                "4\n"
+            );
+            fx.ok(&a, &["mission", command, "remove", "M-L", "4"]);
+            assert_eq!(
+                fx.ok(&a, &["mission", command, "add", "M-L", "-dash five"]),
+                "5\n"
+            );
+            assert_eq!(list(&a, "M-L"), "1\tone\n3\tthree\n5\t-dash five\n");
+
+            fails(
+                &fx,
+                &a,
+                &["mission", command, "remove", "M-L", "2"],
+                &format!("M-L has no {} 2", noun),
+            );
+            fails(
+                &fx,
+                &a,
+                &["mission", command, "remove", "M-L", "9"],
+                &format!("M-L has no {} 9", noun),
+            );
+            fails(
+                &fx,
+                &a,
+                &["mission", command, "remove", "M-U", "1"],
+                "M-U has no",
+            );
+            for args in [
+                vec!["mission", command, "add", "M-NONE", "x"],
+                vec!["mission", command, "remove", "M-NONE", "1"],
+                vec!["mission", command, "list", "M-NONE"],
+            ] {
+                fails(&fx, &a, &args, "no such mission: M-NONE");
+            }
+            fails(
+                &fx,
+                &a,
+                &["mission", command, "add", "M-L", ""],
+                "cannot be empty",
+            );
+            fails(
+                &fx,
+                &a,
+                &["mission", command, "add", "M-L", "  "],
+                "cannot be empty",
+            );
+            fails(
+                &fx,
+                &a,
+                &["mission", command, "add", "M-L", "two\nlines"],
+                "is one line",
+            );
+            assert_eq!(list(&a, "M-L"), "1\tone\n3\tthree\n5\t-dash five\n");
+            // Another mission has lists of its own.
+            assert_eq!(list(&a, "M-U"), "");
+            assert_eq!(
+                fx.ok(&a, &["mission", command, "add", "M-U", "mine"]),
+                "1\n"
+            );
+        }
+
+        // The two lists count apart, and the lists travel with the push.
+        let record = mission_json(&fx, &a, "M-L");
+        assert_eq!(record["constraints"], record["out_of_scope"]);
+        fx.ok(&a, &["ledger", "push", "Lists"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(mission_json(&fx, &other, "M-L"), record);
+        assert_eq!(
+            fx.ok(&other, &["mission", "constraint", "add", "M-L", "from b"]),
+            "6\n"
+        );
+        assert_eq!(
+            fx.ok(&other, &["mission", "out-of-scope", "add", "M-L", "from b"]),
+            "6\n"
+        );
+    }
+
+    pub fn mission_set_refuses_the_list_fields_and_keeps_the_text_fields(b: Backend) {
+        let fx = Fixture::new(b);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-S", "Set"]);
+        fx.ok(&a, &["mission", "constraint", "add", "M-S", "keep"]);
+        let before = mission_json(&fx, &a, "M-S");
+        for (field, message) in [
+            (
+                "constraints",
+                "constraints are a list now; use tsk mission constraint add|remove|list",
+            ),
+            (
+                "out-of-scope",
+                "out-of-scope is a list now; use tsk mission out-of-scope add|remove|list",
+            ),
+        ] {
+            let out = fx.tsk(&a, &["mission", "set", "M-S", field, "text"]);
+            assert_exit(&out, 1);
+            assert_eq!(stderr(&out), format!("error: {}\n", message));
+            assert_eq!(stdout(&out), "");
+            // The value on stdin is refused the same way.
+            let out = fx.tsk_stdin(&a, &["mission", "set", "M-S", field, "-"], "a\nb\n");
+            assert_exit(&out, 1);
+            assert_eq!(stderr(&out), format!("error: {}\n", message));
+        }
+        assert_eq!(mission_json(&fx, &a, "M-S"), before);
+        for field in ["name", "status", "purpose", "decision-authority"] {
+            let value = if field == "status" {
+                "in-progress"
+            } else {
+                "v"
+            };
+            fx.ok(&a, &["mission", "set", "M-S", field, value]);
+        }
+        let after = mission_json(&fx, &a, "M-S");
+        assert_eq!(after["constraints"], before["constraints"]);
+        assert_eq!(after["purpose"], "v");
+    }
 }
 
 macro_rules! conformance {
@@ -3654,6 +3827,8 @@ conformance!(
     a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
     an_open_question_is_edited_and_an_answered_one_is_not,
     decisions_name_an_adr_and_are_found_from_the_adr,
+    constraints_and_out_of_scope_are_numbered_lists_whose_numbers_are_not_reused,
+    mission_set_refuses_the_list_fields_and_keeps_the_text_fields,
 );
 
 conformance!(
@@ -3703,6 +3878,8 @@ conformance!(
     a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
     an_open_question_is_edited_and_an_answered_one_is_not,
     decisions_name_an_adr_and_are_found_from_the_adr,
+    constraints_and_out_of_scope_are_numbered_lists_whose_numbers_are_not_reused,
+    mission_set_refuses_the_list_fields_and_keeps_the_text_fields,
 );
 
 // --- Backend selection and mismatch ---
@@ -4253,11 +4430,13 @@ fn thread_commands_work_on_a_version_two_ledger() {
     );
 }
 
-// --- Mission and task tables and the version 6 ledger (Dolt backend) ---
+// --- Mission and task tables and the version 7 ledger (Dolt backend) ---
 
 const TASK_TABLES: [&str; 4] = ["questions", "decisions", "task_blocks", "tasks"];
 
-const MISSION_TABLES: [&str; 8] = [
+const MISSION_TABLES: [&str; 10] = [
+    "mission_out_of_scope",
+    "mission_constraints",
     "questions",
     "decisions",
     "task_blocks",
@@ -4266,6 +4445,17 @@ const MISSION_TABLES: [&str; 8] = [
     "mission_blocks",
     "objective_outcomes",
     "missions",
+];
+
+/// What a ledger below version 7 has for the constraints and out of scope of a mission: two
+/// text columns on `missions`, and no list tables or counters.
+const OLD_LISTS: [&str; 6] = [
+    "drop table mission_constraints",
+    "drop table mission_out_of_scope",
+    "alter table missions drop column next_constraint",
+    "alter table missions drop column next_out_of_scope",
+    "alter table missions add column constraints_text longtext null",
+    "alter table missions add column out_of_scope longtext null",
 ];
 
 /// What a ledger below version 5 has for `threads`: no `mission_id`, and a briefing path
@@ -4325,6 +4515,7 @@ impl Fixture {
             .collect();
         sql.push("alter table missions drop column next_task".to_string());
         sql.push("alter table missions drop column next_question".to_string());
+        sql.extend(OLD_LISTS.iter().map(|s| s.to_string()));
         sql.extend(OLD_THREADS.iter().map(|s| s.to_string()));
         sql.push("replace into manifest (k, v) values ('version', '3')".to_string());
         fx.dolt_sql(&a, &sql.join("; "));
@@ -4365,12 +4556,12 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
     );
 
     // The first write creates the tables, adds the counters, adds the thread column and
-    // records version 6.
+    // records version 7.
     assert_eq!(
         fx.ok(&other, &["task", "add", "M-OLD", "First on version 3"]),
         "T-01\n"
     );
-    assert_eq!(fx.manifest_version(&other), "6");
+    assert_eq!(fx.manifest_version(&other), "7");
     let tables = fx.tables(&other);
     for table in TASK_TABLES {
         assert!(tables.lines().any(|t| t == table), "{}: {}", table, tables);
@@ -4413,7 +4604,7 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
     assert_eq!(fx.manifest_version(&a), "3");
     fx.ok(&other, &["ledger", "push", "First task"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "6");
+    assert_eq!(fx.manifest_version(&a), "7");
     assert_eq!(
         fx.ok(&a, &["task", "list", "M-OLD"]),
         "T-01\ttodo\t-\tFirst on version 3\nT-02\ttodo\tT-01\tSecond\n"
@@ -4433,12 +4624,12 @@ fn a_version_three_ledger_upgrades_at_a_mission_write_too() {
     fx.ok(&other, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&other), "3");
     fx.ok(&other, &["mission", "create", "M-NEW", "New"]);
-    assert_eq!(fx.manifest_version(&other), "6");
+    assert_eq!(fx.manifest_version(&other), "7");
     assert_eq!(fx.ok(&other, &["task", "add", "M-OLD", "x"]), "T-01\n");
 }
 
 #[test]
-fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_six() {
+fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_seven() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
@@ -4446,7 +4637,7 @@ fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_six() {
     let fx = Fixture::new(Backend::Dolt);
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "6");
+    assert_eq!(fx.manifest_version(&a), "7");
     let tables = fx.tables(&a);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -4511,10 +4702,10 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
         fx.ok(&other, &["ledger", "doc", "get", "base.md"]),
         "base\n"
     );
-    // The first mission write creates the tables, the column and records version 6 in one
+    // The first mission write creates the tables, the column and records version 7 in one
     // change.
     fx.ok(&other, &["mission", "create", "M-X", "First on version 2"]);
-    assert_eq!(fx.manifest_version(&other), "6");
+    assert_eq!(fx.manifest_version(&other), "7");
     let tables = fx.tables(&other);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -4534,13 +4725,13 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
     assert_eq!(fx.manifest_version(&a), "2");
     fx.ok(&other, &["ledger", "push", "First mission"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "6");
+    assert_eq!(fx.manifest_version(&a), "7");
     assert_eq!(
         fx.ok(&a, &["mission", "list"]),
         "M-X\ttodo\t-\t-\tFirst on version 2\n"
     );
     fx.ok(&a, &["mission", "create", "M-Y", "Second"]);
-    assert_eq!(fx.manifest_version(&a), "6");
+    assert_eq!(fx.manifest_version(&a), "7");
 }
 
 #[test]
@@ -4570,14 +4761,14 @@ fn a_version_two_ledger_upgrades_at_the_first_thread_write_and_not_before() {
         "c\n0\n"
     );
 
-    // The first thread write creates the tables and the column and records version 6.
+    // The first thread write creates the tables and the column and records version 7.
     let started = fx.ok(&other, &["thread", "start", "M-CONF-01"]);
     let id = started
         .trim_end()
         .strip_prefix("started:")
         .unwrap()
         .to_string();
-    assert_eq!(fx.manifest_version(&other), "6");
+    assert_eq!(fx.manifest_version(&other), "7");
     let tables = fx.tables(&other);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -4595,7 +4786,7 @@ fn a_version_two_ledger_upgrades_at_the_first_thread_write_and_not_before() {
     // The start pushed itself.
     assert_eq!(fx.manifest_version(&a), "2");
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "6");
+    assert_eq!(fx.manifest_version(&a), "7");
     assert_eq!(fx.ok(&a, &["mission", "list"]), "");
 }
 
@@ -4611,11 +4802,12 @@ impl Fixture {
         fx.dolt_sql(
             &a,
             &format!(
-                "alter table threads drop column mission_id; \
+                "{}; alter table threads drop column mission_id; \
                  alter table threads modify column briefing_path varchar(1024) not null; \
                  alter table decisions drop column adr_path; \
                  replace into manifest (k, v) values ('version', '4'); \
                  insert into threads (thread_id, briefing_path) values ('aaaa1111', '{}')",
+                OLD_LISTS.join("; "),
                 BRIEFING
             ),
         );
@@ -4666,9 +4858,9 @@ fn a_version_four_ledger_reads_threads_and_upgrades_at_the_first_thread_start() 
     );
     fx.ok(&other, &["thread", "detach"]);
 
-    // The first thread start alters the table and records version 6, in its own push.
+    // The first thread start alters the table and records version 7, in its own push.
     let id = fx.started(&other, &["thread", "start", "M-CONF-01"]);
-    assert_eq!(fx.manifest_version(&other), "6");
+    assert_eq!(fx.manifest_version(&other), "7");
     assert_eq!(
         fx.dolt_sql(
             &other,
@@ -4684,7 +4876,7 @@ fn a_version_four_ledger_reads_threads_and_upgrades_at_the_first_thread_start() 
     // The other clone takes the upgrade with its next fetch.
     assert_eq!(fx.manifest_version(&a), "4");
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "6");
+    assert_eq!(fx.manifest_version(&a), "7");
     assert_eq!(fx.thread_row(&a, &id)["mission_id"], "M-CONF-01");
     assert_eq!(fx.thread_row(&a, "aaaa1111")["mission_id"], "M-CONF-01");
 }
@@ -4694,7 +4886,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
     // What the previous release does with a Dolt ledger the new release has written:
     // the manifest check is the first thing every command runs. The supported list is
     // faked in a unit test (ledger::manifest); here a version no release knows yet
-    // stands in, because this binary supports 1, 2, 3, 4, 5 and 6.
+    // stands in, because this binary supports 1, 2, 3, 4, 5, 6 and 7.
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
@@ -4702,7 +4894,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
     let fx = Fixture::new(Backend::Dolt);
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '7')");
+    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '8')");
     for args in [
         vec!["mission", "list"],
         vec!["mission", "create", "M-X", "x"],
@@ -4712,8 +4904,8 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
         assert_exit(&out, 1);
         let message = stderr(&out);
         assert!(
-            message.contains("unsupported ledger version 7")
-                && message.contains("supports version 1, 2, 3, 4, 5, 6")
+            message.contains("unsupported ledger version 8")
+                && message.contains("supports version 1, 2, 3, 4, 5, 6, 7")
                 && message.contains("Update tsk"),
             "{:?}: {}",
             args,
@@ -4781,11 +4973,11 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
         &other,
         &["mission", "create", "M-NEW", "First on version 2"],
     );
-    assert_eq!(fx.manifest_version(&other), "6");
+    assert_eq!(fx.manifest_version(&other), "7");
     assert_eq!(
         fx.ok(&other, &["ledger", "status", "--porcelain"]),
         "data\tlocal changes\n\
-         data\tupgrade\tschema upgraded to version 6\n\
+         data\tupgrade\tschema upgraded to version 7\n\
          data\tmissions\tadded 1\tmodified 0\tdeleted 0\n\
          docs\tclean\n\
          data\tremote\tup to date\n\
@@ -4794,7 +4986,7 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
     assert_eq!(
         fx.ok(&other, &["ledger", "status"]),
         "Local   2 changes not pushed\n\
-         \x20         data  upgrade   schema upgraded to version 6 (origin has 2)\n\
+         \x20         data  upgrade   schema upgraded to version 7 (origin has 2)\n\
          \x20         data  missions  1 added\n\
          Origin  up to date\n"
     );
@@ -4809,7 +5001,7 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
     // Clone A takes the upgrade with its fetch. Its next write is an ordinary change:
     // origin has the same version, so there is no label.
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "6");
+    assert_eq!(fx.manifest_version(&a), "7");
     fx.ok(&a, &["mission", "create", "M-LATER", "After the upgrade"]);
     assert_eq!(
         fx.ok(&a, &["ledger", "status", "--porcelain"]),
@@ -4839,11 +5031,11 @@ fn dolt_status_keeps_the_rows_a_person_changed_in_an_upgrade_write() {
     let other = fx.b();
     fx.ok(&other, &["ledger", "fetch"]);
     fx.ok(&other, &["mission", "set", "M-OLD", "purpose", "Changed"]);
-    assert_eq!(fx.manifest_version(&other), "6");
+    assert_eq!(fx.manifest_version(&other), "7");
     assert_eq!(
         fx.ok(&other, &["ledger", "status", "--porcelain"]),
         "data\tlocal changes\n\
-         data\tupgrade\tschema upgraded to version 6\n\
+         data\tupgrade\tschema upgraded to version 7\n\
          data\tmissions\tadded 0\tmodified 1\tdeleted 0\n\
          docs\tclean\n\
          data\tremote\tup to date\n\
@@ -4877,8 +5069,11 @@ impl Fixture {
         );
         fx.dolt_sql(
             &a,
-            "alter table decisions drop column adr_path; \
-             replace into manifest (k, v) values ('version', '5')",
+            &format!(
+                "{}; alter table decisions drop column adr_path; \
+                 replace into manifest (k, v) values ('version', '5')",
+                OLD_LISTS.join("; ")
+            ),
         );
         fx.ok(&a, &["ledger", "push", "A version 5 ledger"]);
         fx
@@ -4952,7 +5147,7 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
             "docs/adr/0001-first.md",
         ],
     );
-    assert_eq!(fx.manifest_version(&other), "6");
+    assert_eq!(fx.manifest_version(&other), "7");
     assert_eq!(
         fx.dolt_sql(
             &other,
@@ -4974,7 +5169,7 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
     assert_eq!(
         fx.ok(&other, &["ledger", "status", "--porcelain"]),
         "data\tlocal changes\n\
-         data\tupgrade\tschema upgraded to version 6\n\
+         data\tupgrade\tschema upgraded to version 7\n\
          data\tdecisions\tadded 1\tmodified 0\tdeleted 0\n\
          docs\tclean\n\
          data\tremote\tup to date\n\
@@ -4985,7 +5180,7 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
     assert_eq!(fx.manifest_version(&a), "5");
     fx.ok(&other, &["ledger", "push", "First ADR link"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "6");
+    assert_eq!(fx.manifest_version(&a), "7");
     assert_eq!(
         fx.ok(&a, &["decision", "list", "--adr", "docs/adr/0001-first.md"]),
         "M-OLD\t2026-01-03\tJim\t-\tNew call\tdocs/adr/0001-first.md\n"
@@ -5005,9 +5200,300 @@ fn a_decision_without_an_adr_upgrades_a_version_five_ledger_too() {
         &other,
         &["decision", "add", "M-OLD", "Plain", "--by", "Jim"],
     );
-    assert_eq!(fx.manifest_version(&other), "6");
+    assert_eq!(fx.manifest_version(&other), "7");
     assert!(fx
         .ok(&other, &["decision", "list", "M-OLD"])
         .lines()
         .all(|l| l.ends_with("\t-")));
+}
+
+impl Fixture {
+    /// A published Dolt ledger at version 6, as the previous release left it: the
+    /// constraints and out of scope of a mission are two text columns of `missions`.
+    /// M-OLD holds lines with blanks, padding and a Windows line break, M-BLANK holds
+    /// only white space, and M-NULL holds nothing.
+    fn version_six_ledger() -> Fixture {
+        let fx = Fixture::new(Backend::Dolt);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        for (id, name) in [
+            ("M-OLD", "Made on six"),
+            ("M-BLANK", "Blank text"),
+            ("M-NULL", "No text"),
+        ] {
+            fx.ok(&a, &["mission", "create", id, name]);
+        }
+        fx.ok(&a, &["mission", "set", "M-OLD", "purpose", "Keep me"]);
+        fx.ok(&a, &["mission", "objective", "add", "M-OLD", "An outcome"]);
+        fx.dolt_sql(
+            &a,
+            &format!(
+                "{}; \
+                 update missions set \
+                   constraints_text = concat('  first', char(10), char(10), ' second  ', char(10), \
+                     char(9), char(10), 'third', char(13), char(10)), \
+                   out_of_scope = 'only one' where id = 'M-OLD'; \
+                 update missions set constraints_text = concat(' ', char(10), ' '), \
+                   out_of_scope = '' where id = 'M-BLANK'; \
+                 replace into manifest (k, v) values ('version', '6')",
+                OLD_LISTS.join("; ")
+            ),
+        );
+        fx.ok(&a, &["ledger", "push", "A version 6 ledger"]);
+        fx
+    }
+}
+
+#[test]
+fn a_version_six_ledger_reads_its_text_as_lists_and_the_first_write_moves_it() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::version_six_ledger();
+    let (a, other) = (fx.a(), fx.b());
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&other), "6");
+
+    // Reads split the text by the line rule and write nothing.
+    assert_eq!(
+        fx.ok(&other, &["mission", "constraint", "list", "M-OLD"]),
+        "1\tfirst\n2\tsecond\n3\tthird\n"
+    );
+    assert_eq!(
+        fx.ok(&other, &["mission", "out-of-scope", "list", "M-OLD"]),
+        "1\tonly one\n"
+    );
+    for id in ["M-BLANK", "M-NULL"] {
+        assert_eq!(fx.ok(&other, &["mission", "constraint", "list", id]), "");
+        assert_eq!(fx.ok(&other, &["mission", "out-of-scope", "list", id]), "");
+    }
+    let record = mission_json_of(&fx, &other, "M-OLD");
+    assert_eq!(
+        record["constraints"],
+        serde_json::json!([
+            {"n": 1, "text": "first"},
+            {"n": 2, "text": "second"},
+            {"n": 3, "text": "third"}
+        ])
+    );
+    assert_eq!(
+        record["out_of_scope"],
+        serde_json::json!([{"n": 1, "text": "only one"}])
+    );
+    // A refused write upgrades nothing.
+    assert_exit(
+        &fx.tsk(&other, &["mission", "constraint", "add", "M-NONE", "x"]),
+        1,
+    );
+    assert_exit(
+        &fx.tsk(&other, &["mission", "constraint", "remove", "M-OLD", "9"]),
+        1,
+    );
+    assert_eq!(fx.manifest_version(&other), "6");
+    assert_eq!(
+        fx.dolt_sql(&other, "select count(*) as c from dolt_status"),
+        "c\n0\n"
+    );
+    assert!(fx
+        .dolt_sql(&other, "show create table missions")
+        .contains("constraints_text"));
+
+    // The first write moves the text into the tables, drops the columns and records the
+    // version, in one local change with the item it added.
+    assert_eq!(
+        fx.ok(&other, &["mission", "constraint", "add", "M-OLD", "fourth"]),
+        "4\n"
+    );
+    assert_eq!(fx.manifest_version(&other), "7");
+    let tables = fx.tables(&other);
+    assert!(
+        tables.lines().any(|t| t == "mission_constraints"),
+        "{}",
+        tables
+    );
+    assert!(
+        tables.lines().any(|t| t == "mission_out_of_scope"),
+        "{}",
+        tables
+    );
+    assert_eq!(
+        fx.dolt_sql(
+            &other,
+            "select column_name from information_schema.columns where table_name = 'missions' \
+             order by ordinal_position"
+        ),
+        "COLUMN_NAME\nid\nname\ncategory\nstatus\nparent\npurpose\ndecision_authority\n\
+         next_objective\nnext_task\nnext_question\nnext_constraint\nnext_out_of_scope\n"
+    );
+    assert_eq!(
+        fx.dolt_sql(
+            &other,
+            "select mission_id, seq, text from mission_constraints order by mission_id, seq"
+        ),
+        "mission_id,seq,text\nM-OLD,1,first\nM-OLD,2,second\nM-OLD,3,third\nM-OLD,4,fourth\n"
+    );
+    assert_eq!(
+        fx.dolt_sql(
+            &other,
+            "select mission_id, seq, text from mission_out_of_scope"
+        ),
+        "mission_id,seq,text\nM-OLD,1,only one\n"
+    );
+    // The counters follow the last item; a mission with no text keeps 1.
+    assert_eq!(
+        fx.dolt_sql(
+            &other,
+            "select id, next_constraint, next_out_of_scope from missions order by id"
+        ),
+        "id,next_constraint,next_out_of_scope\nM-BLANK,1,1\nM-NULL,1,1\nM-OLD,5,2\n"
+    );
+    // The rest of the mission is intact.
+    let after = mission_json_of(&fx, &other, "M-OLD");
+    assert_eq!(after["purpose"], "Keep me");
+    assert_eq!(
+        after["objective"],
+        serde_json::json!([{"n": 1, "outcome": "An outcome", "met": false}])
+    );
+    assert_eq!(
+        after["constraints"][3],
+        serde_json::json!({"n": 4, "text": "fourth"})
+    );
+    // Numbers keep growing, and the other lists work.
+    assert_eq!(
+        fx.ok(
+            &other,
+            &["mission", "out-of-scope", "add", "M-OLD", "second out"]
+        ),
+        "2\n"
+    );
+    assert_eq!(
+        fx.ok(
+            &other,
+            &["mission", "constraint", "add", "M-NULL", "first for null"]
+        ),
+        "1\n"
+    );
+    // The status shows the upgrade and the rows that exist because of it and the
+    // writes, not the columns that went.
+    let status = fx.ok(&other, &["ledger", "status", "--porcelain"]);
+    assert!(
+        status.contains("data\tupgrade\tschema upgraded to version 7\n"),
+        "{}",
+        status
+    );
+    assert!(!status.contains("manifest"), "{}", status);
+    assert!(!status.contains("data\tmissions"), "{}", status);
+
+    // The other clone is still at version 6 until the push.
+    assert_eq!(fx.manifest_version(&a), "6");
+    fx.ok(&other, &["ledger", "push", "Move the lists"]);
+    fx.ok(&a, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&a), "7");
+    assert_eq!(
+        fx.ok(&a, &["mission", "constraint", "list", "M-OLD"]),
+        "1\tfirst\n2\tsecond\n3\tthird\n4\tfourth\n"
+    );
+    assert_eq!(
+        fx.ok(&a, &["mission", "out-of-scope", "list", "M-OLD"]),
+        "1\tonly one\n2\tsecond out\n"
+    );
+}
+
+fn mission_json_of(fx: &Fixture, dir: &Path, id: &str) -> serde_json::Value {
+    json(&fx.ok(dir, &["mission", "list", id, "--json"]))
+}
+
+#[test]
+fn a_thread_write_moves_the_lists_of_a_version_six_ledger_too() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::version_six_ledger();
+    let other = fx.b();
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&other), "6");
+    fx.started(&other, &["thread", "start", "M-OLD"]);
+    assert_eq!(fx.manifest_version(&other), "7");
+    assert_eq!(
+        fx.ok(&other, &["mission", "constraint", "list", "M-OLD"]),
+        "1\tfirst\n2\tsecond\n3\tthird\n"
+    );
+    assert_eq!(
+        fx.dolt_sql(
+            &other,
+            "select next_constraint, next_out_of_scope from missions where id = 'M-OLD'"
+        ),
+        "next_constraint,next_out_of_scope\n4,2\n"
+    );
+}
+
+#[test]
+fn the_file_ledger_reads_a_record_that_holds_its_lists_as_strings() {
+    let fx = Fixture::new(Backend::Git);
+    let (a, other) = (fx.a(), fx.b());
+    fx.ok(&a, &["ledger", "fetch"]);
+    fx.ok(&a, &["mission", "create", "M-OLD", "Old record"]);
+    // The record as the previous release wrote it: both lists are strings, and the
+    // counters do not exist.
+    let file = fx.ledger_path(&a).join("records/missions/M-OLD.json");
+    let mut record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    record["constraints"] = serde_json::json!("  first\n\nsecond  \r\n");
+    record["out_of_scope"] = serde_json::json!("only one");
+    let map = record.as_object_mut().unwrap();
+    map.remove("next_constraint");
+    map.remove("next_out_of_scope");
+    write(&file, &serde_json::to_string_pretty(&record).unwrap());
+
+    assert_eq!(
+        fx.ok(&a, &["mission", "constraint", "list", "M-OLD"]),
+        "1\tfirst\n2\tsecond\n"
+    );
+    assert_eq!(
+        fx.ok(&a, &["mission", "out-of-scope", "list", "M-OLD"]),
+        "1\tonly one\n"
+    );
+    let shown = mission_json_of(&fx, &a, "M-OLD");
+    assert_eq!(
+        shown["constraints"],
+        serde_json::json!([{"n": 1, "text": "first"}, {"n": 2, "text": "second"}])
+    );
+    // Nothing was written by the reads: the file still holds the strings.
+    let unchanged: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(unchanged["constraints"], "  first\n\nsecond  \r\n");
+
+    // A write converts the record to the list form, numbering on from the last item.
+    assert_eq!(
+        fx.ok(&a, &["mission", "constraint", "add", "M-OLD", "third"]),
+        "3\n"
+    );
+    let written: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(
+        written["constraints"],
+        serde_json::json!([
+            {"seq": 1, "text": "first"},
+            {"seq": 2, "text": "second"},
+            {"seq": 3, "text": "third"}
+        ])
+    );
+    assert_eq!(
+        written["out_of_scope"],
+        serde_json::json!([{"seq": 1, "text": "only one"}])
+    );
+    assert_eq!(written["next_constraint"], 4);
+    assert_eq!(written["next_out_of_scope"], 2);
+    assert_eq!(
+        fx.ok(&a, &["mission", "out-of-scope", "add", "M-OLD", "second"]),
+        "2\n"
+    );
+    fx.ok(&a, &["ledger", "push", "Convert the record"]);
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(
+        fx.ok(&other, &["mission", "constraint", "list", "M-OLD"]),
+        "1\tfirst\n2\tsecond\n3\tthird\n"
+    );
 }

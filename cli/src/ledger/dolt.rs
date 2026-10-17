@@ -43,7 +43,8 @@ pub const LEGACY_DOCUMENTS_TABLE: &str =
 /// The mission tables, created with a new ledger and by the first mission write on a
 /// version 2 ledger. Foreign keys keep a record from naming a mission that does not exist.
 /// `next_objective` is the number the next objective outcome gets: it only grows, so a
-/// removed outcome's number is never reused.
+/// removed outcome's number is never reused. `next_constraint` and `next_out_of_scope`
+/// do the same for the two lists in [`LIST_SCHEMA`].
 pub const MISSION_SCHEMA: &[&str] = &[
     "create table missions (\
      id varchar(64) not null primary key, \
@@ -53,11 +54,11 @@ pub const MISSION_SCHEMA: &[&str] = &[
      parent varchar(64) null, \
      purpose longtext null, \
      decision_authority longtext null, \
-     constraints_text longtext null, \
-     out_of_scope longtext null, \
      next_objective int not null default 1, \
      next_task int not null default 1, \
      next_question int not null default 1, \
+     next_constraint int not null default 1, \
+     next_out_of_scope int not null default 1, \
      constraint missions_parent_fk foreign key (parent) references missions (id))",
     "create table objective_outcomes (\
      mission_id varchar(64) not null, \
@@ -78,6 +79,24 @@ pub const MISSION_SCHEMA: &[&str] = &[
      role enum('intelligence','report','design') not null, \
      primary key (mission_id, path), \
      constraint mission_documents_mission_fk foreign key (mission_id) references missions (id))",
+];
+
+/// The constraint and out-of-scope tables, one row per one-line item. Created with a new
+/// ledger, and by the upgrade to version 7, which moves the two text columns of
+/// `missions` into them.
+pub const LIST_SCHEMA: &[&str] = &[
+    "create table mission_constraints (\
+     mission_id varchar(64) not null, \
+     seq int not null, \
+     text longtext not null, \
+     primary key (mission_id, seq), \
+     constraint mission_constraints_mission_fk foreign key (mission_id) references missions (id))",
+    "create table mission_out_of_scope (\
+     mission_id varchar(64) not null, \
+     seq int not null, \
+     text longtext not null, \
+     primary key (mission_id, seq), \
+     constraint mission_out_of_scope_mission_fk foreign key (mission_id) references missions (id))",
 ];
 
 /// The task, decision and question tables, created with a new ledger and by the first
@@ -124,12 +143,15 @@ pub const TASK_SCHEMA: &[&str] = &[
 
 /// The layout version a new Dolt ledger records: documents live on the `tsk/docs` branch,
 /// missions, tasks, decisions and questions are rows, a thread names its mission in
-/// `threads.mission_id`, and a decision may name an ADR in `decisions.adr_path`.
-pub const LAYOUT_VERSION: i64 = 6;
+/// `threads.mission_id`, a decision may name an ADR in `decisions.adr_path`, and a
+/// mission's constraints and out-of-scope items are rows of their own.
+pub const LAYOUT_VERSION: i64 = 7;
 /// The layout version with `threads.mission_id` and no `decisions.adr_path`.
 pub const THREAD_MISSION_LAYOUT_VERSION: i64 = 5;
-/// The layout version with `decisions.adr_path`.
+/// The layout version with `decisions.adr_path` and the two text columns on `missions`.
 pub const ADR_LAYOUT_VERSION: i64 = 6;
+/// The layout version with the constraint and out-of-scope tables.
+pub const LIST_LAYOUT_VERSION: i64 = 7;
 /// The layout version with the task, decision and question tables and a `threads` table
 /// that holds only `briefing_path`.
 pub const TASKS_LAYOUT_VERSION: i64 = 4;
@@ -140,19 +162,26 @@ pub const DOCS_LAYOUT_VERSION: i64 = 2;
 /// The layout version whose documents are rows in the `documents` table.
 pub const LEGACY_LAYOUT_VERSION: i64 = 1;
 
-/// Statements that take a ledger at `from` (2 to 5, or 1 once its documents have moved,
+/// Statements that take a ledger at `from` (2 to 6, or 1 once its documents have moved,
 /// which counts as 2) to the current version, then record it. Version 2 gains the
 /// mission, task, decision and question tables. Version 3 gains the counters on
 /// `missions` and the task, decision and question tables. Version 4 gains
 /// `threads.mission_id`, and `threads.briefing_path` becomes nullable. Version 5 gains
-/// `decisions.adr_path`. The tables a step creates are created in their newest shape, so
-/// a later step alters only a table that an older layout made. Run at the first write
-/// that needs the new layout, and when `tsk ledger migrate-docs` moves a version 1
-/// ledger.
-pub fn upgrade_sql(from: i64) -> String {
+/// `decisions.adr_path`. Version 6 gains the constraint and out-of-scope tables, and
+/// `missions` loses its two text columns. The tables a step creates are created in their
+/// newest shape, so a later step alters only a table that an older layout made. Run at
+/// the first write that needs the new layout, and when `tsk ledger migrate-docs` moves a
+/// version 1 ledger.
+///
+/// The items that the version 7 step moves out of the text columns are SQL the caller
+/// builds from the rows, because splitting text into lines is not SQL. `moved` is that
+/// SQL: `inserts` for the two tables and the counters. It runs after the tables exist and
+/// before the columns go. Pass [`move_lists_sql`] of the rows for a ledger from 3 to 6,
+/// and an empty string otherwise.
+pub fn upgrade_sql_moving(from: i64, moved: &str) -> String {
     let mut sql = String::new();
     if from <= DOCS_LAYOUT_VERSION {
-        for statement in MISSION_SCHEMA.iter().chain(TASK_SCHEMA) {
+        for statement in MISSION_SCHEMA.iter().chain(LIST_SCHEMA).chain(TASK_SCHEMA) {
             sql.push_str(statement);
             sql.push_str(";\n");
         }
@@ -176,7 +205,59 @@ pub fn upgrade_sql(from: i64) -> String {
     if from == TASKS_LAYOUT_VERSION || from == THREAD_MISSION_LAYOUT_VERSION {
         sql.push_str("alter table decisions add column adr_path varchar(1024) null;\n");
     }
+    // A missions table made above, from version 2 or lower, has no text columns.
+    if (MISSIONS_LAYOUT_VERSION..LIST_LAYOUT_VERSION).contains(&from) {
+        sql.push_str(
+            "alter table missions add column next_constraint int not null default 1;\n\
+             alter table missions add column next_out_of_scope int not null default 1;\n",
+        );
+        for statement in LIST_SCHEMA {
+            sql.push_str(statement);
+            sql.push_str(";\n");
+        }
+        sql.push_str(moved);
+        sql.push_str(
+            "alter table missions drop column constraints_text;\n\
+             alter table missions drop column out_of_scope;\n",
+        );
+    }
     sql.push_str(&version_sql());
+    sql
+}
+
+/// [`upgrade_sql_moving`] for a ledger that has no mission text to move.
+pub fn upgrade_sql(from: i64) -> String {
+    upgrade_sql_moving(from, "")
+}
+
+/// The statements that put the lines of each mission's old text columns into the two list
+/// tables and set the counters after the last item. `rows` are `(mission ID, constraints
+/// text, out-of-scope text)`. A line is trimmed, an empty line is skipped, and the items
+/// are numbered from 1 in order.
+pub fn move_lists_sql(rows: &[(String, String, String)]) -> String {
+    let mut sql = String::new();
+    for (id, constraints, out_of_scope) in rows {
+        for (table, column, text) in [
+            ("mission_constraints", "next_constraint", constraints),
+            ("mission_out_of_scope", "next_out_of_scope", out_of_scope),
+        ] {
+            let items = crate::mission::model::lines_to_items(text);
+            let Some(last) = items.last() else { continue };
+            let values: Vec<String> = items
+                .iter()
+                .map(|i| format!("({}, {}, {})", lit(id), i.seq, lit(&i.text)))
+                .collect();
+            sql.push_str(&format!(
+                "insert into {} (mission_id, seq, text) values {};\n\
+                 update missions set {} = {} where id = {};\n",
+                table,
+                values.join(", "),
+                column,
+                last.seq + 1,
+                lit(id)
+            ));
+        }
+    }
     sql
 }
 
@@ -191,7 +272,12 @@ fn version_sql() -> String {
 /// for a nexus ledger), separated by `;\n`.
 pub fn init_sql(repo_id: Option<&str>) -> String {
     let mut sql = String::new();
-    for statement in SCHEMA.iter().chain(MISSION_SCHEMA).chain(TASK_SCHEMA) {
+    for statement in SCHEMA
+        .iter()
+        .chain(MISSION_SCHEMA)
+        .chain(LIST_SCHEMA)
+        .chain(TASK_SCHEMA)
+    {
         sql.push_str(statement);
         sql.push_str(";\n");
     }
@@ -473,7 +559,7 @@ mod tests {
             );
         }
         assert!(!sql.contains("create table documents"));
-        assert!(sql.contains("('version', '6')"));
+        assert!(sql.contains("('version', '7')"));
         assert!(sql.contains("mission_id varchar(64) null"));
         assert!(sql.contains("briefing_path varchar(1024) null"));
         assert!(sql.contains("'repo_id'"));
@@ -485,14 +571,25 @@ mod tests {
         let from_four = upgrade_sql(4);
         assert!(from_four.contains("alter table threads add column mission_id"));
         assert!(from_four.contains("modify column briefing_path varchar(1024) null"));
-        assert!(!from_four.contains("create table"));
+        assert!(!from_four.contains("create table missions "));
+        assert!(!from_four.contains("create table tasks "));
         assert!(from_four.contains("alter table decisions add column adr_path varchar(1024) null"));
-        assert!(from_four.ends_with("('version', '6');\n"));
+        assert!(from_four.ends_with("('version', '7');\n"));
         let from_five = upgrade_sql(5);
         assert!(!from_five.contains("alter table threads"));
-        assert!(!from_five.contains("create table"));
+        assert!(!from_five.contains("create table tasks "));
         assert!(from_five.contains("alter table decisions add column adr_path"));
-        assert!(from_five.ends_with("('version', '6');\n"));
+        assert!(from_five.ends_with("('version', '7');\n"));
+        let from_six = upgrade_sql(6);
+        assert!(!from_six.contains("alter table decisions"));
+        assert!(!from_six.contains("alter table threads"));
+        assert!(from_six.contains("create table mission_constraints "));
+        assert!(from_six.contains("create table mission_out_of_scope "));
+        assert!(from_six.contains("add column next_constraint"));
+        assert!(from_six.contains("drop column constraints_text"));
+        assert!(from_six.contains("drop column out_of_scope"));
+        assert!(!from_six.contains("create table missions "));
+        assert!(from_six.ends_with("('version', '7');\n"));
         let from_three = upgrade_sql(3);
         assert!(from_three.contains("alter table missions add column next_task"));
         assert!(from_three.contains("create table tasks "));
@@ -501,12 +598,43 @@ mod tests {
         // The decisions table is created with the column, so no step alters it.
         assert!(from_three.contains("adr_path varchar(1024) null"));
         assert!(!from_three.contains("alter table decisions"));
+        // A missions table that exists is altered; the lists are created beside it.
+        assert!(from_three.contains("drop column constraints_text"));
         let from_two = upgrade_sql(2);
         assert!(from_two.contains("create table missions "));
         assert!(from_two.contains("create table questions "));
         assert!(from_two.contains("alter table threads add column mission_id"));
         assert!(!from_two.contains("alter table decisions"));
+        // Every table above is made in its newest shape, so nothing is moved or dropped.
+        assert!(from_two.contains("create table mission_constraints "));
+        assert!(!from_two.contains("constraints_text"));
+        assert!(!from_two.contains("drop column"));
         assert_eq!(upgrade_sql(1), from_two);
+    }
+
+    #[test]
+    fn the_old_text_moves_into_the_list_tables_one_item_per_non_empty_line() {
+        let rows = vec![
+            (
+                "M-A".to_string(),
+                "  first\n\n second  \n\t\nthird\r\n".to_string(),
+                String::new(),
+            ),
+            ("M-B".to_string(), String::new(), "only".to_string()),
+            ("M-C".to_string(), " \n ".to_string(), String::new()),
+        ];
+        let sql = move_lists_sql(&rows);
+        assert_eq!(sql.matches("insert into mission_constraints").count(), 1);
+        assert_eq!(sql.matches("insert into mission_out_of_scope").count(), 1);
+        assert!(sql.contains("update missions set next_constraint = 4 where id = "));
+        assert!(sql.contains("update missions set next_out_of_scope = 2 where id = "));
+        // Three items for M-A, numbered 1 to 3, and nothing for M-C.
+        assert_eq!(sql.matches(", 3, ").count(), 1);
+        assert!(!sql.contains(&lit("M-C")));
+        let upgrade = upgrade_sql_moving(6, &sql);
+        let at = |needle: &str| upgrade.find(needle).unwrap();
+        assert!(at("create table mission_constraints") < at("insert into mission_constraints"));
+        assert!(at("insert into mission_constraints") < at("drop column constraints_text"));
     }
 
     #[test]
