@@ -853,10 +853,10 @@ fn migrate_docs_moves_every_document_byte_for_byte_and_a_fresh_clone_reads_them(
         "Documents of the tsk ledger. Written by tsk ledger doc put.\n"
     );
 
-    // The database: no table, version 6, and one Dolt commit for the change.
+    // The database: no table, version 7, and one Dolt commit for the change.
     assert_eq!(
         fx.dolt_sql(&a, "select v from manifest where k = 'version'"),
-        "v\n6\n"
+        "v\n7\n"
     );
     // The migrated thread gained the mission column, still null.
     assert_eq!(
@@ -866,7 +866,15 @@ fn migrate_docs_moves_every_document_byte_for_byte_and_a_fresh_clone_reads_them(
     let tables = fx.dolt_sql(&a, "show tables");
     assert!(!tables.lines().any(|t| t == "documents"), "{}", tables);
     assert!(tables.contains("threads"), "{}", tables);
-    for table in ["missions", "tasks", "task_blocks", "decisions", "questions"] {
+    for table in [
+        "missions",
+        "mission_constraints",
+        "mission_out_of_scope",
+        "tasks",
+        "task_blocks",
+        "decisions",
+        "questions",
+    ] {
         assert!(tables.lines().any(|t| t == table), "{}: {}", table, tables);
     }
     let log = fx.dolt_sql(&a, "select message from dolt_log limit 2");
@@ -925,16 +933,16 @@ fn an_older_tsk_stops_at_the_manifest_check_of_a_version_it_does_not_know() {
     need_dolt!();
     let fx = Fixture::new();
     // A version this tsk does not know stands in for what this tsk meets in a later release.
-    fx.old_ledger("7", &[], "");
+    fx.old_ledger("8", &[], "");
     let out = fx.tsk(&fx.a(), "dolt", &["ledger", "fetch"]);
-    assert_fails(&out, "unsupported ledger version 7");
+    assert_fails(&out, "unsupported ledger version 8");
     assert!(
-        stderr(&out).contains("supports version 1, 2, 3, 4, 5, 6"),
+        stderr(&out).contains("supports version 1, 2, 3, 4, 5, 6, 7"),
         "{}",
         stderr(&out)
     );
     let out = fx.tsk(&fx.a(), "dolt", &["ledger", "migrate-docs"]);
-    assert_fails(&out, "unsupported ledger version 7");
+    assert_fails(&out, "unsupported ledger version 8");
     assert_eq!(fx.remote_ref(DOCS_REF), None);
 }
 

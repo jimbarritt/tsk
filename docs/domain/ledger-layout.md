@@ -85,13 +85,15 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `6`. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `7`. |
 | `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the mission the thread works, and is null for a thread with no mission. `briefing_path` is the mission's briefing document, stored only when the mission has no record. Together they replace `threads/<thread-id>/index.md`. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
 | `cloud_session_bindings` | `session_id` varchar(255), primary key; `thread_id` varchar(64); `registered_at` varchar(32) | One row per cloud session binding. It replaces `threads/lookup-by-cloud-session.json`. |
 | `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of [`queue.ndjson`](#external-eventsqueuendjson). |
 | `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` varchar(32) | One row, `id` 1, the processed position of the queue. No row reads as `0`. It replaces `watermark.json`. |
-| `missions` | `id` varchar(64), primary key; `name` varchar(255); `category` enum(`operational`, `administrative`); `status` enum(`todo`, `in-progress`, `done`), default `todo`; `parent` varchar(64), null, foreign key to `missions(id)`; `purpose`, `decision_authority`, `constraints_text`, `out_of_scope` longtext, null; `next_objective`, `next_task`, `next_question` int, default 1 | One row per mission. Empty text is stored as null. Each `next_` column is the number the next objective outcome, task or question gets. It only grows, so a number is never reused. |
+| `missions` | `id` varchar(64), primary key; `name` varchar(255); `category` enum(`operational`, `administrative`); `status` enum(`todo`, `in-progress`, `done`), default `todo`; `parent` varchar(64), null, foreign key to `missions(id)`; `purpose`, `decision_authority` longtext, null; `next_objective`, `next_task`, `next_question`, `next_constraint`, `next_out_of_scope` int, default 1 | One row per mission. Empty text is stored as null. Each `next_` column is the number the next objective outcome, task, question, constraint or out-of-scope item gets. It only grows, so a number is never reused. A ledger below version 7 has two more columns, `constraints_text` and `out_of_scope` (longtext, null), in place of the last two counters. |
+| `mission_constraints` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext. Primary key (`mission_id`, `seq`) | One row per constraint of a mission, one line each. |
+| `mission_out_of_scope` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext. Primary key (`mission_id`, `seq`) | One row per out-of-scope item of a mission, one line each. |
 | `objective_outcomes` | `mission_id` varchar(64), foreign key; `seq` int; `outcome` longtext; `met` boolean, default false. Primary key (`mission_id`, `seq`) | One row per objective outcome. |
 | `mission_blocks` | `mission_id` varchar(64), foreign key; `blocked_by_id` varchar(64), foreign key to `missions(id)`. Primary key of both | One row per block. Whether a block still holds is derived, never stored. |
 | `mission_documents` | `mission_id` varchar(64), foreign key; `path` varchar(1024); `role` enum(`intelligence`, `report`, `design`). Primary key (`mission_id`, `path`) | One row per document a mission links. The path names a document on `tsk/docs`. |
@@ -323,12 +325,13 @@ Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::di
 
 ### Manifest version
 
-The `version` row of the `manifest` table is `6` for a ledger whose `decisions` table has
+The `version` row of the `manifest` table is `7` for a ledger whose constraints and out of
+scope are tables of their own, `6` for a ledger whose `decisions` table has
 `adr_path`, `5` for a ledger whose `threads` table has
 `mission_id`, `4` for a ledger with the mission, task, decision and question tables and the
 older `threads` table, `3` for a ledger with the mission tables only, and `2` for a
 ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
-backend accepts versions 1, 2, 3, 4, 5 and 6. Version 1 is a ledger that still keeps its
+backend accepts versions 1, 2, 3, 4, 5, 6 and 7. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger is refused by every command except `tsk ledger fetch`,
@@ -338,37 +341,55 @@ documents in a `documents` table.
 - A version 2 ledger works for everything it did before. The mission read commands behave
   as an empty mission set and write nothing. The first mission write command creates the
   mission, task, decision and question tables, adds `mission_id` to `threads` and makes
-  `briefing_path` nullable, and sets the `version` row to `6` in the same local Dolt
-  change as the mission, so `tsk ledger push` publishes both. The decisions table is created
-  with `adr_path`.
+  `briefing_path` nullable, and sets the `version` row to `7` in the same local Dolt
+  change as the mission, so `tsk ledger push` publishes both. The tables are created in
+  their newest shape.
 - A version 3 ledger works for everything it did before. The task, decision and question
   read commands behave as if the mission had none, and write nothing. The first write
   command of any of the four kinds (`mission`, `task`, `decision` or `question`) adds the
   columns `next_task` and `next_question` to `missions`, creates the four new tables, alters
-  `threads` as above and sets the `version` row to `6` in the same local Dolt change as the
+  `threads` as above and sets the `version` row to `7` in the same local Dolt change as the
   record, so `tsk ledger push` publishes both. A write that fails a check upgrades nothing.
 - A version 4 ledger works for everything it did before. `thread list` derives each
   thread's mission ID from its briefing path. The first write that needs the new column
-  alters `threads` and sets the `version` row to `6` in the same local Dolt change:
+  alters `threads` and sets the `version` row to `7` in the same local Dolt change:
   `tsk thread start`, `tsk thread set mission`, and a mission, task, decision or question write.
   Reads, `thread skip` and a `thread pause` upgrade nothing, and neither does a write that is refused.
-  A version 2, 3 or 4 ledger takes the whole chain of changes up to version 6 at its first
+  A version 2, 3, 4, 5 or 6 ledger takes the whole chain of changes up to version 7 at its first
   such write.
 - A version 5 ledger works for everything it did before. `decision list` prints `-` as the
   ADR path of every decision, and `mission list --json` prints `adr` as null. The first
   write of any of the four kinds adds `decisions.adr_path` with
-  `alter table decisions add column` and sets the `version` row to `6` in the same local
-  Dolt change as the record. Reads, and a write that is refused (a path that is not a
+  `alter table decisions add column` and the later steps, and sets the `version` row to `7`
+  in the same local Dolt change as the record. Reads, and a write that is refused (a path that is not a
   file included), upgrade nothing. `tsk ledger status` labels the upgrade; see
   [Status and discard](#status-and-discard).
-- A `tsk` binary from before version 6 does not know the version. It stops at its manifest
-  check with `unsupported ledger version 6`, before it writes. The binary needs updating.
+- A version 6 ledger works for everything it did before. `mission constraint list` and
+  `mission out-of-scope list`, and the `constraints` and `out_of_scope` arrays of
+  `mission list --json`, read the two old text columns of `missions` and split them by the
+  line rule below. Reads, and a write that is refused, upgrade nothing. The first write of
+  any kind that reaches a mission or a thread (`mission`, `task`, `decision`, `question`,
+  and `thread start` or `thread set mission`) does these in one local Dolt change with the
+  record:
+  1. adds `next_constraint` and `next_out_of_scope` to `missions`, and creates
+     `mission_constraints` and `mission_out_of_scope`;
+  2. turns each non-empty line of `constraints_text` into a `mission_constraints` row, and
+     of `out_of_scope` into a `mission_out_of_scope` row. The line rule: split at line
+     breaks, trim each line, skip a line that is empty, number the rest from 1 in order;
+  3. sets each counter to the number after the last item, or leaves it at 1 for a mission
+     with no item;
+  4. drops `constraints_text` and `out_of_scope`;
+  5. sets the `version` row to `7`.
+  The same step runs for a ledger at version 3, 4 or 5, in the same chain. `tsk ledger
+  status` labels the upgrade, and shows the new list rows as added rows of the two tables.
+- A `tsk` binary from before version 7 does not know the version. It stops at its manifest
+  check with `unsupported ledger version 7`, before it writes. The binary needs updating.
   The file ledger's `.tsk-ledger.toml` stays at version 1.
 
 ### Migration
 
 `tsk ledger migrate-to-dolt` moves a file ledger to the Dolt backend. It runs with
-either backend selected. The new ledger is version 6: it has no `documents` table, it has the mission, task, decision and question tables, and
+either backend selected. The new ledger is version 7: it has no `documents` table, it has the mission, task, decision and question tables, and
 its documents are written as files on `tsk/docs`. It:
 
 1. Fetches the file ledger ref and checks its manifest. It stops when the ref is absent
@@ -451,6 +472,12 @@ tsk mission objective done <id> <n>
 tsk mission objective undone <id> <n>
 tsk mission objective remove <id> <n>
 tsk mission objective list <id>
+tsk mission constraint add <id> <text>
+tsk mission constraint remove <id> <n>
+tsk mission constraint list <id>
+tsk mission out-of-scope add <id> <text>
+tsk mission out-of-scope remove <id> <n>
+tsk mission out-of-scope list <id>
 tsk mission link <id> <path> --role <intelligence|report|design>
 tsk mission unlink <id> <path>
 tsk mission list [<id>] [--json]
@@ -460,10 +487,19 @@ Rules:
 
 - A mission ID matches `^M-[A-Z0-9]+(-[A-Z0-9]+)*$` and is at most 64 characters. A name is
   one line of at most 255 characters.
-- `set` takes the fields `name`, `status`, `purpose`, `constraints`, `out-of-scope` and
-  `decision-authority`. The value comes from the argument, or from stdin when the argument
-  is `-`. Stdin text is stored exactly, except that `name` and `status` drop the final line
-  break.
+- `set` takes the fields `name`, `status`, `purpose` and `decision-authority`. The value
+  comes from the argument, or from stdin when the argument is `-`. Stdin text is stored
+  exactly, except that `name` and `status` drop the final line break. `set constraints` and
+  `set out-of-scope` are errors: `error: constraints are a list now; use tsk mission
+  constraint add|remove|list`, and `error: out-of-scope is a list now; use tsk mission
+  out-of-scope add|remove|list`.
+- `constraint` and `out-of-scope` are lists of one-line items, numbered per mission like
+  objective outcomes. `add` assigns the next number and prints it. `remove` of a number the
+  mission does not have is an error (`M-X has no constraint 3`, `M-X has no out-of-scope
+  item 3`). Numbers are never reused: a counter on the mission (`next_constraint`,
+  `next_out_of_scope`) only grows. An item is not empty and has no line break. `list` prints
+  one item per line, tab-separated: the number, then the text, ordered by number. The two
+  lists count apart.
 - Status is `todo`, `in-progress` or `done`. Any other value is an error that names the
   three. An administrative mission is created `in-progress`, and `set status` to `todo` or
   `done` on it is refused, because it has no end.
@@ -486,7 +522,7 @@ Rules:
 full record as one JSON object, and `list --json` prints an array of them:
 
 ```
-{"id":"M-J","name":"Json","category":"operational","status":"todo","parent":"M-P","blocked":true,"purpose":"Why","decision_authority":"","constraints":"","out_of_scope":"","objective":[{"n":1,"outcome":"One","met":true},{"n":2,"outcome":"Two","met":false}],"blocked_by":[{"id":"M-Q","blocking":true}],"documents":[{"path":"m/design.md","role":"design"}],"tasks":[],"decisions":[],"questions":[]}
+{"id":"M-J","name":"Json","category":"operational","status":"todo","parent":"M-P","blocked":true,"purpose":"Why","decision_authority":"","constraints":[{"n":1,"text":"No new crates"}],"out_of_scope":[{"n":1,"text":"Projections"}],"objective":[{"n":1,"outcome":"One","met":true},{"n":2,"outcome":"Two","met":false}],"blocked_by":[{"id":"M-Q","blocking":true}],"documents":[{"path":"m/design.md","role":"design"}],"tasks":[],"decisions":[],"questions":[]}
 ```
 
 `blocked_by` lists every blocker. `blocking` is true for each one that is not done, and
@@ -499,6 +535,13 @@ two missions without a conflict, and a line per field lets it merge two fields o
 mission. The file ledger's `records/` directory is managed by tsk, so it is not a document
 path. The validation, the derived blocked state and the output are the same code for both
 backends.
+
+In that file `constraints` and `out_of_scope` are arrays of `{"seq": 1, "text": "..."}`, with
+the counters `next_constraint` and `next_out_of_scope` after `next_question`. A file written
+before the lists existed holds a string for each and has no counters. The reader accepts
+both forms: a string becomes items by the line rule (split at line breaks, trim, skip empty
+lines, number from 1), and a counter that is missing or behind the rows follows the last
+item. A read writes nothing, and the next write of the mission stores the list form.
 
 ## Task, decision and question commands
 

@@ -424,8 +424,9 @@ impl FileTree {
             }
             let text = std::fs::read_to_string(&path)
                 .map_err(|e| format!("error: could not read {}: {}", path.display(), e))?;
-            let mission: Mission = serde_json::from_str(&text)
+            let mut mission: Mission = serde_json::from_str(&text)
                 .map_err(|e| format!("error: {} is not a mission record: {}", path.display(), e))?;
+            mission.follow_list_counters();
             missions.push(mission);
         }
         missions.sort_by(|a, b| a.id.cmp(&b.id));

@@ -22,8 +22,8 @@ use crate::ledger::manifest::{self, ManifestInfo, DOLT_SUPPORTED_VERSIONS};
 use crate::ledger::push::{PushOutcome, PushResult, PushStatus, MAX_ATTEMPTS};
 use crate::ledger::status::{self, Change, ChangeKind, LedgerStatus, RemoteState, SideStatus};
 use crate::mission::model::{
-    self, Category, Decision, Document, Mission, Outcome, Question, QuestionStatus, Role, Status,
-    Task,
+    self, Category, Decision, Document, Item, Mission, Outcome, Question, QuestionStatus, Role,
+    Status, Task,
 };
 use crate::thread::lookup::{CloudBinding, Lookup};
 
@@ -939,7 +939,7 @@ impl LedgerStore for DoltStore {
         }
         let mut sql = String::new();
         if version < dolt::LAYOUT_VERSION {
-            sql.push_str(&dolt::upgrade_sql(version));
+            sql.push_str(&self.upgrade_script(&db, version)?);
         }
         sql.push_str(&format!(
             "insert into threads (thread_id, briefing_path, mission_id) values ({}, {}, {});",
@@ -964,7 +964,7 @@ impl LedgerStore for DoltStore {
         }
         let mut sql = String::new();
         if version < dolt::LAYOUT_VERSION {
-            sql.push_str(&dolt::upgrade_sql(version));
+            sql.push_str(&self.upgrade_script(&db, version)?);
         }
         sql.push_str(&format!(
             "update threads set briefing_path = {}, mission_id = {} where thread_id = {};",
@@ -1173,7 +1173,7 @@ impl LedgerStore for DoltStore {
         if version < dolt::LAYOUT_VERSION {
             // The first write on an older ledger: the missing tables and columns and the
             // new version land in the same local change as the mission.
-            sql.push_str(&dolt::upgrade_sql(version));
+            sql.push_str(&self.upgrade_script(&db, version)?);
         }
         sql.push_str(&save_sql(mission));
         db.exec(&sql)
@@ -1217,6 +1217,30 @@ impl LedgerStore for DoltStore {
 }
 
 impl DoltStore {
+    /// The statements that take a ledger at `version` to the newest layout. From versions 3
+    /// to 6 the old text of every mission's constraints and out-of-scope columns is read
+    /// here and split into items, which the statements insert before they drop the columns.
+    fn upgrade_script(&self, db: &Dolt, version: i64) -> Result<String, String> {
+        let moved = if (dolt::MISSIONS_LAYOUT_VERSION..dolt::LIST_LAYOUT_VERSION).contains(&version)
+        {
+            let rows: Vec<(String, String, String)> = db
+                .rows("select id, constraints_text, out_of_scope from missions order by id")?
+                .iter()
+                .map(|row| {
+                    (
+                        text(row, "id").unwrap_or_default(),
+                        text(row, "constraints_text").unwrap_or_default(),
+                        text(row, "out_of_scope").unwrap_or_default(),
+                    )
+                })
+                .collect();
+            dolt::move_lists_sql(&rows)
+        } else {
+            String::new()
+        };
+        Ok(dolt::upgrade_sql_moving(version, &moved))
+    }
+
     /// Every mission in `db`. A version 2 ledger has no mission tables: it has no
     /// missions. A version 1 ledger is refused.
     fn missions_in(&self, db: &Dolt, location: &LedgerLocation) -> Result<Vec<Mission>, String> {
@@ -1258,6 +1282,34 @@ fn nullable(value: &str) -> String {
     }
 }
 
+/// The statements that make a list table hold `items` for the mission `id` (already a
+/// SQL literal), with the rows it no longer has removed.
+fn items_sql(id: &str, table: &str, items: &[Item]) -> String {
+    let seqs: Vec<String> = items.iter().map(|i| i.seq.to_string()).collect();
+    let mut sql = format!(
+        "delete from {} where mission_id = {}{};\n",
+        table,
+        id,
+        if seqs.is_empty() {
+            String::new()
+        } else {
+            format!(" and seq not in ({})", seqs.join(", "))
+        }
+    );
+    if !items.is_empty() {
+        let rows: Vec<String> = items
+            .iter()
+            .map(|i| format!("({}, {}, {})", id, i.seq, lit(&i.text)))
+            .collect();
+        sql.push_str(&format!(
+            "replace into {} (mission_id, seq, text) values {};\n",
+            table,
+            rows.join(", ")
+        ));
+    }
+    sql
+}
+
 /// The statements that make the tables hold `mission`: its row, and its outcomes, blockers
 /// and links, with the rows it no longer has removed. A value that did not change writes
 /// the same cell, so Dolt merges two clones that changed different fields.
@@ -1265,15 +1317,15 @@ fn save_sql(mission: &Mission) -> String {
     let id = lit(&mission.id);
     let mut sql = format!(
         "insert into missions (id, name, category, status, parent, purpose, decision_authority, \
-         constraints_text, out_of_scope, next_objective, next_task, next_question) values \
+         next_objective, next_task, next_question, next_constraint, next_out_of_scope) values \
          ({id}, {name}, '{category}', '{status}', {parent}, {purpose}, {authority}, \
-         {constraints}, {scope}, {next}, {next_task}, {next_question}) \
+         {next}, {next_task}, {next_question}, {next_constraint}, {next_out_of_scope}) \
          on duplicate key update name = values(name), category = values(category), \
          status = values(status), parent = values(parent), purpose = values(purpose), \
          decision_authority = values(decision_authority), \
-         constraints_text = values(constraints_text), out_of_scope = values(out_of_scope), \
          next_objective = values(next_objective), next_task = values(next_task), \
-         next_question = values(next_question);\n",
+         next_question = values(next_question), next_constraint = values(next_constraint), \
+         next_out_of_scope = values(next_out_of_scope);\n",
         id = id,
         name = lit(&mission.name),
         category = mission.category.as_str(),
@@ -1285,12 +1337,18 @@ fn save_sql(mission: &Mission) -> String {
             .unwrap_or_else(|| "NULL".to_string()),
         purpose = nullable(&mission.purpose),
         authority = nullable(&mission.decision_authority),
-        constraints = nullable(&mission.constraints),
-        scope = nullable(&mission.out_of_scope),
         next = mission.next_objective,
         next_task = mission.next_task,
         next_question = mission.next_question,
+        next_constraint = mission.next_constraint,
+        next_out_of_scope = mission.next_out_of_scope,
     );
+    sql.push_str(&items_sql(&id, "mission_constraints", &mission.constraints));
+    sql.push_str(&items_sql(
+        &id,
+        "mission_out_of_scope",
+        &mission.out_of_scope,
+    ));
 
     let seqs: Vec<String> = mission
         .objective
@@ -1473,15 +1531,21 @@ fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
         )
     };
     let mut missions = Vec::new();
-    let counters = if with_records {
-        ", next_task, next_question"
+    let mut columns = String::from("next_objective");
+    if with_records {
+        columns.push_str(", next_task, next_question");
+    }
+    // Below version 7 the lists are two text columns, read as items by the line rule.
+    let with_lists = version >= dolt::LIST_LAYOUT_VERSION;
+    columns.push_str(if with_lists {
+        ", next_constraint, next_out_of_scope"
     } else {
-        ""
-    };
+        ", constraints_text, out_of_scope"
+    });
     for row in db.rows(&format!(
-        "select id, name, category, status, parent, purpose, decision_authority, \
-         constraints_text, out_of_scope, next_objective{} from missions order by id",
-        counters
+        "select id, name, category, status, parent, purpose, decision_authority, {} \
+         from missions order by id",
+        columns
     ))? {
         let id = text(&row, "id").unwrap_or_default();
         missions.push(Mission {
@@ -1493,8 +1557,10 @@ fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
             parent: text(&row, "parent"),
             purpose: text(&row, "purpose").unwrap_or_default(),
             decision_authority: text(&row, "decision_authority").unwrap_or_default(),
-            constraints: text(&row, "constraints_text").unwrap_or_default(),
-            out_of_scope: text(&row, "out_of_scope").unwrap_or_default(),
+            constraints: model::lines_to_items(&text(&row, "constraints_text").unwrap_or_default()),
+            out_of_scope: model::lines_to_items(&text(&row, "out_of_scope").unwrap_or_default()),
+            next_constraint: integer(&row, "next_constraint").unwrap_or(1),
+            next_out_of_scope: integer(&row, "next_out_of_scope").unwrap_or(1),
             next_objective: integer(&row, "next_objective").unwrap_or(1),
             objective: Vec::new(),
             blocked_by: Vec::new(),
@@ -1522,6 +1588,26 @@ fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
             });
         }
     }
+    if with_lists {
+        for (table, pick) in [("mission_constraints", 0), ("mission_out_of_scope", 1)] {
+            for row in db.rows(&format!(
+                "select mission_id, seq, text from {} order by mission_id, seq",
+                table
+            ))? {
+                let id = text(&row, "mission_id").unwrap_or_default();
+                if let Some(at) = slot(&mut missions, &id) {
+                    let list = match pick {
+                        0 => &mut missions[at].constraints,
+                        _ => &mut missions[at].out_of_scope,
+                    };
+                    list.push(Item {
+                        seq: integer(&row, "seq").unwrap_or(0),
+                        text: text(&row, "text").unwrap_or_default(),
+                    });
+                }
+            }
+        }
+    }
     for row in db.rows(
         "select mission_id, blocked_by_id from mission_blocks order by mission_id, blocked_by_id",
     )? {
@@ -1546,6 +1632,9 @@ fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
     }
     if with_records {
         read_records(db, &mut missions, version >= dolt::ADR_LAYOUT_VERSION, &bad)?;
+    }
+    for mission in &mut missions {
+        mission.follow_list_counters();
     }
     Ok(missions)
 }
