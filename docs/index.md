@@ -36,6 +36,10 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 
 Technical design documents describing how tsk's systems fit together.
 
+- [2026-10-17-architecture-and-performance-review.md](arch/2026-10-17-architecture-and-performance-review.md): review at 0.15.1 of the storage seam, the record model, the sync design and the daemon-era remains, with measurements of every command path and a ranked list of proposals.
+
+The three documents below describe the client-daemon design, which ADR 0012 retired. They are kept as history.
+
 - [2026-03-08T07-49-54Z-ipc-architecture.v3.md](arch/2026-03-08T07-49-54Z-ipc-architecture.v3.md): client-daemon architecture over Unix socket using JSON-RPC 2.0.
 - [2026-03-10-domain-model.md](arch/2026-03-10-domain-model.md): core concepts (threads, tasks, priorities), state machines, data structures.
 - [optimising-agent-workflows.md](arch/optimising-agent-workflows.md): lessons from daemon refactor on model selection and delegation.
