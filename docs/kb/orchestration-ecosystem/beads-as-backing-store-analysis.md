@@ -3,6 +3,8 @@
 Status: exploratory research, no decision made. 2026-09-20. Updated 2026-10-09 with
 Memory Beads, the Beads Protocol and versioning, in
 [Update 2026-10-09](#update-2026-10-09-memory-beads-the-beads-protocol-and-versioning).
+Updated 2026-10-17 with a table-by-table comparison against tsk's Dolt schema and beads
+1.3, in [Update 2026-10-17](#update-2026-10-17-tsks-dolt-schema-against-beads-table-by-table).
 
 ## The question
 
@@ -393,6 +395,138 @@ Findings:
 
 The branch `experiment/dolt-ledger` remains on GitHub. The proxy refuses ref deletion
 from a cloud session (ADR 0008), so it is deleted by hand.
+
+## Update 2026-10-17: tsk's Dolt schema against beads, table by table
+
+Raised by Jim, 2026-10-17, after the news of beads' first birthday: how much difference
+would it make to use beads as the backing store for tsk. Since 2026-09-20 tsk's ledger
+became a Dolt database with its own tables, so the comparison can now be made at the
+schema level on both sides.
+
+Sources: the Gas City post
+[Fun Facts About Beads On Its First Birthday!](https://blog.gascity.com/posts/fun-facts-about-beads-on-its-first-birthday/),
+read 2026-10-17; shallow clones of `gastownhall/beads` at `925e26b` (2026-10-17), the BDP
+specification repo `gastownhall/bdp` at `8d6671e` (2026-10-15), and the integration branch
+of `versioned-beads/beads` at `96715d9` (2026-10-16); tsk's schema in
+`cli/src/ledger/dolt.rs` at layout version 5. Files read in beads: the migrations under
+`internal/storage/schema/migrations/`, `ROADMAP.md`, `CHANGELOG.md`,
+`engdocs/PROJECT_CHARTER.md`, `internal/storage/remote_ref.go`,
+`internal/storage/versioncontrolops/remotes.go`, `docs/reference/events-journal.md`,
+`examples/bd-example-extension-go/README.md` and the BDP `README.md`. Nothing was
+installed or run. The post's figures are the post's own.
+
+### What changed in beads since 2026-10-09
+
+| Item | Finding |
+|---|---|
+| Scale | The post reports more than 1.7 million release downloads, over 27,000 stars, nearly 2,000 forks and nearly 300 repositories that display Beads data |
+| Release line | Beads 1.1 in July 2026. 1.2.1 was released by an autonomous maintainer agent on 2026-08-11 without the team knowing, and included a schema upgrade. 1.3 before September. The roadmap, dated 2026-10-05, sets priorities for 1.4 |
+| Versioned beads | Migration 0067 is in upstream: an `issue_versions` table (revision, epoch, durable state as JSON, change actor, agent and message) and a `store_epoch` singleton. The roadmap says it ships behind a flag, off by default, until a conformance suite and a production-corpus soak say otherwise |
+| HTTP writes | The `Unreleased` section of the changelog lists `bd serve` write routes: `POST /v0/beads/issues`, `PATCH /v0/beads/issues/{id}`, `issues:batchApply` and a heartbeat route, each behind a capability token. The BDP repository still calls its Write profile a draft that is "not a conformance target until adopted" |
+| Claims | A claim carries a lease. A holder renews it with a heartbeat, and a refresh writes only the lease row. A lapsed lease returns a `lease_not_held` error |
+| Typed graph | Graph Preview 2 is a 1.4 priority. The Types profile is a work-in-progress design in the BDP repository. Upstream's `custom_types` and `custom_statuses` tables hold names only, with no JSON Schema |
+| Beads Team Server | A commercial extension: "shared governed work graphs, agent-run visibility, provenance, and model cost tracking". The post reports a 40% cut in token spend on an early internal version's first run. The upstream code has a mode for a database managed by `beads-team-server`, whose schema `bd` refuses to change |
+| Git ref for sync | The storage layer records a remote's `git_ref` and can add a remote with `--ref`. The default is `refs/dolt/data`. The `bd` command's own remote calls (`cmd/bd/dolt.go`) pass no ref. A cloud session that runs `bd` sync uses the default ref, which the proxy refuses (ADR 0008) |
+| Charter | "Beads should not know about orchestration layers built on top of it." For extra per-issue data, "prefer issue metadata before adding first-class fields or commands" |
+| Extension tables | The example in `examples/` marks custom tables in beads' own database as "a legacy pattern". Dolt-backed workflows "should prefer standalone integration tools that call `bd --json`" or use `bd query` |
+
+Two of the 2026-10-09 objections have moved. HTTP writes and versioning are now in code,
+behind flags or unreleased. The others stand: Types with a schema are still a design, the
+charter keeps tsk's concepts out of core, and the `bd` command cannot set a branch ref.
+
+### tsk's tables, one by one
+
+tsk's Dolt schema has 14 tables. Documents are files on the `tsk/docs` branch and are
+outside this comparison.
+
+| tsk table | Where it would go in beads | Change | Fit |
+|---|---|---|---|
+| `mission_blocks` | `dependencies`, type `blocks` | None. Readiness works as it does for tsk | Clean |
+| `task_blocks` | `dependencies`, type `blocks` | None | Clean |
+| `tasks` | Child issues of the mission, through a `parent-child` dependency | Identity changes from (mission, sequence number) to a hash ID. Status maps to a custom status | Clean |
+| `questions` | Issues of a custom type `question`. Open and answered map to open and closed | The answer goes in a close reason or a comment | Clean |
+| `missions` | An issue of a custom type `mission` | Purpose, decision authority, constraints and out of scope have no columns. They go in `description`, `design` and `notes`, or in the `metadata` JSON. The category and the three-value status enum become labels or custom statuses. IDs such as `M-DOLT` give way to hash IDs or a prefix | Lossy |
+| `objective_outcomes` | `acceptance_criteria` text, child beads, or a `metadata` array | A numbered row with a met flag and a number that is never reused becomes text or JSON. Nothing in beads checks that an outcome is met before a mission closes | Lossy |
+| `decisions` | Comments on the mission, or issues of a custom type `decision` | Decided by and decided on map to author and creation time. The link to a task is a dependency | Lossy |
+| `mission_documents` | `external_ref` or `spec_id` hold one value each. Several, with a role, go in `metadata` | The role enum is lost | Lossy |
+| `threads` | None | | No home |
+| `continuation_entries` | None. Comments on a thread bead are ordered and attributed, and nothing enforces append-only | | No home |
+| `cloud_session_bindings` | None | | No home |
+| `external_events` | None. The events journal records beads' own committed mutations, not an inbound queue | | No home |
+| `watermark` | None | | No home |
+| `manifest` | `config` and `metadata` tables, which beads has already | Not needed | Own bookkeeping |
+
+Four tables fit cleanly, four fit with a loss of typing, and five have no home. The five
+are the continuity half of tsk's model: threads, continuation entries, session bindings,
+the external event queue and its watermark. The four that fit cleanly are Navigation.
+
+### Four ways to use beads, and the difference each makes
+
+| Way | What it means | Difference from today |
+|---|---|---|
+| 1. Replace tsk's tables with beads | One database, beads' schema | Not possible. Five tables have no home |
+| 2. Beads for missions, tasks, questions and decisions, with a second tsk database for continuity | Eight tables move. Five stay in tsk's Dolt database | Two stores. Two sync paths: `bd` defaults to `refs/dolt/data`, and tsk uses `refs/heads/tsk/ledger`. A foreign key cannot cross databases, so a thread names a mission by a string. Completing a task and appending a continuation entry cannot be one transaction |
+| 3. Beads as a third backend behind the storage seam (ADR 0014) | The seam's trait has 34 methods. About 20 of them (documents, threads, session bindings, events, watermark, refresh and push) are not served by beads | The same as way 2, inside tsk's trait. The new module covers the mission and task methods only |
+| 4. Hold tsk's concepts as `metadata` on beads | Charter-sanctioned. A thread is a bead, continuation entries are comments, an external event is a bead | tsk's schema guarantees (foreign keys, enums, numbered outcomes) become conventions that tsk's code checks. A `bd` user can close a mission bead with unmet outcomes. Beads' script hooks run after the mutation and discard their result, so a hook cannot veto |
+
+Way 2 and way 3 are the same arrangement. The seam in ADR 0014 already makes it
+possible, and it needs no change to the ADR.
+
+### What tsk gains
+
+- **Tools that read beads** read the mission and task graph without a tsk adapter. The
+  post counts nearly 300 repositories that display Beads data.
+- **Leases and heartbeats** give a claim an expiry. tsk's Actor has no equivalent, and a
+  lease does not model the cardinality rule (a human holds many threads, an agent
+  session one).
+- **A revision on each bead** with compare and swap, at the grain of one bead. tsk's
+  push is compare and swap at the grain of the ledger, and Dolt already merges rows and
+  cells.
+
+### What tsk loses or takes on
+
+- **Schema guarantees** in the lossy rows, as above.
+- **Schema churn.** Beads' migrations are numbered to 0069, and the post records a
+  schema upgrade shipped unintentionally in 1.2.1. A tsk that reads beads' tables
+  depends on that schema. A tsk that calls `bd --json` depends on the CLI output
+  instead. Beads' team-server mode refuses a version skew.
+- **A concept outside the charter.** Whatever tsk adds beyond issue primitives stays
+  in `metadata`. The charter states this as a boundary, not a gap awaiting a feature.
+- **No sync from a cloud session** through `bd`, until the command exposes a branch ref.
+
+### Verdict
+
+Eight of tsk's fourteen tables can live in beads, four of them cleanly and four with a
+loss of typing. Five cannot, and they are the continuity half that distinguishes tsk's
+model. Beads can back Navigation. It cannot back tsk, and the arrangement that results is
+two databases with convention in place of schema.
+
+The finding supports ADR 0014: Dolt native, behind a seam, with a beads backend possible
+later for the mission and task methods. It changes one reading in the 2026-10-09
+verdict. HTTP writes and versioning are now code, so the wait for them is shorter. The
+decision does not turn on them.
+
+Conditions that would reopen the question:
+
+1. A released `bd` with user-installed Types that carry a JSON Schema, so a mission can
+   be a typed bead that tools validate.
+2. The BDP Write profile adopted, so a second tool can write missions without `bd`.
+3. A `bd` command that sets a branch ref for sync, so a cloud session can push.
+
+A cheap probe, if wanted: export tsk's missions and tasks to beads' JSONL import format,
+open them with `bd list` and `bd ready`, and note what the readiness queue shows against
+tsk's. That tests way 2 for Navigation only.
+
+### Not established
+
+- Whether the beads-team-server mode is open source, and what it adds beyond the post's
+  list.
+- Whether beads' `comments` table can serve as an append-only log. The schema has no
+  constraint against an update or a delete.
+- Whether `bd` imports a custom type and status from JSONL without prior configuration.
+- The `bd` command's behaviour on sync from a cloud session. It was read, not run.
+- Any figure in the post beyond what the post states. The telemetry is opt-out, from
+  `bd` users, and the 40% token figure is from an early internal version.
 
 ## Related
 
