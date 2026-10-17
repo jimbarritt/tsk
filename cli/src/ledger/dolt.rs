@@ -472,6 +472,16 @@ pub fn first_count(rows: &[Value]) -> i64 {
 /// Make sure Dolt has a commit identity. A machine with none gets `tsk <tsk@localhost>`
 /// globally; an identity the operator set is left alone.
 pub fn ensure_identity() -> Result<(), String> {
+    static ENSURED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if ENSURED.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(());
+    }
+    ensure_identity_once()?;
+    ENSURED.store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+fn ensure_identity_once() -> Result<(), String> {
     let here = Dolt::new(".");
     let (_, output) = here.output(["config", "--global", "--get", "user.name"])?;
     let name = String::from_utf8_lossy(&output.stdout);

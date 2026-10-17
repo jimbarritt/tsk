@@ -852,6 +852,7 @@ impl DoltStore {
             db.run(["reset", "--hard", &format!("{}/{}", REMOTE, BRANCH)])?;
         }
         let version = self.check_manifest_of(&db, &location)?;
+        self.remember_checked(&db, version);
         let pending_note = (!pending.is_empty()).then(|| {
             let mut note = format!(
                 "note: {} holds a commit that is not on {}:\n",
@@ -995,8 +996,18 @@ impl LedgerStore for DoltStore {
         self.check_current(&db, &location)?;
         let docs_path = self.docs_tree()?.root;
 
-        db.run(["add", "-A"])?;
-        let committed = db.count("select count(*) as c from dolt_status where staged = 1")? > 0;
+        // Stage everything and count the staged tables in one process; if that fails,
+        // the same two steps run on their own and give the same error.
+        let staged_query = "select count(*) as c from dolt_status where staged = 1";
+        let staged =
+            match db.rows_each(&["call dolt_add('-A')".to_string(), staged_query.to_string()]) {
+                Ok(sets) => dolt::first_count(&sets[1]),
+                Err(_) => {
+                    db.run(["add", "-A"])?;
+                    db.count(staged_query)?
+                }
+            };
+        let committed = staged > 0;
         if committed {
             db.run(["commit", "-m", message])?;
         }
@@ -1163,7 +1174,11 @@ impl LedgerStore for DoltStore {
     fn thread_info(&self, id: &str) -> Result<ThreadInfo, String> {
         let db = self.db()?;
         // A ledger below version 5 has no `mission_id` column.
-        let column = if self.manifest_rows(&db)?.version >= dolt::THREAD_MISSION_LAYOUT_VERSION {
+        let version = match &*self.checked.borrow() {
+            Some((dir, version)) if dir == db.dir() => *version,
+            _ => self.manifest_rows(&db)?.version,
+        };
+        let column = if version >= dolt::THREAD_MISSION_LAYOUT_VERSION {
             "mission_id"
         } else {
             "null as mission_id"
