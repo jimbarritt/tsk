@@ -14,14 +14,20 @@ this repository. They hold the minimum logic: see
 
 | Skill | Runs |
 |---|---|
-| `tsk` | Reference for the `tsk` command line. |
-| `start-thread` | `tsk thread start`, with or without a mission ID |
+| `tsk` | Reference for the `tsk` command line: records (missions, tasks, decisions, questions), documents, threads. |
+| `start-thread` | `tsk thread start`, with a mission ID or with no mission; `tsk thread skip` to work with no thread |
 | `pause-thread` | `tsk thread pause` |
 | `resume-thread` | `tsk thread resume` |
 | `switch-thread` | `tsk thread detach`, `tsk thread stop` when asked, then the `resume-thread` skill |
-| `detach-thread` | `tsk thread detach` |
+| `detach-thread` | `tsk thread detach`, then `tsk thread skip` if asked |
 | `stop-thread` | `tsk thread stop` |
 | `register-repo` | `tsk nexus register-repo` |
+
+The `SessionStart` hook passes the plugin's own version to `tsk thread session-start
+--plugin-version`. When that version is lower than the plugin version the binary expects,
+the session context asks for a plugin update (`/plugin update tsk`). The expected version
+is the constant `EXPECTED_PLUGIN_VERSION` in `cli/src/thread/session_start.rs`. Bump it
+with the `version` in `.claude-plugin/plugin.json`: a unit test fails when they differ.
 
 The plugin is installed from the `jimbarritt/claude-plugins` marketplace, as
 `tsk@jimbarritt-claude-plugins`. Its entry has the `git-subdir` form, with `url` set to

@@ -37,7 +37,8 @@ each of those as described below, and do not inline their work here.
      skip the rest of this step.
    - Given anything else (a mission name, natural language) or nothing: run
      `tsk thread list` and, for each candidate, read the mission title from its
-     mission (`mission_id`, or the briefing in `mission_link` for an older thread) the same way `tsk:resume-thread` does (a null `mission_id` is a thread with no mission). Present the
+     `mission_id` with `tsk mission list <mission-id>`, as `tsk:resume-thread` does (a null
+     `mission_id` is a thread with no mission). Present the
      threads as `AskUserQuestion` options with thread ID, mission title, and
      `latest_whats_next` if present, with free text open for a thread ID not
      listed. If the argument named a mission, use it only to pick your suggested

@@ -23,7 +23,7 @@ see the Artefact and Ledger entries in `docs/domain/ubiquitous-language.md`.
 | | What it holds | Where |
 |---|---|---|
 | **The artefacts** | What a mission builds: source, `docs/`, `ops/`, `.claude/` | `main`, in the ordinary checkout |
-| **The ledger** | Missions, briefings, threads, continuation state entries, mission reports | A Dolt database (the ledger store), synced over the `tsk/ledger` branch |
+| **The ledger** | Mission records (tasks, decisions, questions), documents, threads, continuation state entries | A Dolt database (the ledger store), synced over the `tsk/ledger` branch |
 
 They are two branches of the same GitHub repository, `jimbarritt/tsk`. They are never
 checked out together. Changes to the artefacts go to `main` in the normal way. The
@@ -52,14 +52,15 @@ it. The ordinary checkout of the repository is the code worktree. The default ba
 needs the `dolt` binary, version 1.88.2 or later. The `git` backend keeps the ledger as files in a
 ledger worktree instead (see `docs/domain/ledger-layout.md`).
 
-The store holds documents and tables. You read and write the documents with
-`tsk ledger doc`, not as files:
+The store holds records, as tables. You read and write them with the `tsk mission`,
+`tsk task`, `tsk decision` and `tsk question` commands. `tsk mission list` lists the
+missions, and `tsk mission list <id> --json` prints one in full. The documents are
+Markdown files on the branch `tsk/docs`. They hold free text only, such as intelligence,
+research and reports, and a mission links to them with `tsk mission link`. You read and
+write them with `tsk ledger doc`, not as files:
 
 ```
-index.md                        current state, the mission tree, next step
-missions/                       one briefing per mission
-missions/<id>/                  a mission's report, once it starts executing
-future-missions-tbd.md          ideas not yet shaped into briefings
+missions/<category>/<id>/       a mission's research, intelligence and reports
 ```
 
 `tsk ledger doc get <path>` prints a document, `tsk ledger doc list [<prefix>]` lists
@@ -139,8 +140,9 @@ a session ID and source does the work, and a second run exits with no output.
 `tsk thread session-start`:
 
 1. Fetches `tsk/ledger` and refreshes the ledger store, exporting
-   `$TSK_LEDGER_WT`. The context it prints tells the agent to read the index with
-   `tsk ledger doc get index.md`.
+   `$TSK_LEDGER_WT`. The context it prints tells the agent to run `tsk mission list`, or
+   shows the bound thread's mission and its open tasks. It warns when the loaded plugin is
+   older than the plugin version this tsk expects.
 2. Resolves the current binding, a row of the ledger's `bindings` table: the row of the
    cloud session ID (`CLAUDE_CODE_REMOTE_SESSION_ID`) if there is one, otherwise the row
    of the code worktree (`<clone-id>/<worktree-name>`). A `tsk-thread-id` marker file

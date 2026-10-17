@@ -4,6 +4,11 @@ Term definitions are in
 [docs/domain/ubiquitous-language.md](ubiquitous-language.md#mission). This file
 holds why the model is shaped this way. Source: 2026-09-14 bootstrap design session.
 
+Since tsk 0.9.0 a mission is a record in the ledger, not a Markdown briefing. Its tasks,
+decisions and questions are records too (0.10.0). A briefing is a projection: a rendering
+of the records for a person or an agent. tsk does not build projections yet. Where this
+file says "briefing", read the mission record, or the projection that will render it.
+
 ## The central tension: step vs task
 
 - A **step** is a movement on the route, independent of people and mostly of time,
@@ -78,9 +83,9 @@ out of mission reports. Every thread has a mission, so each of those needs one.
 
 A mission is **administrative** or **operational**. Operational missions build or change
 the artefacts. Administrative missions keep the work itself in order, which is what the
-four examples above do. The category is carried by which subdirectory of the ledger's
-`missions/` the briefing sits in, and by nothing else: there is no field for it in a
-briefing, and it changes neither a mission's structure nor how it is executed.
+four examples above do. The category is a column of the mission record, and it
+changes neither a mission's structure nor how it is executed. (In the file era it was the
+subdirectory of `missions/` that the briefing sat in, and nothing else.)
 
 An earlier version of this section classified missions as standing, and their objectives
 as attainable or maintained. That classification was dropped on 2026-09-17. It named no

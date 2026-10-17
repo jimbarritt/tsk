@@ -30,6 +30,11 @@ emit() {
 # is a warning in the session context and does not stop session start.
 DOLT_MSG="$("$PLUGIN_DIR/hooks/install-dolt.sh" | tr '\n' ' ' | sed 's/ *$//')"
 
+# The version of this plugin, so tsk can warn when it is older than the plugin the
+# binary expects. Omitted when jq or the manifest is missing.
+PLUGIN_VERSION="$(jq -r '.version // empty' "$PLUGIN_DIR/.claude-plugin/plugin.json" 2>/dev/null)"
+PLUGIN_VERSION_ARGS=()
+
 REQUIRED="$(tr -d '[:space:]' <"$PLUGIN_DIR/tsk-version")"
 
 installed_version() {
@@ -63,13 +68,19 @@ if ! installed_is_current; then
   exit 0
 fi
 
+# Pass the version only to a tsk that has the flag, so an older binary still starts.
+if [ -n "$PLUGIN_VERSION" ] &&
+  tsk thread session-start --help 2>/dev/null | grep -q -- '--plugin-version'; then
+  PLUGIN_VERSION_ARGS=(--plugin-version "$PLUGIN_VERSION")
+fi
+
 if [ -z "$DOLT_MSG" ] && [ "$FORMAT" != "copilot" ]; then
-  exec tsk thread session-start
+  exec tsk thread session-start ${PLUGIN_VERSION_ARGS[@]+"${PLUGIN_VERSION_ARGS[@]}"}
 fi
 
 # Add the dolt warning to the context that tsk prints, and convert it to the
 # harness's shape. tsk prints nothing when another hook already claimed the event.
-TSK_OUTPUT="$(tsk thread session-start)"
+TSK_OUTPUT="$(tsk thread session-start ${PLUGIN_VERSION_ARGS[@]+"${PLUGIN_VERSION_ARGS[@]}"})"
 [ -n "$TSK_OUTPUT" ] || exit 0
 TSK_MSG="$(printf '%s' "$TSK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
 emit "$(printf '%s %s' "$TSK_MSG" "$DOLT_MSG" | sed 's/^ *//; s/ *$//')"

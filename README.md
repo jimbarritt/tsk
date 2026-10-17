@@ -2,7 +2,9 @@
 
 tsk holds a repo's missions, threads and continuation state in a ledger, and connects
 Claude Code and GitHub Copilot CLI sessions to it. The ledger is a Dolt database, synced
-over git on the branch `tsk/ledger`.
+over git on the branch `tsk/ledger`. Missions, tasks, decisions and
+questions are records in it, written through `tsk` commands and read with
+`tsk mission list`. Research and reports are Markdown documents on the branch `tsk/docs`.
 
 ## Install with Homebrew
 

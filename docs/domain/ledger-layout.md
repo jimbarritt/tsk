@@ -159,7 +159,7 @@ With the `git` backend, `doc path` prints the file in the ledger worktree. The o
 commands behave the same with both backends.
 
 `doc put` and `doc rm` do not reach the remote. `tsk ledger push "<message>"` does.
-`tsk thread start` takes a mission ID, or none. It refuses an ID that has no mission record and no briefing document at `missions/<category>/<ID>-<slug>.md` or `missions/<category>/<ID>.md` in the documents worktree. With no ID it mints a thread with no mission. `tsk thread set mission` applies the same check.
+`tsk thread start` takes a mission ID, or none. It refuses an ID that has no mission record. With no ID it mints a thread with no mission. `tsk thread set mission` applies the same check. A ledger from before the mission records also accepts a briefing document at `missions/<category>/<ID>-<slug>.md`.
 
 `tsk ledger fetch` refreshes both stores: the Dolt database, then the documents
 worktree. It creates the worktree when it is absent. It refuses a worktree with
@@ -939,29 +939,36 @@ version = 1
 
 ## `index.md` and `future-missions-tbd.md`
 
-Free-form Markdown, written by humans and agents. No command parses either file.
+Free-form Markdown, written by humans and agents. No command parses either file. Both are
+file-era documents. Since mission records exist, `tsk mission list` is the index, and
+no agent reads or writes `index.md`. A ledger keeps the two files until its missions are
+migrated to records, and the migration retires them.
 
-- `index.md` is the entry point: current state and next steps. An agent reads it first.
-- `future-missions-tbd.md` holds mission ideas not yet shaped into briefings.
+- `index.md` was the entry point: current state and next steps.
+- `future-missions-tbd.md` held mission ideas not yet shaped into missions. Ideas now go
+  in a document linked to an administrative mission, or in a mission of their own.
 
 ## `missions/`
 
-Mission briefings and the files missions leave behind, as Markdown. The binary moves
-these files between the ledger and the ledger worktree without parsing them. Encoding the
-briefing format is a later mission.
+The files missions leave behind, as Markdown: intelligence, research, reports and designs,
+linked from the mission record by path and role. Briefings from the file era are also
+here. A mission's purpose, tasks, decisions and questions are records and not documents,
+so a new mission has no briefing. The binary moves these files between the ledger and the
+ledger worktree without parsing them.
 
 Layout in use:
 
 | Path | Content |
 |---|---|
 | `missions/administrative/`, `missions/operational/` | One directory per mission category. |
-| `missions/<category>/M-<ID>-<slug>.md` | A mission briefing. `<ID>` is the mission ID, for example `BOOT-04`. |
+| `missions/<category>/M-<ID>-<slug>.md` | A mission briefing from the file era. `<ID>` is the mission ID, for example `BOOT-04`. A done mission keeps its briefing here, linked from its record. |
 | `missions/<category>/M-<ID>/` | A mission's supporting files: sub-briefings, intelligence indexes, reports. |
 | `missions/<category>/M-<ID>-<slug>-report-<YYYY-MM-DD>.md` | A dated report beside its briefing. |
 
 The one structural rule a command enforces: `thread start` and `thread set mission` take
 a mission ID (`thread start` also runs with none, and makes a thread with no mission). They
-accept the ID when the mission has a record, and otherwise when a briefing document at
+accept the ID when the mission has a record, and, for a ledger not yet migrated, when a
+briefing document at
 `missions/<category>/<ID>-<slug>.md` or `missions/<category>/<ID>.md` exists (for
 example `missions/operational/M-BOOT-04-official-ledger.md` for `M-BOOT-04`). The ID in
 a file name is `M-` and the groups of capitals and digits that follow, up to the slug.
@@ -1486,9 +1493,9 @@ Standard output on success:
 `additionalContext` is these parts, joined by single spaces:
 
 1. `The ledger was fetched and materialised at <path> (also exported as $TSK_LEDGER_WT).`
-   and, when the ledger has no mission records, the backend's hint to read the index
-   (`Read <path>/index.md next.`). With mission records the hint is absent. A bound thread
-   whose mission has a record gets instead the mission and its open tasks:
+   and, when the ledger has mission records, `Run `tsk mission list` to see the missions.`
+   When it has none, the part is empty. A bound thread whose mission has a record gets
+   instead the mission and its open tasks:
    `This thread works mission <id> (<status>): <name>.` and
    `Its open tasks follow, one per line: id, status, blocked-by, description, tab-separated.`
    and the lines `tsk task list` prints for the tasks that are not done. With none, it
@@ -1512,6 +1519,13 @@ Standard output on success:
    `thread` commands refresh the same way. The merge with the remote happens at the push.
 4. When the ledger has no mission records and no mission documents, the note that names
    `tsk guide import`.
+5. When the command is given `--plugin-version <semver>` and that version is lower than
+   `EXPECTED_PLUGIN_VERSION`, the plugin version this binary expects, the sentence
+   `The tsk plugin loaded in this session is <given>; this tsk expects <expected>. Update
+   the plugin (Claude Code: /plugin update tsk; or start a new session), because its
+   skills describe an older command set.` An equal or higher version, an absent flag and a
+   value that is not `major.minor.patch` add nothing. The plugin's `session-start.sh`
+   reads its own version from `.claude-plugin/plugin.json` and passes it.
 
 When the fetch finds a version 1 ledger, the context is `The ledger at <path> (also
 exported as $TSK_LEDGER_WT) is at layout version 1: its documents are still in Dolt. Run
@@ -1521,7 +1535,7 @@ else is added.
 
 On failure the output is the same object with the context
 `Warning: the ledger could not be fetched automatically at session start (<error>). Run
-`tsk ledger fetch` manually before reading index.md.` and the exit status is 0.
+`tsk ledger fetch` manually before reading the missions.` and the exit status is 0.
 
 The command does not unshallow the clone, install plugins, or stash, check out or pull
 the code worktree. Those steps stay in the repo's own hook script.

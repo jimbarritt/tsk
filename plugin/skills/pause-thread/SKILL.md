@@ -29,7 +29,8 @@ suggest an automated trigger for it.
      mission. When the thread has no mission (the session start context says so),
      pass an empty task ID: a thread with no mission has no tasks, and the command
      refuses a task ID. To give the thread a mission first, run
-     `tsk thread set mission <mission-id>`.
+     `tsk thread set mission <mission-id>`. List the mission's tasks with
+     `tsk task list <mission-id>`.
    - `<whats-next>`: a short, concrete account of where things stand, specific
      enough that a different actor, reading only this line, knows what to do
      next.
@@ -55,7 +56,8 @@ suggest an automated trigger for it.
    git status --porcelain
    git branch -r --contains HEAD
 
-   # ledger: commits any pending ledger change and pushes any unpushed commit
+   # ledger: shows records and documents not pushed, then pushes them
+   tsk ledger status
    tsk ledger push "Flush ledger before clear"
    ```
 

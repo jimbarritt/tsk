@@ -1061,10 +1061,10 @@ fn session_start_fetches_exports_the_path_and_prints_the_unbound_prompt() {
     assert!(wt.join("index.md").is_file());
     let context = session_context(&output);
     assert!(context.starts_with(&format!(
-        "The ledger was fetched and materialised at {} (also exported as $TSK_LEDGER_WT). Read {}/index.md next.",
-        wt.display(),
+        "The ledger was fetched and materialised at {} (also exported as $TSK_LEDGER_WT). No thread binding",
         wt.display()
     )));
+    assert!(!context.contains("index.md"));
     assert!(context.ends_with("run `tsk thread skip` instead."));
     assert!(context.contains("No thread binding was found for this session or worktree."));
     assert!(!context.contains("WARNING"));
@@ -1104,6 +1104,47 @@ fn session_start_copilot_format_prints_only_additional_context() {
     );
     assert_success(&again);
     assert_eq!(stdout(&again), "");
+}
+
+#[test]
+fn session_start_warns_about_an_older_plugin_in_both_formats() {
+    let fx = Fixture::new();
+    let output = session_start_with(
+        &fx,
+        &["--plugin-version", "0.0.1"],
+        "{\"session_id\":\"p1\",\"source\":\"startup\"}",
+        None,
+    );
+    assert_success(&output);
+    let context = session_context(&output);
+    assert!(
+        context.contains("The tsk plugin loaded in this session is 0.0.1; this tsk expects "),
+        "{}",
+        context
+    );
+    assert!(context.contains("/plugin update tsk"));
+
+    let copilot = session_start_with(
+        &fx,
+        &["--format", "copilot", "--plugin-version", "0.0.1"],
+        "{\"sessionId\":\"p2\",\"source\":\"new\"}",
+        None,
+    );
+    assert_success(&copilot);
+    let value = json(&stdout(&copilot));
+    assert!(value["additionalContext"]
+        .as_str()
+        .unwrap()
+        .contains("The tsk plugin loaded in this session is 0.0.1;"));
+
+    let newer = session_start_with(
+        &fx,
+        &["--plugin-version", "99.0.0"],
+        "{\"session_id\":\"p3\",\"source\":\"startup\"}",
+        None,
+    );
+    assert_success(&newer);
+    assert!(!session_context(&newer).contains("plugin loaded"));
 }
 
 #[test]
@@ -1233,7 +1274,7 @@ fn session_start_exits_0_with_a_warning_when_the_fetch_fails() {
     let context = session_context(&output);
     assert!(context
         .starts_with("Warning: the ledger could not be fetched automatically at session start ("));
-    assert!(context.ends_with("Run `tsk ledger fetch` manually before reading index.md."));
+    assert!(context.ends_with("Run `tsk ledger fetch` manually before reading the missions."));
     assert!(!env_file.exists());
 }
 

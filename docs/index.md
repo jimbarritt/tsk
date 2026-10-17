@@ -19,7 +19,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 - [territory-and-nexus.md](domain/territory-and-nexus.md): why territory and nexus are separate concepts rather than fused.
 - [personal-and-team-territories.md](domain/personal-and-team-territories.md): analysis, 2026-10-16, of tsk without a nexus, two teams sharing one repo from separate nexuses, and where an actor's own cross-cutting work lives: a personal nexus beside team nexuses, with the open decisions.
 - [persistence-and-sync.md](domain/persistence-and-sync.md): the superseded 2026-09-14 custom-ref sync design, kept as a record. ADR 0014 and the Dolt section of ledger-layout.md replace it.
-- [mission-briefing-template.md](domain/mission-briefing-template.md): rendering format for missions as briefings for humans and agents.
+- [mission-briefing-template.md](domain/mission-briefing-template.md): the shape a projection of a mission record will take, as a briefing for humans and agents. Projections are not built yet.
 - [session-continuation-design.md](domain/session-continuation-design.md): thread binding, the continuation state store, and the `/start-thread`, `/pause-thread`, `/resume-thread` commands.
 - [ledger-layout.md](domain/ledger-layout.md): the Dolt backend (database location, tables, documents, push, migration, backend selection) and the `git` backend file layout: every ledger file, its format and JSON fields, the `.tsk-ledger.toml` manifest, the ledger refs and nexus URL normalisation, the ledger worktree location, the local-only files, and what `tsk ledger fetch` and `tsk ledger path` do.
 

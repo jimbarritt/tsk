@@ -10,9 +10,26 @@ client alone, with no daemon. The default ledger backend is Dolt and needs the `
 are in [session-continuation-design.md](../domain/session-continuation-design.md).
 
 To bring an existing plan into a ledger, run `tsk guide import`. It prints a guide for an
-agent: what the ledger holds, the shape of a mission briefing, and the steps to map a
-plan in any format onto missions through `tsk ledger doc put`. The session start context
-names the command while the ledger holds no missions.
+agent: what the ledger holds, how a plan maps onto records, and the steps to write
+missions, tasks, decisions and questions through the `tsk` commands. The session start
+context names the command while the ledger holds no missions.
+
+The ledger holds records and documents. Missions, tasks, decisions and questions are
+records, and `tsk mission list` is the index of them. Documents are free text, such as
+research and reports. Agents do not edit either by hand.
+
+```bash
+tsk mission list                     # every mission: id, status, blocked-by, parent, name
+tsk mission list M-BOOT-04 --json    # one mission in full
+tsk task list M-BOOT-04              # its tasks
+tsk decision list M-BOOT-04          # its decisions
+tsk question list                    # open questions, all missions
+```
+
+The commands that write records are `tsk mission`, `tsk task`, `tsk decision` and
+`tsk question`. Each changes the local ledger store only. `tsk ledger status` shows what
+is not pushed, `tsk ledger push` publishes it, and `tsk ledger discard --yes` drops it
+before the push.
 
 **1. Fetch the ledger:**
 
@@ -29,13 +46,13 @@ files. `tsk ledger fetch` checks it out beside the database, at
 `.../tsk/repos/<clone-id>/docs`. Read and write documents with `tsk ledger doc`:
 
 ```bash
-tsk ledger doc get index.md                      # print the index
-tsk ledger doc list missions/                    # list the briefings
-tsk ledger doc get missions/operational/M-BOOT-04-official-ledger.md
-tsk ledger doc put index.md updated-index.md     # or pipe the body on stdin
+tsk ledger doc list missions/                    # list the documents under a prefix
+tsk ledger doc get missions/operational/M-BOOT-04/research.md
+tsk ledger doc put missions/operational/M-BOOT-04/research.md notes.md   # or pipe the body on stdin
 tsk ledger doc rm missions/operational/old.md
-tsk ledger doc path index.md                     # print the file's absolute path, to open it elsewhere
-tsk ledger push "Update the index"               # commit and push the change
+tsk ledger doc path missions/operational/M-BOOT-04/research.md   # the file's absolute path, to open it elsewhere
+tsk mission link M-BOOT-04 missions/operational/M-BOOT-04/research.md --role intelligence
+tsk ledger push "Add the research"               # commit and push the change
 ```
 
 `doc put` and `doc rm` change the local worktree only. `tsk ledger push` sends the change.
@@ -54,8 +71,8 @@ except `tsk ledger fetch` stops and says so.
 tsk thread start M-BOOT-04
 ```
 
-The mission has a record (see `tsk mission list`), or a briefing document at
-`missions/<category>/M-BOOT-04-<slug>.md`. The command mints a thread ID, stores the thread
+The mission has a record (see `tsk mission list`). With no mission ID the thread has no
+mission and no tasks, and `tsk thread set mission <id>` attaches one later. The command mints a thread ID, stores the thread
 and its mission on the ledger, binds the current code worktree (or cloud session) to
 it, pushes, and prints `started:<thread-id>`. It refuses an unknown mission ID. With a
 binding already in place it prints `resume-required:<thread-id>` and exits with status 2.
@@ -91,11 +108,13 @@ tsk thread stop [<thread-id>] # delete the thread and every cloud binding to it
 tsk thread list               # one JSON object per thread, most recently paused first
 ```
 
-**6. Change a ledger file:**
+**6. Change the ledger:**
 
-Edit the file in `$WT`, then push:
+Write records with the `tsk mission`, `tsk task`, `tsk decision` and `tsk question`
+commands, and documents with `tsk ledger doc put`. Do not edit files in `$WT`. Then push:
 
 ```bash
+tsk ledger status                       # what is not pushed
 tsk ledger push "Describe the change"
 ```
 

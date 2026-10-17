@@ -199,6 +199,9 @@ fn push_part(context: &mut String, part: &str) {
 /// Said when the session start leaves uncommitted changes of the ledger store in place.
 pub const LOCAL_CHANGES_NOTE: &str = "The ledger store holds local changes that are not pushed (records or documents written since the last push). The refresh left them as they are. A thread command pushes them with its own change, or run `tsk ledger push`.";
 
+/// Said when the ledger holds mission records and the thread is not bound to one.
+pub const MISSION_LIST_HINT: &str = "Run `tsk mission list` to see the missions.";
+
 pub struct PendingNote {
     pub remote_ref: String,
     /// The command that shows what the pending commits change, from the backend.
@@ -296,7 +299,7 @@ pub fn version_1_context(path: &Path) -> String {
 
 pub fn failure_context(error: &str) -> String {
     format!(
-        "Warning: the ledger could not be fetched automatically at session start ({}). Run `tsk ledger fetch` manually before reading index.md.",
+        "Warning: the ledger could not be fetched automatically at session start ({}). Run `tsk ledger fetch` manually before reading the missions.",
         error.replace('\n', " ").trim()
     )
 }
@@ -338,12 +341,12 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
         .doc_list("missions/")
         .is_ok_and(|documents| documents.is_empty());
 
-    // With mission records the context carries the mission list or the bound mission, and
-    // does not send the agent to the index.
+    // With mission records the context points to `tsk mission list`, or carries the bound
+    // mission. A ledger with no missions has nothing to point to.
     let mut read_hint = if missions.is_empty() {
-        store.read_index_hint(&outcome.path)
-    } else {
         String::new()
+    } else {
+        MISSION_LIST_HINT.to_string()
     };
     let mut no_mission = None;
     if let Some(binding) = &binding {
@@ -400,6 +403,37 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
     Ok(context)
 }
 
+/// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
+/// A unit test keeps the two equal.
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.12";
+
+/// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
+fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
+    let core = text.trim().split(['-', '+']).next()?;
+    let mut parts = core.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((major, minor, patch))
+}
+
+/// The sentence that says the loaded plugin is older than the one this binary expects.
+/// None when the versions are equal, the loaded one is higher, or either is absent or
+/// not a version.
+pub fn plugin_version_note(given: Option<&str>, expected: &str) -> Option<String> {
+    let given = given?.trim();
+    if parse_version(given)? >= parse_version(expected)? {
+        return None;
+    }
+    Some(format!(
+        "The tsk plugin loaded in this session is {}; this tsk expects {}. Update the plugin (Claude Code: /plugin update tsk; or start a new session), because its skills describe an older command set.",
+        given, expected
+    ))
+}
+
 pub const REMOTE_VAR: &str = "CLAUDE_CODE_REMOTE";
 
 pub fn is_remote() -> bool {
@@ -433,7 +467,7 @@ fn install_plugin_warning() -> Option<String> {
     }
 }
 
-pub fn run(format: HookFormat, install_plugin: bool) -> i32 {
+pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str>) -> i32 {
     let mut bytes = Vec::new();
     let _ = std::io::stdin().read_to_end(&mut bytes);
     let input = HookInput::parse(&bytes);
@@ -461,6 +495,10 @@ pub fn run(format: HookFormat, install_plugin: bool) -> i32 {
             context.push(' ');
             context.push_str(&notice);
         }
+    }
+    if let Some(note) = plugin_version_note(plugin_version, EXPECTED_PLUGIN_VERSION) {
+        context.push(' ');
+        context.push_str(&note);
     }
     for warning in warnings {
         context.push(' ');
@@ -519,17 +557,16 @@ mod tests {
     }
 
     #[test]
-    fn fetched_context_names_the_path_and_the_next_read() {
+    fn fetched_context_names_the_path_and_the_mission_list_hint() {
         let path = PathBuf::from("/s/ledger");
-        let context = fetched_context(
-            &path,
-            "Read /s/ledger/index.md next.",
-            &no_pending(),
-            "Next.",
-        );
+        let context = fetched_context(&path, MISSION_LIST_HINT, &no_pending(), "Next.");
         assert_eq!(
             context,
-            "The ledger was fetched and materialised at /s/ledger (also exported as $TSK_LEDGER_WT). Read /s/ledger/index.md next. Next."
+            "The ledger was fetched and materialised at /s/ledger (also exported as $TSK_LEDGER_WT). Run `tsk mission list` to see the missions. Next."
+        );
+        assert_eq!(
+            fetched_context(&path, "", &no_pending(), "Next."),
+            "The ledger was fetched and materialised at /s/ledger (also exported as $TSK_LEDGER_WT). Next."
         );
     }
 
@@ -540,7 +577,7 @@ mod tests {
             lines: vec!["1111111 first".to_string(), "2222222 second".to_string()],
             ..no_pending()
         };
-        let context = fetched_context(&path, "Read /s/ledger/index.md next.", &pending, "Next.");
+        let context = fetched_context(&path, MISSION_LIST_HINT, &pending, "Next.");
         assert!(context.contains(
             "WARNING: the ledger worktree holds a commit that is not on origin's refs/heads/tsk/ledger"
         ));
@@ -665,6 +702,41 @@ mod tests {
         );
         assert!(!old.exists());
         assert!(dir.path().join("new.startup").exists());
+    }
+
+    #[test]
+    fn plugin_version_note_fires_only_for_an_older_plugin() {
+        assert_eq!(
+            plugin_version_note(Some("0.3.11"), "0.3.12").as_deref(),
+            Some("The tsk plugin loaded in this session is 0.3.11; this tsk expects 0.3.12. Update the plugin (Claude Code: /plugin update tsk; or start a new session), because its skills describe an older command set.")
+        );
+        assert!(plugin_version_note(Some("0.3.9"), "0.3.10").is_some());
+        assert!(plugin_version_note(Some("0.2.99"), "0.3.0").is_some());
+        assert!(plugin_version_note(Some("0.3.12"), "0.3.12").is_none());
+        assert!(plugin_version_note(Some("0.3.13"), "0.3.12").is_none());
+        assert!(plugin_version_note(Some("1.0.0"), "0.3.12").is_none());
+        assert!(plugin_version_note(None, "0.3.12").is_none());
+        assert!(plugin_version_note(Some(""), "0.3.12").is_none());
+        assert!(plugin_version_note(Some("latest"), "0.3.12").is_none());
+        assert!(plugin_version_note(Some("0.3"), "0.3.12").is_none());
+        assert!(plugin_version_note(Some("0.3.1.2"), "0.3.12").is_none());
+    }
+
+    #[test]
+    fn parse_version_ignores_a_pre_release_and_build_suffix() {
+        assert_eq!(parse_version(" 0.3.12-rc.1+b5 "), Some((0, 3, 12)));
+        assert_eq!(parse_version("a.b.c"), None);
+    }
+
+    #[test]
+    fn the_expected_plugin_version_is_the_version_in_the_plugin_manifest() {
+        let manifest =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../plugin/.claude-plugin/plugin.json");
+        let Ok(text) = std::fs::read_to_string(&manifest) else {
+            return; // not in this repo, for example a crates.io checkout
+        };
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(json["version"], EXPECTED_PLUGIN_VERSION);
     }
 
     #[test]

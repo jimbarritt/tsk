@@ -237,9 +237,17 @@ ledger, exports its path as `$TSK_LEDGER_WT`, and asks for a thread binding.
 
 ## 10. Add a first mission
 
-1. Write a mission briefing under `missions/` in the ledger worktree. The template is in
-   [mission-briefing-template.md](../domain/mission-briefing-template.md).
-2. List it in the ledger's `index.md`.
+1. Create the mission as a record, then add its purpose, objectives and tasks:
+
+   ```bash
+   tsk mission create M-FIRST "First mission"
+   tsk mission set M-FIRST purpose "Why the mission exists"
+   tsk mission objective add M-FIRST "The state of the world when it is done"
+   tsk task add M-FIRST "The first task"
+   ```
+
+2. Check it with `tsk mission list`. To bring in an existing plan instead, run
+   `tsk guide import`.
 3. Push the ledger:
 
    ```bash
