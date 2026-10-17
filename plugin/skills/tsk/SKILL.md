@@ -199,8 +199,9 @@ tsk task add <mission> <description>          # prints the new ID, T-01 upward
 tsk task set <mission> <task> <field> <value> # status (todo|in-progress|done) or description
 tsk task block <mission> <task> <by>          # and unblock; <by> is a task of the same mission
 tsk task list <mission>
-tsk decision add <mission> "<text>" --by <who> [--task T-nn] [--on YYYY-MM-DD]
-tsk decision list <mission>
+tsk decision add <mission> "<text>" --by <who> [--task T-nn] [--on YYYY-MM-DD] [--adr <path>]
+tsk decision list <mission> [--adr <path>]
+tsk decision list --adr <path>                # the decisions of every mission that name the ADR
 tsk question add <mission> "<text>"           # prints the new ID, Q-01 upward
 tsk question edit <mission> <q> "<text>"      # rewrites an open question; an answered one is refused
 tsk question answer <mission> <q> "<text>" --by <who>
@@ -209,7 +210,13 @@ tsk question list [<mission>]                 # open questions, all missions whe
 
 Text is one line. `task list` prints `T-nn`, `status`, `blocked-by` and `description`,
 tab-separated. A task is blocked while any task it names in `block` is not `done`.
-`decision list` prints the date, who, the task or `-`, and the text, oldest first.
+`decision list` prints the date, who, the task or `-`, the text and the ADR path or `-`,
+oldest first. With `--adr` and no mission it prints the mission ID first, for every
+decision that names that ADR.
+A decision links to an ADR when an ADR explains it: `--adr docs/adr/0014-x.md`, the path
+from the root of the repository you are in. The file must exist there. A decision is a
+one-line fact about the work. The reasoning belongs in the ADR, so link it and do not
+repeat it.
 `decision add` dates the decision today (UTC). When the decision was made earlier, give
 its date with `--on`, a real calendar date such as `2026-03-14`, rather than writing the
 date into the text.

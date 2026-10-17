@@ -1739,8 +1739,10 @@ mod cases {
         let texts: Vec<&str> = rows.iter().map(|r| r[3].as_str()).collect();
         assert_eq!(texts, vec!["Use Dolt", "Split the task", "-leading dash"]);
         for row in &rows {
-            assert_eq!(row.len(), 4);
+            // Date, who, task, text and the ADR path, which is `-` when none is named.
+            assert_eq!(row.len(), 5);
             assert!(is_date(&row[0]), "{:?}", row);
+            assert_eq!(row[4], "-");
         }
         assert_eq!(rows[0][1..3], ["Jim", "-"]);
         assert_eq!(rows[1][1..3], ["an agent", "T-02"]);
@@ -3236,8 +3238,8 @@ mod cases {
         );
         fx.ok(&a, &["decision", "add", "M-T", "Today", "--by", "Jim"]);
         let rows = lines(&fx.ok(&a, &["decision", "list", "M-T"]));
-        assert_eq!(rows[0], ["2026-02-27", "Jim", "-", "Old call"]);
-        assert_eq!(rows[1], ["2024-02-29", "Jim", "T-01", "Leap day"]);
+        assert_eq!(rows[0], ["2026-02-27", "Jim", "-", "Old call", "-"]);
+        assert_eq!(rows[1], ["2024-02-29", "Jim", "T-01", "Leap day", "-"]);
         assert!(is_date(&rows[2][0]), "{:?}", rows[2]);
         assert_ne!(rows[2][0], "2026-02-27");
 
@@ -3365,6 +3367,225 @@ mod cases {
             "Why, then?"
         );
     }
+
+    pub fn decisions_name_an_adr_and_are_found_from_the_adr(b: Backend) {
+        let (fx, a) = mission_with_tasks(b, 1);
+        fx.ok(&a, &["mission", "create", "M-U", "Other"]);
+        let adr = "docs/adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md";
+        let other_adr = "docs/adr/0015-other.md";
+        std::fs::create_dir_all(a.join("docs/adr")).unwrap();
+        write(&a.join(adr), "# ADR 14\n");
+        write(&a.join(other_adr), "# ADR 15\n");
+
+        fx.ok(
+            &a,
+            &[
+                "decision", "add", "M-T", "Use Dolt", "--by", "Jim", "--adr", adr,
+            ],
+        );
+        fx.ok(&a, &["decision", "add", "M-T", "No ADR", "--by", "Jim"]);
+        // The stored path is one spelling, and a task and a date go with an ADR.
+        fx.ok(
+            &a,
+            &[
+                "decision",
+                "add",
+                "M-T",
+                "Spelled long",
+                "--by",
+                "Jim",
+                "--task",
+                "T-01",
+                "--on",
+                "2026-03-14",
+                "--adr",
+                &format!("./{}", adr),
+            ],
+        );
+        fx.ok(
+            &a,
+            &[
+                "decision", "add", "M-U", "Same ADR", "--by", "Ann", "--adr", adr,
+            ],
+        );
+        fx.ok(
+            &a,
+            &[
+                "decision",
+                "add",
+                "M-U",
+                "Other ADR",
+                "--by",
+                "Ann",
+                "--adr",
+                other_adr,
+            ],
+        );
+
+        // By mission: the four columns and the ADR path last.
+        let rows = lines(&fx.ok(&a, &["decision", "list", "M-T"]));
+        assert_eq!(rows.len(), 3);
+        for row in &rows {
+            assert_eq!(row.len(), 5, "{:?}", row);
+        }
+        assert_eq!(rows[0][3..], ["Use Dolt", adr]);
+        assert_eq!(rows[1][3..], ["No ADR", "-"]);
+        assert_eq!(rows[2][2..], ["T-01", "Spelled long", adr]);
+        assert_eq!(rows[2][0], "2026-03-14");
+
+        // By ADR across missions: the mission leads, so there are six columns.
+        for spelling in [adr.to_string(), format!("./{}", adr)] {
+            let found = lines(&fx.ok(&a, &["decision", "list", "--adr", &spelling]));
+            assert_eq!(found.len(), 3, "{:?}", found);
+            for row in &found {
+                assert_eq!(row.len(), 6, "{:?}", row);
+                assert_eq!(row[5], adr);
+            }
+            let keys: Vec<(&str, &str)> = found
+                .iter()
+                .map(|r| (r[0].as_str(), r[4].as_str()))
+                .collect();
+            assert_eq!(
+                keys,
+                vec![
+                    ("M-T", "Use Dolt"),
+                    ("M-T", "Spelled long"),
+                    ("M-U", "Same ADR")
+                ]
+            );
+            assert_eq!(found[2][1..4], [rows[0][0].as_str(), "Ann", "-"][..]);
+        }
+        // By mission and ADR: one mission, the five-column form.
+        let one = lines(&fx.ok(&a, &["decision", "list", "M-U", "--adr", other_adr]));
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].len(), 5);
+        assert_eq!(one[0][3..], ["Other ADR", other_adr]);
+        let two = lines(&fx.ok(&a, &["decision", "list", "M-T", "--adr", adr]));
+        assert_eq!(two.len(), 2);
+        assert_eq!(
+            fx.ok(&a, &["decision", "list", "M-T", "--adr", other_adr]),
+            ""
+        );
+        // An ADR that no decision names is not an error, even when the file is gone.
+        assert_eq!(
+            fx.ok(&a, &["decision", "list", "--adr", "docs/adr/9999-none.md"]),
+            ""
+        );
+        fails(&fx, &a, &["decision", "list"], "needs a mission");
+        fails(
+            &fx,
+            &a,
+            &["decision", "list", "M-NONE", "--adr", adr],
+            "M-NONE",
+        );
+        fails(
+            &fx,
+            &a,
+            &["decision", "list", "--adr", "/etc/passwd"],
+            "absolute",
+        );
+        fails(&fx, &a, &["decision", "list", "--adr", "../x.md"], "'..'");
+
+        // The record carries the path, and null when there is none.
+        let json = mission_json(&fx, &a, "M-T");
+        assert_eq!(json["decisions"][0]["adr"], adr);
+        assert_eq!(json["decisions"][1]["adr"], serde_json::Value::Null);
+        assert_eq!(json["decisions"][2]["adr"], adr);
+
+        // A path is checked against the repository the command runs in, from any
+        // directory of its working tree.
+        let nested = a.join("docs");
+        let out = fx.tsk(
+            &nested,
+            &[
+                "decision",
+                "add",
+                "M-U",
+                "From a subdirectory",
+                "--by",
+                "Ann",
+                "--adr",
+                other_adr,
+            ],
+        );
+        assert_success(&out);
+        assert_eq!(
+            fx.ok(&a, &["decision", "list", "--adr", other_adr])
+                .lines()
+                .count(),
+            2
+        );
+
+        // Refused paths write nothing.
+        let before = fx.ok(&a, &["decision", "list", "--adr", adr]);
+        let count = fx.ok(&a, &["decision", "list", "M-T"]);
+        fails(
+            &fx,
+            &a,
+            &[
+                "decision",
+                "add",
+                "M-T",
+                "x",
+                "--by",
+                "Jim",
+                "--adr",
+                "/etc/passwd",
+            ],
+            "is absolute",
+        );
+        for bad in [
+            "../outside.md",
+            "docs/../../outside.md",
+            "docs/adr/../../../x.md",
+        ] {
+            fails(
+                &fx,
+                &a,
+                &["decision", "add", "M-T", "x", "--by", "Jim", "--adr", bad],
+                "contains '..'",
+            );
+        }
+        for missing in ["docs/adr/0099-missing.md", "docs/adr", "docs"] {
+            fails(
+                &fx,
+                &a,
+                &[
+                    "decision", "add", "M-T", "x", "--by", "Jim", "--adr", missing,
+                ],
+                "no such file in the repository",
+            );
+        }
+        fails(
+            &fx,
+            &a,
+            &["decision", "add", "M-T", "x", "--by", "Jim", "--adr", ""],
+            "cannot be empty",
+        );
+        fails(
+            &fx,
+            &a,
+            &[
+                "decision",
+                "add",
+                "M-T",
+                "x",
+                "--by",
+                "Jim",
+                "--adr",
+                "docs/a\tb.md",
+            ],
+            "tab or a line break",
+        );
+        assert_eq!(fx.ok(&a, &["decision", "list", "M-T"]), count);
+        assert_eq!(fx.ok(&a, &["decision", "list", "--adr", adr]), before);
+
+        // The links travel with the push, and the other clone finds them without the file.
+        fx.ok(&a, &["ledger", "push", "Decisions with ADRs"]);
+        let other = fx.b();
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(fx.ok(&other, &["decision", "list", "--adr", adr]), before);
+    }
 }
 
 macro_rules! conformance {
@@ -3432,6 +3653,7 @@ conformance!(
     status_prints_local_and_origin_in_plain_columns,
     a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
     an_open_question_is_edited_and_an_answered_one_is_not,
+    decisions_name_an_adr_and_are_found_from_the_adr,
 );
 
 conformance!(
@@ -3480,6 +3702,7 @@ conformance!(
     status_prints_local_and_origin_in_plain_columns,
     a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
     an_open_question_is_edited_and_an_answered_one_is_not,
+    decisions_name_an_adr_and_are_found_from_the_adr,
 );
 
 // --- Backend selection and mismatch ---
@@ -4030,7 +4253,7 @@ fn thread_commands_work_on_a_version_two_ledger() {
     );
 }
 
-// --- Mission and task tables and the version 5 ledger (Dolt backend) ---
+// --- Mission and task tables and the version 6 ledger (Dolt backend) ---
 
 const TASK_TABLES: [&str; 4] = ["questions", "decisions", "task_blocks", "tasks"];
 
@@ -4142,12 +4365,12 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
     );
 
     // The first write creates the tables, adds the counters, adds the thread column and
-    // records version 5.
+    // records version 6.
     assert_eq!(
         fx.ok(&other, &["task", "add", "M-OLD", "First on version 3"]),
         "T-01\n"
     );
-    assert_eq!(fx.manifest_version(&other), "5");
+    assert_eq!(fx.manifest_version(&other), "6");
     let tables = fx.tables(&other);
     for table in TASK_TABLES {
         assert!(tables.lines().any(|t| t == table), "{}: {}", table, tables);
@@ -4190,7 +4413,7 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
     assert_eq!(fx.manifest_version(&a), "3");
     fx.ok(&other, &["ledger", "push", "First task"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "5");
+    assert_eq!(fx.manifest_version(&a), "6");
     assert_eq!(
         fx.ok(&a, &["task", "list", "M-OLD"]),
         "T-01\ttodo\t-\tFirst on version 3\nT-02\ttodo\tT-01\tSecond\n"
@@ -4210,12 +4433,12 @@ fn a_version_three_ledger_upgrades_at_a_mission_write_too() {
     fx.ok(&other, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&other), "3");
     fx.ok(&other, &["mission", "create", "M-NEW", "New"]);
-    assert_eq!(fx.manifest_version(&other), "5");
+    assert_eq!(fx.manifest_version(&other), "6");
     assert_eq!(fx.ok(&other, &["task", "add", "M-OLD", "x"]), "T-01\n");
 }
 
 #[test]
-fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_five() {
+fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_six() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
@@ -4223,7 +4446,7 @@ fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_five() {
     let fx = Fixture::new(Backend::Dolt);
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "5");
+    assert_eq!(fx.manifest_version(&a), "6");
     let tables = fx.tables(&a);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -4288,10 +4511,10 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
         fx.ok(&other, &["ledger", "doc", "get", "base.md"]),
         "base\n"
     );
-    // The first mission write creates the tables, the column and records version 5 in one
+    // The first mission write creates the tables, the column and records version 6 in one
     // change.
     fx.ok(&other, &["mission", "create", "M-X", "First on version 2"]);
-    assert_eq!(fx.manifest_version(&other), "5");
+    assert_eq!(fx.manifest_version(&other), "6");
     let tables = fx.tables(&other);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -4311,13 +4534,13 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
     assert_eq!(fx.manifest_version(&a), "2");
     fx.ok(&other, &["ledger", "push", "First mission"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "5");
+    assert_eq!(fx.manifest_version(&a), "6");
     assert_eq!(
         fx.ok(&a, &["mission", "list"]),
         "M-X\ttodo\t-\t-\tFirst on version 2\n"
     );
     fx.ok(&a, &["mission", "create", "M-Y", "Second"]);
-    assert_eq!(fx.manifest_version(&a), "5");
+    assert_eq!(fx.manifest_version(&a), "6");
 }
 
 #[test]
@@ -4347,14 +4570,14 @@ fn a_version_two_ledger_upgrades_at_the_first_thread_write_and_not_before() {
         "c\n0\n"
     );
 
-    // The first thread write creates the tables and the column and records version 5.
+    // The first thread write creates the tables and the column and records version 6.
     let started = fx.ok(&other, &["thread", "start", "M-CONF-01"]);
     let id = started
         .trim_end()
         .strip_prefix("started:")
         .unwrap()
         .to_string();
-    assert_eq!(fx.manifest_version(&other), "5");
+    assert_eq!(fx.manifest_version(&other), "6");
     let tables = fx.tables(&other);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -4372,7 +4595,7 @@ fn a_version_two_ledger_upgrades_at_the_first_thread_write_and_not_before() {
     // The start pushed itself.
     assert_eq!(fx.manifest_version(&a), "2");
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "5");
+    assert_eq!(fx.manifest_version(&a), "6");
     assert_eq!(fx.ok(&a, &["mission", "list"]), "");
 }
 
@@ -4390,6 +4613,7 @@ impl Fixture {
             &format!(
                 "alter table threads drop column mission_id; \
                  alter table threads modify column briefing_path varchar(1024) not null; \
+                 alter table decisions drop column adr_path; \
                  replace into manifest (k, v) values ('version', '4'); \
                  insert into threads (thread_id, briefing_path) values ('aaaa1111', '{}')",
                 BRIEFING
@@ -4442,9 +4666,9 @@ fn a_version_four_ledger_reads_threads_and_upgrades_at_the_first_thread_start() 
     );
     fx.ok(&other, &["thread", "detach"]);
 
-    // The first thread start alters the table and records version 5, in its own push.
+    // The first thread start alters the table and records version 6, in its own push.
     let id = fx.started(&other, &["thread", "start", "M-CONF-01"]);
-    assert_eq!(fx.manifest_version(&other), "5");
+    assert_eq!(fx.manifest_version(&other), "6");
     assert_eq!(
         fx.dolt_sql(
             &other,
@@ -4460,7 +4684,7 @@ fn a_version_four_ledger_reads_threads_and_upgrades_at_the_first_thread_start() 
     // The other clone takes the upgrade with its next fetch.
     assert_eq!(fx.manifest_version(&a), "4");
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "5");
+    assert_eq!(fx.manifest_version(&a), "6");
     assert_eq!(fx.thread_row(&a, &id)["mission_id"], "M-CONF-01");
     assert_eq!(fx.thread_row(&a, "aaaa1111")["mission_id"], "M-CONF-01");
 }
@@ -4470,7 +4694,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
     // What the previous release does with a Dolt ledger the new release has written:
     // the manifest check is the first thing every command runs. The supported list is
     // faked in a unit test (ledger::manifest); here a version no release knows yet
-    // stands in, because this binary supports 1, 2, 3, 4 and 5.
+    // stands in, because this binary supports 1, 2, 3, 4, 5 and 6.
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
@@ -4478,7 +4702,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
     let fx = Fixture::new(Backend::Dolt);
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '6')");
+    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '7')");
     for args in [
         vec!["mission", "list"],
         vec!["mission", "create", "M-X", "x"],
@@ -4488,8 +4712,8 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
         assert_exit(&out, 1);
         let message = stderr(&out);
         assert!(
-            message.contains("unsupported ledger version 6")
-                && message.contains("supports version 1, 2, 3, 4, 5")
+            message.contains("unsupported ledger version 7")
+                && message.contains("supports version 1, 2, 3, 4, 5, 6")
                 && message.contains("Update tsk"),
             "{:?}: {}",
             args,
@@ -4557,11 +4781,11 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
         &other,
         &["mission", "create", "M-NEW", "First on version 2"],
     );
-    assert_eq!(fx.manifest_version(&other), "5");
+    assert_eq!(fx.manifest_version(&other), "6");
     assert_eq!(
         fx.ok(&other, &["ledger", "status", "--porcelain"]),
         "data\tlocal changes\n\
-         data\tupgrade\tschema upgraded to version 5\n\
+         data\tupgrade\tschema upgraded to version 6\n\
          data\tmissions\tadded 1\tmodified 0\tdeleted 0\n\
          docs\tclean\n\
          data\tremote\tup to date\n\
@@ -4570,7 +4794,7 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
     assert_eq!(
         fx.ok(&other, &["ledger", "status"]),
         "Local   2 changes not pushed\n\
-         \x20         data  upgrade   schema upgraded to version 5 (origin has 2)\n\
+         \x20         data  upgrade   schema upgraded to version 6 (origin has 2)\n\
          \x20         data  missions  1 added\n\
          Origin  up to date\n"
     );
@@ -4585,7 +4809,7 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
     // Clone A takes the upgrade with its fetch. Its next write is an ordinary change:
     // origin has the same version, so there is no label.
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "5");
+    assert_eq!(fx.manifest_version(&a), "6");
     fx.ok(&a, &["mission", "create", "M-LATER", "After the upgrade"]);
     assert_eq!(
         fx.ok(&a, &["ledger", "status", "--porcelain"]),
@@ -4615,14 +4839,175 @@ fn dolt_status_keeps_the_rows_a_person_changed_in_an_upgrade_write() {
     let other = fx.b();
     fx.ok(&other, &["ledger", "fetch"]);
     fx.ok(&other, &["mission", "set", "M-OLD", "purpose", "Changed"]);
-    assert_eq!(fx.manifest_version(&other), "5");
+    assert_eq!(fx.manifest_version(&other), "6");
     assert_eq!(
         fx.ok(&other, &["ledger", "status", "--porcelain"]),
         "data\tlocal changes\n\
-         data\tupgrade\tschema upgraded to version 5\n\
+         data\tupgrade\tschema upgraded to version 6\n\
          data\tmissions\tadded 0\tmodified 1\tdeleted 0\n\
          docs\tclean\n\
          data\tremote\tup to date\n\
          docs\tremote\tup to date\n"
     );
+}
+
+impl Fixture {
+    /// A published Dolt ledger at version 5, as the previous release left it: a mission
+    /// with a task and a decision, and a `decisions` table without `adr_path`.
+    fn version_five_ledger() -> Fixture {
+        let fx = Fixture::new(Backend::Dolt);
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-OLD", "Made on five"]);
+        fx.ok(&a, &["task", "add", "M-OLD", "A task"]);
+        fx.ok(
+            &a,
+            &[
+                "decision",
+                "add",
+                "M-OLD",
+                "Old call",
+                "--by",
+                "Jim",
+                "--task",
+                "T-01",
+                "--on",
+                "2026-01-02",
+            ],
+        );
+        fx.dolt_sql(
+            &a,
+            "alter table decisions drop column adr_path; \
+             replace into manifest (k, v) values ('version', '5')",
+        );
+        fx.ok(&a, &["ledger", "push", "A version 5 ledger"]);
+        fx
+    }
+}
+
+#[test]
+fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::version_five_ledger();
+    let (a, other) = (fx.a(), fx.b());
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&other), "5");
+    assert!(!fx
+        .dolt_sql(&other, "show create table decisions")
+        .contains("adr_path"));
+
+    // Reads see the decision with no ADR, and write nothing.
+    assert_eq!(
+        fx.ok(&other, &["decision", "list", "M-OLD"]),
+        "2026-01-02\tJim\tT-01\tOld call\t-\n"
+    );
+    assert_eq!(
+        fx.ok(&other, &["decision", "list", "--adr", "docs/adr/x.md"]),
+        ""
+    );
+    let record = json(&fx.ok(&other, &["mission", "list", "M-OLD", "--json"]));
+    assert_eq!(record["decisions"][0]["adr"], serde_json::Value::Null);
+    // A write that is refused upgrades nothing, an ADR that is not a file included.
+    let refused = fx.tsk(
+        &other,
+        &[
+            "decision",
+            "add",
+            "M-OLD",
+            "x",
+            "--by",
+            "Jim",
+            "--adr",
+            "docs/adr/none.md",
+        ],
+    );
+    assert_exit(&refused, 1);
+    assert_exit(
+        &fx.tsk(&other, &["decision", "add", "M-NONE", "x", "--by", "Jim"]),
+        1,
+    );
+    assert_eq!(fx.manifest_version(&other), "5");
+    assert_eq!(
+        fx.dolt_sql(&other, "select count(*) as c from dolt_status"),
+        "c\n0\n"
+    );
+    // The first write that names an ADR adds the column.
+    std::fs::create_dir_all(other.join("docs/adr")).unwrap();
+    write(&other.join("docs/adr/0001-first.md"), "# ADR 1\n");
+    fx.ok(
+        &other,
+        &[
+            "decision",
+            "add",
+            "M-OLD",
+            "New call",
+            "--by",
+            "Jim",
+            "--on",
+            "2026-01-03",
+            "--adr",
+            "docs/adr/0001-first.md",
+        ],
+    );
+    assert_eq!(fx.manifest_version(&other), "6");
+    assert_eq!(
+        fx.dolt_sql(
+            &other,
+            "select column_name, is_nullable, column_type from information_schema.columns \
+             where table_name = 'decisions' and column_name = 'adr_path'"
+        ),
+        "COLUMN_NAME,IS_NULLABLE,COLUMN_TYPE\nadr_path,YES,varchar(1024)\n"
+    );
+    // The old decision keeps its row, with a null path.
+    assert_eq!(
+        fx.ok(&other, &["decision", "list", "M-OLD"]),
+        "2026-01-02\tJim\tT-01\tOld call\t-\n2026-01-03\tJim\t-\tNew call\tdocs/adr/0001-first.md\n"
+    );
+    assert_eq!(
+        fx.dolt_sql(&other, "select seq, adr_path from decisions order by seq"),
+        "seq,adr_path\n1,\n2,docs/adr/0001-first.md\n"
+    );
+    // The status labels the upgrade, and shows the one decision that was added.
+    assert_eq!(
+        fx.ok(&other, &["ledger", "status", "--porcelain"]),
+        "data\tlocal changes\n\
+         data\tupgrade\tschema upgraded to version 6\n\
+         data\tdecisions\tadded 1\tmodified 0\tdeleted 0\n\
+         docs\tclean\n\
+         data\tremote\tup to date\n\
+         docs\tremote\tup to date\n"
+    );
+
+    // The other clone is still at version 5 until the push.
+    assert_eq!(fx.manifest_version(&a), "5");
+    fx.ok(&other, &["ledger", "push", "First ADR link"]);
+    fx.ok(&a, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&a), "6");
+    assert_eq!(
+        fx.ok(&a, &["decision", "list", "--adr", "docs/adr/0001-first.md"]),
+        "M-OLD\t2026-01-03\tJim\t-\tNew call\tdocs/adr/0001-first.md\n"
+    );
+}
+
+#[test]
+fn a_decision_without_an_adr_upgrades_a_version_five_ledger_too() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::version_five_ledger();
+    let other = fx.b();
+    fx.ok(&other, &["ledger", "fetch"]);
+    fx.ok(
+        &other,
+        &["decision", "add", "M-OLD", "Plain", "--by", "Jim"],
+    );
+    assert_eq!(fx.manifest_version(&other), "6");
+    assert!(fx
+        .ok(&other, &["decision", "list", "M-OLD"])
+        .lines()
+        .all(|l| l.ends_with("\t-")));
 }

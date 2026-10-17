@@ -269,12 +269,62 @@ pub fn task_unblock(
     Ok(mission)
 }
 
+/// An ADR path with the syntax rules applied and no look at the disk: relative, no `..`,
+/// no control character, at most 1024 characters. A leading `./` and doubled slashes
+/// go, so the stored path is one spelling. This is what `decision list --adr` compares.
+pub fn normalize_adr(path: &str) -> Result<String, String> {
+    let bad = |why: &str| {
+        format!(
+            "error: the ADR path '{}' {}; give a path relative to the root of the repository, for example docs/adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md",
+            path, why
+        )
+    };
+    if path.trim().is_empty() {
+        return Err("error: the ADR path cannot be empty".to_string());
+    }
+    if path.chars().any(char::is_control) {
+        return Err(bad("holds a tab or a line break"));
+    }
+    let mut parts = Vec::new();
+    for component in std::path::Path::new(path).components() {
+        match component {
+            std::path::Component::Normal(name) => parts.push(name.to_string_lossy().into_owned()),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => return Err(bad("contains '..'")),
+            _ => return Err(bad("is absolute")),
+        }
+    }
+    if parts.is_empty() {
+        return Err(bad("names no file"));
+    }
+    let normal = parts.join("/");
+    if normal.chars().count() > 1024 {
+        return Err("error: an ADR path is at most 1024 characters".to_string());
+    }
+    Ok(normal)
+}
+
+/// The ADR path to store: [`normalize_adr`], and the file must exist in the working tree
+/// whose top level is `root`.
+pub fn check_adr_path(root: &std::path::Path, path: &str) -> Result<String, String> {
+    let normal = normalize_adr(path)?;
+    if !root.join(&normal).is_file() {
+        return Err(format!(
+            "error: no such file in the repository: {}\n       --adr takes the path of an ADR relative to the root of the repository ({})",
+            normal,
+            root.display()
+        ));
+    }
+    Ok(normal)
+}
+
 pub fn decision_add(
     missions: &[Mission],
     id: &str,
     text: &str,
     by: &str,
     task: Option<&str>,
+    adr: Option<&str>,
     today: &str,
 ) -> Result<Mission, String> {
     let mut mission = model::find(missions, id)?.clone();
@@ -301,6 +351,7 @@ pub fn decision_add(
         decided_by: by.to_string(),
         decided_on: today.to_string(),
         task,
+        adr: adr.map(str::to_string),
     });
     Ok(mission)
 }
@@ -442,15 +493,50 @@ pub fn task_line(mission: &Mission, task: &Task) -> String {
     )
 }
 
-/// One `decision list` line: date, who, task or `-`, text, tab-separated.
+/// One `decision list` line: date, who, task or `-`, text, ADR path or `-`,
+/// tab-separated.
 pub fn decision_line(decision: &Decision) -> String {
     format!(
-        "{}\t{}\t{}\t{}",
+        "{}\t{}\t{}\t{}\t{}",
         decision.decided_on,
         decision.decided_by,
         decision.task.map_or("-".to_string(), task_label),
-        decision.text
+        decision.text,
+        decision.adr.as_deref().unwrap_or("-")
     )
+}
+
+/// The lines of `decision list`. With a mission, that mission's decisions in the five
+/// columns of [`decision_line`]. With only an ADR path, the decisions of every mission
+/// that name it, each line led by the mission ID. With both, the mission's decisions
+/// that name the ADR, in the five columns.
+pub fn decision_rows(
+    missions: &[Mission],
+    mission: Option<&str>,
+    adr: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let adr = adr.map(normalize_adr).transpose()?;
+    let names = |d: &&Decision| adr.as_deref().is_none_or(|a| d.adr.as_deref() == Some(a));
+    match mission {
+        Some(id) => Ok(mission_of(missions, id)?
+            .decisions
+            .iter()
+            .filter(names)
+            .map(decision_line)
+            .collect()),
+        None if adr.is_some() => Ok(missions
+            .iter()
+            .flat_map(|m| {
+                m.decisions
+                    .iter()
+                    .filter(names)
+                    .map(move |d| format!("{}\t{}", m.id, decision_line(d)))
+            })
+            .collect()),
+        None => Err(
+            "error: decision list needs a mission, or --adr with the path of an ADR".to_string(),
+        ),
+    }
 }
 
 /// One `question list` line: mission, id, date asked, text, tab-separated.
@@ -485,6 +571,7 @@ pub struct JsonDecision<'a> {
     decided_by: &'a str,
     decided_on: &'a str,
     task: Option<String>,
+    adr: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -531,6 +618,7 @@ pub fn json_decisions(mission: &Mission) -> Vec<JsonDecision<'_>> {
             decided_by: &d.decided_by,
             decided_on: &d.decided_on,
             task: d.task.map(task_label),
+            adr: d.adr.as_deref(),
         })
         .collect()
 }
@@ -613,9 +701,25 @@ pub enum DecisionCommands {
             help = "The date of the decision, a real calendar date; today (UTC) when omitted"
         )]
         on: Option<String>,
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "The ADR this decision follows: a file in the repository you run in, as a path from its root, for example docs/adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md"
+        )]
+        adr: Option<String>,
     },
-    #[command(about = "List the decisions of a mission, oldest first: date, who, task, text")]
-    List { mission: String },
+    #[command(
+        about = "List the decisions of a mission, oldest first: date, who, task, text, ADR path (- for none). With --adr and no mission, list the decisions of every mission that name the ADR, with the mission ID as a first column"
+    )]
+    List {
+        mission: Option<String>,
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Only the decisions that name this ADR (a path from the repository root)"
+        )]
+        adr: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -668,6 +772,20 @@ fn open() -> Result<Box<dyn LedgerStore>, String> {
     store::open(&cwd)
 }
 
+/// The top level of the working tree of the repository the command runs in. An ADR path
+/// is checked against it, whichever repository holds the ledger.
+fn repo_root() -> Result<std::path::PathBuf, String> {
+    let cwd = std::env::current_dir()
+        .map_err(|e| format!("error: could not read the current directory: {}", e))?;
+    crate::ledger::git::Git::new(cwd)
+        .run_line(["rev-parse", "--show-toplevel"])
+        .map(std::path::PathBuf::from)
+        .map_err(|_| {
+            "error: --adr needs a working tree: run tsk inside the repository whose ADR you name"
+                .to_string()
+        })
+}
+
 fn mission_of<'a>(missions: &'a [Mission], id: &str) -> Result<&'a Mission, String> {
     model::find(missions, id)
 }
@@ -714,17 +832,29 @@ pub fn run_decision_with(store: &dyn LedgerStore, action: DecisionCommands) -> R
             by,
             task,
             on,
+            adr,
         } => {
             let date = on.unwrap_or_else(today);
             check_date(&date)?;
+            let adr = adr
+                .map(|path| check_adr_path(&repo_root()?, &path))
+                .transpose()?;
             change(store, |all| {
-                decision_add(all, &mission, &text, &by, task.as_deref(), &date)
+                decision_add(
+                    all,
+                    &mission,
+                    &text,
+                    &by,
+                    task.as_deref(),
+                    adr.as_deref(),
+                    &date,
+                )
             })?;
         }
-        DecisionCommands::List { mission } => {
+        DecisionCommands::List { mission, adr } => {
             let all = store.missions_load()?;
-            for decision in &mission_of(&all, &mission)?.decisions {
-                println!("{}", decision_line(decision));
+            for line in decision_rows(&all, mission.as_deref(), adr.as_deref())? {
+                println!("{}", line);
             }
         }
     }
@@ -879,7 +1009,7 @@ mod tests {
         for bad in ["", "  ", "a\nb", "a\tb", "a\rb"] {
             assert!(task_add(&all, "M-A", bad).is_err(), "{:?}", bad);
             assert!(question_add(&all, "M-A", bad, "2026-01-01").is_err());
-            assert!(decision_add(&all, "M-A", bad, "jim", None, "2026-01-01").is_err());
+            assert!(decision_add(&all, "M-A", bad, "jim", None, None, "2026-01-01").is_err());
         }
     }
 
@@ -926,6 +1056,101 @@ mod tests {
     }
 
     #[test]
+    fn an_adr_path_is_relative_and_one_spelling() {
+        assert_eq!(
+            normalize_adr("docs/adr/0014-x.md").unwrap(),
+            "docs/adr/0014-x.md"
+        );
+        assert_eq!(
+            normalize_adr("./docs//adr/0014-x.md").unwrap(),
+            "docs/adr/0014-x.md"
+        );
+        for bad in [
+            "",
+            "  ",
+            "/docs/adr/x.md",
+            "../x.md",
+            "docs/../x.md",
+            "a/b\tc.md",
+            ".",
+            "./",
+        ] {
+            assert!(normalize_adr(bad).is_err(), "{:?}", bad);
+        }
+        assert!(normalize_adr(&"a".repeat(1025)).is_err());
+        assert!(normalize_adr(&"a".repeat(1024)).is_ok());
+    }
+
+    #[test]
+    fn an_adr_path_must_be_a_file_in_the_working_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("docs/adr")).unwrap();
+        std::fs::write(dir.path().join("docs/adr/0001-a.md"), "# A\n").unwrap();
+        assert_eq!(
+            check_adr_path(dir.path(), "./docs/adr/0001-a.md").unwrap(),
+            "docs/adr/0001-a.md"
+        );
+        for missing in ["docs/adr/0002-b.md", "docs/adr", "docs"] {
+            let err = check_adr_path(dir.path(), missing).unwrap_err();
+            assert!(err.contains("no such file in the repository"), "{}", err);
+        }
+        assert!(check_adr_path(dir.path(), "../outside").is_err());
+    }
+
+    #[test]
+    fn decision_rows_filter_by_mission_and_adr() {
+        let mut all = one_mission();
+        all.push(create(&all, "M-B", "B", Category::Operational, None).unwrap());
+        let m = decision_add(
+            &all,
+            "M-A",
+            "One",
+            "jim",
+            None,
+            Some("docs/adr/1.md"),
+            "2026-01-01",
+        )
+        .unwrap();
+        put(&mut all, m);
+        let m = decision_add(&all, "M-A", "Two", "jim", None, None, "2026-01-02").unwrap();
+        put(&mut all, m);
+        let m = decision_add(
+            &all,
+            "M-B",
+            "Three",
+            "ann",
+            None,
+            Some("docs/adr/1.md"),
+            "2026-01-03",
+        )
+        .unwrap();
+        put(&mut all, m);
+        assert_eq!(
+            decision_rows(&all, Some("M-A"), None).unwrap(),
+            vec![
+                "2026-01-01\tjim\t-\tOne\tdocs/adr/1.md",
+                "2026-01-02\tjim\t-\tTwo\t-"
+            ]
+        );
+        assert_eq!(
+            decision_rows(&all, None, Some("./docs/adr/1.md")).unwrap(),
+            vec![
+                "M-A\t2026-01-01\tjim\t-\tOne\tdocs/adr/1.md",
+                "M-B\t2026-01-03\tann\t-\tThree\tdocs/adr/1.md"
+            ]
+        );
+        assert_eq!(
+            decision_rows(&all, Some("M-B"), Some("docs/adr/1.md")).unwrap(),
+            vec!["2026-01-03\tann\t-\tThree\tdocs/adr/1.md"]
+        );
+        assert!(decision_rows(&all, Some("M-A"), Some("docs/adr/2.md"))
+            .unwrap()
+            .is_empty());
+        assert!(decision_rows(&all, None, None).is_err());
+        assert!(decision_rows(&all, Some("M-Z"), None).is_err());
+    }
+
+    #[test]
     fn a_date_is_a_real_calendar_date() {
         for ok in ["2026-01-31", "2024-02-29", "2000-02-29", "2026-12-01"] {
             assert!(check_date(ok).is_ok(), "{}", ok);
@@ -950,8 +1175,8 @@ mod tests {
             assert!(check_date(bad).is_err(), "{}", bad);
         }
         let all = one_mission();
-        assert!(decision_add(&all, "M-A", "Use Dolt", "jim", None, "2026-02-30").is_err());
-        let m = decision_add(&all, "M-A", "Use Dolt", "jim", None, "2026-02-27").unwrap();
+        assert!(decision_add(&all, "M-A", "Use Dolt", "jim", None, None, "2026-02-30").is_err());
+        let m = decision_add(&all, "M-A", "Use Dolt", "jim", None, None, "2026-02-27").unwrap();
         assert_eq!(m.decisions[0].decided_on, "2026-02-27");
     }
 

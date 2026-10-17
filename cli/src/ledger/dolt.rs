@@ -105,6 +105,7 @@ pub const TASK_SCHEMA: &[&str] = &[
      decided_by varchar(255) not null, \
      decided_on date not null, \
      task_seq int null, \
+     adr_path varchar(1024) null, \
      primary key (mission_id, seq), \
      constraint decisions_mission_fk foreign key (mission_id) references missions (id), \
      constraint decisions_task_fk foreign key (mission_id, task_seq) references tasks (mission_id, seq))",
@@ -122,9 +123,13 @@ pub const TASK_SCHEMA: &[&str] = &[
 ];
 
 /// The layout version a new Dolt ledger records: documents live on the `tsk/docs` branch,
-/// missions, tasks, decisions and questions are rows, and a thread names its mission in
-/// `threads.mission_id`.
-pub const LAYOUT_VERSION: i64 = 5;
+/// missions, tasks, decisions and questions are rows, a thread names its mission in
+/// `threads.mission_id`, and a decision may name an ADR in `decisions.adr_path`.
+pub const LAYOUT_VERSION: i64 = 6;
+/// The layout version with `threads.mission_id` and no `decisions.adr_path`.
+pub const THREAD_MISSION_LAYOUT_VERSION: i64 = 5;
+/// The layout version with `decisions.adr_path`.
+pub const ADR_LAYOUT_VERSION: i64 = 6;
 /// The layout version with the task, decision and question tables and a `threads` table
 /// that holds only `briefing_path`.
 pub const TASKS_LAYOUT_VERSION: i64 = 4;
@@ -135,12 +140,14 @@ pub const DOCS_LAYOUT_VERSION: i64 = 2;
 /// The layout version whose documents are rows in the `documents` table.
 pub const LEGACY_LAYOUT_VERSION: i64 = 1;
 
-/// Statements that take a ledger at `from` (2 to 4, or 1 once its documents have moved,
+/// Statements that take a ledger at `from` (2 to 5, or 1 once its documents have moved,
 /// which counts as 2) to the current version, then record it. Version 2 gains the
 /// mission, task, decision and question tables. Version 3 gains the counters on
 /// `missions` and the task, decision and question tables. Version 4 gains
-/// `threads.mission_id`, and `threads.briefing_path` becomes nullable. Run at the first
-/// write that needs the new layout, and when `tsk ledger migrate-docs` moves a version 1
+/// `threads.mission_id`, and `threads.briefing_path` becomes nullable. Version 5 gains
+/// `decisions.adr_path`. The tables a step creates are created in their newest shape, so
+/// a later step alters only a table that an older layout made. Run at the first write
+/// that needs the new layout, and when `tsk ledger migrate-docs` moves a version 1
 /// ledger.
 pub fn upgrade_sql(from: i64) -> String {
     let mut sql = String::new();
@@ -159,11 +166,15 @@ pub fn upgrade_sql(from: i64) -> String {
             sql.push_str(";\n");
         }
     }
-    if from < LAYOUT_VERSION {
+    if from < THREAD_MISSION_LAYOUT_VERSION {
         sql.push_str(
             "alter table threads modify column briefing_path varchar(1024) null;\n\
              alter table threads add column mission_id varchar(64) null;\n",
         );
+    }
+    // A decisions table made above, from version 3 or lower, already has the column.
+    if from == TASKS_LAYOUT_VERSION || from == THREAD_MISSION_LAYOUT_VERSION {
+        sql.push_str("alter table decisions add column adr_path varchar(1024) null;\n");
     }
     sql.push_str(&version_sql());
     sql
@@ -462,7 +473,7 @@ mod tests {
             );
         }
         assert!(!sql.contains("create table documents"));
-        assert!(sql.contains("('version', '5')"));
+        assert!(sql.contains("('version', '6')"));
         assert!(sql.contains("mission_id varchar(64) null"));
         assert!(sql.contains("briefing_path varchar(1024) null"));
         assert!(sql.contains("'repo_id'"));
@@ -475,16 +486,26 @@ mod tests {
         assert!(from_four.contains("alter table threads add column mission_id"));
         assert!(from_four.contains("modify column briefing_path varchar(1024) null"));
         assert!(!from_four.contains("create table"));
-        assert!(from_four.ends_with("('version', '5');\n"));
+        assert!(from_four.contains("alter table decisions add column adr_path varchar(1024) null"));
+        assert!(from_four.ends_with("('version', '6');\n"));
+        let from_five = upgrade_sql(5);
+        assert!(!from_five.contains("alter table threads"));
+        assert!(!from_five.contains("create table"));
+        assert!(from_five.contains("alter table decisions add column adr_path"));
+        assert!(from_five.ends_with("('version', '6');\n"));
         let from_three = upgrade_sql(3);
         assert!(from_three.contains("alter table missions add column next_task"));
         assert!(from_three.contains("create table tasks "));
         assert!(!from_three.contains("create table missions "));
         assert!(from_three.contains("alter table threads add column mission_id"));
+        // The decisions table is created with the column, so no step alters it.
+        assert!(from_three.contains("adr_path varchar(1024) null"));
+        assert!(!from_three.contains("alter table decisions"));
         let from_two = upgrade_sql(2);
         assert!(from_two.contains("create table missions "));
         assert!(from_two.contains("create table questions "));
         assert!(from_two.contains("alter table threads add column mission_id"));
+        assert!(!from_two.contains("alter table decisions"));
         assert_eq!(upgrade_sql(1), from_two);
     }
 

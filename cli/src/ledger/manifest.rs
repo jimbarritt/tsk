@@ -7,7 +7,8 @@ pub const SUPPORTED_VERSIONS: &[i64] = &[1];
 /// in a `documents` table. Version 2 keeps them as files on the `tsk/docs` branch.
 /// Version 3 adds the mission tables. Version 4 adds the task, decision and question
 /// tables. Version 5 adds `threads.mission_id` and lets `threads.briefing_path` be null.
-pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5];
+/// Version 6 adds `decisions.adr_path`.
+pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5, 6];
 
 #[derive(Debug, Deserialize)]
 struct Manifest {
@@ -133,17 +134,17 @@ mod tests {
     }
 
     #[test]
-    fn a_binary_that_knows_versions_one_to_four_stops_at_a_version_five_ledger() {
-        // What the previous release does with a Dolt ledger at version 5.
-        let err = check_values(5, None, None, "the manifest table", &[1, 2, 3, 4]).unwrap_err();
-        assert!(err.contains("unsupported ledger version 5"), "{}", err);
-        assert!(err.contains("supports version 1, 2, 3, 4"), "{}", err);
+    fn a_binary_that_knows_versions_one_to_five_stops_at_a_version_six_ledger() {
+        // What the previous release does with a Dolt ledger at version 6.
+        let err = check_values(6, None, None, "the manifest table", &[1, 2, 3, 4, 5]).unwrap_err();
+        assert!(err.contains("unsupported ledger version 6"), "{}", err);
+        assert!(err.contains("supports version 1, 2, 3, 4, 5"), "{}", err);
         assert!(err.contains("Update tsk"), "{}", err);
     }
 
     #[test]
-    fn the_dolt_list_accepts_versions_one_to_five_and_rejects_six() {
-        for ok in [1, 2, 3, 4, 5] {
+    fn the_dolt_list_accepts_versions_one_to_six_and_rejects_seven() {
+        for ok in [1, 2, 3, 4, 5, 6] {
             assert_eq!(
                 check_values(
                     ok,
@@ -157,9 +158,9 @@ mod tests {
             );
         }
         let err =
-            check_values(6, None, None, "the manifest table", DOLT_SUPPORTED_VERSIONS).unwrap_err();
-        assert!(err.contains("unsupported ledger version 6"), "{}", err);
-        assert!(err.contains("supports version 1, 2, 3, 4, 5"), "{}", err);
+            check_values(7, None, None, "the manifest table", DOLT_SUPPORTED_VERSIONS).unwrap_err();
+        assert!(err.contains("unsupported ledger version 7"), "{}", err);
+        assert!(err.contains("supports version 1, 2, 3, 4, 5, 6"), "{}", err);
     }
 
     #[test]
