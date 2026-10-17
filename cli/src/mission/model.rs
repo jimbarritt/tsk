@@ -135,6 +135,10 @@ pub struct Decision {
     /// `YYYY-MM-DD`, UTC.
     pub decided_on: String,
     pub task: Option<i64>,
+    /// The path of an ADR in the code repository, relative to its root. A file written
+    /// before this field existed reads as none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adr: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

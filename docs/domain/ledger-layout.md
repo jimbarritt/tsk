@@ -85,7 +85,7 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `5`. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `6`. |
 | `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the mission the thread works, and is null for a thread with no mission. `briefing_path` is the mission's briefing document, stored only when the mission has no record. Together they replace `threads/<thread-id>/index.md`. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
 | `cloud_session_bindings` | `session_id` varchar(255), primary key; `thread_id` varchar(64); `registered_at` varchar(32) | One row per cloud session binding. It replaces `threads/lookup-by-cloud-session.json`. |
@@ -97,7 +97,7 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 | `mission_documents` | `mission_id` varchar(64), foreign key; `path` varchar(1024); `role` enum(`intelligence`, `report`, `design`). Primary key (`mission_id`, `path`) | One row per document a mission links. The path names a document on `tsk/docs`. |
 | `tasks` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `description` longtext; `status` enum(`todo`, `in-progress`, `done`), default `todo`. Primary key (`mission_id`, `seq`) | One row per task. The ID `T-nn` is `seq` zero padded to two digits. |
 | `task_blocks` | `mission_id` varchar(64); `task_seq` int; `blocked_by_seq` int. Primary key of all three. Foreign keys (`mission_id`, `task_seq`) and (`mission_id`, `blocked_by_seq`) to `tasks(mission_id, seq)` | One row per task block. Both tasks belong to one mission. Whether a block still holds is derived, never stored. |
-| `decisions` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext; `decided_by` varchar(255); `decided_on` date; `task_seq` int, null. Primary key (`mission_id`, `seq`). Foreign key (`mission_id`, `task_seq`) to `tasks(mission_id, seq)` | One row per decision. `seq` orders the decisions and has no label. `decided_on` is the UTC date of the command. |
+| `decisions` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext; `decided_by` varchar(255); `decided_on` date; `task_seq` int, null; `adr_path` varchar(1024), null. Primary key (`mission_id`, `seq`). Foreign key (`mission_id`, `task_seq`) to `tasks(mission_id, seq)` | One row per decision. `seq` orders the decisions and has no label. `decided_on` is the UTC date of the command. `adr_path` is the path of an ADR in the code repository, relative to its root, or null. It has no foreign key: the ADR is a file in another repository's tree. |
 | `questions` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext; `status` enum(`open`, `answered`), default `open`; `answer` longtext, null; `answered_by` varchar(255), null; `answered_on` date, null; `asked_on` date. Primary key (`mission_id`, `seq`) | One row per question. The ID `Q-nn` is `seq` zero padded to two digits. |
 
 There is no `documents` table. A version 1 ledger had one, and
@@ -323,11 +323,12 @@ Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::di
 
 ### Manifest version
 
-The `version` row of the `manifest` table is `5` for a ledger whose `threads` table has
+The `version` row of the `manifest` table is `6` for a ledger whose `decisions` table has
+`adr_path`, `5` for a ledger whose `threads` table has
 `mission_id`, `4` for a ledger with the mission, task, decision and question tables and the
 older `threads` table, `3` for a ledger with the mission tables only, and `2` for a
 ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
-backend accepts versions 1, 2, 3, 4 and 5. Version 1 is a ledger that still keeps its
+backend accepts versions 1, 2, 3, 4, 5 and 6. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger is refused by every command except `tsk ledger fetch`,
@@ -337,29 +338,37 @@ documents in a `documents` table.
 - A version 2 ledger works for everything it did before. The mission read commands behave
   as an empty mission set and write nothing. The first mission write command creates the
   mission, task, decision and question tables, adds `mission_id` to `threads` and makes
-  `briefing_path` nullable, and sets the `version` row to `5` in the same local Dolt
-  change as the mission, so `tsk ledger push` publishes both.
+  `briefing_path` nullable, and sets the `version` row to `6` in the same local Dolt
+  change as the mission, so `tsk ledger push` publishes both. The decisions table is created
+  with `adr_path`.
 - A version 3 ledger works for everything it did before. The task, decision and question
   read commands behave as if the mission had none, and write nothing. The first write
   command of any of the four kinds (`mission`, `task`, `decision` or `question`) adds the
   columns `next_task` and `next_question` to `missions`, creates the four new tables, alters
-  `threads` as above and sets the `version` row to `5` in the same local Dolt change as the
+  `threads` as above and sets the `version` row to `6` in the same local Dolt change as the
   record, so `tsk ledger push` publishes both. A write that fails a check upgrades nothing.
 - A version 4 ledger works for everything it did before. `thread list` derives each
   thread's mission ID from its briefing path. The first write that needs the new column
-  alters `threads` and sets the `version` row to `5` in the same local Dolt change:
+  alters `threads` and sets the `version` row to `6` in the same local Dolt change:
   `tsk thread start`, `tsk thread set mission`, and a mission, task, decision or question write.
   Reads, `thread skip` and a `thread pause` upgrade nothing, and neither does a write that is refused.
-  A version 2, 3 or 4 ledger takes the whole chain of changes up to version 5 at its first
+  A version 2, 3 or 4 ledger takes the whole chain of changes up to version 6 at its first
   such write.
-- A `tsk` binary from before version 5 does not know the version. It stops at its manifest
-  check with `unsupported ledger version 5`, before it writes. The binary needs updating.
+- A version 5 ledger works for everything it did before. `decision list` prints `-` as the
+  ADR path of every decision, and `mission list --json` prints `adr` as null. The first
+  write of any of the four kinds adds `decisions.adr_path` with
+  `alter table decisions add column` and sets the `version` row to `6` in the same local
+  Dolt change as the record. Reads, and a write that is refused (a path that is not a
+  file included), upgrade nothing. `tsk ledger status` labels the upgrade; see
+  [Status and discard](#status-and-discard).
+- A `tsk` binary from before version 6 does not know the version. It stops at its manifest
+  check with `unsupported ledger version 6`, before it writes. The binary needs updating.
   The file ledger's `.tsk-ledger.toml` stays at version 1.
 
 ### Migration
 
 `tsk ledger migrate-to-dolt` moves a file ledger to the Dolt backend. It runs with
-either backend selected. The new ledger is version 5: it has no `documents` table, it has the mission, task, decision and question tables, and
+either backend selected. The new ledger is version 6: it has no `documents` table, it has the mission, task, decision and question tables, and
 its documents are written as files on `tsk/docs`. It:
 
 1. Fetches the file ledger ref and checks its manifest. It stops when the ref is absent
@@ -504,8 +513,9 @@ tsk task set <mission> <task> <field> <value>
 tsk task block <mission> <task> <by>
 tsk task unblock <mission> <task> <by>
 tsk task list <mission>
-tsk decision add <mission> <text> --by <who> [--task <T-nn>] [--on <YYYY-MM-DD>]
-tsk decision list <mission>
+tsk decision add <mission> <text> --by <who> [--task <T-nn>] [--on <YYYY-MM-DD>] [--adr <path>]
+tsk decision list <mission> [--adr <path>]
+tsk decision list --adr <path>
 tsk question add <mission> <text>
 tsk question edit <mission> <question> <text>
 tsk question answer <mission> <question> <text> --by <who>
@@ -531,6 +541,20 @@ Rules:
   takes `YYYY-MM-DD` and must be a real calendar date: `2026-02-30` is an error, and so is a
   date written any other way. `--task` must name a task of the mission. A decision has no
   label.
+- `--adr` names the ADR the decision follows, by its path from the root of the code
+  repository, for example `docs/adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md`.
+  The root is the top level of the working tree of the repository the command runs in, found
+  with `git rev-parse --show-toplevel`, from any directory inside it. That holds for a
+  ledger kept in a nexus too: the path is checked against the repository you are in, not
+  the one that holds the ledger. A path that is absolute, holds a `..` component, holds a
+  tab or a line break, is longer than 1024 characters, or is not a file in the working
+  tree is an error, and nothing is written. A leading `./` is dropped, so one ADR has one
+  spelling. A decision names at most one ADR. A later change to the ADR file does not
+  touch the record.
+- `decision list --adr <path>` takes the path as `--adr` does, without the check that the
+  file exists, so a decision of an ADR that was since renamed is still found by its old
+  path. With no mission it lists the decisions of every mission that name the ADR. A call
+  with neither a mission nor `--adr` is an error.
 - `question edit` rewrites the text of an open question and nothing else: the ID and the
   date asked stay. An answered question cannot be edited:
   `error: Q-nn of M-X is answered; it cannot be edited`.
@@ -543,18 +567,20 @@ Each `list` prints one record per line, tab-separated, with no header:
 | Command | Columns |
 |---|---|
 | `task list <mission>` | `T-nn`, `status`, `blocked-by` (the IDs of the blockers that are not done, comma-separated, or `-`), `description`. Ordered by number. |
-| `decision list <mission>` | `decided_on` (`YYYY-MM-DD`), `decided_by`, `T-nn` or `-`, `text`. Oldest first. |
+| `decision list <mission>` | `decided_on` (`YYYY-MM-DD`), `decided_by`, `T-nn` or `-`, `text`, `adr` (the ADR path, or `-`). Oldest first. With `--adr`, only the decisions that name that ADR, in the same five columns. |
+| `decision list --adr <path>` | `mission`, then the five columns above. Ordered by mission and then oldest first. |
 | `question list [<mission>]` | `mission`, `Q-nn`, `asked_on` (`YYYY-MM-DD`), `text`. Open questions only, ordered by mission and number. All missions when none is given. |
 
 `tsk mission list --json` carries the records. Each mission object has three more keys after
 `documents`: `tasks` (`id`, `description`, `status`, `blocked`, and `blocked_by` as a list
-of `id` and `blocking`), `decisions` (`text`, `decided_by`, `decided_on`, `task` or null)
+of `id` and `blocking`), `decisions` (`text`, `decided_by`, `decided_on`, `task` or null, and `adr` or null)
 and `questions` (`id`, `text`, `status`, `asked_on`, and `answer`, `answered_by` and
 `answered_on`, null while open). There is no `show` command and no Markdown output.
 
 The `git` backend keeps the records in the mission's file, `records/missions/<ID>.json`,
-as the keys `next_task`, `next_question`, `tasks`, `decisions` and `questions`. A file
-written before this release has none of them and reads as a mission with no records. The
+as the keys `next_task`, `next_question`, `tasks`, `decisions` and `questions`. A decision
+holds `adr` only when it names an ADR; a file written before that field existed reads as
+none. A file written before this release has none of them and reads as a mission with no records. The
 validation, the derived blocked state and the output are the same code for both backends.
 Two decisions added at the same time by two clones get the same `seq` and conflict at push,
 as do two tasks added to one mission.

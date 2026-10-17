@@ -996,7 +996,7 @@ impl LedgerStore for DoltStore {
     fn thread_info(&self, id: &str) -> Result<ThreadInfo, String> {
         let db = self.db()?;
         // A ledger below version 5 has no `mission_id` column.
-        let column = if self.manifest_rows(&db)?.version >= dolt::LAYOUT_VERSION {
+        let column = if self.manifest_rows(&db)?.version >= dolt::THREAD_MISSION_LAYOUT_VERSION {
             "mission_id"
         } else {
             "null as mission_id"
@@ -1224,8 +1224,7 @@ impl DoltStore {
         if version < dolt::MISSIONS_LAYOUT_VERSION {
             return Ok(Vec::new());
         }
-        // A version 3 ledger has no task, decision or question tables.
-        read_missions(db, version >= dolt::TASKS_LAYOUT_VERSION)
+        read_missions(db, version)
     }
 
     /// A fresh clone meets a ref that holds a file ledger: stop with the way out.
@@ -1413,20 +1412,22 @@ fn save_sql(mission: &Mission) -> String {
             .iter()
             .map(|d| {
                 format!(
-                    "({}, {}, {}, {}, {}, {})",
+                    "({}, {}, {}, {}, {}, {}, {})",
                     id,
                     d.seq,
                     lit(&d.text),
                     lit(&d.decided_by),
                     lit(&d.decided_on),
-                    d.task.map_or("NULL".to_string(), |t| t.to_string())
+                    d.task.map_or("NULL".to_string(), |t| t.to_string()),
+                    d.adr.as_deref().map_or("NULL".to_string(), lit)
                 )
             })
             .collect();
         sql.push_str(&format!(
-            "insert into decisions (mission_id, seq, text, decided_by, decided_on, task_seq) values {} \
+            "insert into decisions (mission_id, seq, text, decided_by, decided_on, task_seq, adr_path) values {} \
              on duplicate key update text = values(text), decided_by = values(decided_by), \
-             decided_on = values(decided_on), task_seq = values(task_seq);\n",
+             decided_on = values(decided_on), task_seq = values(task_seq), \
+             adr_path = values(adr_path);\n",
             rows.join(", ")
         ));
     }
@@ -1461,8 +1462,10 @@ fn save_sql(mission: &Mission) -> String {
 }
 
 /// Read every mission with its outcomes, blockers and links, and with its tasks,
-/// decisions and questions when `with_records` says the tables exist.
-fn read_missions(db: &Dolt, with_records: bool) -> Result<Vec<Mission>, String> {
+/// decisions and questions when the layout `version` has the tables. A version 3 ledger
+/// has no task, decision or question tables.
+fn read_missions(db: &Dolt, version: i64) -> Result<Vec<Mission>, String> {
+    let with_records = version >= dolt::TASKS_LAYOUT_VERSION;
     let bad = |column: &str, id: &str| {
         format!(
             "error: the missions table holds an unreadable {} for {}",
@@ -1542,7 +1545,7 @@ fn read_missions(db: &Dolt, with_records: bool) -> Result<Vec<Mission>, String> 
         }
     }
     if with_records {
-        read_records(db, &mut missions, &bad)?;
+        read_records(db, &mut missions, version >= dolt::ADR_LAYOUT_VERSION, &bad)?;
     }
     Ok(missions)
 }
@@ -1551,6 +1554,7 @@ fn read_missions(db: &Dolt, with_records: bool) -> Result<Vec<Mission>, String> 
 fn read_records(
     db: &Dolt,
     missions: &mut [Mission],
+    with_adr: bool,
     bad: &dyn Fn(&str, &str) -> String,
 ) -> Result<(), String> {
     let slot = |missions: &[Mission], id: &str| missions.iter().position(|m| m.id == id);
@@ -1581,10 +1585,17 @@ fn read_records(
             }
         }
     }
-    for row in db.rows(
-        "select mission_id, seq, text, decided_by, decided_on, task_seq from decisions \
+    // A ledger below version 6 has no `adr_path` column.
+    let adr = if with_adr {
+        "adr_path"
+    } else {
+        "null as adr_path"
+    };
+    for row in db.rows(&format!(
+        "select mission_id, seq, text, decided_by, decided_on, task_seq, {} from decisions \
          order by mission_id, seq",
-    )? {
+        adr
+    ))? {
         let id = text(&row, "mission_id").unwrap_or_default();
         if let Some(at) = slot(missions, &id) {
             missions[at].decisions.push(Decision {
@@ -1593,6 +1604,7 @@ fn read_records(
                 decided_by: text(&row, "decided_by").unwrap_or_default(),
                 decided_on: date(&row, "decided_on").unwrap_or_default(),
                 task: integer(&row, "task_seq"),
+                adr: text(&row, "adr_path").filter(|p| !p.is_empty()),
             });
         }
     }
