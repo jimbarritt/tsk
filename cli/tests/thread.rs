@@ -641,8 +641,15 @@ fn resume_prints_the_latest_entry_and_binds_the_worktree() {
     assert_eq!(result["warning"], "");
     assert!(!fx.marker().exists());
     assert_eq!(fx.binding(), format!("worktree:{}\n", id));
-    // The binding is a local ledger change until the next push.
-    assert_eq!(fx.origin_ledger_sha(), before);
+    // The binding is pushed, as a cloud session's is.
+    assert_ne!(fx.origin_ledger_sha(), before);
+    let file = fx
+        .origin_file(&format!(
+            "threads/.worktree-bindings/{}.json",
+            fx.worktree_actor().replace('/', "%2F")
+        ))
+        .expect("the worktree binding was pushed");
+    assert_eq!(json(&file)["thread_id"], id.as_str());
 }
 
 #[test]
@@ -763,7 +770,7 @@ fn resume_in_a_cloud_session_binds_once_and_pushes() {
 }
 
 #[test]
-fn detach_removes_the_worktree_binding_locally_and_pushes_nothing() {
+fn detach_removes_the_worktree_binding_and_pushes_it() {
     let fx = Fixture::new();
     let id = fx.start();
     let before = fx.origin_ledger_sha();
@@ -774,7 +781,18 @@ fn detach_removes_the_worktree_binding_locally_and_pushes_nothing() {
     assert_eq!(stdout(&output), format!("detached:{}\n", id));
     assert!(!fx.marker().exists());
     assert_exit(&fx.tsk(&["thread", "binding"]), 1);
-    assert_eq!(fx.origin_ledger_sha(), before);
+    assert_ne!(fx.origin_ledger_sha(), before);
+    assert!(fx
+        .origin_file(&format!(
+            "threads/.worktree-bindings/{}.json",
+            fx.worktree_actor().replace('/', "%2F")
+        ))
+        .is_none());
+    let subject = git_line(&fx.origin(), &["log", "-1", "--format=%s", LEDGER_REF]);
+    assert_eq!(
+        subject,
+        format!("Detach urn:tsk:worktree:.git from thread {}", id)
+    );
     assert!(fx
         .origin_file(&format!("threads/{}/index.md", id))
         .is_some());

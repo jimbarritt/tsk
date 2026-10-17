@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::ledger::git::Git;
 use crate::ledger::location::mint_token;
-use crate::ledger::store::{BindingKind, LedgerStore, ThreadInfo};
+use crate::ledger::store::{LedgerStore, ThreadInfo};
 use crate::mission::model::Mission;
 use crate::mission::records::resolve_task;
 
@@ -414,7 +414,7 @@ pub fn takeover_warning(id: &str, prior: &BTreeSet<String>, current: &str) -> St
 
 pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
     check_thread_id(id)?;
-    session.refresh()?;
+    refresh_for_binding(session)?;
     let store = session.store.as_ref();
     if !store.thread_exists(id)? {
         return Err(format!("error: no such thread: {}", id));
@@ -423,17 +423,15 @@ pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
     let current = session.actor_urn();
     let warning = takeover_warning(id, &prior_actors(&entries), &current);
 
-    // A cloud session pushes its binding. A worktree binding is a local ledger change,
-    // pushed with the next push, as a record write is.
+    // The binding is pushed, with any pending local records and documents. A cloud push
+    // must succeed. A worktree binding is valid locally, so its failed push is a note.
     let bound = match &session.cloud_session {
         Some(_) => Binding::Cloud(id.to_string()),
         None => Binding::Worktree(id.to_string()),
     };
     if resolve(session)? != Some(bound) {
         bind_current(session, id)?;
-        if session.cloud_session.is_some() {
-            session.push(&format!("Bind {} to thread {}", current, id))?;
-        }
+        push_binding(session, &format!("Bind {} to thread {}", current, id))?;
     }
     clear_skip(session)?;
 
@@ -457,20 +455,46 @@ pub fn render_resume(outcome: &ResumeOutcome) -> String {
 }
 
 pub fn detach(session: &Session) -> Result<String, String> {
-    session.refresh()?;
+    refresh_for_binding(session)?;
     let binding = resolve(session)?.ok_or_else(|| {
         "error: no thread binding found for this session or worktree; nothing to detach".to_string()
     })?;
-    // A cloud session pushes its detach. A worktree detach is a local ledger change,
-    // pushed with the next push.
-    if unbind_current(session)? == BindingKind::Cloud {
-        session.push(&format!(
+    unbind_current(session)?;
+    push_binding(
+        session,
+        &format!(
             "Detach {} from thread {}",
             session.actor_urn(),
             binding.thread_id()
-        ))?;
-    }
+        ),
+    )?;
     Ok(binding.thread_id().to_string())
+}
+
+/// The note a worktree command prints when its push failed.
+pub const SAVED_LOCALLY_NOTE: &str =
+    "note: the binding is saved locally; run tsk ledger push when origin is reachable";
+
+/// Refresh before a bind or a detach. A worktree command with a local ledger store goes on
+/// when the refresh fails (origin away): its binding is valid locally.
+fn refresh_for_binding(session: &Session) -> Result<(), String> {
+    match session.refresh() {
+        Ok(_) => Ok(()),
+        Err(_) if session.cloud_session.is_none() && session.store.exists_locally()? => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Push a bind or a detach. A cloud push that fails fails the command. A worktree push
+/// that fails prints [`SAVED_LOCALLY_NOTE`] and succeeds.
+fn push_binding(session: &Session, message: &str) -> Result<(), String> {
+    match session.push(message) {
+        Err(_) if session.cloud_session.is_none() => {
+            eprintln!("{}", SAVED_LOCALLY_NOTE);
+            Ok(())
+        }
+        other => other,
+    }
 }
 
 pub fn stop(session: &Session, target: Option<&str>) -> Result<String, String> {
