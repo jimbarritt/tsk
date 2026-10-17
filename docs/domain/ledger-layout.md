@@ -230,6 +230,15 @@ Origin  2 data commits and 1 document commit to fetch (tsk ledger fetch)
   table prints its non-zero counts as `N added`, `N modified` and `N deleted`, joined by
   `, `; `schema changed` stands alone for a table whose rows did not change and follows the
   counts when both did. A document prints `added`, `modified` or `deleted`.
+- A schema upgrade has its own detail line. A write on a ledger below the newest layout
+  upgrades it, which changes the `manifest` row and the schema of some tables. When the
+  local manifest version differs from the version on origin (as of the last fetch), the
+  first detail line is `data  upgrade  schema upgraded to version N (origin has M)`. The
+  `manifest` line and every table line whose only change is its schema go. A table whose
+  schema changed keeps its line only for rows that differ in a column the table had before,
+  so a row the upgrade touched is not counted as an edit. The upgrade line counts as one
+  change in the headline. Nothing is labelled when origin holds no ledger yet, or when the
+  versions are the same.
 - Commits made and not pushed (ahead) are counted over data and documents together. After
   the changes they print as `        plus N commits not pushed` (8 spaces); with no changes
   the headline is `Local   N commits not pushed`.
@@ -270,6 +279,8 @@ docs	remote	up to date
 
 In the porcelain form:
 
+- A schema upgrade prints `data<TAB>upgrade<TAB>schema upgraded to version N`, first among
+  the `data` lines, with no origin version.
 - `data` and `docs` each print `clean` or `local changes`, then one line per change. A
   Dolt table line is `data`, the table, and the counts of rows added, modified and
   deleted. A table whose schema changed but whose rows did not prints `schema changed` in place of the counts (`data<TAB>missions<TAB>schema changed`); one that changed both prints the counts, then `schema changed`. A document line is
@@ -496,6 +507,7 @@ tsk task list <mission>
 tsk decision add <mission> <text> --by <who> [--task <T-nn>] [--on <YYYY-MM-DD>]
 tsk decision list <mission>
 tsk question add <mission> <text>
+tsk question edit <mission> <question> <text>
 tsk question answer <mission> <question> <text> --by <who>
 tsk question list [<mission>]
 ```
@@ -519,6 +531,9 @@ Rules:
   takes `YYYY-MM-DD` and must be a real calendar date: `2026-02-30` is an error, and so is a
   date written any other way. `--task` must name a task of the mission. A decision has no
   label.
+- `question edit` rewrites the text of an open question and nothing else: the ID and the
+  date asked stay. An answered question cannot be edited:
+  `error: Q-nn of M-X is answered; it cannot be edited`.
 - `question answer` records the answer, the name after `--by` and the UTC date, and the
   question is no longer open. A question is answered once: a second answer is an error.
 - An unknown mission, task or question is an error that names the ID.

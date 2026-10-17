@@ -3268,6 +3268,103 @@ mod cases {
         let record = mission_json(&fx, &other, "M-T");
         assert_eq!(record["decisions"][0]["decided_on"], "2026-02-27");
     }
+
+    pub fn an_open_question_is_edited_and_an_answered_one_is_not(b: Backend) {
+        let (fx, a) = mission_with_tasks(b, 0);
+        fx.ok(&a, &["mission", "create", "M-U", "Other"]);
+        fx.ok(&a, &["question", "add", "M-T", "Why one?"]);
+        fx.ok(&a, &["question", "add", "M-T", "Why two?"]);
+        fx.ok(&a, &["question", "add", "M-U", "Why in U?"]);
+        let before = lines(&fx.ok(&a, &["question", "list"]));
+        assert_eq!(
+            fx.ok(&a, &["question", "edit", "M-T", "Q-01", "Why, then?"]),
+            ""
+        );
+        // Only the text changes: the list keeps its columns, order and dates.
+        let after = lines(&fx.ok(&a, &["question", "list"]));
+        assert_eq!(after.len(), 3);
+        assert_eq!(after[0][..3], before[0][..3]);
+        assert_eq!(after[0][3], "Why, then?");
+        assert_eq!(after[1], before[1]);
+        assert_eq!(after[2], before[2]);
+        // A leading dash is text, as in question add.
+        fx.ok(&a, &["question", "edit", "M-T", "Q-02", "-dash?"]);
+        assert_eq!(
+            mission_json(&fx, &a, "M-T")["questions"][1]["text"],
+            "-dash?"
+        );
+        assert_eq!(
+            mission_json(&fx, &a, "M-T")["questions"][1]["asked_on"],
+            after[1][2]
+        );
+
+        // An answered question is final.
+        fx.ok(
+            &a,
+            &[
+                "question", "answer", "M-T", "Q-02", "Because.", "--by", "Jim",
+            ],
+        );
+        fails(
+            &fx,
+            &a,
+            &["question", "edit", "M-T", "Q-02", "Changed"],
+            "Q-02 of M-T is answered; it cannot be edited",
+        );
+        let json = mission_json(&fx, &a, "M-T");
+        assert_eq!(json["questions"][1]["text"], "-dash?");
+        assert_eq!(json["questions"][1]["answer"], "Because.");
+
+        fails(
+            &fx,
+            &a,
+            &["question", "edit", "M-T", "Q-09", "x"],
+            "M-T has no question Q-09",
+        );
+        fails(
+            &fx,
+            &a,
+            &["question", "edit", "M-U", "Q-02", "x"],
+            "M-U has no question Q-02",
+        );
+        fails(
+            &fx,
+            &a,
+            &["question", "edit", "M-NONE", "Q-01", "x"],
+            "M-NONE",
+        );
+        fails(
+            &fx,
+            &a,
+            &["question", "edit", "M-T", "T-01", "x"],
+            "not a question ID",
+        );
+        fails(
+            &fx,
+            &a,
+            &["question", "edit", "M-T", "Q-01", "two\nlines"],
+            "one line",
+        );
+        fails(
+            &fx,
+            &a,
+            &["question", "edit", "M-T", "Q-01", "  "],
+            "cannot be empty",
+        );
+        assert_eq!(
+            mission_json(&fx, &a, "M-T")["questions"][0]["text"],
+            "Why, then?"
+        );
+
+        // The edit travels with the push.
+        fx.ok(&a, &["ledger", "push", "Edit a question"]);
+        let other = fx.b();
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(
+            mission_json(&fx, &other, "M-T")["questions"][0]["text"],
+            "Why, then?"
+        );
+    }
 }
 
 macro_rules! conformance {
@@ -3334,6 +3431,7 @@ conformance!(
     status_and_discard_need_a_ledger_store,
     status_prints_local_and_origin_in_plain_columns,
     a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
+    an_open_question_is_edited_and_an_answered_one_is_not,
 );
 
 conformance!(
@@ -3381,6 +3479,7 @@ conformance!(
     status_and_discard_need_a_ledger_store,
     status_prints_local_and_origin_in_plain_columns,
     a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
+    an_open_question_is_edited_and_an_answered_one_is_not,
 );
 
 // --- Backend selection and mismatch ---
@@ -4433,5 +4532,97 @@ fn dolt_status_marks_a_table_whose_schema_changed_and_rows_did_not() {
             .lines()
             .next(),
         Some("data\tclean")
+    );
+}
+
+#[test]
+fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::version_two_ledger();
+    let (a, other) = (fx.a(), fx.b());
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&other), "2");
+    // Before any write there is nothing to label.
+    assert_eq!(
+        fx.ok(&other, &["ledger", "status", "--porcelain"]),
+        "data\tclean\ndocs\tclean\ndata\tremote\tup to date\ndocs\tremote\tup to date\n"
+    );
+
+    // The first write upgrades the layout and adds a mission. The status shows the
+    // upgrade as one change and the mission as another, and no manifest or schema lines.
+    fx.ok(
+        &other,
+        &["mission", "create", "M-NEW", "First on version 2"],
+    );
+    assert_eq!(fx.manifest_version(&other), "5");
+    assert_eq!(
+        fx.ok(&other, &["ledger", "status", "--porcelain"]),
+        "data\tlocal changes\n\
+         data\tupgrade\tschema upgraded to version 5\n\
+         data\tmissions\tadded 1\tmodified 0\tdeleted 0\n\
+         docs\tclean\n\
+         data\tremote\tup to date\n\
+         docs\tremote\tup to date\n"
+    );
+    assert_eq!(
+        fx.ok(&other, &["ledger", "status"]),
+        "Local   2 changes not pushed\n\
+         \x20         data  upgrade   schema upgraded to version 5 (origin has 2)\n\
+         \x20         data  missions  1 added\n\
+         Origin  up to date\n"
+    );
+    fx.ok(&other, &["ledger", "push", "Upgrade and add a mission"]);
+    assert_eq!(
+        fx.ok(&other, &["ledger", "status", "--porcelain"])
+            .lines()
+            .next(),
+        Some("data\tclean")
+    );
+
+    // Clone A takes the upgrade with its fetch. Its next write is an ordinary change:
+    // origin has the same version, so there is no label.
+    fx.ok(&a, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&a), "5");
+    fx.ok(&a, &["mission", "create", "M-LATER", "After the upgrade"]);
+    assert_eq!(
+        fx.ok(&a, &["ledger", "status", "--porcelain"]),
+        "data\tlocal changes\n\
+         data\tmissions\tadded 1\tmodified 0\tdeleted 0\n\
+         docs\tclean\n\
+         data\tremote\tup to date\n\
+         docs\tremote\tup to date\n"
+    );
+    assert_eq!(
+        fx.ok(&a, &["ledger", "status"]),
+        "Local   1 change not pushed\n\
+         \x20         data  missions  1 added\n\
+         Origin  up to date\n"
+    );
+}
+
+#[test]
+fn dolt_status_keeps_the_rows_a_person_changed_in_an_upgrade_write() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    // Version 3 holds two missions. The write edits one of them. Dolt counts both rows
+    // as modified because the table gained columns; only the edited one is a change.
+    let fx = Fixture::version_three_ledger();
+    let other = fx.b();
+    fx.ok(&other, &["ledger", "fetch"]);
+    fx.ok(&other, &["mission", "set", "M-OLD", "purpose", "Changed"]);
+    assert_eq!(fx.manifest_version(&other), "5");
+    assert_eq!(
+        fx.ok(&other, &["ledger", "status", "--porcelain"]),
+        "data\tlocal changes\n\
+         data\tupgrade\tschema upgraded to version 5\n\
+         data\tmissions\tadded 0\tmodified 1\tdeleted 0\n\
+         docs\tclean\n\
+         data\tremote\tup to date\n\
+         docs\tremote\tup to date\n"
     );
 }

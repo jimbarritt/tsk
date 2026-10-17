@@ -34,7 +34,7 @@ pub enum LedgerCommands {
         message: String,
     },
     #[command(
-        about = "Print two answers, Local (what is not pushed, with a line per changed table or file) and Origin (whether it is ahead or behind); --porcelain prints tab-separated facts instead; fetches the remote refs and changes nothing else"
+        about = "Print two answers, Local (what is not pushed, with a line per changed table or file, and one line for a schema upgrade) and Origin (whether it is ahead or behind); --porcelain prints tab-separated facts instead; fetches the remote refs and changes nothing else"
     )]
     Status {
         #[arg(
