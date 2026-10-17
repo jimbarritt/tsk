@@ -298,7 +298,7 @@ mod tests {
                 .unwrap()
                 .command,
             Some(Commands::Ledger {
-                action: ledger::LedgerCommands::Status
+                action: ledger::LedgerCommands::Status { porcelain: false }
             })
         ));
         assert!(matches!(
@@ -306,7 +306,10 @@ mod tests {
                 .unwrap()
                 .command,
             Some(Commands::Ledger {
-                action: ledger::LedgerCommands::Discard { yes: false }
+                action: ledger::LedgerCommands::Discard {
+                    yes: false,
+                    porcelain: false
+                }
             })
         ));
         assert!(matches!(
@@ -314,9 +317,21 @@ mod tests {
                 .unwrap()
                 .command,
             Some(Commands::Ledger {
-                action: ledger::LedgerCommands::Discard { yes: true }
+                action: ledger::LedgerCommands::Discard {
+                    yes: true,
+                    porcelain: false
+                }
             })
         ));
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "ledger", "status", "--porcelain"])
+                .unwrap()
+                .command,
+            Some(Commands::Ledger {
+                action: ledger::LedgerCommands::Status { porcelain: true }
+            })
+        ));
+        assert!(Cli::try_parse_from(["tsk", "ledger", "discard", "--porcelain"]).is_ok());
         assert!(Cli::try_parse_from(["tsk", "ledger", "status", "extra"]).is_err());
     }
 

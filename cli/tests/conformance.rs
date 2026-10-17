@@ -2471,7 +2471,7 @@ mod cases {
     }
 
     fn status_lines(fx: &Fixture, dir: &Path) -> Vec<String> {
-        fx.ok(dir, &["ledger", "status"])
+        fx.ok(dir, &["ledger", "status", "--porcelain"])
             .lines()
             .map(str::to_string)
             .collect()
@@ -2526,7 +2526,7 @@ mod cases {
         assert_exit(&fx.get(&other, "local-note.md"), 1);
 
         // Without --yes: the same summary, no remote lines, exit 1, nothing changes.
-        let dry = fx.tsk(&a, &["ledger", "discard"]);
+        let dry = fx.tsk(&a, &["ledger", "discard", "--porcelain"]);
         assert_exit(&dry, 1);
         assert_eq!(
             stdout(&dry).lines().collect::<Vec<_>>(),
@@ -2562,7 +2562,7 @@ mod cases {
         assert_eq!(status_lines(&fx, &other), clean_status("up to date"));
         // A clean store has nothing to confirm.
         assert_eq!(
-            fx.ok(&a, &["ledger", "discard"]),
+            fx.ok(&a, &["ledger", "discard", "--porcelain"]),
             "data\tclean\ndocs\tclean\n"
         );
         // The ledger still works after a discard.
@@ -2614,7 +2614,7 @@ mod cases {
             ["data\tremote\tahead 1", "docs\tremote\tahead 1"]
         );
         // The committed work is what the dry run lists too.
-        let dry = fx.tsk(&a, &["ledger", "discard"]);
+        let dry = fx.tsk(&a, &["ledger", "discard", "--porcelain"]);
         assert_exit(&dry, 1);
         assert!(stdout(&dry).contains("ahead.md"), "{}", stdout(&dry));
 
@@ -2664,7 +2664,7 @@ mod cases {
         let moved = fx.root.path().join("origin-away.git");
         std::fs::rename(fx.origin(), &moved).unwrap();
 
-        let status = fx.tsk(&a, &["ledger", "status"]);
+        let status = fx.tsk(&a, &["ledger", "status", "--porcelain"]);
         assert_success(&status);
         let note = stderr(&status);
         assert_eq!(note.lines().count(), 1, "{}", note);
@@ -2702,6 +2702,156 @@ mod cases {
             status_lines(&fx, &a).last().unwrap(),
             "docs\tremote\tup to date"
         );
+    }
+
+    fn human(fx: &Fixture, dir: &Path) -> Vec<String> {
+        let out = fx.ok(dir, &["ledger", "status"]);
+        assert!(!out.contains('\t'), "{:?}", out);
+        for line in out.lines() {
+            assert_eq!(line, line.trim_end(), "{:?}", line);
+        }
+        out.lines().map(str::to_string).collect()
+    }
+
+    /// The Local block for one mission record and one document `h.md`, written locally.
+    fn local_block(b: Backend, extra_commits: Option<&str>) -> Vec<String> {
+        let mut lines = vec!["Local   2 changes not pushed".to_string()];
+        match b {
+            Backend::Dolt => {
+                lines.push("          data  missions  1 added".to_string());
+                lines.push("          docs  h.md      added".to_string());
+            }
+            Backend::Git => {
+                lines.push("          data  records/missions/M-H.json  added".to_string());
+                lines.push("          docs  h.md                       added".to_string());
+            }
+        }
+        if let Some(plus) = extra_commits {
+            lines.push(format!("        plus {} not pushed", plus));
+        }
+        lines
+    }
+
+    fn origin_line(b: Backend, dolt: &str, git: &str) -> String {
+        match b {
+            Backend::Dolt => format!("Origin  {}", dolt),
+            Backend::Git => format!("Origin  {}", git),
+        }
+    }
+
+    pub fn status_prints_local_and_origin_in_plain_columns(b: Backend) {
+        // A ledger that origin does not hold yet.
+        let fresh = Fixture::new(b);
+        fresh.ok(&fresh.a(), &["ledger", "fetch"]);
+        assert_eq!(
+            human(&fresh, &fresh.a()),
+            vec![
+                "Local   nothing to push",
+                "Origin  not published yet (tsk ledger push creates it)"
+            ]
+        );
+
+        let fx = Fixture::with_briefing(b);
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert_eq!(
+            human(&fx, &a),
+            vec!["Local   nothing to push", "Origin  up to date"]
+        );
+
+        // Changes not pushed; the discard preview prints the Local block alone.
+        fx.ok(&a, &["mission", "create", "M-H", "Human"]);
+        fx.put(&a, "h.md", "h\n");
+        let mut expected = local_block(b, None);
+        expected.push("Origin  up to date".to_string());
+        assert_eq!(human(&fx, &a), expected);
+        let dry = fx.tsk(&a, &["ledger", "discard"]);
+        assert_exit(&dry, 1);
+        assert_eq!(
+            stdout(&dry).lines().collect::<Vec<_>>(),
+            local_block(b, None)
+        );
+        assert!(!stdout(&dry).contains('\t'));
+        assert_eq!(
+            stderr(&dry),
+            "error: this would discard the local changes above. Rerun with --yes to discard them.\n"
+        );
+        // The porcelain form is the tab-separated one.
+        assert!(fx
+            .ok(&a, &["ledger", "status", "--porcelain"])
+            .starts_with("data\tlocal changes\n"));
+        assert_eq!(fx.ok(&a, &["ledger", "discard", "--yes"]), "discarded\n");
+        assert_eq!(
+            fx.ok(&a, &["ledger", "discard"]),
+            "Local   nothing to push\n"
+        );
+
+        // Behind: the other clone pushes a record and a document.
+        fx.ok(&other, &["mission", "create", "M-O", "Other"]);
+        fx.put(&other, "o.md", "o\n");
+        fx.ok(&other, &["ledger", "push", "Other change"]);
+        assert_eq!(
+            human(&fx, &a),
+            vec![
+                "Local   nothing to push".to_string(),
+                origin_line(
+                    b,
+                    "1 data commit and 1 document commit to fetch (tsk ledger fetch)",
+                    "1 ledger commit to fetch (tsk ledger fetch)"
+                )
+            ]
+        );
+        fx.ok(&a, &["ledger", "fetch"]);
+
+        // Ahead: a refused push leaves commits that are not on origin.
+        let hook = install_hook(
+            &fx.origin(),
+            "pre-receive",
+            "#!/bin/sh\nwhile read old new ref; do\n  case \"$ref\" in\n    refs/heads/tsk/*) echo 'closed' >&2; exit 1;;\n  esac\ndone\n",
+        );
+        fx.ok(&a, &["mission", "create", "M-H", "Human"]);
+        fx.put(&a, "h.md", "h\n");
+        assert_exit(&fx.tsk(&a, &["ledger", "push", "Refused"]), 1);
+        let plus = match b {
+            Backend::Dolt => "2 commits",
+            Backend::Git => "1 commit",
+        };
+        let mut expected = local_block(b, Some(plus));
+        expected.push(origin_line(
+            b,
+            "1 data commit and 1 document commit not on origin (tsk ledger push)",
+            "1 ledger commit not on origin (tsk ledger push)",
+        ));
+        assert_eq!(human(&fx, &a), expected);
+
+        // Diverged: the other clone pushes while this one holds its commits.
+        std::fs::remove_file(&hook).unwrap();
+        fx.ok(&other, &["mission", "create", "M-O2", "Other 2"]);
+        fx.put(&other, "o2.md", "o2\n");
+        fx.ok(&other, &["ledger", "push", "Second other change"]);
+        let lines = human(&fx, &a);
+        assert_eq!(
+            lines.last().unwrap(),
+            &origin_line(
+                b,
+                "diverged: 1 data commit and 1 document commit to push, 1 data commit and 1 document commit to fetch (tsk ledger push merges them)",
+                "diverged: 1 ledger commit to push, 1 to fetch (tsk ledger push merges them)"
+            )
+        );
+        fx.ok(&a, &["ledger", "discard", "--yes"]);
+
+        // Offline: origin cannot be reached.
+        let moved = fx.root.path().join("origin-away.git");
+        std::fs::rename(fx.origin(), &moved).unwrap();
+        let out = fx.tsk(&a, &["ledger", "status"]);
+        assert_success(&out);
+        assert_eq!(
+            stdout(&out),
+            "Local   nothing to push\nOrigin  unknown (could not reach origin)\n"
+        );
+        assert_eq!(stderr(&out).lines().count(), 1, "{}", stderr(&out));
+        assert!(stderr(&out).starts_with("note: could not fetch "));
+        std::fs::rename(&moved, fx.origin()).unwrap();
     }
 
     pub fn status_and_discard_need_a_ledger_store(b: Backend) {
@@ -2848,6 +2998,7 @@ conformance!(
     status_counts_commits_ahead_and_behind_origin,
     status_works_offline_and_discard_then_changes_nothing,
     status_and_discard_need_a_ledger_store,
+    status_prints_local_and_origin_in_plain_columns,
     a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
 );
 
@@ -2891,6 +3042,7 @@ conformance!(
     status_counts_commits_ahead_and_behind_origin,
     status_works_offline_and_discard_then_changes_nothing,
     status_and_discard_need_a_ledger_store,
+    status_prints_local_and_origin_in_plain_columns,
     a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
 );
 
@@ -3919,7 +4071,7 @@ fn dolt_status_marks_a_table_whose_schema_changed_and_rows_did_not() {
     let fx = Fixture::with_briefing(Backend::Dolt);
     let a = fx.a();
     fx.dolt_sql(&a, "alter table watermark add column note int null");
-    let out = fx.ok(&a, &["ledger", "status"]);
+    let out = fx.ok(&a, &["ledger", "status", "--porcelain"]);
     assert!(
         out.lines().any(|l| l == "data\twatermark\tschema changed"),
         "{}",
@@ -3930,7 +4082,7 @@ fn dolt_status_marks_a_table_whose_schema_changed_and_rows_did_not() {
         &a,
         "alter table cloud_session_bindings add column note2 int null",
     );
-    let out = fx.ok(&a, &["ledger", "status"]);
+    let out = fx.ok(&a, &["ledger", "status", "--porcelain"]);
     assert!(
         out.lines()
             .any(|l| l
@@ -3940,7 +4092,9 @@ fn dolt_status_marks_a_table_whose_schema_changed_and_rows_did_not() {
     );
     assert_eq!(fx.ok(&a, &["ledger", "discard", "--yes"]), "discarded\n");
     assert_eq!(
-        fx.ok(&a, &["ledger", "status"]).lines().next(),
+        fx.ok(&a, &["ledger", "status", "--porcelain"])
+            .lines()
+            .next(),
         Some("data\tclean")
     );
 }

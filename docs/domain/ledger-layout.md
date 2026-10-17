@@ -206,7 +206,46 @@ read-only. It runs a fetch of the ledger and documents refs (`dolt fetch origin`
 exits 0 whatever it finds. When the ledger store does not exist, it exits 1 and names
 `tsk ledger fetch`.
 
-The output is one fact per line, tab-separated where a line has columns, with no header:
+By default it prints two answers, `Local` and `Origin`, with the labels padded to the same
+width. The output has no tab and no trailing whitespace. Everything in step:
+
+```
+Local   nothing to push
+Origin  up to date
+```
+
+Changes not pushed, origin ahead:
+
+```
+Local   3 changes not pushed
+          data  missions  1 added
+          data  tasks     1 added
+          docs  index.md  modified
+Origin  2 data commits and 1 document commit to fetch (tsk ledger fetch)
+```
+
+- The `Local` headline counts the detail lines: `nothing to push`, `1 change not pushed`
+  or `N changes not pushed`. A detail line is the store (`data` or `docs`), the name (a
+  table, or a file path) and what changed, in columns aligned across all detail lines. A
+  table prints its non-zero counts as `N added`, `N modified` and `N deleted`, joined by
+  `, `; `schema changed` stands alone for a table whose rows did not change and follows the
+  counts when both did. A document prints `added`, `modified` or `deleted`.
+- Commits made and not pushed (ahead) are counted over data and documents together. After
+  the changes they print as `        plus N commits not pushed` (8 spaces); with no changes
+  the headline is `Local   N commits not pushed`.
+- The `Origin` line is one of: `up to date`; `N data commits and M document commits to
+  fetch (tsk ledger fetch)`; `N data commits and M document commits not on origin (tsk
+  ledger push)`; `diverged: N data commits to push, M to fetch (tsk ledger push merges
+  them)` (the parts are named in full when more than one kind of commit is involved); `not
+  published yet (tsk ledger push creates it)`; `unknown (could not reach origin)`. A part
+  with a zero count is left out, and one commit is singular. The `git` backend keeps data
+  and documents on one branch, so it counts the commits once and calls them `ledger
+  commits`.
+- When the fetch fails, one line on stderr says so (`note: could not fetch ...; reporting
+  from what is local`), and `Origin` says `unknown`.
+
+`tsk ledger status --porcelain` prints one fact per line, tab-separated where a line has
+columns, with no header. This is the stable form for scripts and agents:
 
 ```
 data	clean
@@ -229,19 +268,20 @@ data	remote	ahead 1
 docs	remote	up to date
 ```
 
+In the porcelain form:
+
 - `data` and `docs` each print `clean` or `local changes`, then one line per change. A
   Dolt table line is `data`, the table, and the counts of rows added, modified and
   deleted. A table whose schema changed but whose rows did not prints `schema changed` in place of the counts (`data<TAB>missions<TAB>schema changed`); one that changed both prints the counts, then `schema changed`. A document line is
   `docs`, `A`, `M` or `D`, and the path, sorted by path.
-- A change is a difference between the working state and the merge base of the local and
+- A change (in both forms) is a difference between the working state and the merge base of the local and
   remote branches. A local commit that origin lacks is listed as well as an uncommitted
   change. What only origin changed is not listed.
 - `data<TAB>remote` and `docs<TAB>remote` count commits of the local committed state
   against origin: `up to date`, `ahead N`, `behind N` or `diverged ahead N behind N`. A
   local commit that is not pushed counts as ahead. `unknown` means origin could not be
   fetched. `unpublished` means origin holds no such branch yet.
-- When the fetch fails, one line on stderr says so (`note: could not fetch ...; reporting
-  from what is local`). Changes are then read from the remote-tracking state the last
+- When the fetch fails, one line on stderr says so, as above. Changes are then read from the remote-tracking state the last
   fetch left for the data (none for the documents: they compare with `HEAD`), and both
   `remote` lines say `unknown`.
 
@@ -253,10 +293,12 @@ and prints the same remote state for both.
 `tsk ledger discard` drops every local change that is not pushed, in the data and the
 documents, so a trial mission can be undone without `dolt reset`. It is destructive.
 
-- Without `--yes` it changes nothing. It prints the `data` and `docs` lines of `status`
-  (no `remote` lines) and exits 1 with
+- Without `--yes` it changes nothing. It prints the `Local` block of `status` (the headline
+  and detail lines, no `Origin` line) and exits 1 with
   `error: this would discard the local changes above. Rerun with --yes to discard them.`
-  When both sides are clean it prints the two `clean` lines and exits 0.
+  With `--porcelain` it prints the `data` and `docs` lines of the porcelain form instead
+  (no `remote` lines). When both sides are clean it prints `Local   nothing to push` (or the
+  two `clean` lines with `--porcelain`) and exits 0.
 - With `--yes` it fetches both remote states first. If a fetch fails it exits 1 with
   `Nothing was discarded` and changes nothing. Otherwise, with the Dolt backend, it runs
   `dolt reset --hard origin/main` and `dolt clean` (which drops a table that was never
