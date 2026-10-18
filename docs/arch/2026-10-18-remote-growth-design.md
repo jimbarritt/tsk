@@ -20,7 +20,10 @@ are Jim's. Nothing here is built, and nothing was written to the live ledger.
   fetch fell from 1.28 s to 0.52 s.
 - A one-line transport setting (`protocol.version=0` for the git processes `tsk` starts)
   removes 0.7 s from each live fetch with no storage change.
-- Recommendation: do the round-trip work first (T-01 to T-04 plus three small additions
+- Beads uses the same git-remote mechanism and its users reported the same `cat-file`
+  growth. Upstream Dolt fixed much of it. On the same data Dolt 2.5.0 launches 456
+  `cat-file` processes against 1362 for the pinned 1.88.2 (see What beads does).
+- Recommendation: do the round-trip work and a Dolt bump first (T-01 to T-04 plus three small additions
   below), and add a `tsk ledger compact` that rewrites the branch with a lease. Do not
   squash Dolt history, and do not move to a server.
 
@@ -230,8 +233,8 @@ What was observed, with the evidence:
   | `manifest` and one more | 2 | 4 | 4 |
 
   The likely cause is that each ranged read of an archive (footer, index, metadata)
-  becomes a full `cat-file` pair. This is an inference from the counts. It was not
-  confirmed in Dolt's source. Every push adds one archive and one 321-byte plain file.
+  becomes a full `cat-file` pair. This matches beads issue #4770 (see What beads does),
+  where the same pair per ranged read was found in Dolt's blobstore. Every push adds one archive and one 321-byte plain file.
   `.darc` is Dolt's archive format (`DOLTARC` signature, format version 3, zstd or snappy
   chunk groups with an index), written by `dolt gc` and by the git blobstore on push.
   `dolt admin archive-inspect <file>` prints one.
@@ -423,6 +426,101 @@ a scratch origin with 155 files. Medians of 3 runs, seconds:
 - None of T-01 to T-04 changes the 5 operations and 750-launch loop of the one remaining
   refresh. That is the part the options below address.
 
+## What beads does
+
+Beads is the Dolt-backed issue tracker (`bd`) that `docs/kb/orchestration-ecosystem/beads-as-backing-store-analysis.md`
+already compares with tsk. That document says beads syncs through Dolt remotes and
+defaults to `refs/dolt/data`. This section answers the sync-cost questions with sources.
+The project's README at https://github.com/steveyegge/beads links its docs under
+`gastownhall/beads`, so the sources below use that path. Fetched 2026-10-18 with WebFetch and WebSearch. The docs
+site `beads.gascity.com` could not be fetched from this sandbox (`ENOTFOUND`), so claims
+that rest only on search-result summaries of that site are marked "not verified".
+
+### How beads syncs
+
+| Claim | Source | Status |
+|---|---|---|
+| Sync is `bd dolt push` and `bd dolt pull` against Dolt remotes. For a git project the remote is the code repository's own `origin`. Data lives on `refs/dolt/data`, not on a branch. `bd init` records `origin` as `sync.remote`. `bd bootstrap` clones from `refs/dolt/data` | https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md and https://github.com/gastownhall/beads/blob/main/docs/architecture/dolt.md | Verified |
+| Other remote kinds are DoltHub, S3, GCS, `git+ssh://` and `file://` | https://github.com/gastownhall/beads/blob/main/docs/architecture/dolt.md | Verified |
+| `.beads/issues.jsonl` is an export, not the sync channel | https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md | Verified |
+| A Dolt server is used for concurrent writers on one machine, not as the cross-machine channel. In server mode auto-commit defaults to off | https://github.com/gastownhall/beads/blob/main/docs/architecture/dolt.md | Verified |
+| There is no automatic push or pull cadence in the documented core. Push is manual and sits in session-close instructions. `bd sync` has been a deprecated no-op since v0.51 | https://github.com/gastownhall/beads/issues/6034 (push is a session-close duty in three governance documents), and a search summary of https://www.mintlify.com/steveyegge/beads/guides/sync-and-backup | Partly verified. The `bd sync` statement is from a search summary only |
+| An optional `dolt.auto_push` setting makes every write push, and a community script runs a daemon with `--auto-commit --auto-push --auto-pull --interval 30s` | https://www.mintlify.com/steveyegge/beads/guides/sync-and-backup (search summary) | Not verified. Unofficial or third-party |
+
+So beads uses the same mechanism as tsk, Dolt's git remote, with a different ref.
+`refs/dolt/data` is a ref outside `refs/heads/*`, which the cloud proxy rejects (see
+`docs/kb/orchestration-ecosystem/beads-as-backing-store-analysis.md`, row "Sync to a git
+remote, default ref"). tsk already avoided this by using a branch.
+
+### Slow fetch and a growing remote: what has been reported
+
+All are open issues in https://github.com/gastownhall/beads unless stated.
+
+| Report | What it says | Source |
+|---|---|---|
+| Quadratic `cat-file` reads (closed 2026-07-17) | Dolt's git blobstore launched a `git cat-file -s` and `git cat-file blob` pair for every ranged chunk read, and each read streamed and discarded the bytes before its offset. About 60 spawns a second; one blob read 33 times in 15 s. A pull hung for 10 minutes or more. Fixed in Dolt v2.2.0 (dolthub/dolt#11247: spool git-backed table files to a temp file and batch `cat-file --batch-check`). After the fix: Windows pull 2.289 s, Linux pull 5.4 to 7 s on a 243 MB store, fresh clone of 71,605 chunks in about 25 s | https://github.com/gastownhall/beads/issues/4770 |
+| Per-chunk `cat-file` still spawned at once (open) | On Windows with git+https, one pull or push starts one `git cat-file -s` per remote chunk, about 230 processes, and fails 3 of 3 pushes with `ERROR_NOT_ENOUGH_MEMORY`. Each push adds a chunk, so the cost grows with the remote. Reporter proposes a worker pool of 8 to 16 or one long-lived `cat-file --batch`. bd 1.3.0 with embedded Dolt 2.1.9 | https://github.com/gastownhall/beads/issues/7082 |
+| Table files grow without bound (open, "resolved pending bump") | On a git+ssh remote, 2,259 table files, pull time 10+ minutes and rising daily. Dolt's conjoin (threshold 256 files) failed because one push opened about 247 SSH connections against `MaxStartups` 10. Raising `MaxStartups` let conjoin run: 2,264 files fell to 32. Upstream Dolt fixes (dolt#11742, #11745) are reported done, and the reporter could not reproduce on Dolt 2.3.5 | https://github.com/gastownhall/beads/issues/6359 |
+| Disproportionate storage (open) | A few-thousand-issue repo: `.beads/` 2.3 GB after compaction, of which `embeddeddolt` 1.7 GB, against a 2.9 MB JSONL export. A full push held bd's exclusive lock for about 50 minutes. Root cause unconfirmed | https://github.com/gastownhall/beads/issues/4625 |
+| No retry on transport timeout (open) | A single timeout aborts `bd dolt push` with a partial write. Operators re-run by hand. No retry, timeout or backoff knob | https://github.com/gastownhall/beads/issues/6034 |
+| Fixed 30 s pre-push fsck timeout (open) | Every long-lived database eventually crosses it, because each write creates a Dolt commit | https://github.com/gastownhall/beads/issues/4822 and feature request https://github.com/gastownhall/beads/issues/7255 (run the check on a schedule) |
+
+I did not find a reported per-operation sync time for a small ledger like tsk's. The
+nearest numbers are the post-fix timings in #4770 (pull 2.3 s to 7 s). Beads documents no
+latency benchmark (https://github.com/gastownhall/beads/blob/main/docs/architecture/dolt.md).
+
+### What beads does about it
+
+| Measure | Detail | Source | Status |
+|---|---|---|---|
+| `dolt gc` and `dolt gc --full` | Documented as the first diagnosis. A default pass collects only the new generation. `--full` collects both. If `--full` frees nothing, a branch, tag or cached remote-tracking ref still references the bytes | https://github.com/gastownhall/beads/blob/main/docs/architecture/dolt.md | Verified |
+| `bd flatten` (all history into one commit) and `bd compact` (squash commits older than N days) | Build a temporary branch and hard-reset `main` onto it. Marked irreversible. On Dolt 2.3.x the reset can fail with `context canceled`. A default `gc` after a squash often reclaims little because orphaned commits sit in the old generation | https://github.com/gastownhall/beads/blob/main/docs/architecture/dolt.md | Verified |
+| Multi-clone warning for a squash | A live peer undoes the squash on its next sync: it pulls the new baseline, merges it into its old chain and pushes the whole old history back. Stop every syncing machine and back up first | https://beads.gascity.com/recovery/history-squash (via search summary) | Not verified: page not fetchable |
+| Backups | `bd backup` makes a full Dolt backup to a path, NAS or DoltHub | https://github.com/gastownhall/beads/blob/main/docs/architecture/dolt.md | Verified |
+| Dolt upgrades | Beads relies on newer Dolt for the git-remote fixes: spooling, coalesced fetches, a persistent fetch anchor ref for incremental pulls, and settings that trade disk for faster incremental transfer | https://github.com/dolthub/dolt/releases (2.3.3 PRs #11745, #11742; 2.4.1 PRs #11993, #11991, #11989; 2.5.0 PRs #12061, #12062) | Verified from the release list. I did not read the PR bodies |
+
+I found no case where beads does anything to a git remote's file count other than rely on
+Dolt's own conjoin and these history tools. No `bd` command writes a compacted tree to a
+fresh ref, as `tsk ledger compact` would.
+
+### Test: does a newer Dolt cut tsk's cost?
+
+The beads reports point at Dolt itself. tsk's hook pins Dolt 1.88.2 (`CLAUDE.md`,
+`plugin/hooks/install-dolt.sh`). Dolt 2.5.0 was downloaded from
+https://github.com/dolthub/dolt/releases/download/v2.5.0/dolt-linux-amd64.tar.gz into the
+scratch directory and put first on `PATH`. Same scratch origin (227 files after the 50
+pushes), fresh clone, `tsk ledger fetch` with nothing new:
+
+| Dolt | Launches | Local time | With 330 ms per network op |
+|---|---|---|---|
+| 1.88.2 | 1362 | 1.72 to 1.95 s | 3.47 to 3.77 s |
+| 2.5.0 | 456 | 1.30 to 1.33 s | 2.60 to 2.74 s |
+
+The launch count falls to 2.0 per file (from 6.0), still linear in file count. The time
+saving is about 0.5 s locally and 0.9 s with live-like latency at 227 files, and it grows
+with the file count. Mixed versions work: a 2.5.0 clone pushed, a 1.88.2 clone fetched,
+merged its own write and pushed, and the 2.5.0 clone read both. This confirms that the
+`cat-file` pair per ranged read in Finding 2 is the beads #4770 mechanism, partly fixed
+upstream. It was run on scratch only.
+
+### What tsk should copy or avoid
+
+- **Copy:** track a recent Dolt. Beads' worst reports were fixed upstream (#4770, #6359).
+  Raise tsk's pinned Dolt from 1.88.2 to 2.5.0 or later after a broader test.
+- **Copy:** diagnose with `dolt gc --full` before any rewrite, and keep a backup before
+  one (`bd backup`).
+- **Copy:** `bd`'s open request for a scheduled integrity check and a configurable
+  timeout (#7255, #6034). tsk should give its push a retry and a timeout knob from the
+  start.
+- **Avoid:** `refs/dolt/data` (the cloud proxy rejects it), a daemon that pushes on a
+  30 s interval (unofficial, unverified), and `bd flatten` as the standard fix. A
+  history squash breaks other clones (shown above), and here it saved nothing over `gc`.
+- **Avoid:** a push after every write. Beads' session-close push and `dolt.auto_push`
+  being optional match tsk's T-08 rule. Growth is per push.
+- **Note:** beads has no remote compaction command and its own users hit unbounded
+  table-file growth (#6359). `tsk ledger compact` would be new ground, which is a reason
+  to test it live once and to keep the threshold conservative.
+
 ## Options
 
 Times are for a live `tsk ledger fetch` with nothing new unless stated. "Measured" means
@@ -441,6 +539,7 @@ run here. "Estimate" is arithmetic on measured parts.
 | E | Ask Dolt to read each table file once (for example one `cat-file --batch`), to skip files the local store holds, and to avoid the second `git fetch` | An upstream issue and patch | Removes the loop, whatever the file count. Largest long-term lever. | Outside this repo. Timing is not ours. | File an issue upstream, and say who. |
 | F | Server (DoltHub, `dolt sql-server`, relay) | High | Removes the git remote from the hot path | The proxy denies the hosts and, per the 2026-10-15 test, raw TCP and gRPC. Ruled out by Jim on 2026-10-18. | None unless the ruling changes. |
 | G | Trim the cache clone's `refs/dolt/remotes/.../<uuid>` refs | Small | None measurable until thousands of refs (14 ms against 75 ms at 5000) | Low | None. Housekeeping only. |
+| H | Raise the pinned Dolt from 1.88.2 to 2.5.0 or later (the `SessionStart` installer and the `CLAUDE.md` note) | A version bump, a test of the installer in the cloud sandbox and a conformance run | Launches per fetch 1362 to 456 (measured at 227 files). Live-equivalent fetch 3.5 s to 2.6 s at 227 files. The saving grows with the file count. Beads' fixes (#4770, #6359) come from the same upstream line. | Medium. A new major version of the storage engine. Mixed 1.88.2 and 2.5.0 clones worked in a scratch test. Not tested on the live ledger or on the cloud installer. | Approve the bump, and decide whether the minimum becomes 2.5.0 or stays "or later". |
 
 Projected live `tsk ledger fetch` with nothing new:
 
@@ -465,6 +564,14 @@ so a read that finds nothing new takes about half a second and no longer depends
 file count. Add B (`tsk ledger compact`) behind a threshold of about 60 files, after one
 supervised live run, so a fetch that does find changes stays near 1.9 s.
 
+New after the beads research (section What beads does): raise the pinned Dolt (H). On
+the same data Dolt 2.5.0 launches a third of the `cat-file` processes and takes 0.9 s less
+per live-like fetch at 227 files. Beads' users reported the same defect and it was
+fixed upstream. This is cheaper than compaction and is a version bump, so do it with
+A2 and A4, ahead of B. Mixed versions across clones worked in the scratch test. B stays,
+but its urgency falls, because H slows the growth of the cost per file from 6 to 2
+launches. Beads has no remote-compaction command, so B is new ground. Test it live once.
+
 Rank by value: A3 first (largest change for reads), then A2 and A1 (writes), then B (the
 only fix for the scaling of a fetch that finds changes). E is worth filing in parallel
 because it is the only fix that removes the cause.
@@ -472,10 +579,70 @@ because it is the only fix that removes the cause.
 This also settles the review's proposal 4. The remote can be compacted, but only by
 writing to a fresh ref and moving the branch. A plain push after `gc` cannot do it.
 
+## Action budget, current and projected
+
+Source: `tsk ledger doc get missions/operational/M-PERF/action-budget.md` (read only).
+Budgets there are proposals for Jim to change. Every projected figure below is an
+estimate built from the measured parts in this document. None was run, except where the
+Now column says measured.
+
+Assumptions, each column adding to the one before:
+
+- **Round trips only (R).** T-01 to T-04, T-08 (a write never waits for origin; publish
+  runs in the background), A3 (skip the fetch when the remote heads match), A4 (no
+  version check at session start). Protocol v2, Dolt 1.88.2, no compaction.
+- **R + protocol v0 (V).** Each network operation costs 0.2 s, not 0.33 s (A2).
+- **R + V + compaction (C).** The table-file pass costs 0.52 s locally, not 1.28 s (B).
+  It only matters when a fetch finds something new, because R already skips the pass
+  when nothing is new.
+- Dolt 2.5.0 (H) is not in the columns. It would cut the table-file pass by about two
+  thirds at 227 files, and so lowers the C column further when the remote has not been
+  compacted. Treat it as an extra reduction on "something new".
+
+Model: time = local work + network operations × 0.33 s (0.2 s on v0) + table-file passes
+× 1.28 s (0.52 s compacted). A read with nothing new is one `ls-remote` plus local work.
+"Something new" is one fetch pass of 5 operations. Live figures come from the
+330 ms emulation or from measured live runs.
+
+| Action | Needs origin | Budget (proposed) | Now | R | R + V | R + V + C |
+|---|---|---|---|---|---|---|
+| Read what is open | no | 0.2 s | 0.08 s | 0.08 s | 0.08 s | 0.08 s |
+| Add a task | no | 0.3 s | 0.2 s | 0.2 s | 0.2 s | 0.2 s |
+| Mark a task done | no | 0.3 s | 0.2 s | 0.2 s | 0.2 s | 0.2 s |
+| Record a decision or answer a question | no | 0.3 s | 0.2 s | 0.2 s | 0.2 s | 0.2 s |
+| Mark done and publish: the write | no | 0.3 s | 2.1 s local (about 6 s live) | 0.2 s | 0.2 s | 0.2 s |
+| Mark done and publish: the publish, in the background | yes | 1 s or background | about 6 s live | 3.0 s | 2.2 s | 2.0 s |
+| Publish changes (`tsk ledger push`) | yes | 1 s or background | 1.9 s local with a change; about 6 s live | 3.0 s | 2.2 s | 2.0 s |
+| See what is unpublished (`tsk ledger status`) | yes | 0.3 s with a local-only mode | 1.75 s live (measured by the review), 2.3 s here | 0.65 s nothing new; 2.65 s new | 0.5 s; 1.94 s | 0.5 s; 1.2 s |
+| Start a thread | yes | 1 s | 3.2 s local; about 10 s live | 3.5 s | 2.8 s | 2.6 s |
+| Pause a thread | yes | 1 s or background | 3.2 s local; 10.1 s live-equivalent | 3.5 s | 2.8 s | 2.6 s |
+| Resume a thread | yes | 1 s | 0.85 s local; about 2.5 s live | 1.5 s | 1.2 s | 1.1 s |
+| Start a session | yes | 1.5 s | 3.5 to 4.4 s live | 1.0 s nothing new; 3.0 s new | 0.8 s; 2.2 s | 0.8 s; 1.5 s |
+| Stop hook, every turn | no | 0.15 s | 0.09 s | 0.09 s | 0.09 s | 0.09 s |
+| List threads | yes | 0.3 s as a local read | 3.4 s local, 4.1 to 6.6 s live | 3.4 s | 3.4 s | 3.4 s |
+
+Reading the projections:
+
+- Only the first four rows and the guard meet their budgets today and after every
+  scenario. The write half of "mark done and publish" meets 0.3 s once T-08 moves the
+  publish off the critical path. This holds in every column, because it needs no origin.
+- The remote cost is the same in all three scenarios for anything that pushes. A push
+  needs one `ls-remote` and two pushes, 5 network operations at 0.33 s or 0.2 s,
+  plus local work of about 1.4 s. No scenario brings a synchronous publish, start or
+  pause to 1 s. They meet the budget only as background work, or with a smaller `dolt`
+  process count (T-02), which is why those rows land at 2 to 3.5 s.
+- Session start meets 1.5 s only when nothing is new (R and later). When another session
+  pushed since the last fetch, it needs V and C to reach 1.5 s.
+- `tsk thread list` is not a remote problem. It launches 38 `dolt` processes (measured
+  above), about 2.7 s at 70 ms each. None of the three scenarios changes it. It needs the
+  batching `mission list` already has, or a local-read mode, as the budget file says.
+- `ledger status` meets 0.3 s only as a local-only mode, as the budget file proposes. A
+  remote check costs at least one `ls-remote` (0.2 to 0.4 s).
+
 ## Decisions for Jim
 
-1. **Order of work.** Agree that round trips come before compaction: A2, A4, T-01 to T-04,
-   then A3, then B. Or move B earlier.
+1. **Order of work.** Agree that round trips and the Dolt bump come before compaction:
+   A2, A4, H, T-01 to T-04, then A3, then B. Or move B earlier.
 2. **A2, `protocol.version=0`.** May `tsk` set it for the git processes it spawns?
 3. **A3, skip when the remote heads match.** Approve the design (remember the full SHA of
    `tsk/ledger` and `tsk/docs` after each fetch, one `ls-remote` for both refs, skip the
@@ -496,13 +663,14 @@ writing to a fresh ref and moving the branch. A plain push after `gc` cannot do 
    proxy still has to be tested.
 8. **Corrections to the review.** May the review's Performance section carry a note
    pointing to this document, for the five contradictions listed above?
-9. **Action budget.** The task text (T-05) asks for current and projected times per
-   action, decided with M-TSK-SCHEMA T-07 and the nexus entry. This document gives the
-   fetch, session start and pause rows only. The full budget table needs Jim's target
-   per action.
-
-Not covered: what `beads` does about the same problem (named in T-05). It was not
-examined.
+9. **Action budget.** Set the target per action in the Action budget section. It shows
+   which rows no scenario can bring to the proposed budget as a synchronous call, so
+   the choice is between loosening those budgets and running them in the background.
+10. **Dolt version (H).** Raise the pinned Dolt to 2.5.0 or later? Say whether the minimum
+    changes in `CLAUDE.md` and the installer.
+11. **Beads reports.** The open issues #6359 and #7082 show the same growth in other
+    users' remotes. Should tsk follow them, or file a link from the upstream Dolt issue
+    (decision 6)?
 
 ## Commands run
 
