@@ -1024,7 +1024,7 @@ without a thread. Never in the ledger and never pushed.
 ## Fetching and printing the path
 
 `tsk ledger fetch` replaces `fetch-bootstrap-ref.sh`. `tsk ledger path` replaces
-`bootstrap-wt-path.sh`. Both run in the `tsk` client alone, with no `tskd`, from inside
+`bootstrap-wt-path.sh`. Both run in the `tsk` client alone, from inside
 any working tree of the managed repo.
 
 ### Outside a git repository
@@ -1082,7 +1082,7 @@ Each command that writes does one push after all its changes, not one per change
 
 The `tsk events` commands replace `append-external-event.sh`,
 `read-new-external-events.sh` and `advance-external-events-watermark.sh`. They run in the
-`tsk` client alone, with no `tskd`. Each one runs `tsk ledger fetch`'s steps first, as the
+`tsk` client alone. Each one runs `tsk ledger fetch`'s steps first, as the
 scripts run `fetch-bootstrap-ref.sh`. The three that write push once through
 `tsk ledger push`'s steps.
 

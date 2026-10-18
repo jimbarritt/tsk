@@ -1,3 +1,5 @@
+> Historical: ADR 0012 retired the daemon design.
+
 # tsk — Domain Model & State Machines
 
 *Written: 2026-03-10. Reflects decisions made through session 3.*

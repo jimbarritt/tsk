@@ -66,7 +66,7 @@ cargo --version
 cargo install tsk-bin --locked
 ```
 
-This installs the `tsk` binary. `tskd` is retired (ADR 0012) and is not needed.
+This installs the `tsk` binary. `tskd` and the TUI were retired (ADR 0012) and removed in 0.16.0.
 
 The Claude Code plugin installs from the `jimbarritt/claude-plugins` marketplace. Its
 entry points at `plugin/` in the tsk repo:

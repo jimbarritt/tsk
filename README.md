@@ -100,4 +100,4 @@ The repo's `SessionStart` script installs the plugins and `dolt`, builds `tsk` f
 | [docs/user-guide/installation.md](docs/user-guide/installation.md) | Prerequisites, installing, upgrading, CI |
 | [docs/user-guide/new-nexus-on-a-clean-machine.md](docs/user-guide/new-nexus-on-a-clean-machine.md) | Step by step: a new nexus, tsk and the plugin on a clean machine, and a repo's ledger held in the nexus |
 | [docs/user-guide/new-cloud-environment.md](docs/user-guide/new-cloud-environment.md) | Step by step: a Claude cloud environment with tsk, the plugin and the ledger ready in every session |
-| [docs/user-guide/getting-started.md](docs/user-guide/getting-started.md) | The ledger, thread and external event commands, the TUI, building, publishing |
+| [docs/user-guide/getting-started.md](docs/user-guide/getting-started.md) | The ledger, thread and external event commands, building, publishing |

@@ -1,3 +1,5 @@
+> Historical: ADR 0012 retired the daemon design. `tskd` and the TUI were removed in 0.16.0, and this guide no longer applies. It is kept as a record.
+
 # Migration guide: per-project daemon → global daemon
 
 This guide covers migrating from the old per-project `tskd` model to the new single

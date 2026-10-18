@@ -1,3 +1,5 @@
+> Historical: ADR 0012 retired the daemon design.
+
 # Optimising Agent Workflows: Lessons from the Global Daemon Refactor
 
 ## Context

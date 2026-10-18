@@ -673,6 +673,23 @@ fn commands_that_need_no_repository_still_run_outside_one() {
 }
 
 #[test]
+fn tsk_with_no_arguments_prints_the_help_and_exits_2() {
+    let fx = Fixture::new();
+    let outside = fx.root.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+
+    let output = fx.tsk_in(&outside, &[]);
+
+    // clap's convention for a missing subcommand: the help goes to stderr, status 2.
+    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(stdout(&output), "");
+    let help = stderr(&output);
+    assert!(help.contains("Usage: tsk [COMMAND]"), "{}", help);
+    assert!(help.contains("ledger"), "{}", help);
+    assert!(!help.contains("tskd"), "{}", help);
+}
+
+#[test]
 fn the_removed_files_backend_is_refused_and_any_other_value_is_ignored() {
     let fx = Fixture::with_ledger();
     let refusal = "error: the files ledger backend was removed in 0.16.0; use tsk 0.15.1 to read an old file ledger\n";

@@ -9,8 +9,8 @@ name: Release
 # 2. Creates the tag on the pushed commit and the GitHub release `tsk <version>`. The
 #    notes are `docs/releases/v<version>.md` when that file exists, then the subject of
 #    every commit since the previous `v*` tag, then the compare link GitHub generates.
-# 3. Calls publish-crates.yml to publish tsk-core and tsk-bin to crates.io, in the
-#    environment `release`.
+# 3. Calls publish-crates.yml to publish tsk-bin to crates.io, in the environment
+#    `release`.
 # 4. Calls binaries.yml to build the binaries, attach them to the release and write
 #    the Homebrew formula in jimbarritt/homebrew-tap, in the environment `release`.
 #
