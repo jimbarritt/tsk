@@ -1,7 +1,6 @@
 pub mod binding;
 pub mod clock;
 pub mod entry;
-pub mod lookup;
 pub mod ops;
 pub mod session;
 pub mod session_start;

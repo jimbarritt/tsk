@@ -47,7 +47,7 @@ An entry has these fields:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `id` | yes | The repo ID, `[a-z0-9][a-z0-9-]*`. Names the ledger branch and is stored in the ledger's `.tsk-ledger.toml` as `repo_id`. |
+| `id` | yes | The repo ID, `[a-z0-9][a-z0-9-]*`. Names the ledger branch and is stored in the ledger's manifest as `repo_id`. |
 | `url` | no | The repo's clone URL. tsk matches it, normalised, against the managed repo's `origin`. |
 | `local` | no | A machine name. The entry is visible only on that machine and is found only through the repo ID cached in the clone. For a repo with no `url`. |
 | `ledger` | no | `"repo"` or `"nexus"`. Absent means `"repo"`. |

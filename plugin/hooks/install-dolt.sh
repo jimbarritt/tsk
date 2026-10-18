@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# Installs the dolt binary that tsk's default ledger backend runs. Does nothing
+# Installs the dolt binary that tsk's ledger runs. Does nothing
 # when dolt DOLT_VERSION or later is installed, from Homebrew for example.
 # Otherwise it installs DOLT_VERSION from the GitHub release. Prints a
 # WARNING line on stdout when the install or the identity setup fails, and

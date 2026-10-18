@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use super::fetch::{check_manifest, ensure_worktree_of_repo, fetch_tip};
+use super::fetch::{ensure_worktree_of_repo, fetch_tip};
 use super::git::{failure_message, split_nul, Git};
-use super::location::{worktree_path, LedgerLocation, Repo};
+use super::location::{LedgerLocation, Repo};
 
 pub const MAX_ATTEMPTS: usize = 5;
 
@@ -32,27 +32,14 @@ impl PushStatus {
     }
 }
 
-pub fn push(
-    repo: &Repo,
-    state_root: &Path,
-    message: &str,
-    on_retry: &mut dyn FnMut(usize, &PushStatus),
-) -> Result<PushOutcome, String> {
-    let location = repo.location(state_root)?;
-    let path = existing_worktree(repo, state_root)?;
-    push_worktree(repo, &location, &path, message, true, on_retry)
-}
-
 /// Commit every change in the worktree at `path` and push `HEAD` to `location`'s ref
-/// with a compare and swap, rebasing onto a newer remote tip. The same machinery serves
-/// the file ledger (`check_manifest` set, so each remote tip is checked for a
-/// `.tsk-ledger.toml`) and the documents branch (no manifest on it).
+/// with a compare and swap, rebasing onto a newer remote tip. The documents branch of a
+/// ledger uses it; there is no manifest on that branch.
 pub fn push_worktree(
     repo: &Repo,
     location: &LedgerLocation,
     path: &Path,
     message: &str,
-    check_manifest_file: bool,
     on_retry: &mut dyn FnMut(usize, &PushStatus),
 ) -> Result<PushOutcome, String> {
     let location = location.clone();
@@ -61,18 +48,12 @@ pub fn push_worktree(
     ensure_worktree_of_repo(&wt, &repo.common_dir)?;
 
     let mut tip = fetch_tip(&wt, &location)?;
-    if check_manifest_file {
-        check_manifest(&wt, tip.as_deref().unwrap_or("HEAD"), &location)?;
-    }
 
     let committed = commit_changes(&wt, message)?;
 
     for attempt in 1..=MAX_ATTEMPTS {
         if attempt > 1 {
             tip = fetch_tip(&wt, &location)?;
-            if check_manifest_file {
-                check_manifest(&wt, tip.as_deref().unwrap_or("HEAD"), &location)?;
-            }
         }
 
         if let Some(remote_tip) = &tip {
@@ -115,26 +96,6 @@ pub fn push_worktree(
         MAX_ATTEMPTS,
         path.display()
     ))
-}
-
-fn existing_worktree(repo: &Repo, state_root: &Path) -> Result<PathBuf, String> {
-    let missing = |what: String| {
-        format!(
-            "error: {}. Run tsk ledger fetch first, which creates the ledger worktree",
-            what
-        )
-    };
-    let clone_id = repo.read_clone_id()?.ok_or_else(|| {
-        missing(format!(
-            "this clone has no clone id yet ({} is absent or empty)",
-            repo.clone_id_file().display()
-        ))
-    })?;
-    let path = worktree_path(state_root, &clone_id);
-    if !path.is_dir() {
-        return Err(missing(format!("{} does not exist", path.display())));
-    }
-    Ok(path)
 }
 
 pub(crate) fn commit_changes(wt: &Git, message: &str) -> Result<bool, String> {

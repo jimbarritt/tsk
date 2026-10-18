@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-pub const STORE_FILE: &str = "continuation-state.jsonl";
-
 #[derive(Serialize)]
 pub struct NewEntry<'a> {
     /// Null for a thread with no mission.

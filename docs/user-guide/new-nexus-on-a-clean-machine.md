@@ -62,13 +62,9 @@ branches. Nothing else is required.
 <name>-nexus
 ├── main                     branch you write
 │   └── nexus.json           the index of territories and repos
-├── ledgers/work-api         branch tsk creates in step 7
-│   ├── .tsk-ledger.toml
-│   ├── index.md
-│   ├── missions/
-│   ├── threads/
-│   └── external-events/
-└── ledgers/<other-id>       one branch per managed repo with "ledger": "nexus"
+├── ledgers/work-api         branch tsk creates in step 7: the Dolt database
+├── ledgers/work-api-docs    branch tsk creates in step 7: the documents, as Markdown files
+└── ledgers/<other-id>       one pair of branches per managed repo with "ledger": "nexus"
 ```
 
 A `README.md` on `main` is optional. tsk does not read it.
@@ -191,8 +187,8 @@ tsk ledger fetch
 ```
 
 The command finds the `work-api` entry, writes `work-api` to `.git/tsk-repo-id`, and
-reports that `ledgers/work-api` does not exist yet. It creates a new ledger in the ledger
-worktree: `.tsk-ledger.toml` and an `index.md` stub. It prints the ledger worktree path.
+reports that `ledgers/work-api` does not exist yet. It creates a new ledger: a Dolt
+database and a documents worktree with an `index.md` stub. It prints the database path.
 
 Push it to create the branch in the nexus:
 

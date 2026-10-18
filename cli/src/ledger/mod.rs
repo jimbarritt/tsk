@@ -4,7 +4,6 @@ pub mod fetch;
 pub mod git;
 pub mod location;
 pub mod manifest;
-pub mod migrate;
 pub mod migrate_docs;
 pub mod nexus;
 pub mod push;
@@ -57,17 +56,6 @@ pub enum LedgerCommands {
             help = "Print the changes as tab-separated lines, the stable form for scripts, instead of the Local summary"
         )]
         porcelain: bool,
-    },
-    #[command(
-        name = "migrate-to-dolt",
-        about = "Move a file ledger to Dolt in one Dolt commit on the same ledger ref; archives the file ledger's commit on refs/heads/archive/tsk-ledger-files first; prints migrated:<file-commit>:<dolt-head>"
-    )]
-    MigrateToDolt {
-        #[arg(
-            long,
-            help = "Read the file ledger and build the Dolt database in a temporary directory, check it, print the counts and dry-run:ok, and push nothing"
-        )]
-        dry_run: bool,
     },
     #[command(
         name = "migrate-docs",
@@ -129,12 +117,11 @@ pub enum DocCommands {
 }
 
 pub fn run(action: LedgerCommands) -> Result<(), String> {
+    crate::config::refuse_files_backend_from_env()?;
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
-    match action {
-        LedgerCommands::MigrateToDolt { dry_run } => return migrate::run(&cwd, dry_run),
-        LedgerCommands::MigrateDocs { dry_run } => return migrate_docs::run(&cwd, dry_run),
-        _ => {}
+    if let LedgerCommands::MigrateDocs { dry_run } = action {
+        return migrate_docs::run(&cwd, dry_run);
     }
     let store = store::open(&cwd)?;
     match action {
@@ -169,7 +156,7 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
         }
         LedgerCommands::Discard { yes, porcelain } => run_discard(store.as_ref(), yes, porcelain),
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
-        LedgerCommands::MigrateToDolt { .. } | LedgerCommands::MigrateDocs { .. } => {
+        LedgerCommands::MigrateDocs { .. } => {
             unreachable!("handled before the store opens")
         }
     }
@@ -353,7 +340,6 @@ mod tests {
         let outcome = fetch::FetchOutcome {
             location: location::LedgerLocation::in_repo(),
             path: PathBuf::from("/s/tsk/repos/x/ledger"),
-            commit: "abc123".to_string(),
             pending: vec!["1111111 first".to_string(), "2222222 second".to_string()],
             unpublished: false,
         };
@@ -372,7 +358,6 @@ mod tests {
         let outcome = fetch::FetchOutcome {
             location: location::LedgerLocation::nexus("https://example.test/o/nexus", "work-api"),
             path: PathBuf::from("/s/tsk/repos/x/ledger"),
-            commit: "abc123".to_string(),
             pending: Vec::new(),
             unpublished: true,
         };

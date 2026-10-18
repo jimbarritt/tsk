@@ -8,7 +8,6 @@ use super::git::Git;
 pub const IN_REPO_REMOTE: &str = "origin";
 pub const IN_REPO_REF: &str = "refs/heads/tsk/ledger";
 pub const IN_REPO_DOCS_REF: &str = "refs/heads/tsk/docs";
-pub const WORKTREE_DIR_NAME: &str = "ledger";
 pub const DOCS_DIR_NAME: &str = "docs";
 pub const DOLT_DIR_NAME: &str = "ledger-db";
 pub const CLONE_ID_FILE: &str = "tsk-clone-id";
@@ -247,19 +246,12 @@ pub fn state_root_from_env() -> Result<PathBuf, String> {
     state_root(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"))
 }
 
-pub fn worktree_path(state_root: &Path, clone_id: &str) -> PathBuf {
-    state_root
-        .join("repos")
-        .join(clone_id)
-        .join(WORKTREE_DIR_NAME)
-}
-
 /// Where the Dolt backend keeps the worktree of its documents branch.
 pub fn docs_worktree_path(state_root: &Path, clone_id: &str) -> PathBuf {
     state_root.join("repos").join(clone_id).join(DOCS_DIR_NAME)
 }
 
-/// Where the Dolt backend keeps its database, beside the files backend's worktree.
+/// Where the Dolt backend keeps its database.
 pub fn dolt_db_path(state_root: &Path, clone_id: &str) -> PathBuf {
     state_root.join("repos").join(clone_id).join(DOLT_DIR_NAME)
 }
@@ -335,12 +327,6 @@ mod tests {
     #[test]
     fn state_root_fails_without_xdg_or_home() {
         assert!(state_root(None, None).is_err());
-    }
-
-    #[test]
-    fn worktree_path_is_ledger_under_clone_id() {
-        let path = worktree_path(Path::new("/s/tsk"), "tsk-180ae86e");
-        assert_eq!(path, PathBuf::from("/s/tsk/repos/tsk-180ae86e/ledger"));
     }
 
     #[test]

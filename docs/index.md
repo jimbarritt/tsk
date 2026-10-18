@@ -21,7 +21,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 - [persistence-and-sync.md](domain/persistence-and-sync.md): the superseded 2026-09-14 custom-ref sync design, kept as a record. ADR 0014 and the Dolt section of ledger-layout.md replace it.
 - [mission-briefing-template.md](domain/mission-briefing-template.md): the shape a projection of a mission record will take, as a briefing for humans and agents. Projections are not built yet.
 - [session-continuation-design.md](domain/session-continuation-design.md): thread binding, the continuation state store, and the `/start-thread`, `/pause-thread`, `/resume-thread` commands.
-- [ledger-layout.md](domain/ledger-layout.md): the Dolt backend (database location, tables, documents, push, migration, backend selection) and the `git` backend file layout: every ledger file, its format and JSON fields, the `.tsk-ledger.toml` manifest, the ledger refs and nexus URL normalisation, the ledger worktree location, the local-only files, and what `tsk ledger fetch` and `tsk ledger path` do.
+- [ledger-layout.md](domain/ledger-layout.md): the Dolt ledger (database location, tables, documents, push, status, manifest versions, migration of documents), the removed files backend, the ledger refs and nexus URL normalisation, the continuation entry format, the external event queue, the local-only files, and what `tsk ledger fetch`, `tsk ledger path` and the session start command do.
 
 ## User guide
 
@@ -62,7 +62,8 @@ Architecture Decision Records capture why significant technical choices were mad
 - [0011-logic-lives-in-the-binary-not-the-plugin.md](adr/0011-logic-lives-in-the-binary-not-the-plugin.md): all harness logic lives in the `tsk` binary. Plugin hooks, skills and scripts call `tsk` and hold only what belongs to the Claude Code harness.
 - [0012-retire-tskd-ledgers-are-the-only-shared-state.md](adr/0012-retire-tskd-ledgers-are-the-only-shared-state.md): `tskd` is retired. Git ledgers, located through the nexus, are the only shared state, and the TUI is rebuilt to read them. A local cache index is a deferred extension.
 - [0013-tsk-works-in-any-harness-mission-control-stays-separate.md](adr/0013-tsk-works-in-any-harness-mission-control-stays-separate.md): tsk depends on no harness and each harness reaches it through an adapter. Mission Control stays a separate product, and depends on tsk, not the reverse.
-- [0014-dolt-is-the-ledger-store-behind-a-storage-seam.md](adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md): Dolt is the ledger store, run as an external binary and synced over git on a branch, behind a storage trait that keeps the git-file ledger as a backend. Beads is not adopted. Six options compared.
+- [0014-dolt-is-the-ledger-store-behind-a-storage-seam.md](adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md): Dolt is the ledger store, run as an external binary and synced over git on a branch, behind a storage trait that kept the git-file ledger as a backend (decision 2, superseded by ADR 0015). Beads is not adopted. Six options compared.
+- [0015-the-files-backend-is-removed.md](adr/0015-the-files-backend-is-removed.md): the files backend is removed in 0.16.0. Tsk is committed to Dolt, v0.15.1 is the last release with the backend, and the `LedgerStore` trait stays with one implementation.
 
 ## Knowledge base
 

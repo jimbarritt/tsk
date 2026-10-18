@@ -52,8 +52,7 @@ dolt version
 dolt config --global --add user.name tsk
 dolt config --global --add user.email tsk@localhost
 ```
-A ledger set to the `git` backend (`[ledger] backend = "git"` in the tsk config, or
-`TSK_LEDGER_BACKEND=git`) does not need `dolt`.
+Every ledger needs `dolt`. The files backend, which did not, was removed in 0.16.0.
 
 Once the Rust toolchain is installed, verify with:
 ```bash

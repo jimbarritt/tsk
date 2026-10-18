@@ -1,8 +1,8 @@
 //! The documents branch of a Dolt ledger. Dolt owns the whole tree of the ledger ref, so
 //! documents cannot live there. They are plain files on a second branch, `tsk/docs`
 //! (`ledgers/<id>-docs` on a nexus), checked out as a detached linked worktree beside the
-//! Dolt database. The worktree, the refresh and the compare-and-swap push are the ones the
-//! file ledger uses, parameterised by ref: see [`super::fetch`] and [`super::push`].
+//! Dolt database. The worktree, the refresh and the compare-and-swap push are in
+//! [`super::fetch`] and [`super::push`].
 //! There is no `.tsk-ledger.toml` on the documents branch.
 
 use std::path::{Path, PathBuf};
@@ -24,7 +24,6 @@ pub struct DocsFetch {
     /// The documents location (the docs ref on the ledger's remote).
     pub location: LedgerLocation,
     pub path: PathBuf,
-    pub commit: String,
     pub pending: Vec<String>,
     /// True when the remote holds no documents branch yet.
     pub unpublished: bool,
@@ -58,19 +57,15 @@ pub fn fetch_at(
 ) -> Result<DocsFetch, String> {
     let docs = location.docs();
     let Some(commit) = fetch_tip(&repo.git, &docs)? else {
-        let commit = if path.exists() {
-            let wt = Git::new(path);
-            ensure_worktree_of_repo(&wt, &repo.common_dir)?;
-            wt.run_line(["rev-parse", "--verify", "HEAD^{commit}"])?
+        if path.exists() {
+            ensure_worktree_of_repo(&Git::new(path), &repo.common_dir)?;
         } else {
             let commit = create_initial_commit(&repo.git)?;
             add_worktree(repo, path, &commit)?;
-            commit
-        };
+        }
         return Ok(DocsFetch {
             location: docs,
             path: path.to_path_buf(),
-            commit,
             pending: Vec::new(),
             unpublished: true,
         });
@@ -84,7 +79,6 @@ pub fn fetch_at(
     Ok(DocsFetch {
         location: docs,
         path: path.to_path_buf(),
-        commit,
         pending,
         unpublished: false,
     })
@@ -122,7 +116,7 @@ pub fn push(
     message: &str,
     on_retry: &mut dyn FnMut(usize, &PushStatus),
 ) -> Result<PushOutcome, String> {
-    push::push_worktree(repo, &location.docs(), path, message, false, on_retry)
+    push::push_worktree(repo, &location.docs(), path, message, on_retry)
 }
 
 #[cfg(test)]

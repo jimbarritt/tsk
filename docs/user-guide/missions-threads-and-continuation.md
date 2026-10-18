@@ -89,7 +89,6 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk ledger doc put <path> [<file>]` | Writes a document from a file or stdin | Local store only |
 | `tsk ledger doc rm <path>` | Removes a document | Local store only |
 | `tsk ledger push "<message>"` | Commits everything in the ledger store, pulls the latest ledger and pushes to `tsk/ledger` | Commits and pushes |
-| `tsk ledger migrate-to-dolt` | One-off: moves a file ledger into a Dolt database | Pushes `archive/tsk-ledger-files` and the ledger branch |
 | `tsk thread start [<mission-id>]` | Mints and binds a thread, for a mission or with none | Writes and pushes |
 | `tsk thread set mission <mission-id> [<thread-id>]` | Attaches a mission to a thread, or changes it; `--none` removes it | Writes and pushes |
 | `tsk thread pause` | Appends a continuation state entry | Writes and pushes |

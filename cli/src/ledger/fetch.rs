@@ -1,89 +1,17 @@
 use std::path::{Path, PathBuf};
 
 use super::git::{failure_message, split_nul, Git};
-use super::location::{worktree_path, LedgerLocation, Repo};
-use super::manifest::{self, MANIFEST_FILE};
+use super::location::{LedgerLocation, Repo};
+use super::manifest::MANIFEST_FILE;
 
 pub struct FetchOutcome {
     pub location: LedgerLocation,
     pub path: PathBuf,
-    pub commit: String,
     pub pending: Vec<String>,
     pub unpublished: bool,
 }
 
-/// Fetch the ledger branch and bring the worktree up to it. With `keep_local`, a worktree
-/// with uncommitted changes is left as it is instead of refused: the next push commits
-/// the changes and merges the remote tip.
-pub fn fetch(repo: &Repo, state_root: &Path, keep_local: bool) -> Result<FetchOutcome, String> {
-    let location = repo.location(state_root)?;
-    let clone_id = repo.ensure_clone_id()?;
-    let path = worktree_path(state_root, &clone_id);
-
-    let Some(commit) = fetch_tip(&repo.git, &location)? else {
-        return open_unpublished(repo, location, path);
-    };
-    check_manifest(&repo.git, &commit, &location)?;
-
-    if path.exists() {
-        let pending = refresh_worktree(repo, &path, &commit, keep_local)?;
-        Ok(FetchOutcome {
-            location,
-            path,
-            commit,
-            pending,
-            unpublished: false,
-        })
-    } else {
-        add_worktree(repo, &path, &commit)?;
-        Ok(FetchOutcome {
-            location,
-            path,
-            commit,
-            pending: Vec::new(),
-            unpublished: false,
-        })
-    }
-}
-
-fn open_unpublished(
-    repo: &Repo,
-    location: LedgerLocation,
-    path: PathBuf,
-) -> Result<FetchOutcome, String> {
-    let commit = if path.exists() {
-        let wt = Git::new(&path);
-        ensure_worktree_of_repo(&wt, &repo.common_dir)?;
-        let head = wt.run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
-        check_manifest(&wt, &head, &location)?;
-        head
-    } else {
-        let commit = create_initial_commit(&repo.git, &location)?;
-        add_worktree(repo, &path, &commit)?;
-        commit
-    };
-    Ok(FetchOutcome {
-        location,
-        path,
-        commit,
-        pending: Vec::new(),
-        unpublished: true,
-    })
-}
-
 pub const INITIAL_INDEX: &str = "# Ledger index\n";
-
-pub fn create_initial_commit(git: &Git, location: &LedgerLocation) -> Result<String, String> {
-    let manifest_text = manifest::initial_text(location.repo_id());
-    let manifest_blob = git.run_stdin(["hash-object", "-w", "--stdin"], &manifest_text)?;
-    let index_blob = git.run_stdin(["hash-object", "-w", "--stdin"], INITIAL_INDEX)?;
-    let listing = format!(
-        "100644 blob {}\t{}\n100644 blob {}\tindex.md\n",
-        manifest_blob, MANIFEST_FILE, index_blob
-    );
-    let tree = git.run_stdin(["mktree"], &listing)?;
-    git.run_line(["commit-tree", tree.as_str(), "-m", "Create the ledger"])
-}
 
 pub fn fetch_tip(git: &Git, location: &LedgerLocation) -> Result<Option<String>, String> {
     let (args, output) =
@@ -136,29 +64,6 @@ pub fn ref_kind(git: &Git, commit: &str) -> Result<RefKind, String> {
     } else {
         RefKind::Unknown
     })
-}
-
-pub fn check_manifest(git: &Git, commit: &str, location: &LedgerLocation) -> Result<i64, String> {
-    if ref_kind(git, commit)? == RefKind::Dolt {
-        return Err(format!(
-            "error: {} on {} holds a Dolt ledger, not a file ledger.\n       \
-             Set TSK_LEDGER_BACKEND=dolt (or backend = \"dolt\" under [ledger] in the tsk config), or update tsk to a version that uses Dolt by default",
-            location.ref_name(),
-            location.label()
-        ));
-    }
-    let object = format!("{}:{}", commit, MANIFEST_FILE);
-    let (_, output) = git.output(["cat-file", "-e", object.as_str()])?;
-    if !output.status.success() {
-        return Err(format!(
-            "error: {} on {} has no {}; it is not a tsk ledger",
-            location.ref_name(),
-            location.label(),
-            MANIFEST_FILE
-        ));
-    }
-    let text = git.run(["cat-file", "blob", object.as_str()])?;
-    manifest::check(&text, location.repo_id())
 }
 
 pub(crate) fn add_worktree(repo: &Repo, path: &Path, commit: &str) -> Result<(), String> {

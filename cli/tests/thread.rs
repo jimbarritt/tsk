@@ -17,6 +17,8 @@ impl Fixture {
         Fixture::with_default_branch("main")
     }
 
+    /// A published Dolt ledger that holds the briefing of mission M-TEST-01. Clone `work`
+    /// runs the commands. Clone `work2` stands for another writer.
     fn with_default_branch(branch: &str) -> Fixture {
         let fixture = Fixture {
             root: tempfile::tempdir().unwrap(),
@@ -49,24 +51,17 @@ impl Fixture {
                 &format!("HEAD:refs/heads/{}", branch),
             ],
         );
-        git(
-            &fixture.seed(),
-            &["switch", "--quiet", "--orphan", "ledger-seed"],
+        for name in ["work", "work2"] {
+            git(
+                root,
+                &["clone", "--quiet", fixture.origin().to_str().unwrap(), name],
+            );
+        }
+        assert_success(&fixture.tsk(&["ledger", "fetch"]));
+        assert_success(
+            &fixture.tsk_stdin(&["ledger", "doc", "put", BRIEFING], "# Mission: example\n"),
         );
-        write(&fixture.seed().join(".tsk-ledger.toml"), "version = 1\n");
-        write(&fixture.seed().join("index.md"), "# Ledger index\n");
-        write(&fixture.seed().join(BRIEFING), "# Mission: example\n");
-        commit_all(&fixture.seed(), "Seed the ledger");
-        fixture.push_ledger();
-        git(
-            root,
-            &[
-                "clone",
-                "--quiet",
-                fixture.origin().to_str().unwrap(),
-                "work",
-            ],
-        );
+        assert_success(&fixture.tsk(&["ledger", "push", "Seed the ledger"]));
         fixture
     }
 
@@ -80,6 +75,10 @@ impl Fixture {
 
     fn work(&self) -> PathBuf {
         self.root.path().join("work")
+    }
+
+    fn other(&self) -> PathBuf {
+        self.root.path().join("work2")
     }
 
     fn home(&self) -> PathBuf {
@@ -104,63 +103,185 @@ impl Fixture {
         stdout(&self.tsk(&["thread", "binding"]))
     }
 
-    fn push_ledger(&self) {
-        git(
-            &self.seed(),
-            &["push", "--quiet", "origin", &format!("HEAD:{}", LEDGER_REF)],
+    /// Run SQL against the Dolt database of the clone at `dir`; `json` rows come back.
+    fn rows_in(&self, dir: &Path, sql: &str) -> Vec<serde_json::Value> {
+        let path = stdout(
+            &self
+                .command_in(dir, &["ledger", "path"], None)
+                .output()
+                .unwrap(),
+        );
+        let out = Command::new("dolt")
+            .args(["sql", "-r", "json", "-q", sql])
+            .current_dir(path.trim_end())
+            .env("HOME", self.home())
+            .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        let text = stdout(&out);
+        if text.trim().is_empty() {
+            return Vec::new();
+        }
+        json(&text)["rows"].as_array().cloned().unwrap_or_default()
+    }
+
+    fn exec_in(&self, dir: &Path, sql: &str) {
+        let path = stdout(
+            &self
+                .command_in(dir, &["ledger", "path"], None)
+                .output()
+                .unwrap(),
+        );
+        let out = Command::new("dolt")
+            .args(["sql", "-q", sql])
+            .current_dir(path.trim_end())
+            .env("HOME", self.home())
+            .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+    }
+
+    /// Rows of the work clone's database.
+    fn rows(&self, sql: &str) -> Vec<serde_json::Value> {
+        self.rows_in(&self.work(), sql)
+    }
+
+    /// Rows of what origin holds: the other clone fetches first.
+    fn origin_rows(&self, sql: &str) -> Vec<serde_json::Value> {
+        let other = self.other();
+        assert_success(
+            &self
+                .command_in(&other, &["ledger", "fetch"], None)
+                .output()
+                .unwrap(),
+        );
+        self.rows_in(&other, sql)
+    }
+
+    /// The stored continuation lines of a thread as origin holds them, oldest first.
+    fn origin_entries(&self, id: &str) -> Vec<String> {
+        self.origin_rows(&format!(
+            "select entry from continuation_entries where thread_id = '{}' order by seq",
+            id
+        ))
+        .iter()
+        .map(|row| row["entry"].as_str().unwrap().to_string())
+        .collect()
+    }
+
+    fn origin_binding_threads(&self) -> std::collections::BTreeMap<String, String> {
+        self.origin_rows("select actor, thread_id from bindings")
+            .iter()
+            .map(|row| {
+                (
+                    row["actor"].as_str().unwrap().to_string(),
+                    row["thread_id"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    }
+
+    fn origin_thread_ids(&self) -> Vec<String> {
+        self.origin_rows("select thread_id from threads order by thread_id")
+            .iter()
+            .map(|row| row["thread_id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// The message of the newest Dolt commit origin holds.
+    fn origin_subject(&self) -> String {
+        self.origin_rows("select message from dolt_log order by date desc, commit_hash limit 1")[0]
+            ["message"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    /// The other clone writes a thread whose stored lines are `store` and pushes. The
+    /// thread links the briefing and names no mission, as a thread made before layout
+    /// version 5 does.
+    fn seed_thread(&self, id: &str, store: &str) {
+        let other = self.other();
+        assert_success(
+            &self
+                .command_in(&other, &["ledger", "fetch"], None)
+                .output()
+                .unwrap(),
+        );
+        let mut sql = format!(
+            "insert into threads (thread_id, briefing_path, mission_id) values ('{}', '{}', NULL);",
+            id, BRIEFING
+        );
+        for (index, line) in store.lines().enumerate() {
+            sql.push_str(&format!(
+                "insert into continuation_entries (thread_id, seq, entry) values ('{}', {}, '{}');",
+                id,
+                index + 1,
+                line.replace('\'', "''")
+            ));
+        }
+        self.exec_in(&other, &sql);
+        assert_success(
+            &self
+                .command_in(
+                    &other,
+                    &["ledger", "push", &format!("Seed thread {}", id)],
+                    None,
+                )
+                .output()
+                .unwrap(),
         );
     }
 
-    fn seed_thread(&self, id: &str, store: &str) {
-        let dir = self.seed().join("threads").join(id);
-        write(
-            &dir.join("index.md"),
+    /// The other clone writes cloud bindings, `(session, thread, registered_at)`, and pushes.
+    fn seed_cloud_bindings(&self, rows: &[(&str, &str, &str)]) {
+        let other = self.other();
+        assert_success(
+            &self
+                .command_in(&other, &["ledger", "fetch"], None)
+                .output()
+                .unwrap(),
+        );
+        let values: Vec<String> = rows
+            .iter()
+            .map(|(session, thread, at)| {
+                format!("('{}', 'cloud', '{}', '{}')", session, thread, at)
+            })
+            .collect();
+        self.exec_in(
+            &other,
             &format!(
-                "# Thread {}\n\nMission briefing: [{}]({})\n",
-                id, BRIEFING, BRIEFING
+                "insert into bindings (actor, kind, thread_id, registered_at) values {}",
+                values.join(", ")
             ),
         );
-        write(&dir.join("continuation-state.jsonl"), store);
-        commit_all(&self.seed(), &format!("Seed thread {}", id));
-        self.push_ledger();
-    }
-
-    fn seed_lookup(&self, text: &str) {
-        write(
+        assert_success(
             &self
-                .seed()
-                .join("threads")
-                .join("lookup-by-cloud-session.json"),
-            text,
+                .command_in(&other, &["ledger", "push", "Seed bindings"], None)
+                .output()
+                .unwrap(),
         );
-        commit_all(&self.seed(), "Seed the cloud session lookup");
-        self.push_ledger();
     }
 
     fn origin_ledger_sha(&self) -> String {
         git_line(&self.origin(), &["rev-parse", LEDGER_REF])
     }
 
-    fn origin_file(&self, file: &str) -> Option<String> {
-        let output = git_output(
-            &self.origin(),
-            &["cat-file", "blob", &format!("{}:{}", LEDGER_REF, file)],
-        );
-        if output.status.success() {
-            Some(String::from_utf8(output.stdout).unwrap())
-        } else {
-            None
-        }
+    fn command(&self, args: &[&str], cloud: Option<&str>) -> Command {
+        self.command_in(&self.work(), args, cloud)
     }
 
-    fn command(&self, args: &[&str], cloud: Option<&str>) -> Command {
+    fn command_in(&self, dir: &Path, args: &[&str], cloud: Option<&str>) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(args)
-            .current_dir(self.work())
+            .current_dir(dir)
             .envs(git_env())
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
+            .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("TSK_NO_UPDATE_CHECK", "1")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
@@ -225,7 +346,6 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
         ("GIT_AUTHOR_EMAIL", "test@example.com"),
         ("GIT_COMMITTER_NAME", "Test"),
         ("GIT_COMMITTER_EMAIL", "test@example.com"),
-        ("TSK_LEDGER_BACKEND", "git"),
     ]
 }
 
@@ -311,38 +431,24 @@ fn start_mints_scaffolds_binds_the_worktree_and_pushes() {
     let id = fx.start();
 
     assert!(is_thread_id(&id), "{}", id);
-    assert_eq!(
-        fx.origin_file(&format!("threads/{}/index.md", id)).unwrap(),
-        format!(
-            "# Thread {}\n\nMission: M-TEST-01\nMission briefing: [{}]({})\n",
-            id, BRIEFING, BRIEFING
-        )
-    );
-    assert_eq!(
-        fx.origin_file(&format!("threads/{}/continuation-state.jsonl", id))
-            .unwrap(),
-        ""
-    );
+    let rows = fx.origin_rows(&format!(
+        "select mission_id, briefing_path from threads where thread_id = '{}'",
+        id
+    ));
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["mission_id"], "M-TEST-01");
+    assert!(fx.origin_entries(&id).is_empty());
     // The binding is a row in the ledger, keyed on the worktree actor. No marker file.
     assert!(!fx.marker().exists());
     assert_eq!(fx.binding(), format!("worktree:{}\n", id));
-    // One file for the worktree actor, in a directory that is not a thread.
     let actor = fx.worktree_actor();
-    let file = fx
-        .origin_file(&format!(
-            "threads/.worktree-bindings/{}.json",
-            actor.replace('/', "%2F")
-        ))
-        .expect("the worktree binding was pushed");
-    let row = json(&file);
-    assert_eq!(row["actor"], actor.as_str());
-    assert_eq!(row["thread_id"], id.as_str());
-    assert!(fx
-        .origin_file("threads/lookup-by-cloud-session.json")
-        .is_none());
-    let subject = git_line(&fx.origin(), &["log", "-1", "--format=%s", LEDGER_REF]);
+    let rows = fx.origin_rows("select actor, kind, thread_id from bindings");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["actor"], actor.as_str());
+    assert_eq!(rows[0]["kind"], "worktree");
+    assert_eq!(rows[0]["thread_id"], id.as_str());
     assert_eq!(
-        subject,
+        fx.origin_subject(),
         format!("Start thread {} for mission M-TEST-01", id)
     );
 }
@@ -379,7 +485,7 @@ fn start_refuses_a_mission_with_no_record_and_no_briefing() {
 }
 
 #[test]
-fn start_in_a_cloud_session_binds_through_the_lookup() {
+fn start_in_a_cloud_session_binds_through_the_ledger() {
     let fx = Fixture::new();
     let output = fx.tsk_cloud("cse_one", &["thread", "start", "M-TEST-01", BRIEFING]);
     assert!(
@@ -394,15 +500,12 @@ fn start_in_a_cloud_session_binds_through_the_lookup() {
         .unwrap()
         .to_string();
 
-    let lookup = json(
-        &fx.origin_file("threads/lookup-by-cloud-session.json")
-            .unwrap(),
-    );
-    assert_eq!(lookup["cse_one"]["thread_id"], id.as_str());
-    assert!(lookup["cse_one"]["registered_at"]
-        .as_str()
-        .unwrap()
-        .ends_with('Z'));
+    let rows = fx.origin_rows("select actor, kind, thread_id, registered_at from bindings");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["actor"], "cse_one");
+    assert_eq!(rows[0]["kind"], "cloud");
+    assert_eq!(rows[0]["thread_id"], id.as_str());
+    assert!(rows[0]["registered_at"].as_str().unwrap().ends_with('Z'));
     assert!(!fx.marker().exists());
 
     let binding = fx.tsk_cloud("cse_one", &["thread", "binding"]);
@@ -414,19 +517,19 @@ fn start_in_a_cloud_session_binds_through_the_lookup() {
 fn pause_appends_an_entry_with_the_nested_git_state_and_pushes() {
     let fx = Fixture::new();
     let id = fx.start();
-    let ledger_before = fx.origin_ledger_sha();
+    let ledger_before = fx.rows("select commit_hash from dolt_log limit 1")[0]["commit_hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let main_head = git_line(&fx.work(), &["rev-parse", "HEAD"]);
 
     let output = fx.tsk(&["thread", "pause", &id, "T-05", "Write the \"thread\" tests"]);
 
     assert_success(&output);
     assert_eq!(stdout(&output), format!("paused:{}\n", id));
-    let store = fx
-        .origin_file(&format!("threads/{}/continuation-state.jsonl", id))
-        .unwrap();
-    assert_eq!(store.lines().count(), 1);
-    assert!(store.ends_with('\n'));
-    let line = store.lines().next().unwrap();
+    let stored = fx.origin_entries(&id);
+    assert_eq!(stored.len(), 1);
+    let line = stored[0].as_str();
     let keys: Vec<_> = json(line).as_object().unwrap().keys().cloned().collect();
     assert_eq!(keys.len(), 7);
     let positions: Vec<_> = [
@@ -461,18 +564,16 @@ fn pause_appends_an_entry_with_the_nested_git_state_and_pushes() {
     assert_eq!(entry["git"]["code"].as_object().unwrap().len(), 2);
     assert_eq!(entry["written_by"], "urn:tsk:worktree:.git");
     assert_eq!(entry["timestamp"].as_str().unwrap().len(), 20);
-    let subject = git_line(&fx.origin(), &["log", "-1", "--format=%s", LEDGER_REF]);
-    assert_eq!(subject, format!("Pause thread {}: T-05", id));
+    assert_eq!(fx.origin_subject(), format!("Pause thread {}: T-05", id));
 }
 
 fn assert_pause_not_recorded(fx: &Fixture, id: &str, before: &str) {
     assert_eq!(fx.origin_ledger_sha(), before);
-    let wt = fx.ledger_path();
-    assert_eq!(
-        std::fs::read_to_string(wt.join(format!("threads/{}/continuation-state.jsonl", id)))
-            .unwrap(),
-        ""
-    );
+    let rows = fx.rows(&format!(
+        "select count(*) as c from continuation_entries where thread_id = '{}'",
+        id
+    ));
+    assert_eq!(rows[0]["c"], 0);
 }
 
 #[test]
@@ -512,10 +613,7 @@ fn pause_accepts_a_commit_pushed_only_to_a_feature_branch() {
     let output = fx.tsk(&["thread", "pause", &id, BRIEFING, "T-05", "next"]);
 
     assert_success(&output);
-    let store = fx
-        .origin_file(&format!("threads/{}/continuation-state.jsonl", id))
-        .unwrap();
-    let entry = json(store.lines().next().unwrap());
+    let entry = json(&fx.origin_entries(&id)[0]);
     assert_eq!(entry["git"]["code"]["ref"], "refs/heads/feature/x");
     assert_eq!(entry["git"]["code"]["commit"], head.as_str());
 }
@@ -530,10 +628,7 @@ fn pause_records_the_local_branch_even_when_origin_holds_the_commit_on_another()
     let output = fx.tsk(&["thread", "pause", &id, BRIEFING, "T-05", "next"]);
 
     assert_success(&output);
-    let store = fx
-        .origin_file(&format!("threads/{}/continuation-state.jsonl", id))
-        .unwrap();
-    let entry = json(store.lines().next().unwrap());
+    let entry = json(&fx.origin_entries(&id)[0]);
     assert_eq!(entry["git"]["code"]["ref"], "refs/heads/local-name");
     assert_eq!(entry["git"]["code"]["commit"], head.as_str());
 }
@@ -587,10 +682,7 @@ fn pause_works_with_a_non_main_default_branch() {
     let output = fx.tsk(&["thread", "pause", &id, BRIEFING, "T-05", "next"]);
 
     assert_success(&output);
-    let store = fx
-        .origin_file(&format!("threads/{}/continuation-state.jsonl", id))
-        .unwrap();
-    let entry = json(store.lines().next().unwrap());
+    let entry = json(&fx.origin_entries(&id)[0]);
     assert_eq!(entry["git"]["code"]["ref"], "refs/heads/trunk");
 }
 
@@ -643,13 +735,10 @@ fn resume_prints_the_latest_entry_and_binds_the_worktree() {
     assert_eq!(fx.binding(), format!("worktree:{}\n", id));
     // The binding is pushed, as a cloud session's is.
     assert_ne!(fx.origin_ledger_sha(), before);
-    let file = fx
-        .origin_file(&format!(
-            "threads/.worktree-bindings/{}.json",
-            fx.worktree_actor().replace('/', "%2F")
-        ))
-        .expect("the worktree binding was pushed");
-    assert_eq!(json(&file)["thread_id"], id.as_str());
+    assert_eq!(
+        fx.origin_binding_threads().get(&fx.worktree_actor()),
+        Some(&id)
+    );
 }
 
 #[test]
@@ -727,10 +816,7 @@ fn resume_list_and_pause_keep_entries_as_stored() {
     assert_eq!(row["latest_timestamp"], "2026-09-20T09:00:00Z");
 
     assert_success(&fx.tsk(&["thread", "pause", "4onylfsg", BRIEFING, "T-04", "new entry"]));
-    let store = fx
-        .origin_file("threads/4onylfsg/continuation-state.jsonl")
-        .unwrap();
-    let lines: Vec<_> = store.lines().collect();
+    let lines = fx.origin_entries("4onylfsg");
     assert_eq!(lines[0], stored);
     assert!(lines[1].contains("\"git\":{\"ledger\":{\"commit\":"));
 }
@@ -752,14 +838,14 @@ fn resume_in_a_cloud_session_binds_once_and_pushes() {
 
     let first = fx.tsk_cloud("cse_two", &["thread", "resume", "5555eeee"]);
     assert_success(&first);
-    let lookup = json(
-        &fx.origin_file("threads/lookup-by-cloud-session.json")
-            .unwrap(),
-    );
-    assert_eq!(lookup["cse_two"]["thread_id"], "5555eeee");
-    let subject = git_line(&fx.origin(), &["log", "-1", "--format=%s", LEDGER_REF]);
     assert_eq!(
-        subject,
+        fx.origin_binding_threads()
+            .get("cse_two")
+            .map(String::as_str),
+        Some("5555eeee")
+    );
+    assert_eq!(
+        fx.origin_subject(),
         "Bind urn:tsk:cloudsession:cse_two to thread 5555eeee"
     );
     let after_first = fx.origin_ledger_sha();
@@ -782,20 +868,12 @@ fn detach_removes_the_worktree_binding_and_pushes_it() {
     assert!(!fx.marker().exists());
     assert_exit(&fx.tsk(&["thread", "binding"]), 1);
     assert_ne!(fx.origin_ledger_sha(), before);
-    assert!(fx
-        .origin_file(&format!(
-            "threads/.worktree-bindings/{}.json",
-            fx.worktree_actor().replace('/', "%2F")
-        ))
-        .is_none());
-    let subject = git_line(&fx.origin(), &["log", "-1", "--format=%s", LEDGER_REF]);
+    assert!(fx.origin_binding_threads().is_empty());
     assert_eq!(
-        subject,
+        fx.origin_subject(),
         format!("Detach urn:tsk:worktree:.git from thread {}", id)
     );
-    assert!(fx
-        .origin_file(&format!("threads/{}/index.md", id))
-        .is_some());
+    assert_eq!(fx.origin_thread_ids(), vec![id]);
 }
 
 #[test]
@@ -808,24 +886,23 @@ fn detach_without_a_binding_exits_1_with_no_stdout() {
 }
 
 #[test]
-fn detach_in_a_cloud_session_removes_only_its_lookup_entry() {
+fn detach_in_a_cloud_session_removes_only_its_own_binding() {
     let fx = Fixture::new();
     fx.seed_thread("6666ffff", "");
-    fx.seed_lookup(
-        "{\n  \"cse_a\": {\n    \"thread_id\": \"6666ffff\",\n    \"registered_at\": \"2026-10-01T00:00:00Z\"\n  },\n  \"cse_b\": {\n    \"thread_id\": \"6666ffff\",\n    \"registered_at\": \"2026-10-02T00:00:00Z\"\n  }\n}\n",
-    );
+    fx.seed_cloud_bindings(&[
+        ("cse_a", "6666ffff", "2026-10-01T00:00:00Z"),
+        ("cse_b", "6666ffff", "2026-10-02T00:00:00Z"),
+    ]);
 
     let output = fx.tsk_cloud("cse_a", &["thread", "detach"]);
 
     assert_success(&output);
     assert_eq!(stdout(&output), "detached:6666ffff\n");
+    let remaining = fx.origin_binding_threads();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining.get("cse_b").map(String::as_str), Some("6666ffff"));
     assert_eq!(
-        fx.origin_file("threads/lookup-by-cloud-session.json").unwrap(),
-        "{\n  \"cse_b\": {\n    \"thread_id\": \"6666ffff\",\n    \"registered_at\": \"2026-10-02T00:00:00Z\"\n  }\n}\n"
-    );
-    let subject = git_line(&fx.origin(), &["log", "-1", "--format=%s", LEDGER_REF]);
-    assert_eq!(
-        subject,
+        fx.origin_subject(),
         "Detach urn:tsk:cloudsession:cse_a from thread 6666ffff"
     );
 }
@@ -841,17 +918,9 @@ fn stop_deletes_the_bound_thread_and_its_binding() {
     assert_eq!(stdout(&output), format!("stopped:{}\n", id));
     assert!(!fx.marker().exists());
     assert_exit(&fx.tsk(&["thread", "binding"]), 1);
-    assert!(fx
-        .origin_file(&format!(
-            "threads/.worktree-bindings/{}.json",
-            fx.worktree_actor().replace('/', "%2F")
-        ))
-        .is_none());
-    assert!(fx
-        .origin_file(&format!("threads/{}/index.md", id))
-        .is_none());
-    let subject = git_line(&fx.origin(), &["log", "-1", "--format=%s", LEDGER_REF]);
-    assert_eq!(subject, format!("Stop thread {}", id));
+    assert!(fx.origin_binding_threads().is_empty());
+    assert!(fx.origin_thread_ids().is_empty());
+    assert_eq!(fx.origin_subject(), format!("Stop thread {}", id));
 }
 
 #[test]
@@ -859,21 +928,22 @@ fn stop_by_id_purges_every_cloud_binding_and_keeps_an_unrelated_worktree_binding
     let fx = Fixture::new();
     fx.seed_thread("7777aaaa", "");
     fx.seed_thread("8888bbbb", "");
-    fx.seed_lookup(
-        "{\n  \"cse_a\": {\n    \"thread_id\": \"7777aaaa\",\n    \"registered_at\": \"2026-10-01T00:00:00Z\"\n  },\n  \"cse_b\": {\n    \"thread_id\": \"8888bbbb\",\n    \"registered_at\": \"2026-10-02T00:00:00Z\"\n  },\n  \"cse_c\": {\n    \"thread_id\": \"7777aaaa\",\n    \"registered_at\": \"2026-10-03T00:00:00Z\"\n  }\n}\n",
-    );
+    fx.seed_cloud_bindings(&[
+        ("cse_a", "7777aaaa", "2026-10-01T00:00:00Z"),
+        ("cse_b", "8888bbbb", "2026-10-02T00:00:00Z"),
+        ("cse_c", "7777aaaa", "2026-10-03T00:00:00Z"),
+    ]);
     assert_success(&fx.tsk(&["thread", "resume", "8888bbbb"]));
 
     let output = fx.tsk(&["thread", "stop", "7777aaaa"]);
 
     assert_success(&output);
     assert_eq!(stdout(&output), "stopped:7777aaaa\n");
-    assert!(fx.origin_file("threads/7777aaaa/index.md").is_none());
-    assert!(fx.origin_file("threads/8888bbbb/index.md").is_some());
-    assert_eq!(
-        fx.origin_file("threads/lookup-by-cloud-session.json").unwrap(),
-        "{\n  \"cse_b\": {\n    \"thread_id\": \"8888bbbb\",\n    \"registered_at\": \"2026-10-02T00:00:00Z\"\n  }\n}\n"
-    );
+    assert_eq!(fx.origin_thread_ids(), vec!["8888bbbb".to_string()]);
+    let remaining = fx.origin_binding_threads();
+    assert_eq!(remaining.get("cse_b").map(String::as_str), Some("8888bbbb"));
+    assert!(!remaining.contains_key("cse_a"));
+    assert!(!remaining.contains_key("cse_c"));
     assert_eq!(fx.binding(), "worktree:8888bbbb\n");
 }
 
@@ -908,7 +978,6 @@ fn list_prints_one_compact_object_per_thread_newest_first() {
         "cccc0000",
         "{\"whats_next\":\"first\",\"timestamp\":\"2026-08-01T00:00:00Z\"}\n{\"whats_next\":\"newer\",\"timestamp\":\"2026-10-01T00:00:00Z\"}\n",
     );
-    fx.seed_lookup("{}\n");
 
     let output = fx.tsk(&["thread", "list"]);
 
@@ -949,6 +1018,9 @@ fn binding_prints_the_worktree_binding_or_exits_1() {
 #[test]
 fn binding_without_fetch_needs_an_existing_ledger_worktree() {
     let fx = Fixture::new();
+    // Start from a clone that has not fetched the ledger.
+    std::fs::remove_dir_all(fx.state().join("tsk")).unwrap();
+    std::fs::remove_file(fx.work().join(".git").join("tsk-clone-id")).unwrap();
     write(&fx.marker(), "1234abcd\n");
 
     let before_fetch = fx.tsk(&["thread", "binding", "--no-fetch"]);
@@ -963,13 +1035,22 @@ fn binding_without_fetch_needs_an_existing_ledger_worktree() {
 }
 
 #[test]
-fn binding_without_fetch_reads_the_cloud_lookup_in_the_existing_worktree() {
+fn binding_without_fetch_reads_the_cloud_binding_in_the_existing_store() {
     let fx = Fixture::new();
-    fx.seed_lookup(
-        "{\"cse_x\":{\"thread_id\":\"9999aaaa\",\"registered_at\":\"2026-10-01T00:00:00Z\"}}\n",
-    );
+    fx.seed_cloud_bindings(&[("cse_x", "9999aaaa", "2026-10-01T00:00:00Z")]);
     assert_success(&fx.tsk(&["ledger", "fetch"]));
-    fx.seed_lookup("{}\n");
+    let other = fx.other();
+    assert_success(
+        &fx.command_in(&other, &["ledger", "fetch"], None)
+            .output()
+            .unwrap(),
+    );
+    fx.exec_in(&other, "delete from bindings where actor = 'cse_x'");
+    assert_success(
+        &fx.command_in(&other, &["ledger", "push", "Remove the binding"], None)
+            .output()
+            .unwrap(),
+    );
 
     let local = fx.tsk_cloud("cse_x", &["thread", "binding", "--no-fetch"]);
     assert_success(&local);
@@ -1058,7 +1139,7 @@ fn session_start_fetches_exports_the_path_and_prints_the_unbound_prompt() {
 
     assert_success(&output);
     let wt = fx.ledger_path();
-    assert!(wt.join("index.md").is_file());
+    assert!(wt.join(".dolt").is_dir());
     let context = session_context(&output);
     assert!(context.starts_with(&format!(
         "The ledger was fetched and materialised at {} (also exported as $TSK_LEDGER_WT). No thread binding",
@@ -1235,9 +1316,23 @@ fn session_start_warns_about_a_ledger_commit_that_is_not_on_origin() {
     let fx = Fixture::new();
     assert_success(&session_start(&fx, "{}", None));
     let wt = fx.ledger_path();
-    write(&wt.join("local.md"), "local\n");
-    commit_all(&wt, "Unpushed ledger commit");
-    let local_head = git_line(&wt, &["rev-parse", "HEAD"]);
+    fx.exec_in(
+        &fx.work(),
+        "insert into bindings (actor, kind, thread_id, registered_at) values ('cse_local', 'cloud', 'zzzzzzzz', '2026-01-01T00:00:00Z')",
+    );
+    for args in [
+        vec!["add", "-A"],
+        vec!["commit", "-m", "Unpushed ledger commit"],
+    ] {
+        let out = Command::new("dolt")
+            .args(&args)
+            .current_dir(&wt)
+            .env("HOME", fx.home())
+            .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{:?}: {}", args, stderr(&out));
+    }
     let origin_tip = fx.origin_ledger_sha();
 
     let output = session_start(&fx, "{}", None);
@@ -1248,12 +1343,11 @@ fn session_start_warns_about_a_ledger_commit_that_is_not_on_origin() {
         "WARNING: the ledger worktree holds a commit that is not on origin's refs/heads/tsk/ledger"
     ));
     assert!(context.contains("Unpushed ledger commit"));
-    assert!(context.contains(&format!("log -p {}..HEAD", origin_tip)));
+    assert!(context.contains("dolt log origin/main..main"));
     assert!(context.contains("push it with tsk ledger push"));
     assert!(context.contains("No thread binding was found"));
-    assert_eq!(git_line(&wt, &["rev-parse", "HEAD"]), local_head);
+    assert_eq!(fx.origin_ledger_sha(), origin_tip);
 }
-
 #[test]
 fn session_start_exits_0_with_a_warning_when_the_fetch_fails() {
     let fx = Fixture::new();

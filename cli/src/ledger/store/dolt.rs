@@ -27,7 +27,7 @@ use crate::mission::model::{
     Status, Task,
 };
 
-use super::files::FileTree;
+use super::doc_tree::DocTree;
 use super::{BindingKind, BindingRow, LedgerStore, PushReport, RefreshOutcome, ThreadInfo};
 
 const MANIFEST_SOURCE: &str = "the manifest table";
@@ -39,9 +39,6 @@ pub const VERSION_1_REFUSAL: &str = "error: this ledger stores its documents in 
 pub struct DoltStore {
     repo: Repo,
     state_root: PathBuf,
-    /// Reads from this database instead of the one at the clone's usual path. The
-    /// migration uses it to check a database it has built but not yet moved into place.
-    db_override: Option<PathBuf>,
     /// The database and layout version of the last manifest check that found the current
     /// layout. Later checks in the same process reuse it, which saves a `dolt` process
     /// each. Anything that can move the database to another state clears it.
@@ -55,15 +52,8 @@ impl DoltStore {
         Ok(DoltStore {
             repo,
             state_root,
-            db_override: None,
             checked: RefCell::new(None),
         })
-    }
-
-    /// The same store, reading and writing the database at `path`.
-    pub fn with_db(mut self, path: PathBuf) -> DoltStore {
-        self.db_override = Some(path);
-        self
     }
 
     fn hint(&self) -> Option<PathBuf> {
@@ -76,9 +66,6 @@ impl DoltStore {
 
     /// The database of an already materialised ledger.
     fn db(&self) -> Result<Dolt, String> {
-        if let Some(path) = &self.db_override {
-            return Ok(Dolt::new(path));
-        }
         let missing = |what: String| {
             format!(
                 "error: {}. Run tsk ledger fetch first, which creates the ledger database",
@@ -182,7 +169,7 @@ impl DoltStore {
     }
 
     /// The documents of an already materialised ledger.
-    fn docs_tree(&self) -> Result<FileTree, String> {
+    fn docs_tree(&self) -> Result<DocTree, String> {
         let missing = |what: String| {
             // A version 1 ledger has no documents worktree. Say so, not "fetch first".
             if let Ok(db) = self.db() {
@@ -208,7 +195,7 @@ impl DoltStore {
         if !root.is_dir() {
             return Err(missing(format!("{} does not exist", root.display())));
         }
-        Ok(FileTree { root, docs: true })
+        Ok(DocTree { root })
     }
 
     /// [`LedgerStore::refresh`], or the lenient refresh of `tsk ledger fetch` and
@@ -233,7 +220,6 @@ impl DoltStore {
         let docs_outcome = FetchOutcome {
             location: fetched.location,
             path: fetched.path,
-            commit: fetched.commit,
             pending: fetched.pending,
             unpublished: fetched.unpublished,
         };
@@ -475,29 +461,14 @@ pub fn create_database(
     ref_name: &str,
     repo_id: Option<&str>,
 ) -> Result<(), String> {
-    create_database_with(path, url, ref_name, repo_id, "", "Create the ledger")
-}
-
-/// [`create_database`] with `extra_sql` run in the same transaction as the schema, and
-/// `message` as the commit message. The schema and the data land in one commit.
-pub(crate) fn create_database_with(
-    path: &Path,
-    url: &str,
-    ref_name: &str,
-    repo_id: Option<&str>,
-    extra_sql: &str,
-    message: &str,
-) -> Result<(), String> {
     std::fs::create_dir_all(path)
         .map_err(|e| format!("error: could not create {}: {}", path.display(), e))?;
     let build = || -> Result<(), String> {
         let db = Dolt::new(path);
         db.run(["init", "--initial-branch", BRANCH])?;
-        let mut sql = dolt::init_sql(repo_id);
-        sql.push_str(extra_sql);
-        db.exec(&sql)?;
+        db.exec(&dolt::init_sql(repo_id))?;
         db.run(["add", "-A"])?;
-        db.run(["commit", "-m", message])?;
+        db.run(["commit", "-m", "Create the ledger"])?;
         db.run(["remote", "add", "--ref", ref_name, REMOTE, url])?;
         Ok(())
     };
@@ -937,7 +908,6 @@ impl LedgerStore for DoltStore {
                     .collect(),
                 remote: side.remote,
             },
-            shared_branch: false,
             fetch_note,
         })
     }
@@ -1052,15 +1022,6 @@ impl LedgerStore for DoltStore {
 
     fn head_id(&self) -> Result<String, String> {
         self.db()?.head_hash()
-    }
-
-    fn manifest(&self) -> Result<ManifestInfo, String> {
-        self.manifest_rows(&self.db()?)
-    }
-
-    fn check_manifest(&self) -> Result<i64, String> {
-        let location = self.repo.location(&self.state_root)?;
-        self.check_current(&self.db()?, &location)
     }
 
     fn doc_get(&self, path: &str) -> Result<Option<String>, String> {
@@ -1326,13 +1287,6 @@ impl LedgerStore for DoltStore {
         ))
     }
 
-    fn events_count(&self) -> Result<u64, String> {
-        Ok(self
-            .db()?
-            .count("select count(*) as c from external_events")?
-            .max(0) as u64)
-    }
-
     fn watermark_get(&self) -> Result<u64, String> {
         let rows = self
             .db()?
@@ -1371,13 +1325,6 @@ impl LedgerStore for DoltStore {
         }
         sql.push_str(&save_sql(mission));
         db.exec(&sql)
-    }
-
-    fn describe_document(&self, path: &str) -> String {
-        match self.docs_hint() {
-            Some(root) => root.join(path).display().to_string(),
-            None => format!("document {}", path),
-        }
     }
 
     fn describe_thread(&self, id: &str) -> String {
@@ -1507,7 +1454,7 @@ impl DoltStore {
         match ref_kind(&self.repo.git, &commit)? {
             RefKind::Files => Err(format!(
                 "error: {} on {} holds a file ledger, not a Dolt ledger.\n       \
-                 Run tsk ledger migrate-to-dolt to convert it, or set TSK_LEDGER_BACKEND=git to keep using the file ledger",
+                 The files ledger backend was removed in 0.16.0. Use tsk 0.15.1 to convert it with tsk ledger migrate-to-dolt",
                 location.ref_name(),
                 location.label()
             )),

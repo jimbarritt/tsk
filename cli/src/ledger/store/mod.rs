@@ -1,22 +1,20 @@
 //! The storage seam for the ledger.
 //!
 //! Every command that reads or writes ledger content goes through [`LedgerStore`]. The
-//! git-file backend in [`files`] keeps the ledger as files in a detached git worktree.
-//! The Dolt backend in [`dolt`] (an external `dolt` binary and SQL tables) implements
-//! the same trait. No method takes or returns a filesystem path as a way to reach
+//! Dolt backend in [`dolt`] (an external `dolt` binary and SQL tables) is the one
+//! implementation. ADR 0015 removed the files backend and kept the trait. No method takes or returns a filesystem path as a way to reach
 //! content: documents, threads, continuation entries, bindings and
 //! external events are addressed by logical keys. The few paths in this module
 //! (`RefreshOutcome::path`, `LedgerStore::path`) name where the store lives, for the
 //! operator to read.
 
+pub mod doc_tree;
 pub mod dolt;
-pub mod files;
 
 use std::path::{Component, Path, PathBuf};
 
 use crate::mission::model::Mission;
 
-use super::manifest::ManifestInfo;
 use super::status::LedgerStatus;
 
 /// What a refresh found. The notes are ready to print to stderr, or `None`.
@@ -91,7 +89,6 @@ pub struct ThreadInfo {
     pub briefing_path: Option<String>,
 }
 
-#[allow(dead_code)]
 pub trait LedgerStore {
     // --- Remote synchronisation and location ---
 
@@ -133,7 +130,7 @@ pub trait LedgerStore {
     fn discard(&self) -> Result<(), String>;
 
     /// Where the local store lives. Has no side effects. Fails when the store has no
-    /// identity yet (git backend: no clone id).
+    /// identity yet (no clone id).
     fn path(&self) -> Result<PathBuf, String>;
 
     /// True when a local store has already been materialised. Has no side effects.
@@ -151,15 +148,6 @@ pub trait LedgerStore {
     /// The identifier of the local state, written into continuation entries as
     /// `git.ledger.commit`.
     fn head_id(&self) -> Result<String, String>;
-
-    // --- Manifest ---
-
-    /// Read the manifest of the local store.
-    fn manifest(&self) -> Result<ManifestInfo, String>;
-
-    /// Check the local store's manifest: a supported version and, for a nexus ledger,
-    /// the expected repo ID. Returns the version.
-    fn check_manifest(&self) -> Result<i64, String>;
 
     // --- Documents: free-form text keyed by a ledger-relative path ---
 
@@ -234,8 +222,6 @@ pub trait LedgerStore {
     /// Every queued line, oldest first, without terminators. `None` when no queue
     /// exists yet.
     fn events_list(&self) -> Result<Option<Vec<String>>, String>;
-    /// The number of queued lines.
-    fn events_count(&self) -> Result<u64, String>;
     /// The number of queued lines already processed. 0 when there is no watermark.
     fn watermark_get(&self) -> Result<u64, String>;
     fn watermark_set(&self, processed_through: u64, updated_at: &str) -> Result<(), String>;
@@ -252,8 +238,6 @@ pub trait LedgerStore {
 
     // --- Descriptions for error messages ---
 
-    /// A human-readable location of a document.
-    fn describe_document(&self, path: &str) -> String;
     /// A human-readable location of a thread's continuation log.
     fn describe_thread(&self, id: &str) -> String;
     /// A human-readable location of the thread collection. Also seeds ID minting.
@@ -267,17 +251,12 @@ pub trait LedgerStore {
     fn pending_inspect_hint(&self, path: &Path, remote_head: &str) -> String;
 }
 
-/// Open the ledger store for the repository containing `dir`. The backend is `dolt` by
-/// default; `[ledger] backend` in the user config or `TSK_LEDGER_BACKEND` selects `git`.
+/// Open the ledger store for the repository containing `dir`. A ledger is a Dolt
+/// database. `TSK_LEDGER_BACKEND=git` or `[ledger] backend = "git"` in the user config
+/// names the removed files backend and stops with an error.
 pub fn open(dir: &Path) -> Result<Box<dyn LedgerStore>, String> {
-    match crate::config::ledger_backend_from_env()? {
-        crate::config::LedgerBackend::Dolt => {
-            dolt::DoltStore::open(dir).map(|store| Box::new(store) as Box<dyn LedgerStore>)
-        }
-        crate::config::LedgerBackend::Git => {
-            files::FilesStore::open(dir).map(|store| Box::new(store) as Box<dyn LedgerStore>)
-        }
-    }
+    crate::config::refuse_files_backend_from_env()?;
+    dolt::DoltStore::open(dir).map(|store| Box::new(store) as Box<dyn LedgerStore>)
 }
 
 /// The components of a relative document path, with `.` dropped. Rejects an empty path,
@@ -296,26 +275,6 @@ fn relative_parts(path: &str) -> Result<Vec<String>, String> {
         return Err(not_relative(path));
     }
     Ok(parts)
-}
-
-/// Paths a caller may name as documents in the file ledger. Rejects an empty path, an
-/// absolute path, a path with a `..` component, and the parts of the ledger that are not
-/// documents.
-pub fn check_document_path(path: &str) -> Result<(), String> {
-    let parts = relative_parts(path)?;
-    let first = parts[0].as_str();
-    let reserved = first == "threads"
-        || first == "external-events"
-        || first == files::RECORDS_DIR
-        || (parts.len() == 1 && first == super::manifest::MANIFEST_FILE);
-    if reserved || parts.iter().any(|part| part == ".git") {
-        return Err(format!(
-            "error: '{}' is not a document: threads/, external-events/, records/, {} and .git are managed by tsk",
-            path,
-            super::manifest::MANIFEST_FILE
-        ));
-    }
-    Ok(())
 }
 
 /// Paths a caller may name as documents on the `tsk/docs` branch, as the normalised
@@ -344,40 +303,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn document_paths_are_relative_and_exclude_managed_parts() {
-        for ok in [
-            "index.md",
-            "missions/M-X.md",
-            "./missions/M-X.md",
-            "a/b/c.md",
-        ] {
-            assert!(check_document_path(ok).is_ok(), "{}", ok);
-        }
-        for bad in [
-            "",
-            ".",
-            "/etc/passwd",
-            "../x.md",
-            "a/../../x.md",
-            "threads/1234abcd/index.md",
-            "threads",
-            "external-events/queue.ndjson",
-            "records/missions/M-X.json",
-            ".tsk-ledger.toml",
-            "./.tsk-ledger.toml",
-            ".git",
-            "a/.git/config",
-        ] {
-            assert!(check_document_path(bad).is_err(), "{}", bad);
-        }
-    }
-
-    #[test]
     fn docs_paths_apply_only_the_git_rules() {
         for (given, normal) in [
             ("index.md", "index.md"),
             ("./missions/M-X.md", "missions/M-X.md"),
-            // Reserved for the file ledger only.
             ("threads/1234abcd/index.md", "threads/1234abcd/index.md"),
             (
                 "external-events/queue.ndjson",

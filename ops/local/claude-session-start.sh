@@ -65,7 +65,7 @@ fi
 # with no output. This repo builds tsk from its own source, so a running
 # container picks up a new tsk on its next session start.
 TSK_MSG=""
-# tsk's default ledger backend runs the dolt binary, so install it before tsk
+# tsk's ledger runs the dolt binary, so install it before tsk
 # runs. The installer prints a WARNING on failure and always exits 0.
 DOLT_MSG="$("$REPO_ROOT/plugin/hooks/install-dolt.sh" | tr '\n' ' ')"
 WORKSPACE_VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$REPO_ROOT/Cargo.toml" | head -n 1)"

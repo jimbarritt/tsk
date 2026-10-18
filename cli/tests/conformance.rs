@@ -1,7 +1,7 @@
-//! One set of behaviours, run against both ledger backends. Each case drives the `tsk`
-//! binary end to end with `TSK_LEDGER_BACKEND` set, against a bare git repo as origin.
-//! The Dolt backend publishes to the same repo through a `git+file` remote. Dolt cases
-//! print a note and return when the `dolt` binary is not installed.
+//! One set of behaviours of the ledger. Each case drives the `tsk` binary end to end
+//! against a bare git repo as origin. The Dolt database publishes to the same repo through
+//! a `git+file` remote. Cases print a note and return when the `dolt` binary is not
+//! installed.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -14,53 +14,23 @@ const DOCS_REF: &str = "refs/heads/tsk/docs";
 const BRIEFING: &str = "missions/operational/M-CONF-01-conformance.md";
 const CLOUD_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Backend {
-    Git,
-    Dolt,
+/// Every branch a ledger with documents publishes: the code, the data and the documents.
+fn published_branches() -> Vec<String> {
+    let mut refs = vec![
+        "refs/heads/main".to_string(),
+        LEDGER_REF.to_string(),
+        DOCS_REF.to_string(),
+    ];
+    refs.sort();
+    refs
 }
 
-impl Backend {
-    fn name(self) -> &'static str {
-        match self {
-            Backend::Git => "git",
-            Backend::Dolt => "dolt",
-        }
-    }
-
-    /// Every branch a ledger with documents publishes. The Dolt backend publishes its
-    /// documents on a second branch.
-    fn published_branches(self) -> Vec<String> {
-        let mut refs = vec!["refs/heads/main".to_string(), LEDGER_REF.to_string()];
-        if self == Backend::Dolt {
-            refs.push(DOCS_REF.to_string());
-        }
-        refs.sort();
-        refs
-    }
-
-    /// The documents a new ledger holds before anyone writes one.
-    fn seed_documents(self) -> &'static [&'static str] {
-        match self {
-            Backend::Git => &["index.md"],
-            Backend::Dolt => &["README.md", "index.md"],
-        }
-    }
-
-    /// What `tsk ledger doc list` prints for the seed documents and `extra`, sorted.
-    fn listing(self, extra: &[&str]) -> String {
-        let mut paths: Vec<&str> = self.seed_documents().to_vec();
-        paths.extend_from_slice(extra);
-        paths.sort();
-        paths.iter().map(|p| format!("{}\n", p)).collect()
-    }
-
-    fn available(self) -> bool {
-        match self {
-            Backend::Git => true,
-            Backend::Dolt => dolt_installed(),
-        }
-    }
+/// What `tsk ledger doc list` prints for the seed documents and `extra`, sorted.
+fn listing(extra: &[&str]) -> String {
+    let mut paths: Vec<&str> = vec!["README.md", "index.md"];
+    paths.extend_from_slice(extra);
+    paths.sort();
+    paths.iter().map(|p| format!("{}\n", p)).collect()
 }
 
 fn dolt_installed() -> bool {
@@ -75,14 +45,12 @@ fn dolt_installed() -> bool {
 
 struct Fixture {
     root: TempDir,
-    backend: Backend,
 }
 
 impl Fixture {
-    fn new(backend: Backend) -> Fixture {
+    fn new() -> Fixture {
         let fixture = Fixture {
             root: tempfile::tempdir().unwrap(),
-            backend,
         };
         std::fs::create_dir_all(fixture.home()).unwrap();
         std::fs::create_dir_all(fixture.state()).unwrap();
@@ -123,11 +91,7 @@ impl Fixture {
     /// and a note a test may need from it (a thread ID, say). The copy is a real
     /// filesystem copy. Every file that holds the path of the built fixture, such as a
     /// git remote URL or a Dolt remote, is rewritten to the path of the copy.
-    fn cached(
-        key: &str,
-        backend: Backend,
-        build: impl FnOnce() -> (Fixture, String),
-    ) -> (Fixture, String) {
+    fn cached(key: &str, build: impl FnOnce() -> (Fixture, String)) -> (Fixture, String) {
         let (template, built_at, note) = {
             let mut templates = TEMPLATES.lock().unwrap_or_else(|e| e.into_inner());
             if !templates.contains_key(key) {
@@ -141,7 +105,6 @@ impl Fixture {
         };
         let fixture = Fixture {
             root: tempfile::tempdir().unwrap(),
-            backend,
         };
         run_cp(&template.join("."), fixture.root.path());
         rewrite_paths(
@@ -172,7 +135,7 @@ impl Fixture {
         self.root.path().join("state")
     }
 
-    fn command(&self, dir: &Path, backend: &str, args: &[&str]) -> Command {
+    fn command(&self, dir: &Path, args: &[&str]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(args)
@@ -188,26 +151,18 @@ impl Fixture {
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("TSK_NO_UPDATE_CHECK", "1")
-            .env("TSK_LEDGER_BACKEND", backend)
+            .env("TSK_MACHINE_NAME", "laptop")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove(CLOUD_VAR);
         command
     }
 
     fn tsk(&self, dir: &Path, args: &[&str]) -> Output {
-        self.command(dir, self.backend.name(), args)
-            .output()
-            .expect("failed to run tsk")
-    }
-
-    fn tsk_with(&self, dir: &Path, backend: &str, args: &[&str]) -> Output {
-        self.command(dir, backend, args)
-            .output()
-            .expect("failed to run tsk")
+        self.command(dir, args).output().expect("failed to run tsk")
     }
 
     fn tsk_cloud(&self, dir: &Path, session: &str, args: &[&str]) -> Output {
-        self.command(dir, self.backend.name(), args)
+        self.command(dir, args)
             .env(CLOUD_VAR, session)
             .output()
             .expect("failed to run tsk")
@@ -215,7 +170,7 @@ impl Fixture {
 
     fn tsk_stdin(&self, dir: &Path, args: &[&str], input: &str) -> Output {
         let mut child = self
-            .command(dir, self.backend.name(), args)
+            .command(dir, args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -310,21 +265,21 @@ impl Fixture {
             .collect()
     }
 
-    /// The documents worktree of a clone, which the Dolt backend keeps beside the database.
+    /// The documents worktree of a clone, which the Dolt store keeps beside the database.
     fn docs_path(&self, dir: &Path) -> PathBuf {
         self.ledger_path(dir).parent().unwrap().join("docs")
     }
 
     /// A ledger with the briefing published from clone A.
-    fn with_briefing(backend: Backend) -> Fixture {
-        Fixture::cached(&format!("briefing-{}", backend.name()), backend, || {
-            (Fixture::build_with_briefing(backend), String::new())
+    fn with_briefing() -> Fixture {
+        Fixture::cached("briefing", || {
+            (Fixture::build_with_briefing(), String::new())
         })
         .0
     }
 
-    fn build_with_briefing(backend: Backend) -> Fixture {
-        let fx = Fixture::new(backend);
+    fn build_with_briefing() -> Fixture {
+        let fx = Fixture::new();
         fx.ok(&fx.a(), &["ledger", "fetch"]);
         fx.put(&fx.a(), BRIEFING, "# Mission: conformance\n");
         fx.ok(&fx.a(), &["ledger", "push", "Add the briefing"]);
@@ -332,9 +287,9 @@ impl Fixture {
     }
 
     /// A new ledger fetched into clone A, which publishes nothing.
-    fn fetched(backend: Backend) -> Fixture {
-        Fixture::cached(&format!("fetched-{}", backend.name()), backend, || {
-            let fx = Fixture::new(backend);
+    fn fetched() -> Fixture {
+        Fixture::cached("fetched", || {
+            let fx = Fixture::new();
             fx.ok(&fx.a(), &["ledger", "fetch"]);
             (fx, String::new())
         })
@@ -468,7 +423,7 @@ fn json(text: &str) -> serde_json::Value {
 impl Fixture {
     /// The Stop hook check, as the hook runs it: a session ID on stdin.
     fn guard(&self, dir: &Path, cloud: Option<&str>) -> Output {
-        let mut command = self.command(dir, self.backend.name(), &["thread", "guard"]);
+        let mut command = self.command(dir, &["thread", "guard"]);
         if let Some(session) = cloud {
             command.env(CLOUD_VAR, session);
         }
@@ -503,11 +458,7 @@ impl Fixture {
     /// The context `tsk thread session-start` prints. Each call needs its own session ID.
     fn session_context(&self, dir: &Path, session: &str, format: &str) -> String {
         let mut child = self
-            .command(
-                dir,
-                self.backend.name(),
-                &["thread", "session-start", "--format", format],
-            )
+            .command(dir, &["thread", "session-start", "--format", format])
             .env_remove("CLAUDE_ENV_FILE")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -591,8 +542,8 @@ impl Fixture {
 mod cases {
     use super::*;
 
-    pub fn fetch_creates_a_new_ledger_and_the_first_push_creates_the_branch(b: Backend) {
-        let fx = Fixture::new(b);
+    pub fn fetch_creates_a_new_ledger_and_the_first_push_creates_the_branch() {
+        let fx = Fixture::new();
         let a = fx.a();
         assert_eq!(fx.remote_ledger(), None);
 
@@ -621,7 +572,7 @@ mod cases {
         assert_success(&push);
         assert!(!stdout(&push).trim().is_empty());
         assert!(fx.remote_ledger().is_some());
-        assert_eq!(fx.remote_branches(), b.published_branches());
+        assert_eq!(fx.remote_branches(), published_branches());
 
         let second = fx.b();
         let fetch = fx.tsk(&second, &["ledger", "fetch"]);
@@ -637,7 +588,7 @@ mod cases {
         );
         assert_eq!(
             fx.ok(&second, &["ledger", "doc", "list"]),
-            b.listing(&["missions/M-X.md"])
+            listing(&["missions/M-X.md"])
         );
 
         let nothing = fx.tsk(&a, &["ledger", "push", "Nothing"]);
@@ -650,8 +601,8 @@ mod cases {
         assert!(stderr(&nothing).contains("nothing to push"));
     }
 
-    pub fn documents_round_trip_between_clones(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn documents_round_trip_between_clones() {
+        let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         let awkward = "no newline at end \"quoted\" 'single' \\ back\n\ttab; drop table documents; -- \u{e9} \u{65e5}\u{672c} \u{1f600}\r\nlast";
         fx.put(&a, "missions/b.md", awkward);
@@ -687,7 +638,7 @@ mod cases {
         assert_eq!(fx.ok(&other, &["ledger", "doc", "get", "notes/n.md"]), "");
         assert_eq!(
             fx.ok(&other, &["ledger", "doc", "list"]),
-            b.listing(&["missions/a.md", "missions/b.md", "notes/n.md"])
+            listing(&["missions/a.md", "missions/b.md", "notes/n.md"])
         );
 
         assert_success(&fx.tsk(&other, &["ledger", "doc", "rm", "missions/a.md"]));
@@ -709,8 +660,8 @@ mod cases {
         }
     }
 
-    pub fn threads_start_pause_resume_list_detach_and_stop(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn threads_start_pause_resume_list_detach_and_stop() {
+        let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
 
         let start = fx.ok(&a, &["thread", "start", "M-CONF-01"]);
@@ -763,8 +714,8 @@ mod cases {
         assert_eq!(fx.ok(&a, &["thread", "list"]), "");
     }
 
-    pub fn cloud_sessions_bind_through_the_ledger(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn cloud_sessions_bind_through_the_ledger() {
+        let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
         let start = fx.tsk_cloud(&a, "cse_one", &["thread", "start", "M-CONF-01"]);
         assert_success(&start);
@@ -791,8 +742,8 @@ mod cases {
         assert_exit(&fx.tsk_cloud(&a, "cse_two", &["thread", "binding"]), 1);
     }
 
-    pub fn worktree_bindings_are_rows_keyed_on_the_clone_and_the_worktree(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn worktree_bindings_are_rows_keyed_on_the_clone_and_the_worktree() {
+        let fx = Fixture::with_briefing();
         let a = fx.a();
         let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
         let main = fx.main_actor(&a);
@@ -870,8 +821,8 @@ mod cases {
         assert_eq!(fx.actors_of(&a, &id), expected);
     }
 
-    pub fn a_marker_file_becomes_a_binding_row_and_is_removed(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn a_marker_file_becomes_a_binding_row_and_is_removed() {
+        let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
         let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
         fx.ok(&a, &["thread", "detach"]);
@@ -929,8 +880,8 @@ mod cases {
         assert!(!fx.marker(&a).exists());
     }
 
-    pub fn two_actors_bind_one_thread_and_stop_clears_every_kind(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn two_actors_bind_one_thread_and_stop_clears_every_kind() {
+        let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
         let start = fx.tsk_cloud(&a, "cse_one", &["thread", "start", "M-CONF-01"]);
         assert_success(&start);
@@ -978,8 +929,8 @@ mod cases {
         assert_eq!(fx.ok(&a, &["thread", "list"]), "");
     }
 
-    pub fn rebinding_replaces_the_old_binding_of_an_actor(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn rebinding_replaces_the_old_binding_of_an_actor() {
+        let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
         let first = fx.started(&a, &["thread", "start", "M-CONF-01"]);
         let second = {
@@ -1016,8 +967,8 @@ mod cases {
         assert_eq!(fx.actors_of(&a, &second), vec![main]);
     }
 
-    pub fn two_clones_bind_their_worktrees_at_once_and_both_pushes_succeed(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn two_clones_bind_their_worktrees_at_once_and_both_pushes_succeed() {
+        let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
         let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
         fx.ok(&other, &["ledger", "fetch"]);
@@ -1038,8 +989,8 @@ mod cases {
         assert_eq!(fx.actors_of(&other, &id), expected);
     }
 
-    pub fn a_worktree_resume_and_detach_push_and_leave_the_store_clean(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn a_worktree_resume_and_detach_push_and_leave_the_store_clean() {
+        let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
         let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
         fx.ok(&a, &["thread", "detach"]);
@@ -1068,8 +1019,8 @@ mod cases {
         );
     }
 
-    pub fn a_worktree_resume_with_origin_away_keeps_the_binding_locally(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn a_worktree_resume_with_origin_away_keeps_the_binding_locally() {
+        let fx = Fixture::with_briefing();
         let a = fx.a();
         let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
         fx.ok(&a, &["thread", "detach"]);
@@ -1102,8 +1053,8 @@ mod cases {
         fx.ok(&a, &["ledger", "push", "Back online"]);
     }
 
-    pub fn events_append_read_new_and_advance_the_watermark(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn events_append_read_new_and_advance_the_watermark() {
+        let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         assert_eq!(
             fx.ok(&a, &["events", "read-new"]),
@@ -1154,8 +1105,8 @@ mod cases {
         assert_eq!(stdout(&same), "");
     }
 
-    pub fn a_stale_push_is_merged_when_different_rows_changed(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn a_stale_push_is_merged_when_different_rows_changed() {
+        let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         fx.put(&a, "base.md", "base\n");
         fx.ok(&a, &["ledger", "push", "Base"]);
@@ -1172,14 +1123,14 @@ mod cases {
         fx.ok(&a, &["ledger", "fetch"]);
         assert_eq!(
             fx.ok(&a, &["ledger", "doc", "list"]),
-            b.listing(&["base.md", "from-a.md", "from-b.md"])
+            listing(&["base.md", "from-a.md", "from-b.md"])
         );
         assert_eq!(fx.ok(&other, &["ledger", "doc", "get", "from-a.md"]), "a\n");
         assert!(!pushed.is_empty());
     }
 
-    pub fn a_same_row_conflict_stops_and_leaves_the_remote_unchanged(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn a_same_row_conflict_stops_and_leaves_the_remote_unchanged() {
+        let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         fx.put(&a, "shared.md", "base\n");
         fx.ok(&a, &["ledger", "push", "Base"]);
@@ -1194,16 +1145,14 @@ mod cases {
         assert_exit(&conflict, 1);
         let message = stderr(&conflict);
         assert!(message.contains("conflicted"), "{}", message);
-        if b == Backend::Dolt {
-            // The documents are files on their own branch: the conflict names the file.
-            assert!(message.contains("shared.md"), "{}", message);
-            assert!(message.contains("refs/heads/tsk/docs"), "{}", message);
-        }
+        // The documents are files on their own branch: the conflict names the file.
+        assert!(message.contains("shared.md"), "{}", message);
+        assert!(message.contains("refs/heads/tsk/docs"), "{}", message);
         assert_eq!(fx.remote_ledger(), before);
     }
 
-    pub fn doc_path_prints_the_file_and_bad_paths_are_refused(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn doc_path_prints_the_file_and_bad_paths_are_refused() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         fx.put(&a, "missions/p.md", "x\n");
 
@@ -1211,12 +1160,8 @@ mod cases {
         let file = PathBuf::from(printed.trim_end());
         assert!(file.is_absolute(), "{}", printed);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "x\n");
-        // The file sits in the worktree of the store that holds documents: the ledger
-        // worktree for the file ledger, the documents worktree for Dolt.
-        let root = match b {
-            Backend::Git => fx.ledger_path(&a),
-            Backend::Dolt => fx.docs_path(&a),
-        };
+        // The file sits in the documents worktree.
+        let root = fx.docs_path(&a);
         assert_eq!(
             std::fs::canonicalize(&file).unwrap(),
             std::fs::canonicalize(root.join("missions/p.md")).unwrap()
@@ -1245,22 +1190,16 @@ mod cases {
         }
     }
 
-    pub fn documents_that_the_ledger_does_not_reserve_follow_the_backend(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn documents_have_no_reserved_names() {
+        let fx = Fixture::fetched();
         let a = fx.a();
-        // The file ledger keeps threads/ for itself. Documents on the docs branch have
-        // no reserved names.
+        // Documents on the docs branch have no reserved names.
         let put = fx.tsk_stdin(&a, &["ledger", "doc", "put", "threads/note.md"], "n\n");
-        match b {
-            Backend::Git => assert_exit(&put, 1),
-            Backend::Dolt => {
-                assert_success(&put);
-                assert_eq!(
-                    fx.ok(&a, &["ledger", "doc", "get", "threads/note.md"]),
-                    "n\n"
-                );
-            }
-        }
+        assert_success(&put);
+        assert_eq!(
+            fx.ok(&a, &["ledger", "doc", "get", "threads/note.md"]),
+            "n\n"
+        );
     }
 
     // --- Missions ---
@@ -1277,8 +1216,8 @@ mod cases {
         assert_eq!(stdout(&out), "");
     }
 
-    pub fn missions_are_created_and_listed_one_per_line(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn missions_are_created_and_listed_one_per_line() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         assert_eq!(fx.ok(&a, &["mission", "list"]), "");
         assert_eq!(fx.ok(&a, &["mission", "create", "M-B-TWO", "Second"]), "");
@@ -1355,8 +1294,8 @@ mod cases {
         assert_eq!(fx.ok(&a, &["mission", "list"]), before);
     }
 
-    pub fn every_mission_field_round_trips(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn every_mission_field_round_trips() {
+        let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         fx.ok(&a, &["mission", "create", "M-F", "Fields"]);
         fx.ok(&a, &["ledger", "push", "Base"]);
@@ -1419,8 +1358,8 @@ mod cases {
         assert_eq!(mission_json(&fx, &other, "M-F"), record);
     }
 
-    pub fn status_accepts_three_values_and_an_administrative_mission_keeps_one(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn status_accepts_three_values_and_an_administrative_mission_keeps_one() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-OP", "Operational"]);
         fx.ok(
@@ -1465,8 +1404,8 @@ mod cases {
         assert_eq!(mission_json(&fx, &a, "M-AD")["status"], "in-progress");
     }
 
-    pub fn blocks_are_checked_and_blocked_is_derived(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn blocks_are_checked_and_blocked_is_derived() {
+        let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         for (id, name) in [("M-A", "Alpha"), ("M-B", "Beta"), ("M-C", "Gamma")] {
             fx.ok(&a, &["mission", "create", id, name]);
@@ -1553,8 +1492,8 @@ mod cases {
         assert_eq!(listed(&fx, &other), listed(&fx, &a));
     }
 
-    pub fn objective_outcomes_are_numbered_and_numbers_are_not_reused(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn objective_outcomes_are_numbered_and_numbers_are_not_reused() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-O", "Objectives"]);
         assert_eq!(
@@ -1633,8 +1572,8 @@ mod cases {
         );
     }
 
-    pub fn documents_are_linked_by_path_and_checked_at_push(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn documents_are_linked_by_path_and_checked_at_push() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-D", "Documents"]);
         fx.put(&a, "missions/M-D/report.md", "# Report\n");
@@ -1745,15 +1684,13 @@ mod cases {
         assert!(message.contains("M-D"), "{}", message);
         assert!(message.contains("missions/M-D/report.md"), "{}", message);
         assert_eq!(fx.remote_ledger(), ledger_before);
-        if b == Backend::Dolt {
-            // The documents had already gone: the removal is on the branch.
-            let files = fx.origin_files(DOCS_REF);
-            assert!(
-                !files.iter().any(|f| f == "missions/M-D/report.md"),
-                "{:?}",
-                files
-            );
-        }
+        // The documents had already gone: the removal is on the branch.
+        let files = fx.origin_files(DOCS_REF);
+        assert!(
+            !files.iter().any(|f| f == "missions/M-D/report.md"),
+            "{:?}",
+            files
+        );
 
         fx.ok(&a, &["mission", "unlink", "M-D", "missions/M-D/report.md"]);
         assert_success(&fx.tsk(&a, &["ledger", "push", "Unlink it"]));
@@ -1765,8 +1702,8 @@ mod cases {
         );
     }
 
-    pub fn mission_writes_stay_local_until_the_push(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn mission_writes_stay_local_until_the_push() {
+        let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         fx.ok(&a, &["mission", "create", "M-BASE", "Base"]);
         fx.ok(&a, &["ledger", "push", "Base"]);
@@ -1797,8 +1734,8 @@ mod cases {
         assert_eq!(mission_json(&fx, &other, "M-BASE")["purpose"], "changed");
     }
 
-    pub fn two_clones_add_missions_that_merge_and_one_field_conflicts(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn two_clones_add_missions_that_merge_and_one_field_conflicts() {
+        let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         fx.ok(&a, &["mission", "create", "M-BASE", "Base"]);
         fx.ok(&a, &["ledger", "push", "Base"]);
@@ -1841,19 +1778,12 @@ mod cases {
         assert_exit(&conflict, 1);
         let message = stderr(&conflict);
         assert!(message.contains("conflicted"), "{}", message);
-        match b {
-            Backend::Dolt => assert!(message.contains("missions"), "{}", message),
-            Backend::Git => assert!(
-                message.contains("records/missions/M-BASE.json"),
-                "{}",
-                message
-            ),
-        }
+        assert!(message.contains("missions"), "{}", message);
         assert_eq!(fx.remote_ledger(), before);
     }
 
-    pub fn the_json_record_has_every_field(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn the_json_record_has_every_field() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-P", "Parent"]);
         fx.ok(&a, &["mission", "create", "M-Q", "Blocker"]);
@@ -1863,10 +1793,7 @@ mod cases {
             &a,
             &["mission", "constraint", "add", "M-J", "No new crates"],
         );
-        fx.ok(
-            &a,
-            &["mission", "constraint", "add", "M-J", "Both backends"],
-        );
+        fx.ok(&a, &["mission", "constraint", "add", "M-J", "Both lists"]);
         fx.ok(
             &a,
             &["mission", "out-of-scope", "add", "M-J", "Projections"],
@@ -1896,7 +1823,7 @@ mod cases {
                 "decision_authority": "",
                 "constraints": [
                     {"n": 1, "text": "No new crates"},
-                    {"n": 2, "text": "Both backends"}
+                    {"n": 2, "text": "Both lists"}
                 ],
                 "out_of_scope": [{"n": 1, "text": "Projections"}],
                 "objective": [
@@ -1944,8 +1871,8 @@ mod cases {
             .collect()
     }
 
-    fn mission_with_tasks(b: Backend, tasks: usize) -> (Fixture, PathBuf) {
-        let fx = Fixture::fetched(b);
+    fn mission_with_tasks(tasks: usize) -> (Fixture, PathBuf) {
+        let fx = Fixture::fetched();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-T", "Tasks"]);
         for i in 1..=tasks {
@@ -1957,8 +1884,8 @@ mod cases {
         (fx, a)
     }
 
-    pub fn tasks_are_minted_per_mission_listed_and_changed(b: Backend) {
-        let (fx, a) = mission_with_tasks(b, 0);
+    pub fn tasks_are_minted_per_mission_listed_and_changed() {
+        let (fx, a) = mission_with_tasks(0);
         fx.ok(&a, &["mission", "create", "M-U", "Other"]);
         assert_eq!(fx.ok(&a, &["task", "list", "M-T"]), "");
         // The counter is per mission and only grows.
@@ -2062,8 +1989,8 @@ mod cases {
         assert_eq!(fx.ok(&other, &["task", "add", "M-T", "From B"]), "T-15\n");
     }
 
-    pub fn task_blocks_are_checked_and_blocked_is_derived(b: Backend) {
-        let (fx, a) = mission_with_tasks(b, 3);
+    pub fn task_blocks_are_checked_and_blocked_is_derived() {
+        let (fx, a) = mission_with_tasks(3);
         fx.ok(&a, &["mission", "create", "M-U", "Other"]);
         fx.ok(&a, &["task", "add", "M-U", "In U"]);
 
@@ -2166,8 +2093,8 @@ mod cases {
             .contains("T-03\tin-progress\tT-01\tTask 3"));
     }
 
-    pub fn decisions_are_recorded_with_who_when_and_an_optional_task(b: Backend) {
-        let (fx, a) = mission_with_tasks(b, 2);
+    pub fn decisions_are_recorded_with_who_when_and_an_optional_task() {
+        let (fx, a) = mission_with_tasks(2);
         fx.ok(&a, &["mission", "create", "M-U", "Other"]);
         fx.ok(&a, &["task", "add", "M-U", "In U"]);
         assert_eq!(fx.ok(&a, &["decision", "list", "M-T"]), "");
@@ -2279,8 +2206,8 @@ mod cases {
         );
     }
 
-    pub fn questions_are_minted_answered_and_listed_while_open(b: Backend) {
-        let (fx, a) = mission_with_tasks(b, 0);
+    pub fn questions_are_minted_answered_and_listed_while_open() {
+        let (fx, a) = mission_with_tasks(0);
         fx.ok(&a, &["mission", "create", "M-U", "Other"]);
         assert_eq!(fx.ok(&a, &["question", "list"]), "");
         assert_eq!(fx.ok(&a, &["question", "add", "M-T", "Why one?"]), "Q-01\n");
@@ -2389,8 +2316,8 @@ mod cases {
         );
     }
 
-    pub fn two_clones_add_records_to_different_missions_and_the_ledgers_merge(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn two_clones_add_records_to_different_missions_and_the_ledgers_merge() {
+        let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         fx.ok(&a, &["mission", "create", "M-ONE", "One"]);
         fx.ok(&a, &["mission", "create", "M-TWO", "Two"]);
@@ -2424,8 +2351,8 @@ mod cases {
         }
     }
 
-    pub fn thread_start_takes_a_mission_id_and_checks_it_against_records_and_briefings(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn thread_start_takes_a_mission_id_and_checks_it_against_records_and_briefings() {
+        let fx = Fixture::with_briefing();
         let a = fx.a();
 
         // A mission known only by its briefing document stores the briefing path.
@@ -2492,8 +2419,8 @@ mod cases {
         assert_eq!(row["mission_link"], "");
     }
 
-    pub fn thread_pause_checks_the_task_against_the_mission_record(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn thread_pause_checks_the_task_against_the_mission_record() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
         fx.ok(&a, &["task", "add", "M-REC", "First task"]);
@@ -2584,38 +2511,19 @@ mod cases {
             "{{\"mission_link\":\"{}\",\"task_id\":\"T-01\",\"whats_next\":\"old\",\"written_by\":\"urn:tsk:worktree:old\"}}",
             BRIEFING
         );
-        match fx.backend {
-            Backend::Dolt => {
-                fx.dolt_sql(
-                    dir,
-                    &format!(
-                        "insert into threads (thread_id, briefing_path) values ('{}', '{}'); \
-                         insert into continuation_entries (thread_id, seq, entry) values ('{}', 1, '{}')",
-                        id, BRIEFING, id, entry
-                    ),
-                );
-            }
-            Backend::Git => {
-                let thread = fx.ledger_path(dir).join("threads").join(id);
-                std::fs::create_dir_all(&thread).unwrap();
-                write(
-                    &thread.join("index.md"),
-                    &format!(
-                        "# Thread {}\n\nMission briefing: [{}]({})\n",
-                        id, BRIEFING, BRIEFING
-                    ),
-                );
-                write(
-                    &thread.join("continuation-state.jsonl"),
-                    &format!("{}\n", entry),
-                );
-            }
-        }
+        fx.dolt_sql(
+            dir,
+            &format!(
+                "insert into threads (thread_id, briefing_path) values ('{}', '{}'); \
+                 insert into continuation_entries (thread_id, seq, entry) values ('{}', 1, '{}')",
+                id, BRIEFING, id, entry
+            ),
+        );
         fx.ok(dir, &["ledger", "push", "Seed a legacy thread"]);
     }
 
-    pub fn legacy_thread_rows_read_with_a_mission_id_derived_from_the_briefing_path(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn legacy_thread_rows_read_with_a_mission_id_derived_from_the_briefing_path() {
+        let fx = Fixture::with_briefing();
         let a = fx.a();
         seed_legacy_thread(&fx, &a, "aaaa1111");
 
@@ -2632,28 +2540,21 @@ mod cases {
         assert_eq!(latest["task_id"], "T-77");
 
         // The derived ID is not written back.
-        if b == Backend::Dolt {
-            assert_eq!(
-                fx.dolt_sql(
-                    &a,
-                    "select mission_id from threads where thread_id = 'aaaa1111'"
-                ),
-                "mission_id\n\n"
-            );
-        } else {
-            let index =
-                std::fs::read_to_string(fx.ledger_path(&a).join("threads/aaaa1111/index.md"))
-                    .unwrap();
-            assert!(!index.contains("Mission: "), "{}", index);
-        }
+        assert_eq!(
+            fx.dolt_sql(
+                &a,
+                "select mission_id from threads where thread_id = 'aaaa1111'"
+            ),
+            "mission_id\n\n"
+        );
         // Another clone reads the same row.
         let other = fx.b();
         fx.ok(&other, &["ledger", "fetch"]);
         assert_eq!(fx.thread_row(&other, "aaaa1111")["mission_id"], "M-CONF-01");
     }
 
-    pub fn the_stop_hook_check_passes_when_the_ledger_has_no_missions(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn the_stop_hook_check_passes_when_the_ledger_has_no_missions() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         assert_eq!(fx.guard_reason(&a, None), None);
         assert_eq!(stdout(&fx.guard(&a, None)), "");
@@ -2679,8 +2580,8 @@ mod cases {
         assert_eq!(fx.guard_reason(&a, None), None);
     }
 
-    pub fn a_mission_document_alone_makes_the_stop_hook_check_block(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn a_mission_document_alone_makes_the_stop_hook_check_block() {
+        let fx = Fixture::with_briefing();
         let a = fx.a();
         let reason = fx.guard_reason(&a, None).expect("blocks");
         assert!(reason.contains("`tsk mission list`"), "{}", reason);
@@ -2688,8 +2589,8 @@ mod cases {
         assert!(reason.contains("`tsk thread skip`"), "{}", reason);
     }
 
-    pub fn skip_silences_the_stop_hook_check_until_a_thread_starts_or_resumes(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn skip_silences_the_stop_hook_check_until_a_thread_starts_or_resumes() {
+        let fx = Fixture::with_briefing();
         let a = fx.a();
         assert!(fx.guard_reason(&a, None).is_some());
 
@@ -2731,8 +2632,8 @@ mod cases {
         assert!(fx.guard_reason(&a, Some("cse_skip")).is_some());
     }
 
-    pub fn session_start_names_the_bound_mission_with_its_open_tasks(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn session_start_names_the_bound_mission_with_its_open_tasks() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-REC", "Recorded mission"]);
         fx.ok(&a, &["mission", "create", "M-DONE", "Finished mission"]);
@@ -2801,8 +2702,8 @@ mod cases {
         assert!(closed.contains("It has no open tasks."), "{}", closed);
     }
 
-    pub fn thread_commands_carry_local_record_and_document_changes_to_the_remote(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn thread_commands_carry_local_record_and_document_changes_to_the_remote() {
+        let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
 
         // Records and a document written since the last push.
@@ -2876,8 +2777,8 @@ mod cases {
         assert_exit(&fx.tsk(&a, &["ledger", "fetch"]), 1);
     }
 
-    pub fn session_start_names_no_index_for_a_bound_mission_with_no_record(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn session_start_names_no_index_for_a_bound_mission_with_no_record() {
+        let fx = Fixture::with_briefing();
         let a = fx.a();
         let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
         let context = fx.session_context(&a, "s-legacy", "claude");
@@ -2890,10 +2791,8 @@ mod cases {
         assert!(context.contains(&format!("worktree:{}", id)), "{}", context);
     }
 
-    pub fn session_start_shows_the_empty_ledger_note_only_without_records_and_documents(
-        b: Backend,
-    ) {
-        let fx = Fixture::fetched(b);
+    pub fn session_start_shows_the_empty_ledger_note_only_without_records_and_documents() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         let empty = fx.session_context(&a, "s-empty", "claude");
         assert!(empty.contains("run `tsk guide import`"), "{}", empty);
@@ -2908,8 +2807,8 @@ mod cases {
         assert!(!with_record.contains("tsk guide import"), "{}", with_record);
     }
 
-    pub fn session_start_says_a_skipped_session_works_without_a_thread(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn session_start_says_a_skipped_session_works_without_a_thread() {
+        let fx = Fixture::with_briefing();
         let a = fx.a();
         fx.ok(&a, &["thread", "skip"]);
         let context = fx.session_context(&a, "s-skip", "claude");
@@ -2919,77 +2818,48 @@ mod cases {
 
     /// Every stored continuation entry of a thread, oldest first, as the ledger holds them.
     fn stored_entries(fx: &Fixture, dir: &Path, id: &str) -> Vec<serde_json::Value> {
-        match fx.backend {
-            Backend::Git => {
-                let file = fx
-                    .ledger_path(dir)
-                    .join("threads")
-                    .join(id)
-                    .join("continuation-state.jsonl");
-                std::fs::read_to_string(file)
-                    .unwrap()
-                    .lines()
-                    .map(json)
-                    .collect()
-            }
-            Backend::Dolt => {
-                let out = Command::new("dolt")
-                    .args([
-                        "sql",
-                        "-r",
-                        "json",
-                        "-q",
-                        &format!(
-                            "select entry from continuation_entries where thread_id = '{}' order by seq",
-                            id
-                        ),
-                    ])
-                    .current_dir(fx.ledger_path(dir))
-                    .env("HOME", fx.home())
-                    .env("DOLT_DISABLE_EVENT_FLUSH", "1")
-                    .output()
-                    .unwrap();
-                assert!(out.status.success(), "{}", stderr(&out));
-                json(&stdout(&out))["rows"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|row| json(row["entry"].as_str().unwrap()))
-                    .collect()
-            }
-        }
+        let out = Command::new("dolt")
+            .args([
+                "sql",
+                "-r",
+                "json",
+                "-q",
+                &format!(
+                    "select entry from continuation_entries where thread_id = '{}' order by seq",
+                    id
+                ),
+            ])
+            .current_dir(fx.ledger_path(dir))
+            .env("HOME", fx.home())
+            .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        json(&stdout(&out))["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| json(row["entry"].as_str().unwrap()))
+            .collect()
     }
 
-    /// True when the ledger stores no mission for the thread: SQL NULL on Dolt, no
-    /// `Mission:` line on the file ledger.
+    /// True when the ledger stores no mission for the thread: SQL NULL for the mission
+    /// and the briefing path.
     fn stores_no_mission(fx: &Fixture, dir: &Path, id: &str) -> bool {
-        match fx.backend {
-            Backend::Dolt => {
-                let counted = fx.dolt_sql(
-                    dir,
-                    &format!(
-                        "select count(*) as c from threads where thread_id = '{}' and mission_id is null and briefing_path is null",
-                        id
-                    ),
-                );
-                counted.lines().nth(1) == Some("1")
-            }
-            Backend::Git => {
-                let index = fx
-                    .ledger_path(dir)
-                    .join("threads")
-                    .join(id)
-                    .join("index.md");
-                let text = std::fs::read_to_string(index).unwrap();
-                !text.contains("Mission")
-            }
-        }
+        let counted = fx.dolt_sql(
+            dir,
+            &format!(
+                "select count(*) as c from threads where thread_id = '{}' and mission_id is null and briefing_path is null",
+                id
+            ),
+        );
+        counted.lines().nth(1) == Some("1")
     }
 
     const NO_MISSION_ERROR: &str = "has no mission, so it has no tasks. Attach a mission with tsk thread set mission <mission-id>, or pass an empty task ID";
 
-    pub fn a_thread_can_start_with_no_mission_and_pause_with_an_empty_task(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn a_thread_can_start_with_no_mission_and_pause_with_an_empty_task() {
+        let fx = Fixture::with_briefing();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
         fx.ok(&a, &["task", "add", "M-REC", "First task"]);
@@ -3071,8 +2941,8 @@ mod cases {
         );
     }
 
-    pub fn thread_set_mission_attaches_changes_and_detaches_a_mission(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn thread_set_mission_attaches_changes_and_detaches_a_mission() {
+        let fx = Fixture::with_briefing();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-ONE", "First mission"]);
         fx.ok(&a, &["mission", "create", "M-TWO", "Second mission"]);
@@ -3196,8 +3066,8 @@ mod cases {
         assert!(stores_no_mission(&fx, &a, &id));
     }
 
-    pub fn session_start_says_a_bound_thread_with_no_mission_has_no_tasks(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn session_start_says_a_bound_thread_with_no_mission_has_no_tasks() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-REC", "Recorded mission"]);
         fx.ok(&a, &["task", "add", "M-REC", "Open one"]);
@@ -3250,11 +3120,8 @@ mod cases {
     // --- Status, discard and decision dates ---
 
     /// The change line `status` prints for a mission record written locally.
-    fn mission_change(b: Backend, id: &str) -> String {
-        match b {
-            Backend::Dolt => "data\tmissions\tadded 1\tmodified 0\tdeleted 0".to_string(),
-            Backend::Git => format!("data\tA\trecords/missions/{}.json", id),
-        }
+    fn mission_change() -> String {
+        "data\tmissions\tadded 1\tmodified 0\tdeleted 0".to_string()
     }
 
     fn status_lines(fx: &Fixture, dir: &Path) -> Vec<String> {
@@ -3273,8 +3140,8 @@ mod cases {
         ]
     }
 
-    pub fn status_and_discard_report_and_drop_local_changes(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn status_and_discard_report_and_drop_local_changes() {
+        let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
         fx.ok(&other, &["ledger", "fetch"]);
         assert_eq!(status_lines(&fx, &a), clean_status("up to date"));
@@ -3288,13 +3155,8 @@ mod cases {
         fx.ok(&a, &["ledger", "doc", "rm", BRIEFING]);
 
         let mut expected = vec!["data\tlocal changes".to_string()];
-        match b {
-            Backend::Dolt => {
-                expected.push("data\tmissions\tadded 1\tmodified 0\tdeleted 0".to_string());
-                expected.push("data\ttasks\tadded 1\tmodified 0\tdeleted 0".to_string());
-            }
-            Backend::Git => expected.push(mission_change(b, "M-LOCAL")),
-        }
+        expected.push(mission_change());
+        expected.push("data\ttasks\tadded 1\tmodified 0\tdeleted 0".to_string());
         expected.push("docs\tlocal changes".to_string());
         // Sorted by path.
         expected.push("docs\tM\tindex.md".to_string());
@@ -3359,8 +3221,8 @@ mod cases {
         assert!(fx.ok(&other, &["mission", "list"]).contains("M-AFTER"));
     }
 
-    pub fn status_counts_commits_ahead_and_behind_origin(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn status_counts_commits_ahead_and_behind_origin() {
+        let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
         fx.ok(&other, &["ledger", "fetch"]);
 
@@ -3390,7 +3252,7 @@ mod cases {
         assert_exit(&fx.tsk(&a, &["ledger", "push", "Refused"]), 1);
         let lines = status_lines(&fx, &a);
         assert_eq!(lines[0], "data\tlocal changes");
-        assert!(lines.contains(&mission_change(b, "M-AHEAD")), "{:?}", lines);
+        assert!(lines.contains(&mission_change()), "{:?}", lines);
         assert!(
             lines.contains(&"docs\tA\tahead.md".to_string()),
             "{:?}",
@@ -3418,7 +3280,7 @@ mod cases {
                 "docs\tremote\tdiverged ahead 1 behind 1"
             ]
         );
-        assert!(lines.contains(&mission_change(b, "M-AHEAD")), "{:?}", lines);
+        assert!(lines.contains(&mission_change()), "{:?}", lines);
         assert!(
             !lines.iter().any(|l| l.contains("M-OTHER-2")),
             "{:?}",
@@ -3443,8 +3305,8 @@ mod cases {
         );
     }
 
-    pub fn status_works_offline_and_discard_then_changes_nothing(b: Backend) {
-        let fx = Fixture::with_briefing(b);
+    pub fn status_works_offline_and_discard_then_changes_nothing() {
+        let fx = Fixture::with_briefing();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-OFF", "Offline"]);
         fx.put(&a, "off.md", "off\n");
@@ -3462,7 +3324,7 @@ mod cases {
             note
         );
         let lines: Vec<String> = stdout(&status).lines().map(str::to_string).collect();
-        assert!(lines.contains(&mission_change(b, "M-OFF")), "{:?}", lines);
+        assert!(lines.contains(&mission_change()), "{:?}", lines);
         assert!(
             lines.contains(&"docs\tA\toff.md".to_string()),
             "{:?}",
@@ -3501,34 +3363,23 @@ mod cases {
     }
 
     /// The Local block for one mission record and one document `h.md`, written locally.
-    fn local_block(b: Backend, extra_commits: Option<&str>) -> Vec<String> {
+    fn local_block(extra_commits: Option<&str>) -> Vec<String> {
         let mut lines = vec!["Local   2 changes not pushed".to_string()];
-        match b {
-            Backend::Dolt => {
-                lines.push("          data  missions  1 added".to_string());
-                lines.push("          docs  h.md      added".to_string());
-            }
-            Backend::Git => {
-                lines.push("          data  records/missions/M-H.json  added".to_string());
-                lines.push("          docs  h.md                       added".to_string());
-            }
-        }
+        lines.push("          data  missions  1 added".to_string());
+        lines.push("          docs  h.md      added".to_string());
         if let Some(plus) = extra_commits {
             lines.push(format!("        plus {} not pushed", plus));
         }
         lines
     }
 
-    fn origin_line(b: Backend, dolt: &str, git: &str) -> String {
-        match b {
-            Backend::Dolt => format!("Origin  {}", dolt),
-            Backend::Git => format!("Origin  {}", git),
-        }
+    fn origin_line(text: &str) -> String {
+        format!("Origin  {}", text)
     }
 
-    pub fn status_prints_local_and_origin_in_plain_columns(b: Backend) {
+    pub fn status_prints_local_and_origin_in_plain_columns() {
         // A ledger that origin does not hold yet.
-        let fresh = Fixture::new(b);
+        let fresh = Fixture::new();
         fresh.ok(&fresh.a(), &["ledger", "fetch"]);
         assert_eq!(
             human(&fresh, &fresh.a()),
@@ -3538,7 +3389,7 @@ mod cases {
             ]
         );
 
-        let fx = Fixture::with_briefing(b);
+        let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
         fx.ok(&other, &["ledger", "fetch"]);
         assert_eq!(
@@ -3549,15 +3400,12 @@ mod cases {
         // Changes not pushed; the discard preview prints the Local block alone.
         fx.ok(&a, &["mission", "create", "M-H", "Human"]);
         fx.put(&a, "h.md", "h\n");
-        let mut expected = local_block(b, None);
+        let mut expected = local_block(None);
         expected.push("Origin  up to date".to_string());
         assert_eq!(human(&fx, &a), expected);
         let dry = fx.tsk(&a, &["ledger", "discard"]);
         assert_exit(&dry, 1);
-        assert_eq!(
-            stdout(&dry).lines().collect::<Vec<_>>(),
-            local_block(b, None)
-        );
+        assert_eq!(stdout(&dry).lines().collect::<Vec<_>>(), local_block(None));
         assert!(!stdout(&dry).contains('\t'));
         assert_eq!(
             stderr(&dry),
@@ -3581,11 +3429,7 @@ mod cases {
             human(&fx, &a),
             vec![
                 "Local   nothing to push".to_string(),
-                origin_line(
-                    b,
-                    "1 data commit and 1 document commit to fetch (tsk ledger fetch)",
-                    "1 ledger commit to fetch (tsk ledger fetch)"
-                )
+                origin_line("1 data commit and 1 document commit to fetch (tsk ledger fetch)")
             ]
         );
         fx.ok(&a, &["ledger", "fetch"]);
@@ -3599,15 +3443,9 @@ mod cases {
         fx.ok(&a, &["mission", "create", "M-H", "Human"]);
         fx.put(&a, "h.md", "h\n");
         assert_exit(&fx.tsk(&a, &["ledger", "push", "Refused"]), 1);
-        let plus = match b {
-            Backend::Dolt => "2 commits",
-            Backend::Git => "1 commit",
-        };
-        let mut expected = local_block(b, Some(plus));
+        let mut expected = local_block(Some("2 commits"));
         expected.push(origin_line(
-            b,
             "1 data commit and 1 document commit not on origin (tsk ledger push)",
-            "1 ledger commit not on origin (tsk ledger push)",
         ));
         assert_eq!(human(&fx, &a), expected);
 
@@ -3620,9 +3458,7 @@ mod cases {
         assert_eq!(
             lines.last().unwrap(),
             &origin_line(
-                b,
-                "diverged: 1 data commit and 1 document commit to push, 1 data commit and 1 document commit to fetch (tsk ledger push merges them)",
-                "diverged: 1 ledger commit to push, 1 to fetch (tsk ledger push merges them)"
+                "diverged: 1 data commit and 1 document commit to push, 1 data commit and 1 document commit to fetch (tsk ledger push merges them)"
             )
         );
         fx.ok(&a, &["ledger", "discard", "--yes"]);
@@ -3641,8 +3477,8 @@ mod cases {
         std::fs::rename(&moved, fx.origin()).unwrap();
     }
 
-    pub fn status_and_discard_need_a_ledger_store(b: Backend) {
-        let fx = Fixture::new(b);
+    pub fn status_and_discard_need_a_ledger_store() {
+        let fx = Fixture::new();
         let a = fx.a();
         for args in [
             &["ledger", "status"][..],
@@ -3660,8 +3496,8 @@ mod cases {
         }
     }
 
-    pub fn a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real(b: Backend) {
-        let (fx, a) = mission_with_tasks(b, 1);
+    pub fn a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real() {
+        let (fx, a) = mission_with_tasks(1);
         fx.ok(
             &a,
             &[
@@ -3725,8 +3561,8 @@ mod cases {
         assert_eq!(record["decisions"][0]["decided_on"], "2026-02-27");
     }
 
-    pub fn an_open_question_is_edited_and_an_answered_one_is_not(b: Backend) {
-        let (fx, a) = mission_with_tasks(b, 0);
+    pub fn an_open_question_is_edited_and_an_answered_one_is_not() {
+        let (fx, a) = mission_with_tasks(0);
         fx.ok(&a, &["mission", "create", "M-U", "Other"]);
         fx.ok(&a, &["question", "add", "M-T", "Why one?"]);
         fx.ok(&a, &["question", "add", "M-T", "Why two?"]);
@@ -3822,8 +3658,8 @@ mod cases {
         );
     }
 
-    pub fn decisions_name_an_adr_and_are_found_from_the_adr(b: Backend) {
-        let (fx, a) = mission_with_tasks(b, 1);
+    pub fn decisions_name_an_adr_and_are_found_from_the_adr() {
+        let (fx, a) = mission_with_tasks(1);
         fx.ok(&a, &["mission", "create", "M-U", "Other"]);
         let adr = "docs/adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md";
         let other_adr = "docs/adr/0015-other.md";
@@ -4041,10 +3877,8 @@ mod cases {
         assert_eq!(fx.ok(&other, &["decision", "list", "--adr", adr]), before);
     }
 
-    pub fn constraints_and_out_of_scope_are_numbered_lists_whose_numbers_are_not_reused(
-        b: Backend,
-    ) {
-        let fx = Fixture::fetched(b);
+    pub fn constraints_and_out_of_scope_are_numbered_lists_whose_numbers_are_not_reused() {
+        let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         fx.ok(&a, &["mission", "create", "M-L", "Lists"]);
         fx.ok(&a, &["mission", "create", "M-U", "Untouched"]);
@@ -4155,8 +3989,8 @@ mod cases {
         );
     }
 
-    pub fn mission_set_refuses_the_list_fields_and_keeps_the_text_fields(b: Backend) {
-        let fx = Fixture::fetched(b);
+    pub fn mission_set_refuses_the_list_fields_and_keeps_the_text_fields() {
+        let fx = Fixture::fetched();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-S", "Set"]);
         fx.ok(&a, &["mission", "constraint", "add", "M-S", "keep"]);
@@ -4196,26 +4030,21 @@ mod cases {
 }
 
 macro_rules! conformance {
-    ($module:ident, $backend:expr; $($case:ident),* $(,)?) => {
-        mod $module {
-            use super::*;
-            $(
-                #[test]
-                fn $case() {
-                    let backend = $backend;
-                    if !backend.available() {
-                        eprintln!("note: dolt is not installed; skipping {}", stringify!($case));
-                        return;
-                    }
-                    cases::$case(backend);
+    ($($case:ident),* $(,)?) => {
+        $(
+            #[test]
+            fn $case() {
+                if !dolt_installed() {
+                    eprintln!("note: dolt is not installed; skipping {}", stringify!($case));
+                    return;
                 }
-            )*
-        }
+                cases::$case();
+            }
+        )*
     };
 }
 
 conformance!(
-    git_backend, Backend::Git;
     fetch_creates_a_new_ledger_and_the_first_push_creates_the_branch,
     documents_round_trip_between_clones,
     threads_start_pause_resume_list_detach_and_stop,
@@ -4231,7 +4060,7 @@ conformance!(
     a_stale_push_is_merged_when_different_rows_changed,
     a_same_row_conflict_stops_and_leaves_the_remote_unchanged,
     doc_path_prints_the_file_and_bad_paths_are_refused,
-    documents_that_the_ledger_does_not_reserve_follow_the_backend,
+    documents_have_no_reserved_names,
     missions_are_created_and_listed_one_per_line,
     every_mission_field_round_trips,
     status_accepts_three_values_and_an_administrative_mission_keeps_one,
@@ -4272,156 +4101,43 @@ conformance!(
     mission_set_refuses_the_list_fields_and_keeps_the_text_fields,
 );
 
-conformance!(
-    dolt_backend, Backend::Dolt;
-    fetch_creates_a_new_ledger_and_the_first_push_creates_the_branch,
-    documents_round_trip_between_clones,
-    threads_start_pause_resume_list_detach_and_stop,
-    cloud_sessions_bind_through_the_ledger,
-    worktree_bindings_are_rows_keyed_on_the_clone_and_the_worktree,
-    a_marker_file_becomes_a_binding_row_and_is_removed,
-    two_actors_bind_one_thread_and_stop_clears_every_kind,
-    rebinding_replaces_the_old_binding_of_an_actor,
-    two_clones_bind_their_worktrees_at_once_and_both_pushes_succeed,
-    a_worktree_resume_and_detach_push_and_leave_the_store_clean,
-    a_worktree_resume_with_origin_away_keeps_the_binding_locally,
-    events_append_read_new_and_advance_the_watermark,
-    a_stale_push_is_merged_when_different_rows_changed,
-    a_same_row_conflict_stops_and_leaves_the_remote_unchanged,
-    doc_path_prints_the_file_and_bad_paths_are_refused,
-    documents_that_the_ledger_does_not_reserve_follow_the_backend,
-    missions_are_created_and_listed_one_per_line,
-    every_mission_field_round_trips,
-    status_accepts_three_values_and_an_administrative_mission_keeps_one,
-    blocks_are_checked_and_blocked_is_derived,
-    objective_outcomes_are_numbered_and_numbers_are_not_reused,
-    documents_are_linked_by_path_and_checked_at_push,
-    mission_writes_stay_local_until_the_push,
-    two_clones_add_missions_that_merge_and_one_field_conflicts,
-    the_json_record_has_every_field,
-    tasks_are_minted_per_mission_listed_and_changed,
-    task_blocks_are_checked_and_blocked_is_derived,
-    decisions_are_recorded_with_who_when_and_an_optional_task,
-    questions_are_minted_answered_and_listed_while_open,
-    two_clones_add_records_to_different_missions_and_the_ledgers_merge,
-    thread_start_takes_a_mission_id_and_checks_it_against_records_and_briefings,
-    thread_pause_checks_the_task_against_the_mission_record,
-    legacy_thread_rows_read_with_a_mission_id_derived_from_the_briefing_path,
-    the_stop_hook_check_passes_when_the_ledger_has_no_missions,
-    a_mission_document_alone_makes_the_stop_hook_check_block,
-    skip_silences_the_stop_hook_check_until_a_thread_starts_or_resumes,
-    session_start_names_the_bound_mission_with_its_open_tasks,
-    session_start_names_no_index_for_a_bound_mission_with_no_record,
-    session_start_shows_the_empty_ledger_note_only_without_records_and_documents,
-    session_start_says_a_skipped_session_works_without_a_thread,
-    a_thread_can_start_with_no_mission_and_pause_with_an_empty_task,
-    thread_set_mission_attaches_changes_and_detaches_a_mission,
-    session_start_says_a_bound_thread_with_no_mission_has_no_tasks,
-    thread_commands_carry_local_record_and_document_changes_to_the_remote,
-    status_and_discard_report_and_drop_local_changes,
-    status_counts_commits_ahead_and_behind_origin,
-    status_works_offline_and_discard_then_changes_nothing,
-    status_and_discard_need_a_ledger_store,
-    status_prints_local_and_origin_in_plain_columns,
-    a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
-    an_open_question_is_edited_and_an_answered_one_is_not,
-    decisions_name_an_adr_and_are_found_from_the_adr,
-    constraints_and_out_of_scope_are_numbered_lists_whose_numbers_are_not_reused,
-    mission_set_refuses_the_list_fields_and_keeps_the_text_fields,
-);
-
-// --- Backend selection and mismatch ---
+// --- A ref that holds a file ledger ---
 
 #[test]
-fn an_unknown_backend_is_an_error_naming_it() {
-    let fx = Fixture::new(Backend::Git);
-    let output = fx.tsk_with(&fx.a(), "sqlite", &["ledger", "path"]);
-    assert_exit(&output, 1);
-    assert!(stderr(&output).contains("'sqlite'"), "{}", stderr(&output));
-}
-
-#[test]
-fn the_config_file_selects_the_backend_and_the_environment_overrides_it() {
+fn a_ref_that_holds_a_file_ledger_is_refused_and_names_the_way_out() {
     if !dolt_installed() {
-        eprintln!("note: dolt is not installed; skipping backend selection");
+        eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::new(Backend::Git);
-    let config = fx.home().join("config").join("tsk");
-    std::fs::create_dir_all(&config).unwrap();
-    write(&config.join("config.toml"), "[ledger]\nbackend = \"git\"\n");
-    let a = fx.a();
-
-    let mut command = fx.command(&a, "", &["ledger", "fetch"]);
-    command.env_remove("TSK_LEDGER_BACKEND");
-    let output = command.output().unwrap();
-    assert_success(&output);
-    let path = stdout(&output).trim_end().to_string();
-    assert!(path.ends_with("/ledger"), "{}", path);
-
-    let output = fx.tsk_with(&a, "dolt", &["ledger", "fetch"]);
-    assert_success(&output);
-    assert!(
-        stdout(&output).trim_end().ends_with("/ledger-db"),
-        "{}",
-        stdout(&output)
+    let fx = Fixture::new();
+    // A ledger ref as the removed files backend wrote it.
+    let seed = fx.root.path().join("seed");
+    git(&seed, &["switch", "--quiet", "--orphan", "files-ledger"]);
+    write(&seed.join(".tsk-ledger.toml"), "version = 1\n");
+    write(&seed.join("index.md"), "# Files\n");
+    git(&seed, &["add", "-A"]);
+    git(&seed, &["commit", "--quiet", "-m", "A file ledger"]);
+    git(
+        &seed,
+        &["push", "--quiet", "origin", &format!("HEAD:{}", LEDGER_REF)],
     );
 
-    write(
-        &config.join("config.toml"),
-        "[ledger]\nbackend = \"mongo\"\n",
-    );
-    let mut command = fx.command(&a, "", &["ledger", "path"]);
-    command.env_remove("TSK_LEDGER_BACKEND");
-    let output = command.output().unwrap();
-    assert_exit(&output, 1);
-    assert!(stderr(&output).contains("'mongo'"));
-}
-
-#[test]
-fn the_git_backend_refuses_a_ref_that_holds_a_dolt_ledger() {
-    if !dolt_installed() {
-        eprintln!("note: dolt is not installed; skipping backend mismatch");
-        return;
-    }
-    let fx = Fixture::new(Backend::Dolt);
-    fx.ok(&fx.a(), &["ledger", "fetch"]);
-    fx.put(&fx.a(), "index.md", "# Dolt\n");
-    fx.ok(&fx.a(), &["ledger", "push", "Publish"]);
-
-    let output = fx.tsk_with(&fx.b(), "git", &["ledger", "fetch"]);
+    let output = fx.tsk(&fx.b(), &["ledger", "fetch"]);
     assert_exit(&output, 1);
     let message = stderr(&output);
-    assert!(message.contains("Dolt ledger"), "{}", message);
-    assert!(message.contains("dolt"), "{}", message);
-}
-
-#[test]
-fn the_dolt_backend_refuses_a_ref_that_holds_a_file_ledger() {
-    if !dolt_installed() {
-        eprintln!("note: dolt is not installed; skipping backend mismatch");
-        return;
-    }
-    let fx = Fixture::new(Backend::Git);
-    fx.ok(&fx.a(), &["ledger", "fetch"]);
-    fx.put(&fx.a(), "index.md", "# Files\n");
-    fx.ok(&fx.a(), &["ledger", "push", "Publish"]);
-
-    let output = fx.tsk_with(&fx.b(), "dolt", &["ledger", "fetch"]);
-    assert_exit(&output, 1);
-    let message = stderr(&output);
-    assert!(message.contains("file ledger"), "{}", message);
+    assert!(message.contains("holds a file ledger"), "{}", message);
+    assert!(message.contains("removed in 0.16.0"), "{}", message);
+    assert!(message.contains("tsk 0.15.1"), "{}", message);
     assert!(
         message.contains("tsk ledger migrate-to-dolt"),
         "{}",
         message
     );
-    assert!(message.contains("TSK_LEDGER_BACKEND=git"), "{}", message);
 }
 
 #[test]
 fn a_missing_dolt_binary_is_reported_with_a_hint() {
-    let fx = Fixture::new(Backend::Dolt);
+    let fx = Fixture::new();
     let bin = fx.root.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     let git_path = Command::new("sh")
@@ -4432,7 +4148,7 @@ fn a_missing_dolt_binary_is_reported_with_a_hint() {
     #[cfg(unix)]
     std::os::unix::fs::symlink(&git_path, bin.join("git")).unwrap();
     let output = fx
-        .command(&fx.a(), "dolt", &["ledger", "fetch"])
+        .command(&fx.a(), &["ledger", "fetch"])
         .env("PATH", &bin)
         .output()
         .unwrap();
@@ -4446,7 +4162,7 @@ fn a_missing_dolt_binary_is_reported_with_a_hint() {
     );
 }
 
-// --- Dolt-only behaviour ---
+// --- The Dolt store ---
 
 #[test]
 fn dolt_session_start_exports_the_database_path_and_warns_about_pending_commits() {
@@ -4454,7 +4170,7 @@ fn dolt_session_start_exports_the_database_path_and_warns_about_pending_commits(
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::fetched(Backend::Dolt);
+    let fx = Fixture::fetched();
     let a = fx.a();
     fx.put(&a, "index.md", "# Dolt\n");
     fx.ok(&a, &["ledger", "push", "Publish"]);
@@ -4462,7 +4178,7 @@ fn dolt_session_start_exports_the_database_path_and_warns_about_pending_commits(
     let env_file = fx.root.path().join("claude-env");
     let session_start = |input: &str| {
         let mut child = fx
-            .command(&a, "dolt", &["thread", "session-start"])
+            .command(&a, &["thread", "session-start"])
             .env("CLAUDE_ENV_FILE", &env_file)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -4540,11 +4256,11 @@ fn session_start_names_the_import_guide_only_while_the_ledger_has_no_missions() 
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::fetched(Backend::Dolt);
+    let fx = Fixture::fetched();
     let a = fx.a();
     let session_start = |session: &str| {
         let mut child = fx
-            .command(&a, "dolt", &["thread", "session-start"])
+            .command(&a, &["thread", "session-start"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -4577,7 +4293,7 @@ fn session_start_names_the_import_guide_only_while_the_ledger_has_no_missions() 
     assert!(guide.starts_with("# Importing an existing plan into tsk\n"));
 }
 
-// --- Documents on the tsk/docs branch (Dolt backend) ---
+// --- Documents on the tsk/docs branch ---
 
 const AWKWARD: &str = "no newline at end \"quoted\" 'single' \\ back\n\ttab; drop table documents; -- \u{e9} \u{65e5}\u{672c} \u{1f600}\r\nlast";
 
@@ -4598,14 +4314,14 @@ fn dolt_documents_are_plain_files_on_the_docs_branch_and_dolt_files_on_the_ledge
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::fetched(Backend::Dolt);
+    let fx = Fixture::fetched();
     let (a, other) = (fx.a(), fx.b());
     fx.put(&a, "missions/M-X.md", AWKWARD);
     fx.put(&a, "notes/empty.md", "");
     let pushed = fx.ok(&a, &["ledger", "push", "Add documents"]);
     assert!(!pushed.trim().is_empty());
 
-    assert_eq!(fx.remote_branches(), Backend::Dolt.published_branches());
+    assert_eq!(fx.remote_branches(), published_branches());
 
     // The docs branch: real files, one blob each, byte for byte, and no manifest.
     let files = fx.origin_files(DOCS_REF);
@@ -4681,7 +4397,7 @@ fn dolt_push_prints_the_dolt_commit_or_the_docs_commit_when_only_documents_chang
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::with_briefing(Backend::Dolt);
+    let fx = Fixture::with_briefing();
     let a = fx.a();
     let docs_before = fx.remote_docs();
     let ledger_before = fx.remote_ledger();
@@ -4715,7 +4431,7 @@ fn a_rejected_docs_push_stops_before_the_dolt_push_and_the_next_push_delivers_bo
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::with_briefing(Backend::Dolt);
+    let fx = Fixture::with_briefing();
     let (a, other) = (fx.a(), fx.b());
     let ledger_before = fx.remote_ledger();
     let docs_before = fx.remote_docs();
@@ -4762,7 +4478,7 @@ fn a_stale_docs_push_is_rebased_for_different_files_and_refused_for_the_same_fil
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::fetched(Backend::Dolt);
+    let fx = Fixture::fetched();
     let (a, other) = (fx.a(), fx.b());
     fx.put(&a, "base.md", "base\n");
     fx.ok(&a, &["ledger", "push", "Base"]);
@@ -4810,7 +4526,7 @@ fn unpushed_documents_commits_are_noted_by_fetch_and_a_dirty_docs_worktree_is_re
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::with_briefing(Backend::Dolt);
+    let fx = Fixture::with_briefing();
     let a = fx.a();
     let docs = fx.docs_path(&a);
     fx.put(&a, "local.md", "local\n");
@@ -4852,7 +4568,7 @@ fn thread_commands_work_on_a_version_two_ledger() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::with_briefing(Backend::Dolt);
+    let fx = Fixture::with_briefing();
     let a = fx.a();
     let events = json(&fx.ok(&a, &["events", "read-new"]));
     assert_eq!(events["total_count"], 0);
@@ -4869,7 +4585,7 @@ fn thread_commands_work_on_a_version_two_ledger() {
     );
 }
 
-// --- Mission and task tables and the version 8 ledger (Dolt backend) ---
+// --- Mission and task tables and the version 8 ledger ---
 
 const TASK_TABLES: [&str; 4] = ["questions", "decisions", "task_blocks", "tasks"];
 
@@ -4938,14 +4654,14 @@ impl Fixture {
     /// A published Dolt ledger at version 2, as the previous release left it: clone A
     /// drops the mission tables, records the version and pushes.
     fn version_two_ledger() -> Fixture {
-        Fixture::cached("version-two", Backend::Dolt, || {
+        Fixture::cached("version-two", || {
             (Fixture::build_version_two_ledger(), String::new())
         })
         .0
     }
 
     fn build_version_two_ledger() -> Fixture {
-        let fx = Fixture::new(Backend::Dolt);
+        let fx = Fixture::new();
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
         let mut sql: Vec<String> = MISSION_TABLES
@@ -4966,14 +4682,14 @@ impl Fixture {
     /// A published Dolt ledger at version 3, as the previous release left it: one mission
     /// with an objective outcome and a blocker, and no task, decision or question tables.
     fn version_three_ledger() -> Fixture {
-        Fixture::cached("version-three", Backend::Dolt, || {
+        Fixture::cached("version-three", || {
             (Fixture::build_version_three_ledger(), String::new())
         })
         .0
     }
 
     fn build_version_three_ledger() -> Fixture {
-        let fx = Fixture::new(Backend::Dolt);
+        let fx = Fixture::new();
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-OLD", "Made on three"]);
@@ -5107,7 +4823,7 @@ fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_eight() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::fetched(Backend::Dolt);
+    let fx = Fixture::fetched();
     let a = fx.a();
     assert_eq!(fx.manifest_version(&a), "8");
     let tables = fx.tables(&a);
@@ -5267,14 +4983,14 @@ impl Fixture {
     /// has no `mission_id`, its `briefing_path` is not null, and it holds one legacy
     /// thread for the briefing of M-CONF-01.
     fn version_four_ledger() -> Fixture {
-        Fixture::cached("version-four", Backend::Dolt, || {
+        Fixture::cached("version-four", || {
             (Fixture::build_version_four_ledger(), String::new())
         })
         .0
     }
 
     fn build_version_four_ledger() -> Fixture {
-        let fx = Fixture::new(Backend::Dolt);
+        let fx = Fixture::new();
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
         fx.put(&a, BRIEFING, "# Mission: conformance\n");
@@ -5370,7 +5086,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::fetched(Backend::Dolt);
+    let fx = Fixture::fetched();
     let a = fx.a();
     fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '9')");
     for args in [
@@ -5398,7 +5114,7 @@ fn dolt_status_marks_a_table_whose_schema_changed_and_rows_did_not() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::with_briefing(Backend::Dolt);
+    let fx = Fixture::with_briefing();
     let a = fx.a();
     fx.dolt_sql(&a, "alter table watermark add column note int null");
     let out = fx.ok(&a, &["ledger", "status", "--porcelain"]);
@@ -5521,14 +5237,14 @@ impl Fixture {
     /// A published Dolt ledger at version 5, as the previous release left it: a mission
     /// with a task and a decision, and a `decisions` table without `adr_path`.
     fn version_five_ledger() -> Fixture {
-        Fixture::cached("version-five", Backend::Dolt, || {
+        Fixture::cached("version-five", || {
             (Fixture::build_version_five_ledger(), String::new())
         })
         .0
     }
 
     fn build_version_five_ledger() -> Fixture {
-        let fx = Fixture::new(Backend::Dolt);
+        let fx = Fixture::new();
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
         fx.ok(&a, &["mission", "create", "M-OLD", "Made on five"]);
@@ -5694,14 +5410,14 @@ impl Fixture {
     /// M-OLD holds lines with blanks, padding and a Windows line break, M-BLANK holds
     /// only white space, and M-NULL holds nothing.
     fn version_six_ledger() -> Fixture {
-        Fixture::cached("version-six", Backend::Dolt, || {
+        Fixture::cached("version-six", || {
             (Fixture::build_version_six_ledger(), String::new())
         })
         .0
     }
 
     fn build_version_six_ledger() -> Fixture {
-        let fx = Fixture::new(Backend::Dolt);
+        let fx = Fixture::new();
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
         for (id, name) in [
@@ -5917,90 +5633,18 @@ fn a_thread_write_moves_the_lists_of_a_version_six_ledger_too() {
     );
 }
 
-#[test]
-fn the_file_ledger_reads_a_record_that_holds_its_lists_as_strings() {
-    let fx = Fixture::fetched(Backend::Git);
-    let (a, other) = (fx.a(), fx.b());
-    fx.ok(&a, &["mission", "create", "M-OLD", "Old record"]);
-    // The record as the previous release wrote it: both lists are strings, and the
-    // counters do not exist.
-    let file = fx.ledger_path(&a).join("records/missions/M-OLD.json");
-    let mut record: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-    record["constraints"] = serde_json::json!("  first\n\nsecond  \r\n");
-    record["out_of_scope"] = serde_json::json!("only one");
-    let map = record.as_object_mut().unwrap();
-    map.remove("next_constraint");
-    map.remove("next_out_of_scope");
-    write(&file, &serde_json::to_string_pretty(&record).unwrap());
-
-    assert_eq!(
-        fx.ok(&a, &["mission", "constraint", "list", "M-OLD"]),
-        "1\tfirst\n2\tsecond\n"
-    );
-    assert_eq!(
-        fx.ok(&a, &["mission", "out-of-scope", "list", "M-OLD"]),
-        "1\tonly one\n"
-    );
-    let shown = mission_json_of(&fx, &a, "M-OLD");
-    assert_eq!(
-        shown["constraints"],
-        serde_json::json!([{"n": 1, "text": "first"}, {"n": 2, "text": "second"}])
-    );
-    // Nothing was written by the reads: the file still holds the strings.
-    let unchanged: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-    assert_eq!(unchanged["constraints"], "  first\n\nsecond  \r\n");
-
-    // A write converts the record to the list form, numbering on from the last item.
-    assert_eq!(
-        fx.ok(&a, &["mission", "constraint", "add", "M-OLD", "third"]),
-        "3\n"
-    );
-    let written: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-    assert_eq!(
-        written["constraints"],
-        serde_json::json!([
-            {"seq": 1, "text": "first"},
-            {"seq": 2, "text": "second"},
-            {"seq": 3, "text": "third"}
-        ])
-    );
-    assert_eq!(
-        written["out_of_scope"],
-        serde_json::json!([{"seq": 1, "text": "only one"}])
-    );
-    assert_eq!(written["next_constraint"], 4);
-    assert_eq!(written["next_out_of_scope"], 2);
-    assert_eq!(
-        fx.ok(&a, &["mission", "out-of-scope", "add", "M-OLD", "second"]),
-        "2\n"
-    );
-    fx.ok(&a, &["ledger", "push", "Convert the record"]);
-    fx.ok(&other, &["ledger", "fetch"]);
-    assert_eq!(
-        fx.ok(&other, &["mission", "constraint", "list", "M-OLD"]),
-        "1\tfirst\n2\tsecond\n3\tthird\n"
-    );
-}
-
-// --- Bindings of every actor in one table, and the version 8 ledger (Dolt backend) ---
+// --- Bindings of every actor in one table, and the version 8 ledger ---
 
 impl Fixture {
     /// A published Dolt ledger at version 7, as the previous release left it: the bindings
     /// are rows of `cloud_session_bindings`, and the one thread is bound by `cse_old`.
     /// Returns the thread ID.
     fn version_seven_ledger() -> (Fixture, String) {
-        Fixture::cached(
-            "version-seven",
-            Backend::Dolt,
-            Fixture::build_version_seven_ledger,
-        )
+        Fixture::cached("version-seven", Fixture::build_version_seven_ledger)
     }
 
     fn build_version_seven_ledger() -> (Fixture, String) {
-        let fx = Fixture::build_with_briefing(Backend::Dolt);
+        let fx = Fixture::build_with_briefing();
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
         let start = fx.tsk_cloud(&a, "cse_old", &["thread", "start", "M-CONF-01"]);
@@ -6166,7 +5810,7 @@ fn the_stop_hook_check_reads_the_local_ledger_store_and_works_offline() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let fx = Fixture::with_briefing(Backend::Dolt);
+    let fx = Fixture::with_briefing();
     let a = fx.a();
     // Unbound: the check blocks. Bound by the worktree row: it passes.
     assert!(fx.guard_reason(&a, None).is_some());
@@ -6191,4 +5835,178 @@ fn the_stop_hook_check_reads_the_local_ledger_store_and_works_offline() {
     fx.ok(&a, &["thread", "detach"]);
     std::fs::rename(fx.origin(), &moved).unwrap();
     assert!(fx.guard_reason(&a, None).is_some());
+}
+
+// --- A ledger held in a nexus repo ---
+
+const NEXUS_REF: &str = "refs/heads/ledgers/work-api";
+const NEXUS_DOCS_REF: &str = "refs/heads/ledgers/work-api-docs";
+
+impl Fixture {
+    /// A bare nexus repo whose `nexus.json` holds `work-api` as a nexus-held ledger local
+    /// to this machine, attached in the user config. Both clones carry the cached repo ID,
+    /// so the entry is found without matching the origin URL.
+    fn attach_nexus(&self) -> PathBuf {
+        let root = self.root.path();
+        git(
+            root,
+            &["init", "--quiet", "--bare", "-b", "main", "nexus.git"],
+        );
+        git(root, &["init", "--quiet", "-b", "main", "nexus-seed"]);
+        let seed = root.join("nexus-seed");
+        let nexus = root.join("nexus.git");
+        git(&seed, &["remote", "add", "origin", nexus.to_str().unwrap()]);
+        write(
+            &seed.join("nexus.json"),
+            "{\"version\":1,\"territories\":[{\"id\":\"t\",\"name\":\"T\",\"repos\":[\
+             {\"id\":\"work-api\",\"local\":\"laptop\",\"ledger\":\"nexus\"}]}]}\n",
+        );
+        git(&seed, &["add", "-A"]);
+        git(&seed, &["commit", "--quiet", "-m", "Set nexus.json"]);
+        git(
+            &seed,
+            &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
+        );
+        self.ok(
+            &self.a(),
+            &["config", "attach-nexus", nexus.to_str().unwrap()],
+        );
+        for clone in [self.a(), self.b()] {
+            write(&clone.join(".git").join("tsk-repo-id"), "work-api\n");
+        }
+        nexus
+    }
+}
+
+fn ref_exists(repo: &Path, reference: &str) -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--verify", "--quiet", reference])
+        .current_dir(repo)
+        .output()
+        .unwrap()
+        .status
+        .success()
+}
+
+#[test]
+fn a_ledger_held_in_a_nexus_repo_round_trips_between_clones() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new();
+    let nexus = fx.attach_nexus();
+    let (a, other) = (fx.a(), fx.b());
+
+    // A new ledger names the nexus ref, not the managed repo's.
+    let fetch = fx.tsk(&a, &["ledger", "fetch"]);
+    assert_success(&fetch);
+    assert!(
+        stderr(&fetch).contains("the nexus's refs/heads/ledgers/work-api does not exist yet"),
+        "{}",
+        stderr(&fetch)
+    );
+    assert!(stdout(&fetch).trim_end().ends_with("/ledger-db"));
+
+    // Records, a document, a thread and events written in clone A.
+    fx.put(&a, BRIEFING, "# Mission: conformance\n");
+    fx.ok(&a, &["mission", "create", "M-CONF-01", "Conformance"]);
+    fx.ok(&a, &["task", "add", "M-CONF-01", "Do the thing"]);
+    let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
+    fx.ok(&a, &["thread", "pause", &id, "T-01", "Carry on"]);
+    let payload = fx.root.path().join("payload.json");
+    write(&payload, "{\"id\": 1}");
+    fx.ok(
+        &a,
+        &[
+            "events",
+            "append",
+            "github",
+            "dependabot_alert",
+            "created",
+            "acme/work-api",
+            payload.to_str().unwrap(),
+        ],
+    );
+    let push = fx.ok(&a, &["ledger", "push", "First commit"]);
+    assert!(!push.trim().is_empty());
+
+    // The ledger and its documents are on the nexus, and nothing is on the managed repo.
+    assert!(ref_exists(&nexus, NEXUS_REF));
+    assert!(ref_exists(&nexus, NEXUS_DOCS_REF));
+    assert!(!ref_exists(&nexus, "refs/heads/ledgers/work-api/docs"));
+    assert_eq!(fx.remote_ledger(), None);
+    assert_eq!(fx.remote_docs(), None);
+    assert_eq!(fx.remote_branches(), vec!["refs/heads/main".to_string()]);
+    let docs = git(&nexus, &["ls-tree", "-r", "--name-only", NEXUS_DOCS_REF]);
+    assert!(docs.lines().any(|path| path == BRIEFING), "{}", docs);
+    assert!(
+        !docs.lines().any(|path| path == ".tsk-ledger.toml"),
+        "{}",
+        docs
+    );
+    let tree = git(&nexus, &["ls-tree", "--name-only", NEXUS_REF]);
+    assert!(tree.lines().any(|path| path == "manifest"), "{}", tree);
+    assert_eq!(
+        std::fs::read_to_string(a.join(".git").join("tsk-repo-id"))
+            .unwrap()
+            .trim(),
+        "work-api"
+    );
+
+    // Clone B reads all of it from the nexus.
+    let fetch = fx.tsk(&other, &["ledger", "fetch"]);
+    assert_success(&fetch);
+    assert!(
+        !stderr(&fetch).contains("does not exist"),
+        "{}",
+        stderr(&fetch)
+    );
+    assert_eq!(
+        fx.ok(&other, &["ledger", "doc", "get", BRIEFING]),
+        "# Mission: conformance\n"
+    );
+    assert!(fx
+        .ok(&other, &["mission", "list"])
+        .starts_with("M-CONF-01\t"));
+    assert_eq!(
+        fx.ok(&other, &["task", "list", "M-CONF-01"])
+            .lines()
+            .count(),
+        1
+    );
+    let resumed = json(&fx.ok(&other, &["thread", "resume", &id]));
+    assert_eq!(resumed["latest"]["task_id"], "T-01");
+    assert_eq!(resumed["latest"]["whats_next"], "Carry on");
+    assert_eq!(fx.ok(&other, &["events", "read-new"]).lines().count(), 1);
+
+    // A write in B reaches A through the nexus too, and a stale push merges.
+    fx.ok(&other, &["task", "add", "M-CONF-01", "Second"]);
+    fx.ok(&a, &["mission", "create", "M-CONF-02", "Other"]);
+    fx.ok(&other, &["ledger", "push", "From B"]);
+    fx.ok(&a, &["ledger", "push", "From A"]);
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(
+        fx.ok(&other, &["task", "list", "M-CONF-01"])
+            .lines()
+            .count(),
+        2
+    );
+    assert!(fx.ok(&other, &["mission", "list"]).contains("M-CONF-02"));
+    assert_eq!(fx.remote_ledger(), None);
+
+    // A manifest that names another repo stops the push, and the nexus is unchanged.
+    let before = git(&nexus, &["rev-parse", NEXUS_REF]);
+    fx.dolt_sql(
+        &a,
+        "replace into manifest (k, v) values ('repo_id', 'someone-else')",
+    );
+    let output = fx.tsk(&a, &["ledger", "push", "Wrong repo id"]);
+    assert_exit(&output, 1);
+    assert!(
+        stderr(&output).contains("repo_id \"someone-else\""),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(git(&nexus, &["rev-parse", NEXUS_REF]), before);
 }

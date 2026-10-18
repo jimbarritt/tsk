@@ -158,24 +158,6 @@ impl Fixture {
             .expect("failed to run tsk")
     }
 
-    /// Like [`Fixture::tsk`], with the Dolt backend.
-    fn tsk_dolt(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_tsk"))
-            .args(args)
-            .current_dir(self.work())
-            .envs(git_env())
-            .env("TSK_LEDGER_BACKEND", "dolt")
-            .env("HOME", self.root.path().join("home"))
-            .env("XDG_STATE_HOME", self.root.path().join("state"))
-            .env("XDG_CONFIG_HOME", self.root.path().join("config"))
-            .env("TSK_MACHINE_NAME", "laptop")
-            .env("TSK_HOME", self.root.path().join("home/.tsk"))
-            .env("GIT_CEILING_DIRECTORIES", self.root.path())
-            .env_remove("CLAUDE_CODE_REMOTE_SESSION_ID")
-            .output()
-            .expect("failed to run tsk")
-    }
-
     fn fetch_ok(&self) -> PathBuf {
         let output = self.tsk(&["ledger", "fetch"]);
         assert_success(&output);
@@ -203,25 +185,65 @@ impl Fixture {
             .then(|| String::from_utf8(output.stdout).unwrap())
     }
 
-    fn seed_nexus_ledger(&self, manifest: &str) {
-        let dir = self.root.path().join("ledger-seed");
-        git(
-            self.root.path(),
-            &["init", "--quiet", "-b", "main", "ledger-seed"],
-        );
-        write(&dir.join(".tsk-ledger.toml"), manifest);
-        write(&dir.join("index.md"), "# Ledger index\n");
-        write_nested(&dir.join(BRIEFING), "# Mission: example\n");
-        commit_all(&dir, "Seed the nexus ledger");
-        git(
-            &dir,
-            &[
-                "push",
-                "--quiet",
-                self.nexus().to_str().unwrap(),
-                &format!("HEAD:{}", NEXUS_REF),
-            ],
-        );
+    /// Run SQL against the Dolt database of the work clone and return the CSV it prints.
+    fn sql(&self, sql: &str) -> String {
+        let path = stdout(&self.tsk(&["ledger", "path"]));
+        let out = Command::new("dolt")
+            .args(["sql", "-r", "csv", "-q", sql])
+            .current_dir(path.trim_end())
+            .env("HOME", self.root.path().join("home"))
+            .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        stdout(&out)
+    }
+
+    /// The `repo_id` row of the manifest table of the work clone's ledger.
+    fn manifest_repo_id(&self) -> String {
+        self.sql("select v from manifest where k = 'repo_id'")
+            .lines()
+            .nth(1)
+            .unwrap_or("")
+            .to_string()
+    }
+
+    /// Forget this clone's ledger: the next fetch mints a new clone ID, so it builds a
+    /// new database from what the remote holds.
+    fn forget_local_ledger(&self) {
+        std::fs::remove_file(self.work().join(".git").join("tsk-clone-id")).unwrap();
+    }
+
+    /// The head of the work clone's documents worktree.
+    fn docs_head(&self) -> String {
+        let ledger = PathBuf::from(stdout(&self.tsk(&["ledger", "path"])).trim_end());
+        git_line(
+            &ledger.parent().unwrap().join("docs"),
+            &["rev-parse", "HEAD"],
+        )
+    }
+
+    /// Push a Dolt commit by hand whose manifest names another repo, so that a fetch
+    /// from a clone meets a ledger that belongs elsewhere.
+    fn publish_ledger_of_another_repo(&self) {
+        self.fetch_ok();
+        let path = PathBuf::from(stdout(&self.tsk(&["ledger", "path"])).trim_end());
+        self.sql("replace into manifest (k, v) values ('repo_id', 'someone-else')");
+        for args in [
+            vec!["add", "-A"],
+            vec!["commit", "-m", "Another repo"],
+            vec!["push", "origin", "main"],
+        ] {
+            let out = Command::new("dolt")
+                .args(&args)
+                .current_dir(&path)
+                .env("HOME", self.root.path().join("home"))
+                .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{:?}: {}", args, stderr(&out));
+        }
+        self.forget_local_ledger();
     }
 }
 
@@ -233,7 +255,6 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
         ("GIT_AUTHOR_EMAIL", "test@example.com"),
         ("GIT_COMMITTER_NAME", "Test"),
         ("GIT_COMMITTER_EMAIL", "test@example.com"),
-        ("TSK_LEDGER_BACKEND", "git"),
     ]
 }
 
@@ -269,11 +290,6 @@ fn commit_all(dir: &Path, message: &str) {
 
 fn write(path: &Path, content: &str) {
     std::fs::write(path, content).unwrap();
-}
-
-fn write_nested(path: &Path, content: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    write(path, content);
 }
 
 fn stdout(output: &Output) -> String {
@@ -385,33 +401,31 @@ fn an_entry_with_ledger_nexus_holds_the_ledger_in_the_nexus() {
         stderr(&first)
     );
     let path = PathBuf::from(stdout(&first).trim_end());
-    assert_eq!(
-        std::fs::read_to_string(path.join(".tsk-ledger.toml")).unwrap(),
-        "version = 1\nrepo_id = \"work-api\"\n"
-    );
-    assert!(path.join("index.md").is_file());
+    assert!(path.ends_with("ledger-db"), "{}", path.display());
+    assert_eq!(fx.manifest_repo_id(), "work-api");
     assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
 
-    write_nested(&path.join("missions").join("M-1.md"), "mission\n");
+    let doc = fx.root.path().join("doc.md");
+    write(&doc, "mission\n");
+    assert_success(&fx.tsk(&[
+        "ledger",
+        "doc",
+        "put",
+        "missions/M-1.md",
+        doc.to_str().unwrap(),
+    ]));
     let pushed = fx.tsk(&["ledger", "push", "First commit"]);
     assert_success(&pushed);
 
     assert!(fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    assert!(fx.ref_exists(&fx.nexus(), NEXUS_DOCS_REF));
     assert!(!fx.ref_exists(&fx.managed(), IN_REPO_REF));
     assert_eq!(
-        stdout(&pushed).trim_end(),
-        git_line(&fx.nexus(), &["rev-parse", NEXUS_REF])
-    );
-    assert_eq!(
-        fx.file_on(&fx.nexus(), NEXUS_REF, "missions/M-1.md")
+        fx.file_on(&fx.nexus(), NEXUS_DOCS_REF, "missions/M-1.md")
             .as_deref(),
         Some("mission\n")
     );
-    assert_eq!(
-        fx.file_on(&fx.nexus(), NEXUS_REF, ".tsk-ledger.toml")
-            .as_deref(),
-        Some("version = 1\nrepo_id = \"work-api\"\n")
-    );
+    assert!(fx.file_on(&fx.nexus(), NEXUS_REF, "manifest").is_some());
     assert_eq!(
         std::fs::read_to_string(fx.repo_id_file()).unwrap().trim(),
         "work-api"
@@ -419,15 +433,16 @@ fn an_entry_with_ledger_nexus_holds_the_ledger_in_the_nexus() {
 }
 
 #[test]
-fn the_ledger_worktree_stays_a_linked_worktree_of_the_managed_clone() {
+fn the_documents_worktree_stays_a_linked_worktree_of_the_managed_clone() {
     let fx = Fixture::new();
     fx.set_nexus_json(WORK_API_ENTRY);
     fx.attach();
 
     let path = fx.fetch_ok();
+    let docs = path.parent().unwrap().join("docs");
 
     let listing = git(&fx.work(), &["worktree", "list", "--porcelain", "-z"]);
-    let canonical = std::fs::canonicalize(&path).unwrap();
+    let canonical = std::fs::canonicalize(&docs).unwrap();
     assert!(listing
         .split('\0')
         .filter_map(|f| f.strip_prefix("worktree "))
@@ -441,20 +456,23 @@ fn a_later_push_and_fetch_round_trip_through_the_nexus_branch() {
     fx.set_nexus_json(WORK_API_ENTRY);
     fx.attach();
     let path = fx.fetch_ok();
-    write(&path.join("one.md"), "one\n");
-    fx.push_ok("One");
-    write(&path.join("two.md"), "two\n");
-    fx.push_ok("Two");
+    for (name, text) in [("one.md", "one\n"), ("two.md", "two\n")] {
+        let doc = fx.root.path().join(name);
+        write(&doc, text);
+        assert_success(&fx.tsk(&["ledger", "doc", "put", name, doc.to_str().unwrap()]));
+        fx.push_ok(name);
+    }
 
+    // The documents branch holds the seed commit and one commit for each push.
     assert_eq!(
-        git_line(&fx.nexus(), &["rev-list", "--count", NEXUS_REF]),
+        git_line(&fx.nexus(), &["rev-list", "--count", NEXUS_DOCS_REF]),
         "3"
     );
     let again = fx.fetch_ok();
     assert_eq!(again, path);
     assert_eq!(
-        git_line(&path, &["rev-parse", "HEAD"]),
-        git_line(&fx.nexus(), &["rev-parse", NEXUS_REF])
+        fx.docs_head(),
+        git_line(&fx.nexus(), &["rev-parse", NEXUS_DOCS_REF])
     );
 }
 
@@ -463,15 +481,30 @@ fn an_existing_nexus_ledger_is_fetched() {
     let fx = Fixture::new();
     fx.set_nexus_json(WORK_API_ENTRY);
     fx.attach();
-    fx.seed_nexus_ledger("version = 1\nrepo_id = \"work-api\"\n");
+    fx.fetch_ok();
+    let doc = fx.root.path().join("briefing.md");
+    write(&doc, "# Mission: example\n");
+    assert_success(&fx.tsk(&["ledger", "doc", "put", BRIEFING, doc.to_str().unwrap()]));
+    fx.push_ok("Seed the nexus ledger");
 
-    let path = fx.fetch_ok();
+    // A new clone ID stands for a clone that has never seen the ledger.
+    fx.forget_local_ledger();
+    let fetch = fx.tsk(&["ledger", "fetch"]);
+    assert_success(&fetch);
+    assert!(
+        !stderr(&fetch).contains("does not exist"),
+        "{}",
+        stderr(&fetch)
+    );
 
     assert_eq!(
-        git_line(&path, &["rev-parse", "HEAD"]),
-        git_line(&fx.nexus(), &["rev-parse", NEXUS_REF])
+        stdout(&fx.tsk(&["ledger", "doc", "get", BRIEFING])),
+        "# Mission: example\n"
     );
-    assert!(path.join(BRIEFING).is_file());
+    assert_eq!(
+        fx.docs_head(),
+        git_line(&fx.nexus(), &["rev-parse", NEXUS_DOCS_REF])
+    );
 }
 
 #[test]
@@ -519,14 +552,9 @@ fn an_entry_is_found_through_https_and_ssh_forms_of_its_url() {
         ));
         fx.attach();
 
-        let path = fx.fetch_ok();
+        fx.fetch_ok();
 
-        assert_eq!(
-            std::fs::read_to_string(path.join(".tsk-ledger.toml")).unwrap(),
-            "version = 1\nrepo_id = \"work-api\"\n",
-            "{}",
-            url
-        );
+        assert_eq!(fx.manifest_repo_id(), "work-api", "{}", url);
     }
 }
 
@@ -544,11 +572,9 @@ fn an_ssh_origin_matches_an_https_entry() {
     fx.set_nexus_json(WORK_API_ENTRY);
     fx.attach();
 
-    let path = fx.fetch_ok();
+    fx.fetch_ok();
 
-    assert!(std::fs::read_to_string(path.join(".tsk-ledger.toml"))
-        .unwrap()
-        .contains("repo_id = \"work-api\""));
+    assert_eq!(fx.manifest_repo_id(), "work-api");
 }
 
 #[test]
@@ -566,11 +592,11 @@ fn the_cached_repo_id_is_used_before_the_origin_url() {
     fx.set_nexus_json(
         r#"{"id":"work-api","url":"https://example.test/acme/renamed","ledger":"nexus"}"#,
     );
-    let path = fx.fetch_ok();
+    fx.fetch_ok();
 
     assert_eq!(
-        git_line(&path, &["rev-parse", "HEAD"]),
-        git_line(&fx.nexus(), &["rev-parse", NEXUS_REF])
+        fx.docs_head(),
+        git_line(&fx.nexus(), &["rev-parse", NEXUS_DOCS_REF])
     );
     assert!(!fx.ref_exists(&fx.managed(), IN_REPO_REF));
 }
@@ -583,10 +609,8 @@ fn an_entry_with_no_url_is_found_through_the_cached_id_on_its_machine() {
     fx.attach();
 
     write(&fx.repo_id_file(), "work-api\n");
-    let path = fx.fetch_ok();
-    assert!(std::fs::read_to_string(path.join(".tsk-ledger.toml"))
-        .unwrap()
-        .contains("repo_id = \"work-api\""));
+    fx.fetch_ok();
+    assert_eq!(fx.manifest_repo_id(), "work-api");
     fx.push_ok("Create the ledger");
     assert!(fx.ref_exists(&fx.nexus(), NEXUS_REF));
 }
@@ -614,13 +638,10 @@ fn an_entry_local_to_another_machine_is_skipped() {
 
     let output = fx.tsk_as("laptop", &["ledger", "fetch"]);
     assert_success(&output);
-    let path = PathBuf::from(stdout(&output).trim_end());
-    assert_eq!(
-        std::fs::read_to_string(path.join(".tsk-ledger.toml")).unwrap(),
-        "version = 1\n"
-    );
+    assert_eq!(fx.manifest_repo_id(), "");
     assert!(stderr(&output).contains("refs/heads/tsk/ledger does not exist yet"));
 
+    fx.forget_local_ledger();
     let on_desktop = fx.tsk_as("desktop", &["ledger", "fetch"]);
     assert_success(&on_desktop);
     assert!(stderr(&on_desktop).contains("refs/heads/ledgers/work-api does not exist yet"));
@@ -674,7 +695,7 @@ fn a_manifest_repo_id_that_differs_from_the_entry_id_stops_fetch_and_push() {
     let fx = Fixture::new();
     fx.set_nexus_json(WORK_API_ENTRY);
     fx.attach();
-    fx.seed_nexus_ledger("version = 1\nrepo_id = \"someone-else\"\n");
+    fx.publish_ledger_of_another_repo();
 
     let output = fx.tsk(&["ledger", "fetch"]);
 
@@ -714,7 +735,7 @@ fn the_held_copy_of_the_nexus_resolves_the_location_when_a_refresh_fails() {
     let output = fx.tsk(&["ledger", "fetch"]);
 
     assert_failure_mentioning(&output, "reading the copy held in");
-    assert_failure_mentioning(&output, "git fetch --quiet");
+    assert_failure_mentioning(&output, "git ls-remote");
     assert!(stderr(&output).contains("refs/heads/ledgers/work-api"));
 }
 
@@ -723,8 +744,10 @@ fn threads_pause_and_resume_against_a_nexus_ledger() {
     let fx = Fixture::new();
     fx.set_nexus_json(WORK_API_ENTRY);
     fx.attach();
-    let path = fx.fetch_ok();
-    write_nested(&path.join(BRIEFING), "# Mission: example\n");
+    fx.fetch_ok();
+    let doc = fx.root.path().join("briefing.md");
+    write(&doc, "# Mission: example\n");
+    assert_success(&fx.tsk(&["ledger", "doc", "put", BRIEFING, doc.to_str().unwrap()]));
     fx.push_ok("Add the briefing");
 
     let started = fx.tsk(&["thread", "start", "M-TEST-01", BRIEFING]);
@@ -738,17 +761,23 @@ fn threads_pause_and_resume_against_a_nexus_ledger() {
     let head = git_line(&fx.work(), &["rev-parse", "HEAD"]);
     let paused = fx.tsk(&["thread", "pause", &id, "T-01", "Carry on"]);
     assert_success(&paused);
-    let store = fx
-        .file_on(
-            &fx.nexus(),
-            NEXUS_REF,
-            &format!("threads/{}/continuation-state.jsonl", id),
-        )
-        .unwrap();
-    let entry: serde_json::Value = serde_json::from_str(store.lines().next().unwrap()).unwrap();
+    let stored = fx.sql(&format!(
+        "select entry from continuation_entries where thread_id = '{}'",
+        id
+    ));
+    let entry_text = stored
+        .lines()
+        .nth(1)
+        .unwrap()
+        .trim_matches('"')
+        .replace("\"\"", "\"");
+    let entry: serde_json::Value = serde_json::from_str(&entry_text).unwrap();
     assert_eq!(entry["task_id"], "T-01");
     assert_eq!(entry["git"]["code"]["commit"], head.as_str());
-    assert_eq!(entry["git"]["ledger"]["commit"].as_str().unwrap().len(), 40);
+    assert!(!entry["git"]["ledger"]["commit"]
+        .as_str()
+        .unwrap()
+        .is_empty());
     assert!(!fx.ref_exists(&fx.managed(), IN_REPO_REF));
 
     let detached = fx.tsk(&["thread", "detach"]);
@@ -782,10 +811,13 @@ fn events_append_and_read_new_against_a_nexus_ledger() {
     ]);
     assert_success(&appended);
 
-    let queue = fx
-        .file_on(&fx.nexus(), NEXUS_REF, "external-events/queue.ndjson")
-        .unwrap();
-    assert_eq!(queue.lines().count(), 1);
+    assert_eq!(
+        fx.sql("select count(*) as c from external_events")
+            .lines()
+            .nth(1),
+        Some("1")
+    );
+    assert!(fx.ref_exists(&fx.nexus(), NEXUS_REF));
     let unread = fx.tsk(&["events", "read-new"]);
     assert_success(&unread);
     let unread: serde_json::Value = serde_json::from_str(&stdout(&unread)).unwrap();
@@ -819,18 +851,18 @@ fn a_dolt_nexus_ledger_keeps_its_documents_on_the_id_docs_branch() {
     fx.set_nexus_json(WORK_API_ENTRY);
     fx.attach();
 
-    let fetch = fx.tsk_dolt(&["ledger", "fetch"]);
+    let fetch = fx.tsk(&["ledger", "fetch"]);
     assert_success(&fetch);
     let doc = fx.root.path().join("doc.md");
     write(&doc, "in the nexus\n");
-    assert_success(&fx.tsk_dolt(&[
+    assert_success(&fx.tsk(&[
         "ledger",
         "doc",
         "put",
         "missions/M-1.md",
         doc.to_str().unwrap(),
     ]));
-    let pushed = fx.tsk_dolt(&["ledger", "push", "First commit"]);
+    let pushed = fx.tsk(&["ledger", "push", "First commit"]);
     assert_success(&pushed);
 
     // The ref is `ledgers/<id>-docs`, never `ledgers/<id>/docs`, which cannot exist
@@ -849,6 +881,6 @@ fn a_dolt_nexus_ledger_keeps_its_documents_on_the_id_docs_branch() {
         None
     );
     assert!(fx.file_on(&fx.nexus(), NEXUS_REF, "manifest").is_some());
-    let get = fx.tsk_dolt(&["ledger", "doc", "get", "missions/M-1.md"]);
+    let get = fx.tsk(&["ledger", "doc", "get", "missions/M-1.md"]);
     assert_eq!(stdout(&get), "in the nexus\n");
 }

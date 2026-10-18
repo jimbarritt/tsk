@@ -14,3 +14,4 @@
 - [12. Retire tskd: git ledgers are the only shared state](0012-retire-tskd-ledgers-are-the-only-shared-state.md)
 - [13. tsk works in any harness, and Mission Control stays a separate product](0013-tsk-works-in-any-harness-mission-control-stays-separate.md)
 - [14. Dolt is the ledger store, behind a storage seam](0014-dolt-is-the-ledger-store-behind-a-storage-seam.md)
+- [15. The files backend is removed](0015-the-files-backend-is-removed.md)

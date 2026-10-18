@@ -83,29 +83,6 @@ fn entries_of(store: &dyn LedgerStore, id: &str) -> Result<Vec<entry::StoredEntr
     parse_store(&lines.join("\n"), &store.describe_thread(id))
 }
 
-/// The file ledger's `threads/<id>/index.md`. A thread names its mission on a `Mission:`
-/// line. A thread for a mission with no record also links the mission's briefing. A
-/// thread with no mission has neither line.
-pub fn index_md(id: &str, mission_id: Option<&str>, briefing_path: Option<&str>) -> String {
-    let mut text = format!("# Thread {}\n", id);
-    if let Some(mission_id) = mission_id {
-        text.push_str(&format!("\nMission: {}\n", mission_id));
-    }
-    if let (Some(_), Some(path)) = (mission_id, briefing_path) {
-        text.push_str(&format!("Mission briefing: [{}]({})\n", path, path));
-    }
-    text
-}
-
-/// The mission ID on the `Mission:` line of a thread's `index.md`, if it has one.
-pub fn index_mission(index_md: &str) -> Option<String> {
-    index_md
-        .lines()
-        .find_map(|line| line.strip_prefix("Mission: "))
-        .map(|id| id.trim().to_string())
-        .filter(|id| !id.is_empty())
-}
-
 /// The mission ID at the start of a briefing's file name: `M-` and the groups of capitals
 /// and digits that follow, up to the slug. `M-BOOT-04-official-ledger.md` is `M-BOOT-04`.
 pub fn mission_id_of_file(path: &str) -> Option<String> {
@@ -524,19 +501,6 @@ pub fn stop(session: &Session, target: Option<&str>) -> Result<String, String> {
     Ok(id)
 }
 
-pub fn mission_link(index_md: &str) -> String {
-    const MARK: &str = "Mission briefing: [";
-    index_md
-        .lines()
-        .find_map(|line| {
-            line.find(MARK).map(|at| {
-                let rest = &line[at + MARK.len()..];
-                rest.split(']').next().unwrap_or("").to_string()
-            })
-        })
-        .unwrap_or_default()
-}
-
 pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
     let bindings = store.bindings_list()?;
     let mut rows = Vec::new();
@@ -615,55 +579,6 @@ mod tests {
         );
         assert!(origin_branches("refs/remotes/origin/HEAD\n").is_empty());
         assert!(origin_branches("").is_empty());
-    }
-
-    #[test]
-    fn index_md_names_the_mission_and_links_a_briefing_only_when_given() {
-        assert_eq!(
-            index_md("1234abcd", Some("M-X"), Some("missions/M-X.md")),
-            "# Thread 1234abcd\n\nMission: M-X\nMission briefing: [missions/M-X.md](missions/M-X.md)\n"
-        );
-        assert_eq!(
-            index_md("1234abcd", Some("M-X"), None),
-            "# Thread 1234abcd\n\nMission: M-X\n"
-        );
-    }
-
-    #[test]
-    fn index_md_of_a_thread_with_no_mission_has_no_mission_line() {
-        let text = index_md("1234abcd", None, None);
-        assert_eq!(text, "# Thread 1234abcd\n");
-        assert_eq!(index_mission(&text), None);
-        assert_eq!(mission_link(&text), "");
-        // A briefing without a mission is not written.
-        assert_eq!(index_md("1234abcd", None, Some("m.md")), text);
-    }
-
-    #[test]
-    fn index_mission_reads_the_mission_line() {
-        assert_eq!(
-            index_mission(&index_md("1234abcd", Some("M-X"), Some("missions/M-X.md"))).as_deref(),
-            Some("M-X")
-        );
-        assert_eq!(
-            index_mission("# Thread\n\nMission briefing: [a](a)\n"),
-            None
-        );
-        assert_eq!(index_mission("Mission: \n"), None);
-    }
-
-    #[test]
-    fn mission_link_reads_the_first_briefing_link() {
-        assert_eq!(
-            mission_link(&index_md("1234abcd", Some("M-X"), Some("missions/M-X.md"))),
-            "missions/M-X.md"
-        );
-        assert_eq!(mission_link(&index_md("1234abcd", Some("M-X"), None)), "");
-        assert_eq!(mission_link("# Thread\n\nno link\n"), "");
-        assert_eq!(
-            mission_link("Mission briefing: [open ended\n"),
-            "open ended"
-        );
     }
 
     #[test]
