@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "cli", "daemon"]
+members = ["cli"]
 resolver = "2"
 
 [workspace.package]
@@ -10,6 +10,3 @@ license = "MIT"
 keywords = ["task", "project", "flow", "agent", "mcp"]
 categories = ["command-line-utilities", "development-tools"]
 edition = "2021"
-
-[workspace.dependencies]
-tsk-core = { path = "core", version = "0.15.1" }

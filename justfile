@@ -21,12 +21,8 @@ uninstall:
 bump VERSION:
     cargo set-version --workspace {{VERSION}}
 
-# Publish tsk-core and tsk-bin to crates.io
-# core must be published first; sleep gives crates.io time to index it
-# before tsk-bin resolves the version dependency
+# Publish tsk-bin to crates.io
 publish:
-    cargo publish --package tsk-core
-    sleep 30
     cargo publish --package tsk-bin
 
 # Fetch the ledger branch and print the ledger worktree path

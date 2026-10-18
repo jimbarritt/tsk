@@ -150,25 +150,12 @@ when no copy is held.
 `--territory-name`, `--ledger nexus|repo` and `--local`, and prints `already registered`
 when the entry exists. Step 6 of the clean machine guide describes each option.
 
-**9. Launch the TUI** (no arguments):
-
-```bash
-tskd &
-tsk
-```
-
-The TUI reads threads from the `tskd` daemon, which keeps its own thread model in
-`~/.tsk/`, separate from the ledger. It displays threads grouped by section (Active /
-Priority & Incidents / Background). Use `j`/`k` to scroll, `ctrl-d`/`ctrl-u` to page,
-`gg`/`G` to jump to top/bottom, `?` for keybindings, `q` to quit.
+`tsk` with no arguments prints the help text and exits with status 2. The TUI and the
+`tskd` daemon were retired (ADR 0012) and removed in 0.16.0.
 
 ## Running tests
 
 ```bash
-# Unit tests only
-cargo test -p tsk-core
-
-# All tests, including the tskd e2e tests in daemon/tests/e2e.rs
 cargo test --workspace
 ```
 
@@ -178,14 +165,14 @@ cargo test --workspace
 cargo build --workspace --release
 ```
 
-Binaries arrive in `target/release/`: `tsk` and `tskd`.
+The binary arrives in `target/release/`: `tsk`.
 
 Or install locally with `just`:
 
 ```bash
 just build-install   # builds and installs to ~/.cargo/bin
 just test            # run all tests
-just publish         # publish all crates to crates.io
+just publish         # publish tsk-bin to crates.io
 ```
 
 ## Releasing
@@ -198,8 +185,7 @@ tag yet. The workflow `.github/workflows/release.yml`:
 2. Writes the notes: `docs/releases/v<version>.md` when that file exists, then the
    subject of every commit since the previous `v*` tag, then the compare link GitHub
    generates.
-3. Calls `.github/workflows/publish-crates.yml`, which publishes `tsk-core`, then
-   `tsk-bin`, to crates.io.
+3. Calls `.github/workflows/publish-crates.yml`, which publishes `tsk-bin` to crates.io.
 4. Calls `.github/workflows/binaries.yml`, which builds `tsk` for macOS (arm64 and
    x86_64) and Linux (x86_64 and arm64), attaches one archive per platform to the
    release, and writes `Formula/tsk.rb` in `jimbarritt/homebrew-tap`.
@@ -216,13 +202,13 @@ A push that leaves the version unchanged releases nothing.
 
 `publish-crates.yml` also runs when someone publishes a release on GitHub by hand, and
 from the Actions tab with a tag. It skips a crate whose version is already on crates.io,
-so a rerun publishes only what is missing.
+so a rerun after a failure publishes only what is missing.
 
 The release secrets are in the GitHub environment `release`:
 
 | Secret | Read by | Value |
 |---|---|---|
-| `CARGO_REGISTRY_TOKEN` | the publish job in `publish-crates.yml` | A crates.io API token with the publish-update scope for `tsk-core` and `tsk-bin`. |
+| `CARGO_REGISTRY_TOKEN` | the publish job in `publish-crates.yml` | A crates.io API token with the publish-update scope for `tsk-bin`. |
 | `HOMEBREW_TAP_TOKEN` | the formula job in `binaries.yml` | A fine-grained personal access token with read and write access to the contents of `jimbarritt/homebrew-tap`. |
 
 Only a job that names the environment can read its secrets. The environment's deployment

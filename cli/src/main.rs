@@ -1,41 +1,11 @@
 use clap::{Parser, Subcommand};
 
 // ---------------------------------------------------------------------------
-// Zoom / auto-context
-// ---------------------------------------------------------------------------
-
-pub fn resolve_zoom_thread(sock: &std::path::Path) -> Option<tsk_core::Thread> {
-    // Use PWD env var if available (respects shell cwd), fallback to current_dir()
-    let mut dir = std::env::var("PWD")
-        .map(std::path::PathBuf::from)
-        .or_else(|_| std::env::current_dir())
-        .ok()?;
-    loop {
-        if dir.join("doc/tsk").is_dir() {
-            let path_str = dir.to_string_lossy().into_owned();
-            let result = tsk_core::send_request(
-                sock,
-                "thread.resolve_path",
-                serde_json::json!({"path": path_str}),
-            )
-            .ok()?;
-            if result.is_null() {
-                return None;
-            }
-            return serde_json::from_value(result).ok();
-        }
-        if !dir.pop() {
-            return None;
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // CLI argument schema
 // ---------------------------------------------------------------------------
 
 #[derive(Parser)]
-#[command(name = "tsk", about = "tsk — work with a clear context", version = env!("CARGO_PKG_VERSION"))]
+#[command(name = "tsk", about = "tsk — work with a clear context", version = env!("CARGO_PKG_VERSION"), arg_required_else_help = true)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -44,40 +14,40 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     #[command(
-        about = "Start, pause, resume, detach, stop and list ledger threads, and resolve this session's or worktree's binding (runs without tskd)"
+        about = "Start, pause, resume, detach, stop and list ledger threads, and resolve this session's or worktree's binding"
     )]
     Thread {
         #[command(subcommand)]
         action: thread::ThreadCommands,
     },
-    #[command(about = "Fetch, locate and push the ledger branch (runs without tskd)")]
+    #[command(about = "Fetch, locate and push the ledger branch")]
     Ledger {
         #[command(subcommand)]
         action: ledger::LedgerCommands,
     },
     #[command(
-        about = "Create, change and list mission records in the local ledger store; tsk ledger push publishes (runs without tskd)"
+        about = "Create, change and list mission records in the local ledger store; tsk ledger push publishes"
     )]
     Mission {
         #[command(subcommand)]
         action: mission::MissionCommands,
     },
     #[command(
-        about = "Add, change, block and list the tasks of a mission in the local ledger store; tsk ledger push publishes (runs without tskd)"
+        about = "Add, change, block and list the tasks of a mission in the local ledger store; tsk ledger push publishes"
     )]
     Task {
         #[command(subcommand)]
         action: mission::records::TaskCommands,
     },
     #[command(
-        about = "Record and list the decisions of a mission in the local ledger store; tsk ledger push publishes (runs without tskd)"
+        about = "Record and list the decisions of a mission in the local ledger store; tsk ledger push publishes"
     )]
     Decision {
         #[command(subcommand)]
         action: mission::records::DecisionCommands,
     },
     #[command(
-        about = "Ask, answer and list the questions of a mission in the local ledger store; tsk ledger push publishes (runs without tskd)"
+        about = "Ask, answer and list the questions of a mission in the local ledger store; tsk ledger push publishes"
     )]
     Question {
         #[command(subcommand)]
@@ -88,9 +58,7 @@ enum Commands {
         #[command(subcommand)]
         action: config::ConfigCommands,
     },
-    #[command(
-        about = "Append to, read and advance the ledger's external event queue (runs without tskd)"
-    )]
+    #[command(about = "Append to, read and advance the ledger's external event queue")]
     Events {
         #[command(subcommand)]
         action: events::EventsCommands,
@@ -121,19 +89,6 @@ enum Commands {
 // ---------------------------------------------------------------------------
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-
-    // No args → TUI mode
-    if args.len() == 1 {
-        let sock = tsk_core::socket_path();
-        let zoom = resolve_zoom_thread(&sock);
-        if let Err(e) = tui::run(zoom) {
-            eprintln!("TUI error: {}", e);
-            std::process::exit(1);
-        }
-        return;
-    }
-
     let cli = Cli::parse();
     match run_cli(cli) {
         Ok(0) => {}
@@ -163,12 +118,6 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// TUI mode
-// ---------------------------------------------------------------------------
-
-mod tui;
-
 mod config;
 
 mod ledger;
@@ -194,7 +143,6 @@ mod nexus_cmd;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tsk_core::{Priority, Thread, ThreadState};
 
     #[test]
     fn thread_subcommands_parse() {
@@ -635,66 +583,4 @@ mod tests {
     }
 
     // --- TUI scroll helpers ---
-
-    #[test]
-    fn scroll_down_clamps_to_max() {
-        // 10 rows, 24 height → can't scroll (all fits)
-        assert_eq!(tui::scroll_down(0, 10, 24, 5), 0);
-        // 30 rows, 24 height → max scroll is 6
-        assert_eq!(tui::scroll_down(0, 30, 24, 10), 6);
-        assert_eq!(tui::scroll_down(4, 30, 24, 10), 6);
-    }
-
-    #[test]
-    fn scroll_down_advances_by_amount() {
-        assert_eq!(tui::scroll_down(0, 30, 24, 3), 3);
-        assert_eq!(tui::scroll_down(2, 30, 24, 3), 5);
-    }
-
-    #[test]
-    fn scroll_bottom_goes_to_last_page() {
-        assert_eq!(tui::scroll_bottom(30, 24), 6);
-        assert_eq!(tui::scroll_bottom(10, 24), 0); // fits entirely
-    }
-
-    #[test]
-    fn count_rows_empty_threads() {
-        assert_eq!(tui::count_rows(&[]), 0);
-    }
-
-    #[test]
-    fn count_rows_one_active() {
-        let t = Thread {
-            id: 1,
-            slug: "foo".to_string(),
-            state: ThreadState::Active,
-            priority: Priority::Priority,
-            description: "".to_string(),
-            path: None,
-        };
-        // 1 section: title + top border + 1 row + bottom border = 4
-        assert_eq!(tui::count_rows(&[t]), 4);
-    }
-
-    #[test]
-    fn count_rows_two_sections() {
-        let active = Thread {
-            id: 1,
-            slug: "a".to_string(),
-            state: ThreadState::Active,
-            priority: Priority::Priority,
-            description: "".to_string(),
-            path: None,
-        };
-        let paused = Thread {
-            id: 2,
-            slug: "b".to_string(),
-            state: ThreadState::Paused,
-            priority: Priority::Background,
-            description: "".to_string(),
-            path: None,
-        };
-        // active section: 4 rows; blank separator: 1; bg section: 4 rows = 9
-        assert_eq!(tui::count_rows(&[active, paused]), 9);
-    }
 }

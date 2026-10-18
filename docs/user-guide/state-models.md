@@ -1,3 +1,5 @@
+> Historical: ADR 0012 retired the daemon design. The task and thread states and the commands below belong to it. Missions, tasks and threads are ledger records now: see [missions-threads-and-continuation.md](missions-threads-and-continuation.md).
+
 # State models
 
 ## Task state model

@@ -1,3 +1,5 @@
+> Historical: ADR 0012 retired the daemon design.
+
 2026-03-08T07-49-54Z-ipc-architecture.v3.md
 project: tsk
 
