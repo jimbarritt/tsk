@@ -1,10 +1,9 @@
 # Ledger layout
 
-Reference for the tsk ledger: the Dolt backend (the default) and, for the `git` backend, every file in it: where the ledger lives, the ref that holds it,
-where it is checked out, its tree, and the format and fields of each file. The scripts
-in `ops/local/` defined these formats before this document existed. This document is
-taken from them, and `tsk ledger fetch`, `tsk ledger push`, the `tsk thread` commands
-and the external event commands (M-BOOT-04, T-03 to T-07) build against it.
+Reference for the tsk ledger: the Dolt database that holds its records, the second branch
+that holds its documents, where the ledger lives, the ref that holds it, and the
+commands that read and write it. The files backend that kept the whole ledger as files
+in a git branch was removed in 0.16.0: see [File ledger (removed)](#file-ledger-removed).
 
 Depends on: `docs/domain/session-continuation-design.md` (threads, bindings and
 continuation state), `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`,
@@ -16,14 +15,10 @@ continuation state), `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-cu
 - [Dolt backend](#dolt-backend)
 - [Mission commands](#mission-commands)
 - [Task, decision and question commands](#task-decision-and-question-commands)
-- [File layout (`git` backend)](#file-layout-git-backend)
+- [File ledger (removed)](#file-ledger-removed)
 - [Location and ref](#location-and-ref)
-- [Ledger worktree location](#ledger-worktree-location)
-- [Tree](#tree)
-- [`.tsk-ledger.toml`](#tsk-ledgertoml)
-- [`index.md` and `future-missions-tbd.md`](#indexmd-and-future-missions-tbdmd)
 - [`missions/`](#missions)
-- [`threads/`](#threads)
+- [Threads](#threads)
 - [`external-events/`](#external-events)
 - [Local-only files](#local-only-files)
 - [Common value formats](#common-value-formats)
@@ -32,35 +27,32 @@ continuation state), `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-cu
 - [External event commands](#external-event-commands)
 - [Session start command](#session-start-command)
 - [Script outputs](#script-outputs)
-- [Differences from `tsk/bootstrap`](#differences-from-tskbootstrap)
 
 ## Dolt backend
 
 The default ledger backend stores the ledger's data in a Dolt database and its documents
-as Markdown files on a second branch, both synced over git. The decision is in
-[ADR 0014](../adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md). The rest of
-this document, from [Location and ref](#location-and-ref) on, describes the file layout of
-the `git` backend. The Dolt backend keeps the same records in tables, and the same ledger
-refs, nexus rules and local-only files apply to both. The documents are the exception:
-they are files on the branch `tsk/docs` (see [Documents](#documents)).
+as Markdown files on a second branch, both synced over git. The decisions are in
+[ADR 0014](../adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md) and
+[ADR 0015](../adr/0015-the-files-backend-is-removed.md). The documents are files on the
+branch `tsk/docs` (see [Documents](#documents)). The ledger refs, the nexus rules and the
+local-only files are described from [Location and ref](#location-and-ref) on.
 
-### Backend selection
+### Backend
 
 A `LedgerStore` trait in the `tsk` binary names every read and write the ledger supports.
-It has two backends: `dolt` (the default) and `git` (the file ledger).
+The Dolt store is its one implementation (ADR 0015 kept the trait and removed the second
+one). There is no backend setting. A ledger is a Dolt database.
 
-- The user config, `${XDG_CONFIG_HOME:-$HOME/.config}/tsk/config.toml`, selects the
-  backend:
+The files backend was selected by `[ledger] backend = "git"` in the user config or by
+`TSK_LEDGER_BACKEND=git`. A `tsk` that finds either set to `git` prints one line and
+exits with status 1:
 
-  ```toml
-  [ledger]
-  backend = "dolt"
-  ```
+```
+error: the files ledger backend was removed in 0.16.0; use tsk 0.15.1 to read an old file ledger
+```
 
-  The accepted values are `"dolt"` and `"git"`.
-- The environment variable `TSK_LEDGER_BACKEND` overrides the config. Its accepted values
-  are the same.
-- With neither set, the backend is `dolt`.
+The environment value wins over the config, and an empty value counts as unset. Any value
+other than `git` is ignored.
 
 ### Location
 
@@ -85,11 +77,11 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `k` varchar(64), primary key; `v` text | The `.tsk-ledger.toml` keys as rows, for example `version` and `repo_id`. The `version` row is `8`. |
-| `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the mission the thread works, and is null for a thread with no mission. `briefing_path` is the mission's briefing document, stored only when the mission has no record. Together they replace `threads/<thread-id>/index.md`. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The manifest keys as rows, for example `version` and `repo_id`. The `version` row is `8`. |
+| `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the mission the thread works, and is null for a thread with no mission. `briefing_path` is the mission's briefing document, stored only when the mission has no record. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
-| `bindings` | `actor` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `thread_id` varchar(64); `registered_at` varchar(32) | One row per bound actor, of either kind. The actor key of a cloud session is the session ID (`cse_...`). The actor key of a local code worktree is `<clone-id>/<worktree-name>`: the ID in `.git/tsk-clone-id`, a slash, and `main` for the main worktree or the name of the linked worktree. A bind sets or replaces the actor's row. `thread stop` deletes every row that names the stopped thread. There is no foreign key to `threads`. It replaces `threads/lookup-by-cloud-session.json` and the `tsk-thread-id` marker files. A ledger below version 8 holds the cloud rows in `cloud_session_bindings` (`session_id`, `thread_id`, `registered_at`) instead. |
-| `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of [`queue.ndjson`](#external-eventsqueuendjson). |
+| `bindings` | `actor` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `thread_id` varchar(64); `registered_at` varchar(32) | One row per bound actor, of either kind. The actor key of a cloud session is the session ID (`cse_...`). The actor key of a local code worktree is `<clone-id>/<worktree-name>`: the ID in `.git/tsk-clone-id`, a slash, and `main` for the main worktree or the name of the linked worktree. A bind sets or replaces the actor's row. `thread stop` deletes every row that names the stopped thread. There is no foreign key to `threads`. It replaces the `tsk-thread-id` marker files. A ledger below version 8 holds the cloud rows in `cloud_session_bindings` (`session_id`, `thread_id`, `registered_at`) instead. |
+| `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of the [event envelope](#event-envelope). |
 | `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` varchar(32) | One row, `id` 1, the processed position of the queue. No row reads as `0`. It replaces `watermark.json`. |
 | `missions` | `id` varchar(64), primary key; `name` varchar(255); `category` enum(`operational`, `administrative`); `status` enum(`todo`, `in-progress`, `done`), default `todo`; `parent` varchar(64), null, foreign key to `missions(id)`; `purpose`, `decision_authority` longtext, null; `next_objective`, `next_task`, `next_question`, `next_constraint`, `next_out_of_scope` int, default 1 | One row per mission. Empty text is stored as null. Each `next_` column is the number the next objective outcome, task, question, constraint or out-of-scope item gets. It only grows, so a number is never reused. A ledger below version 7 has two more columns, `constraints_text` and `out_of_scope` (longtext, null), in place of the last two counters. |
 | `mission_constraints` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext. Primary key (`mission_id`, `seq`) | One row per constraint of a mission, one line each. |
@@ -134,16 +126,15 @@ need a branch of their own. Any tool can open them: GitHub, an editor, `marq`.
 | Ref, nexus ledger | `refs/heads/ledgers/<repo-id>-docs` on the nexus remote |
 | Local checkout | `${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/docs`, a detached linked worktree of the managed clone |
 | First commit | An orphan commit holding `README.md` ("Documents of the tsk ledger. Written by tsk ledger doc put.") and the seed `index.md`, made with git plumbing |
-| Manifest | None. The documents branch has no `.tsk-ledger.toml` |
+| Manifest | None. The documents branch has no manifest |
 
 The nexus ref ends in `-docs` and not `/docs`. Git cannot hold both `ledgers/<repo-id>`
 and `ledgers/<repo-id>/docs` as refs, because one would be a file and the other a
 directory.
 
-The worktree, the refresh and the compare-and-swap push are the ones the `git` backend
-uses for a whole ledger, run with the documents ref. The path rules are those of a file in
-git: no absolute path, no `..`, no `.git` component. The reserved names of the file ledger
-(`threads/`, `external-events/` and the manifest) do not apply here.
+The worktree, the refresh and the compare-and-swap push (`cli/src/ledger/fetch.rs` and
+`push.rs`) run with the documents ref. The path rules are those of a file in git: no
+absolute path, no `..`, no `.git` component. No name is reserved.
 
 Five commands read and write the documents:
 
@@ -154,9 +145,6 @@ Five commands read and write the documents:
 | `tsk ledger doc list [<prefix>]` | Prints the document paths, limited to those under `<prefix>` when given. |
 | `tsk ledger doc rm <path>` | Removes the document. Writes the documents worktree only. |
 | `tsk ledger doc path <path>` | Prints the absolute path of the document's file, for opening it in another tool. Exits 1 with `error: no such document: <path>` when it is absent. |
-
-With the `git` backend, `doc path` prints the file in the ledger worktree. The other four
-commands behave the same with both backends.
 
 `doc put` and `doc rm` do not reach the remote. `tsk ledger push "<message>"` does.
 `tsk thread start` takes a mission ID, or none. It refuses an ID that has no mission record. With no ID it mints a thread with no mission. `tsk thread set mission` applies the same check. A ledger from before the mission records also accepts a briefing document at `missions/<category>/<ID>-<slug>.md`.
@@ -194,8 +182,7 @@ their local commits, and the next `tsk ledger push` resumes.
 The local commit stays in the database after a conflict or a failure, and a later
 `tsk ledger push` sends it. Dolt merges by row and cell, so two writers that change
 different rows, or different cells of one row, do not conflict. Two writers that append
-an external event at the same moment take the same `position` and conflict, as two
-appends to `queue.ndjson` conflict in a rebase.
+an external event at the same moment take the same `position` and conflict.
 
 On success, stdout carries the Dolt commit hash, or the documents commit when only the
 documents changed. Notes go to stderr.
@@ -249,9 +236,7 @@ Origin  2 data commits and 1 document commit to fetch (tsk ledger fetch)
   ledger push)`; `diverged: N data commits to push, M to fetch (tsk ledger push merges
   them)` (the parts are named in full when more than one kind of commit is involved); `not
   published yet (tsk ledger push creates it)`; `unknown (could not reach origin)`. A part
-  with a zero count is left out, and one commit is singular. The `git` backend keeps data
-  and documents on one branch, so it counts the commits once and calls them `ledger
-  commits`.
+  with a zero count is left out, and one commit is singular.
 - When the fetch fails, one line on stderr says so (`note: could not fetch ...; reporting
   from what is local`), and `Origin` says `unknown`.
 
@@ -298,11 +283,6 @@ In the porcelain form:
   fetch left for the data (none for the documents: they compare with `HEAD`), and both
   `remote` lines say `unknown`.
 
-The `git` backend keeps data and documents on one branch. `status` sorts the changed files
-into `data` (`records/`, `threads/`, `external-events/` and `.tsk-ledger.toml`) and `docs`
-(everything else), prints a file line for each (`data<TAB>A<TAB>records/missions/M-X.json`),
-and prints the same remote state for both.
-
 `tsk ledger discard` drops every local change that is not pushed, in the data and the
 documents, so a trial mission can be undone without `dolt reset`. It is destructive.
 
@@ -313,10 +293,10 @@ documents, so a trial mission can be undone without `dolt reset`. It is destruct
   (no `remote` lines). When both sides are clean it prints `Local   nothing to push` (or the
   two `clean` lines with `--porcelain`) and exits 0.
 - With `--yes` it fetches both remote states first. If a fetch fails it exits 1 with
-  `Nothing was discarded` and changes nothing. Otherwise, with the Dolt backend, it runs
+  `Nothing was discarded` and changes nothing. Otherwise it runs
   `dolt reset --hard origin/main` and `dolt clean` (which drops a table that was never
   committed), and in the documents worktree `git reset --hard <fetched tip>` and
-  `git clean -fd`. The `git` backend resets its one worktree the same way. When origin
+  `git clean -fd`. When origin
   holds no such branch, the reset target is the local `HEAD`. It prints `discarded`.
 - It does not touch thread state that lives outside the ledger: `tsk-thread-skip` in the
   git directory. A binding is a ledger row, so `discard` drops a binding that is not
@@ -401,46 +381,15 @@ documents in a `documents` table.
   status` labels the upgrade and does not show the copied rows as changes.
 - A `tsk` binary from before version 8 does not know the version. It stops at its manifest
   check with `unsupported ledger version 8`, before it writes. The binary needs updating.
-  The file ledger's `.tsk-ledger.toml` stays at version 1.
 
-### Migration
+### Migration from the file ledger
 
-`tsk ledger migrate-to-dolt` moves a file ledger to the Dolt backend. It runs with
-either backend selected. The new ledger is version 8: it has no `documents` table, it has the mission, task, decision and question tables, and
-its documents are written as files on `tsk/docs`. It:
-
-1. Fetches the file ledger ref and checks its manifest. It stops when the ref is absent
-   or already holds Dolt data.
-2. Reads every record from the fetched commit's tree, not from the ledger worktree.
-3. Builds a new Dolt database beside `ledger-db`, writes the schema and every record in
-   one Dolt commit after `dolt init`'s own initial commit, and reads every record back
-   through the `LedgerStore` trait to compare it with the tree. It also writes every
-   document as a file in a temporary worktree of the documents branch, commits it, and
-   reads each file back from the commit. A difference stops the command before anything
-   is pushed.
-4. Pushes the file ledger's commit to `refs/heads/archive/tsk-ledger-files`, or
-   `refs/heads/archive/ledgers/<repo-id>-files` for a nexus ledger. The push only
-   creates the branch or moves it forward. A branch at an unrelated commit stops the
-   command.
-5. Checks that the ledger ref still holds the migrated commit, then pushes the documents
-   branch, then pushes the database to the ledger ref with `dolt push`. A moved ref stops
-   the command with `another writer pushed`. Run it again.
-6. Moves the new database to `ledger-db` and the temporary worktree to `docs`. An existing
-   `ledger-db` is renamed to `ledger-db.pre-migrate-<timestamp>` first. An existing `docs`
-   stops the command in step 1.
-7. Prints `migrated:<file-commit>:<dolt-commit>`, with the record counts on stderr.
-
-`--dry-run` runs steps 1 to 3 in temporary directories, deletes them, prints the counts and
-`dry-run:ok`, and pushes nothing.
-
-Dolt's first push to a git branch replaces the branch with an orphan history. The archive
-branch keeps the file ledger's history.
-
-Mission records of a file ledger (`records/missions/`) are not converted. They stay on the
-archive branch, and the command lists them as files that are not records.
-
-An older `tsk` binary that fetches the Dolt branch finds no `.tsk-ledger.toml` and stops
-before it writes. The binary needs updating.
+`tsk ledger migrate-to-dolt` was removed with the files backend. To move an old file
+ledger to Dolt, use `tsk` 0.15.1, the last release that has the command, then update. The
+command pushed the file ledger's commit to `refs/heads/archive/tsk-ledger-files` (or
+`refs/heads/archive/ledgers/<repo-id>-files` for a nexus ledger) before Dolt's first push
+replaced the branch. A `tsk` that finds a file ledger on the ledger ref stops with an
+error that says so.
 
 ### Moving the documents out of Dolt
 
@@ -546,19 +495,9 @@ full record as one JSON object, and `list --json` prints an array of them:
 `blocked` is true when any is. `objective list <id>` prints `n`, `met` or `open`, and the
 outcome, tab-separated. There is no `show` command and no Markdown output.
 
-The `git` backend stores each mission as one pretty-printed JSON file with the keys in a
-fixed order, `records/missions/<ID>.json` in the ledger tree. Separate files let git merge
-two missions without a conflict, and a line per field lets it merge two fields of one
-mission. The file ledger's `records/` directory is managed by tsk, so it is not a document
-path. The validation, the derived blocked state and the output are the same code for both
-backends.
+A mission is a row of `missions` and rows of the tables that hang from it, so Dolt merges two missions, or two fields of one mission, without a conflict.
 
-In that file `constraints` and `out_of_scope` are arrays of `{"seq": 1, "text": "..."}`, with
-the counters `next_constraint` and `next_out_of_scope` after `next_question`. A file written
-before the lists existed holds a string for each and has no counters. The reader accepts
-both forms: a string becomes items by the line rule (split at line breaks, trim, skip empty
-lines, number from 1), and a counter that is missing or behind the rows follows the last
-item. A read writes nothing, and the next write of the mission stores the list form.
+`constraints` and `out_of_scope` are rows of `mission_constraints` and `mission_out_of_scope`, numbered from 1, with the counters `next_constraint` and `next_out_of_scope` on the mission row.
 
 ## Task, decision and question commands
 
@@ -637,17 +576,24 @@ of `id` and `blocking`), `decisions` (`text`, `decided_by`, `decided_on`, `task`
 and `questions` (`id`, `text`, `status`, `asked_on`, and `answer`, `answered_by` and
 `answered_on`, null while open). There is no `show` command and no Markdown output.
 
-The `git` backend keeps the records in the mission's file, `records/missions/<ID>.json`,
-as the keys `next_task`, `next_question`, `tasks`, `decisions` and `questions`. A decision
-holds `adr` only when it names an ADR; a file written before that field existed reads as
-none. A file written before this release has none of them and reads as a mission with no records. The
-validation, the derived blocked state and the output are the same code for both backends.
-Two decisions added at the same time by two clones get the same `seq` and conflict at push,
-as do two tasks added to one mission.
+Two decisions added at the same time by two clones get the same `seq` and conflict at
+push, as do two tasks added to one mission.
 
-## File layout (`git` backend)
+## File ledger (removed)
 
-The rest of this document describes the file ledger, the `git` backend. Where it names the ledger worktree, the Dolt backend has the ledger store (`ledger-db`) instead.
+Up to and including 0.15.1, `tsk` could keep the whole ledger as files on one git branch,
+selected as the `git` backend. The branch held a `.tsk-ledger.toml` manifest (`version =
+1`), `index.md`, `missions/` and `threads/` (a directory for each thread, with an
+`index.md` and a `continuation-state.jsonl`, and the cloud and worktree bindings as JSON
+files), `external-events/` and, from layout version 1 on, `records/missions/<ID>.json` for
+the mission records. It was checked out as a detached linked worktree at
+`.../repos/<clone-id>/ledger` and published with a git commit and a compare-and-swap push.
+
+0.16.0 removed it (ADR 0015). Release 0.15.1 is the last that has it, and every release up
+to it is tagged. The full history of this repo's file ledger is on the branch
+`archive/tsk-ledger-files`. To read an old file ledger or to move it to Dolt, build `tsk`
+at the tag `v0.15.1` and run `tsk ledger migrate-to-dolt`. This document no longer
+describes the file layout. Read the 0.15.1 copy of this file for it.
 
 ## Location and ref
 
@@ -668,9 +614,8 @@ full name makes the same trap impossible for `tsk/ledger`.
 
 The nexus location is for a managed repo the operator cannot push a ledger branch to,
 such as a work repo. The ledger objects live in the nexus repo. The managed repo's clone
-fetches and pushes them against the nexus URL as the remote, so the ledger worktree stays
-a linked worktree of the managed repo's clone (see
-[Ledger worktree location](#ledger-worktree-location)).
+fetches and pushes them against the nexus URL as the remote. The documents worktree stays
+a linked worktree of the managed repo's clone.
 
 ### User config
 
@@ -827,134 +772,37 @@ different URL needs no clean-up.
 
 ### Fetching and pushing a nexus ledger
 
-The ledger worktree is a linked worktree of the managed repo's clone in both locations.
-For a nexus ledger the managed repo's clone runs
-`git fetch <nexus-url> refs/heads/ledgers/<repo-id>` and
-`git push <nexus-url> HEAD:refs/heads/ledgers/<repo-id>`, with the nexus URL as the
-remote argument. Fetching into the managed clone puts the ledger objects in its object
-database, which `git worktree add` needs. The nexus repo is not an `origin` or any
-named remote of the managed clone, and no `.git/config` entry is written.
+The Dolt remote of a nexus ledger is `git+<nexus-url>` with the ref
+`refs/heads/ledgers/<repo-id>`. The documents branch is `refs/heads/ledgers/<repo-id>-docs`
+on the same remote. The managed repo's clone fetches the documents ref into its own object
+database, which `git worktree add` needs. The nexus repo is not an `origin` or any named
+remote of the managed clone, and no `.git/config` entry is written. A manifest `repo_id`
+that differs from the entry's `id` stops `tsk ledger fetch` and `tsk ledger push` before
+anything is written.
 
 ### A ledger that does not exist yet
 
-When the ledger ref is absent on its remote, `tsk ledger fetch` creates a new ledger. It
-detects absence with `git ls-remote --exit-code`, which exits 2 for a missing ref,
-after a failed `git fetch`. Any other failure is an error.
+When the ledger ref is absent on its remote, `tsk ledger fetch` creates a new local ledger.
+It detects absence with `git ls-remote --exit-code`, which exits 2 for a missing ref. Any
+other failure is an error.
 
-1. tsk writes an orphan commit with git plumbing (`hash-object`, `mktree`,
-   `commit-tree`). Its tree holds `.tsk-ledger.toml` (`version = 1`, plus
-   `repo_id = "<id>"` for a nexus ledger) and an `index.md` holding `# Ledger index`.
-   `missions/`, `threads/` and `external-events/` are not in the tree: git does not hold
-   an empty directory, and the commands create them on first write.
-2. tsk creates the ledger worktree on that commit, detached.
-3. tsk prints a note to stderr that the branch does not exist yet, and the path to
-   stdout.
+1. tsk runs `dolt init`, creates the schema, writes the manifest rows (`version`, and
+   `repo_id` for a nexus ledger), commits, and adds the remote with the ledger ref.
+2. If the documents ref is absent, it makes the orphan documents commit with git
+   plumbing and creates the documents worktree on it, detached.
+3. tsk prints a note to stderr that the branch does not exist yet, and the path of the
+   Dolt database to stdout.
 
-The branch is created by the first `tsk ledger push`. Its push lease is create-only
-(`--force-with-lease=<ref>:` with an empty expected value), so the push is rejected if
-another writer created the branch first. A later `tsk ledger fetch` while the branch is
-still absent leaves the ledger worktree as it is and prints the note again.
-
-This applies to both locations.
-
-## Ledger worktree location
-
-The ledger is materialised in the ledger worktree, a detached linked worktree of the
-managed repo's clone, at a fixed path outside the repository:
-
-```
-${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger
-```
-
-- `XDG_STATE_HOME` set to an empty string counts as unset, the same as the shell's
-  `${VAR:-default}`.
-- `<clone-id>` is the content of `.git/tsk-clone-id` (see
-  [Local-only files](#local-only-files)).
-- The directory name is `ledger`. The `tsk/bootstrap` ledger worktree for the same clone
-  is `.../repos/<clone-id>/bootstrap`, so both exist side by side until T-09 retires
-  `tsk/bootstrap`.
-- The ledger worktree is created with `git worktree add --detach`, so it holds no branch
-  checkout and does not lock `tsk/ledger` against a checkout elsewhere. Its metadata is
-  in the managed repo's `.git/worktrees/`, which only git edits.
-
-The path is the same for both ledger locations. For a nexus ledger, the objects reach the
-managed repo's clone by a fetch against the nexus URL (see
-[Fetching and pushing a nexus ledger](#fetching-and-pushing-a-nexus-ledger)).
-
-## Tree
-
-```
-.tsk-ledger.toml
-index.md
-future-missions-tbd.md
-missions/
-  administrative/
-    M-<ID>-<slug>.md
-    M-<ID>/
-      ...
-  operational/
-    M-<ID>-<slug>.md
-    M-<ID>/
-      ...
-threads/
-  lookup-by-cloud-session.json
-  <thread-id>/
-    index.md
-    continuation-state.jsonl
-external-events/
-  queue.ndjson
-  watermark.json
-```
-
-The tree is the `tsk/bootstrap` tree unchanged, plus `.tsk-ledger.toml`. It is the same
-in both ledger locations. The ADR 0007 event log is not part of it.
-
-Every file is optional except `.tsk-ledger.toml`. A command that reads an absent file
-treats it as empty, as described per file below.
-
-## `.tsk-ledger.toml`
-
-The ledger manifest, at the root of the tree. TOML:
-
-```toml
-version = 1
-```
-
-| Key | Type | Required | Meaning |
-|---|---|---|---|
-| `version` | integer | yes | Layout version. This document describes version `1`. |
-| `repo_id` | string | no | The repo ID of a nexus ledger, the `id` of its nexus entry. In-repo ledgers may omit it. |
-
-- A ledger with no `.tsk-ledger.toml` is not a tsk ledger. The binary stops and reports
-  it.
-- A `version` the binary does not support stops the binary with an error naming the
-  version found and the versions it supports. The binary writes nothing to the ledger or
-  the ledger worktree before this check.
-- When the ledger is a nexus ledger and the manifest holds `repo_id`, the value must equal
-  the entry's `id`. A different value stops the binary with an error before anything is
-  written.
-- Unknown keys are ignored.
-- T-07 adds this file in the first commit on `tsk/ledger`, made on top of the
-  `tsk/bootstrap` tip so history carries over.
-
-## `index.md` and `future-missions-tbd.md`
-
-Free-form Markdown, written by humans and agents. No command parses either file. Both are
-file-era documents. Since mission records exist, `tsk mission list` is the index, and
-no agent reads or writes `index.md`. A ledger keeps the two files until its missions are
-migrated to records, and the migration retires them.
-
-- `index.md` was the entry point: current state and next steps.
-- `future-missions-tbd.md` held mission ideas not yet shaped into missions. Ideas now go
-  in a document linked to an administrative mission, or in a mission of their own.
+The branches are created by the first `tsk ledger push`. A later `tsk ledger fetch` while
+the branch is still absent leaves the store as it is and prints the note again.
 
 ## `missions/`
 
 The files missions leave behind, as Markdown: intelligence, research, reports and designs,
 linked from the mission record by path and role. Briefings from the file era are also
 here. A mission's purpose, tasks, decisions and questions are records and not documents,
-so a new mission has no briefing. The binary moves these files between the ledger and the
-ledger worktree without parsing them.
+so a new mission has no briefing. The binary moves these files between the documents branch and the
+documents worktree without parsing them.
 
 Layout in use:
 
@@ -975,46 +823,22 @@ a file name is `M-` and the groups of capitals and digits that follow, up to the
 It refuses any other ID with `error: no such mission: <ID>`. Older skills pass a briefing
 path as a second argument: it is accepted and ignored.
 
-## `threads/`
+## Threads
 
-The thread store from `docs/domain/session-continuation-design.md`.
+The thread store from `docs/domain/session-continuation-design.md`. A thread is a row of
+`threads` (its ID, its mission and, for a thread made before layout version 5, a briefing
+path). Its continuation entries are rows of `continuation_entries`, one compact JSON
+object for each, numbered from 1 by `seq`. Its bindings are rows of `bindings`. See
+[Tables](#tables).
 
-### `threads/<thread-id>/`
+`thread list` takes the mission ID from the thread row, and derives it from the briefing
+path when the row stores none. It takes the mission link from the briefing path.
 
-One directory per thread. The directory name is the thread ID (see
-[Common value formats](#common-value-formats)). Created by `thread start`, deleted with
-its contents by `thread stop`. Its presence is the collision check when a new thread ID
-is minted.
+### Continuation entries
 
-### `threads/<thread-id>/index.md`
-
-Written at thread start, and rewritten by `thread set mission`. Exact content, with a
-trailing newline. The last line is there only when the mission has no record:
-
-```
-# Thread <thread-id>
-
-Mission: <mission-id>
-Mission briefing: [<briefing-path>](<briefing-path>)
-```
-
-`<briefing-path>` is the path of the briefing document that `thread start` found, relative
-to the ledger root. An older thread has no `Mission:` line. A thread with no mission also
-has no `Mission:` line, and the file is only `# Thread <thread-id>`. A reader treats both
-as valid. `thread set mission` rewrites the file for the new mission, and
-`thread set mission --none` rewrites it without the `Mission:` and briefing lines.
-
-`thread list` reads the mission ID from the `Mission:` line, and derives it from the
-briefing path when the line is absent. It reads the mission link from this file: the text
-between `Mission briefing: [` and the next `]`, first match. A missing file or no match
-gives an empty string.
-
-### `threads/<thread-id>/continuation-state.jsonl`
-
-Append-only. Created empty at thread start. One JSON object per line, compact (no
-whitespace between tokens), terminated by `\n`. Each line is one continuation state
-entry, written by `thread pause` (today `thread-append-handover.sh`). Lines are never
-rewritten or removed, except that `thread stop` deletes the whole file with the thread.
+Append-only. Each entry is one compact JSON object (no whitespace between tokens), written
+by `thread pause`. Entries are never rewritten or removed, except that `thread stop`
+deletes them with the thread.
 
 Fields, in the order written. `git` holds `ledger` then `code`; `ledger` holds `commit`;
 `code` holds `ref` then `commit`:
@@ -1026,7 +850,7 @@ Fields, in the order written. `git` holds `ledger` then `code`; `ledger` holds `
 | `task_id` | string | caller | The task in progress at pause time, for example `T-03`. Can be empty. When the mission has a record, the command checks it against the mission's tasks and writes `T-5` as `T-05`. A mission with no record has no tasks to check against. A thread with no mission has no tasks, so `task_id` is empty: the command refuses another value with `error: thread <thread-id> has no mission, so it has no tasks. Attach a mission with tsk thread set mission <mission-id>, or pass an empty task ID`. |
 | `whats_next` | string | caller | A short account of where things stand. |
 | `git` | object | command | The commits the entry records, in two nested objects: `ledger` and `code`. |
-| `git.ledger.commit` | string | command | Full 40-character SHA of the ledger worktree's `HEAD` after it is refreshed from the remote and before this entry is appended. |
+| `git.ledger.commit` | string | command | The Dolt commit hash of the ledger store's `HEAD`, after it is refreshed from the remote and before this entry is written. |
 | `git.code.ref` | string | command | Full ref of the branch the code worktree's `HEAD` is on at pause time, for example `refs/heads/feature/x`. |
 | `git.code.commit` | string | command | Full SHA of the code worktree's `HEAD` at pause time. |
 | `timestamp` | string | command | UTC time the entry is appended. |
@@ -1038,10 +862,7 @@ so its hash is unknown when the entry is written.
 The flat fields `commit_on_bootstrap`, `commit_on_ledger` and `commit_on_main` of earlier
 entries are not read or written by the binary, and there is no fallback for them. A
 reader that passes an entry through unchanged (for example `thread resume`, which prints
-the latest entry) prints it as stored. Entries written before the nested `git` object
-exist on `tsk/ledger` only after a one-off migration commit, which sets
-`git.code.ref` to `refs/heads/main` because the earlier rule required the commit to be on
-origin's default branch.
+the latest entry) prints it as stored.
 
 #### Pause rule for the code worktree
 
@@ -1070,74 +891,28 @@ a branch switch between pauses needs no tracking.
 
 #### Reading the latest entry
 
-The latest entry is the last non-empty line of the file. An empty file means the thread
-has no entry yet; the scripts print `{}` for its latest entry. `thread list` sorts threads
-by the latest entry's `timestamp`, newest first, with threads that have no entry last.
-The `written_by` values across all entries are the set of actors that have touched the
-thread.
+The latest entry is the one with the highest `seq`. A thread with no entries has no
+latest entry yet; `thread resume` prints `{}` for it. `thread list` sorts threads by the
+latest entry's `timestamp`, newest first, with threads that have no entry last. The
+`written_by` values across all entries are the set of actors that have touched the thread.
 
-### `threads/lookup-by-cloud-session.json`
+### Bindings
 
-The cloud session binding map. A single JSON object keyed by the
-`CLAUDE_CODE_REMOTE_SESSION_ID` value (`cse_...`). Each value:
-
-| Field | Type | Meaning |
-|---|---|---|
-| `thread_id` | string | The thread the session is bound to. |
-| `registered_at` | string | UTC time the binding was written. |
-
-```json
-{
-  "cse_015h8qmbPEuyKyaoY7xuur11": {
-    "thread_id": "9qo5iin0",
-    "registered_at": "2026-09-17T18:26:21Z"
-  }
-}
-```
-
-- Absent file: no cloud bindings. The first bind creates it as `{}` before adding the
-  entry.
-- Written whole, pretty-printed with two-space indentation (the default `jq` output),
-  through a temporary file renamed over the original, so a reader never sees a partial
-  file. The binary creates the temporary file in the same directory, so the rename is
-  atomic.
-- Bind sets or replaces the entry for the current session ID. Detach deletes that one
-  key. Stop deletes every entry whose `thread_id` is the stopped thread, for any
-  session.
-
-### `threads/.worktree-bindings/<actor>.json`
-
-The bindings of local code worktrees on the file ledger, one file for each worktree. The
-directory starts with a dot, so it is not a thread. The file name is the worktree actor key,
-`<clone-id>/<worktree-name>`, with every byte outside `A-Za-z0-9._-` written as `%XX` (so
-`/` is `%2F`), and `.json`. The content is a JSON object:
-
-```json
-{
-  "actor": "tsk-1a2b3c4d/main",
-  "thread_id": "9qo5iin0",
-  "registered_at": "2026-10-17T10:00:00Z"
-}
-```
-
-One file for each actor keeps two clones that bind at the same time from changing the same
-file, so their pushes do not conflict in a rebase. A bind writes the file, replacing the
-actor's earlier one. Detach deletes it. Stop deletes every file whose `thread_id` is the
-stopped thread. `thread list` shows these files and the entries of
-[`lookup-by-cloud-session.json`](#threadslookup-by-cloud-sessionjson) as actors.
-`tsk ledger migrate-to-dolt` carries both into `bindings`, with kind `cloud` or `worktree`.
-The manifest stays at version 1.
-- Only used when `CLAUDE_CODE_REMOTE_SESSION_ID` is set. A code worktree binds through
-  `tsk-thread-id` (see [Local-only files](#local-only-files)) and never writes this file.
+A binding is a row of `bindings`: `actor`, `kind` (`cloud` or `worktree`), `thread_id` and
+`registered_at`. The actor of a cloud binding is the `CLAUDE_CODE_REMOTE_SESSION_ID` value
+(`cse_...`). The actor of a worktree binding is `<clone-id>/<worktree-name>`. A bind sets
+or replaces the actor's row. Detach deletes that one row. Stop deletes every row whose
+`thread_id` is the stopped thread, of either kind. `thread list` shows the rows as actors.
 
 ## `external-events/`
 
-The external event queue (M-BOOT-02, T-19).
+The external event queue (M-BOOT-02, T-19) is the `external_events` table: a 1-based
+`position` and the `envelope` text of each event. The watermark is the one row of the
+`watermark` table.
 
-### `external-events/queue.ndjson`
+### Event envelope
 
-Append-only. One JSON object per line, compact, terminated by `\n`. Each line is one
-event envelope:
+One compact JSON object for each event:
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -1148,35 +923,22 @@ event envelope:
 | `received_at` | string | UTC time the envelope was appended. |
 | `payload` | any JSON value | The source's own payload, unchanged. |
 
-- Absent file: an empty queue.
-- An event's position is its 1-based line number. The queue length is the number of
-  `\n`-terminated lines (`wc -l`).
+- No rows: an empty queue.
 - Producers append and push in one fetch, append, push cycle. A poll that finds several
   alerts appends all of them, with one shared `received_at`, and pushes once. A poll
   that finds none pushes nothing.
 
-### `external-events/watermark.json`
+### Watermark
 
-How far a consumer has processed the queue. Pretty-printed JSON object:
+How far a consumer has processed the queue: `processed_through`, a non-negative integer,
+and `updated_at`, the UTC time the watermark was last advanced. Positions `1` to
+`processed_through` are done.
 
-| Field | Type | Meaning |
-|---|---|---|
-| `processed_through` | non-negative integer | The number of queue lines processed. Lines `1` to `processed_through` are done. |
-| `updated_at` | string | UTC time the watermark was last advanced. |
-
-```json
-{
-  "processed_through": 17,
-  "updated_at": "2026-09-20T09:24:54Z"
-}
-```
-
-- Absent file: `processed_through` is `0`.
-- A missing `processed_through` field reads as `0`.
-- Reading new events returns lines `processed_through + 1` to the end, oldest first, and
-  does not write the watermark.
+- No row: `processed_through` is `0`.
+- Reading new events returns positions `processed_through + 1` to the end, oldest first,
+  and does not write the watermark.
 - Advancing takes a count. A count below the current value is refused. A count equal to
-  it is a no-op and pushes nothing. A higher count rewrites the file and pushes. A
+  it is a no-op and pushes nothing. A higher count writes the row and pushes. A
   consumer advances only after it has processed every event up to that count, so an
   interrupted run leaves the watermark behind rather than skipping events.
 
@@ -1200,8 +962,8 @@ Content: `<name>-<suffix>` and a trailing newline. Readers strip all whitespace.
 Example: `tsk-180ae86e`. Minted once, by the first command that needs it and finds the
 file absent or empty, and read unchanged forever after. It survives a rename or move of
 the clone directory, which a hash of the path would not. A failure to mint writes
-nothing. The `tsk/bootstrap` scripts and the binary share this file, so the ledger
-worktrees for `tsk/bootstrap` and `tsk/ledger` sit under the same `<clone-id>` directory.
+nothing. The `tsk/bootstrap` scripts and the binary share this file, so the stores of
+the clone sit under the same `<clone-id>` directory.
 
 ### `tsk-repo-id`
 
@@ -1219,8 +981,7 @@ entry. Never pushed.
 
 ### `tsk-thread-id`
 
-No longer written. Before version 8 of the Dolt layout, and in the file ledger before this
-change, this file was the binding of a code worktree:
+No longer written. Before version 8 of the Dolt layout, this file was the binding of a code worktree:
 `$(git rev-parse --path-format=absolute --git-dir)/tsk-thread-id`, that is `.git/tsk-thread-id` in
 the main code worktree and `.git/worktrees/<name>/tsk-thread-id` in a linked one. Content: a
 thread ID and a trailing newline.
@@ -1255,8 +1016,8 @@ without a thread. Never in the ledger and never pushed.
 | Value | Format |
 |---|---|
 | Timestamp | UTC, second precision, `YYYY-MM-DDTHH:MM:SSZ` (`date -u +%Y-%m-%dT%H:%M:%SZ`). |
-| Commit | Full 40-character lowercase hexadecimal SHA-1. |
-| Thread ID | 8 characters, `[0-9a-z]`. Minted as 8 lowercase hexadecimal characters; IDs minted before hex minting are base36 (for example `4onylfsg`) and stay valid. Unique within `threads/`: a new ID that matches an existing directory is discarded and minted again, up to 100 attempts. |
+| Commit | A git commit is the full 40-character lowercase hexadecimal SHA-1. A Dolt commit is a 32-character hash. |
+| Thread ID | 8 characters, `[0-9a-z]`. Minted as 8 lowercase hexadecimal characters; IDs minted before hex minting are base36 (for example `4onylfsg`) and stay valid. Unique among the threads of the ledger: a new ID that matches an existing thread is discarded and minted again, up to 100 attempts. |
 | Actor URN | `urn:tsk:cloudsession:<CLAUDE_CODE_REMOTE_SESSION_ID>` in a cloud session, otherwise `urn:tsk:worktree:<name>`, where `<name>` is the basename of `git rev-parse --git-dir` (`.git` in a main code worktree). |
 | Text encoding | UTF-8. JSON strings use standard JSON escaping. |
 
@@ -1280,93 +1041,42 @@ the problem in its context message.
 
 ### `tsk ledger path`
 
-Prints the ledger worktree path and a newline, and exits 0. It runs no fetch, writes no
-file, and does not check whether the ledger worktree exists. If `.git/tsk-clone-id` is
+Prints the path of the Dolt database and a newline, and exits 0. It runs no fetch, writes
+no file, and does not check whether the database exists. If `.git/tsk-clone-id` is
 absent or empty it does not mint one: it exits non-zero and names `tsk ledger fetch`,
 which mints it.
 
 ### `tsk ledger fetch`
 
 1. Resolve the ledger location (see [Choosing the location](#choosing-the-location)).
-2. Read `.git/tsk-clone-id`, minting it if absent or empty, and compute the ledger
-   worktree path.
-3. `git fetch <remote> <ref>` with the full ref name, then read the fetched commit from
-   `FETCH_HEAD`. If the ref is absent on the remote, create a new ledger instead (see
-   [A ledger that does not exist yet](#a-ledger-that-does-not-exist-yet)).
-4. Read `.tsk-ledger.toml` from the fetched commit (`git cat-file blob <sha>:.tsk-ledger.toml`)
-   and check its version and, for a nexus ledger, its `repo_id`. A missing manifest, an
-   unsupported version or a mismatched `repo_id` stops here, before the ledger worktree
-   changes.
-5. If the ledger worktree directory does not exist: remove a stale registration of that path
-   (`git worktree prune`, only when `git worktree list --porcelain -z` lists the path),
-   create the parent directories, and run `git worktree add --detach <path> <sha>`.
-6. If the ledger worktree directory exists:
-   - It must be a linked worktree of this clone (its `--git-common-dir` equals the clone's).
-     Otherwise stop.
-   - If `git status --porcelain=v2 -z` in the ledger worktree prints anything (staged,
-     unstaged or untracked changes), stop with exit 1 and leave the ledger worktree as
-     it is.
-   - If the ledger worktree's `HEAD` holds commits the fetched commit does not
-     (`git log -z --format='%h %s' <sha>..HEAD` is non-empty), print a note naming them to stderr,
-     leave the ledger worktree as it is, and continue to step 7 with exit 0. A commit
-     made without a push leaves a clean ledger worktree, and a reset would orphan it.
-   - Otherwise `git reset --hard <sha>`.
-7. Print the ledger worktree path and a newline to stdout.
+2. Read `.git/tsk-clone-id`, minting it if absent or empty, and compute the paths of the
+   database and of the documents worktree.
+3. Ask the remote whether the ledger ref exists, by its full name. If it is absent,
+   create a new local ledger instead (see
+   [A ledger that does not exist yet](#a-ledger-that-does-not-exist-yet)). If the ref
+   holds a file ledger, stop with the error that says the files backend was removed.
+4. Clone the database from the remote when it does not exist locally. Otherwise fetch it
+   and merge a newer remote tip, unless local changes are not committed, in which case
+   stop with exit 1 and leave the store as it is. Check the manifest version and, for a
+   nexus ledger, its `repo_id`. A version this `tsk` does not know or a mismatched
+   `repo_id` stops here.
+5. Refresh the documents worktree the same way (see [Documents](#documents)): create it
+   when absent, refuse uncommitted changes, note a local commit the remote lacks and leave
+   it, otherwise reset to the fetched tip.
+6. Print the path of the Dolt database and a newline to stdout.
 
 Diagnostics go to stderr. Stdout carries the path only, so `WT="$(tsk ledger fetch)"`
 works.
 
 ## Writing to the ledger
 
-Every change to the ledger is an edit to files in the ledger worktree followed by a push.
-No command writes a ledger ref any other way. `tsk ledger push "<message>"` replaces
-`push-bootstrap-ref.sh`. It runs in the `tsk` client alone, with no `tskd`, from inside
-any working tree of the managed repo.
+Every change to the ledger is a write to the Dolt database or to the documents worktree,
+followed by a push. `tsk ledger push "<message>"` commits both and publishes them (see
+[Push](#push)). It runs in the `tsk` client alone, from inside any working tree of the
+managed repo. If `.git/tsk-clone-id` is absent or empty, or the database does not exist,
+it stops with exit 1 and names `tsk ledger fetch`. The push does not mint a clone ID.
 
-### `tsk ledger push`
-
-1. Resolve the ledger location and the ledger worktree path, as for `tsk ledger fetch`.
-   If `.git/tsk-clone-id` is absent or empty, or the ledger worktree directory does not
-   exist, stop with exit 1 and name `tsk ledger fetch`. The push does not mint a clone
-   id. The ledger worktree must be a linked worktree of this clone.
-2. Fetch the ledger ref by its full name in the ledger worktree and check the fetched
-   commit's `.tsk-ledger.toml`, as `tsk ledger fetch` does. A missing manifest or an
-   unsupported version stops here, before anything is staged or committed. If the ref is
-   absent on the remote, the manifest of the ledger worktree's `HEAD` is checked instead.
-3. `git add -A` in the ledger worktree.
-4. If `git diff --cached --quiet` exits 1, commit the staged changes with the caller's
-   message. If it exits 0, nothing is staged: print a note to stderr and continue, since
-   an earlier run can have committed without pushing.
-5. Up to 5 attempts. Attempt 1 uses the commit fetched in step 2. Each later attempt
-   fetches the ledger ref again and checks the manifest again.
-   1. If `HEAD` is an ancestor of the fetched commit
-      (`git merge-base --is-ancestor HEAD <sha>`), the remote already holds this state:
-      print a note to stderr and exit 0.
-   2. If the fetched commit is not an ancestor of `HEAD`, `git rebase <sha>`. On a
-      conflict, `git rebase --abort` and stop with exit 1. The ledger worktree keeps its
-      local commit, and the remote is not written.
-   3. `git push --porcelain --force-with-lease=<ref>:<sha> <remote> HEAD:<ref>`, with
-      `<ref>` the full ref name and `<sha>` the fetched commit. When the ref is absent on
-      the remote, `<sha>` is empty and the lease requires the ref to stay absent. The lease is a compare and
-      swap: the remote updates the ref only if it still holds `<sha>`, so a commit a
-      concurrent writer pushed after the fetch is never overwritten.
-   4. Read the status line for `<ref>` from the porcelain output. Flag `!` is a rejected
-      update: print a note to stderr and go to the next attempt. Any other flag is
-      success: exit 0. No status line for `<ref>` (a network or authentication failure,
-      for example) stops with exit 1 and git's own error, without a retry.
-6. After 5 rejected attempts, stop with exit 1. The local commit stays in the ledger
-   worktree, and a later `tsk ledger push` with nothing to commit sends it.
-
-A rejected update is detected from the porcelain status flag only, never from error
-text. Flag `!` covers a stale lease checked by the client (`[rejected] (stale info)`)
-and a ref update the remote rejects because the ref moved during the push
-(`[remote rejected] (failed to update ref)`). Both lead to a retry.
-
-On success, stdout carries the full SHA the ledger ref holds after the command and a
-newline: the pushed commit, or the fetched commit when the remote already holds the
-ledger worktree's state. Diagnostics go to stderr.
-
-Each command that writes does one push after all its file changes, not one per file.
+Each command that writes does one push after all its changes, not one per change.
 
 ## External event commands
 
@@ -1382,8 +1092,7 @@ scripts run `fetch-bootstrap-ref.sh`. The three that write push once through
    `error: no such payload file: <payload-file>`. If it holds anything that is not JSON,
    stop with exit 1. Both checks run before the fetch, so nothing is fetched or pushed.
 2. Fetch the ledger.
-3. Append one envelope line to `external-events/queue.ndjson`, creating the directory
-   and the file when absent. `payload` is the first JSON value in the file, or `null`
+3. Append one envelope row to `external_events`. `payload` is the first JSON value in the file, or `null`
    when the file holds none, with whitespace outside strings removed and key order kept.
    `received_at` is the current UTC time.
 4. Push with the message `External event queue: <source> <event-type> (<action>) on <repo>`.
@@ -1411,7 +1120,7 @@ file or the envelope format itself.
    physical line from 1. Nothing is fetched, appended or pushed.
 3. With no events, print `queued:0` and exit 0. Nothing is fetched or pushed.
 4. Fetch the ledger.
-5. Append one envelope line per event to `external-events/queue.ndjson`, in stdin order,
+5. Append one envelope row per event, in stdin order,
    with the field order and format of `tsk events append`. Every envelope in the batch
    has the same `received_at`, the current UTC time. `payload` is the line's value with
    whitespace outside strings removed and key order kept.
@@ -1423,11 +1132,10 @@ file or the envelope format itself.
 
 Fetches the ledger, then prints one compact JSON object and writes nothing:
 `{"new_count":N,"total_count":M,"events":[...]}`. `total_count` is the number of
-`\n`-terminated lines in the queue. `events` holds lines `processed_through + 1` to the
+rows in the queue. `events` holds positions `processed_through + 1` to the
 end, oldest first, each compacted with key order kept, and `new_count` is their number.
-With no queue file, or with `processed_through` at or past `total_count`, `events` is
-empty and `new_count` is `0`. A queue line that is not JSON, or a watermark file that is
-not a JSON object with a non-negative integer `processed_through`, stops with exit 1.
+With no rows, or with `processed_through` at or past `total_count`, `events` is
+empty and `new_count` is `0`. A queue row that is not JSON stops with exit 1.
 
 ### `tsk events advance-watermark <count>`
 
@@ -1439,7 +1147,7 @@ not a JSON object with a non-negative integer `processed_through`, stops with ex
    `tsk events advance-watermark: refusing to move the watermark backwards (<current> -> <count>)`.
 4. An equal count prints `note: watermark already at <current>; nothing to advance.` to
    stderr, prints nothing on stdout, pushes nothing, and exits 0.
-5. A higher count rewrites `external-events/watermark.json`, pushes with the message
+5. A higher count writes the watermark row, pushes with the message
    `External event queue: advance watermark <current> -> <count>`, and prints
    `watermark:<count>`.
 
@@ -1481,7 +1189,7 @@ Steps, in order:
    `export TSK_LEDGER_WT="<path>"` and a newline to that file. A write failure adds a
    warning to the context and does not stop the command.
 5. Resolve the binding of the session, as `tsk thread binding` does, from the fetched
-   ledger worktree.
+   store.
 6. Print one JSON object on one line and exit with status 0.
 
 Standard output on success:
@@ -1500,10 +1208,10 @@ Standard output on success:
    `Its open tasks follow, one per line: id, status, blocked-by, description, tab-separated.`
    and the lines `tsk task list` prints for the tasks that are not done. With none, it
    ends `It has no open tasks.`
-2. When the ledger worktree holds commits that are not on the remote ledger branch, a
+2. When the ledger store holds commits that are not on the remote ledger branch, a
    warning that starts `WARNING: the ledger worktree holds a commit that is not on
    <remote>'s <ref>, so it was left as it is rather than reset:`, lists the commits
-   separated by `;`, and gives the `git log -p <remote-tip>..HEAD` command to read them and
+   separated by `;`, and gives the `dolt log` command to read them and
    `tsk ledger push` to push them.
 3. With a binding, `An existing thread binding was found: <binding>. Run /tsk:resume-thread
    <thread-id> next.` Without one, the unbound prompt text. When the ledger has mission
@@ -1568,7 +1276,7 @@ what the harness expects until then.
 | `thread-detach.sh` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread detach` |
 | `thread-stop.sh` | `stopped:<thread-id>` | | `tsk thread stop [<thread-id>]` |
 | `thread-list.sh` | one compact JSON object per line: `id`, `mission_id` (`null` for a thread with no mission), `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry), `actors` (an array of `{"actor", "kind"}`, one for each session or worktree bound to the thread, oldest binding first; `kind` is `cloud` or `worktree`; empty when none is bound) | | `tsk thread list` |
-| `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger worktree |
+| `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger store |
 | (none) | `mission-set:<thread-id>:<mission-id>`, or `mission-cleared:<thread-id>` with `--none` | exit 1 for an unknown mission or thread, or with no thread ID and no binding | `tsk thread set mission <mission-id> [<thread-id>]`, `tsk thread set mission --none [<thread-id>]` |
 | `thread-binding-guard.sh` | nothing when bound, after `tsk thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | | `tsk thread guard` |
 | `claude-session-start.sh` (the tsk parts) | one JSON object, `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}` | exit 0 in every case, including a failed fetch, which prints a warning context | `tsk thread session-start` (see [Session start command](#session-start-command)) |
@@ -1578,16 +1286,3 @@ what the harness expects until then.
 | `poll-security-alerts.sh` | `queued:<count>`, or `no open alerts queued` | | not replaced: stays a script, calling `tsk events append-batch` from T-07, which prints `queued:0` for zero events (see [External event commands](#external-event-commands)) |
 | `read-new-external-events.sh` | `{"new_count":N,"total_count":M,"events":[...]}` | | `tsk events read-new` |
 | `advance-external-events-watermark.sh` | `watermark:<count>` | exit 0 and no stdout when already at the count; exit 1 when the count is lower | `tsk events advance-watermark <count>` |
-
-## Differences from `tsk/bootstrap`
-
-| | `tsk/bootstrap` | Ledger |
-|---|---|---|
-| Ref | `refs/heads/tsk/bootstrap` | `refs/heads/tsk/ledger`, or `refs/heads/ledgers/<repo-id>` in the nexus |
-| Ledger worktree | `.../repos/<clone-id>/bootstrap` | `.../repos/<clone-id>/ledger` |
-| Manifest | none | `.tsk-ledger.toml`, `version = 1` |
-| Continuation commit fields | flat `commit_on_bootstrap`, `commit_on_main` | nested `git.ledger.commit`, `git.code.ref`, `git.code.commit`; the flat names are not read |
-| Fetch and path | `fetch-bootstrap-ref.sh`, `bootstrap-wt-path.sh` | `tsk ledger fetch`, `tsk ledger path` |
-| Thread commands | `thread-*.sh`, `mint-token-lib.sh` | `tsk thread` subcommands |
-| Push | `push-bootstrap-ref.sh`, plain push, retried on any failure | `tsk ledger push`, explicit lease, retried on a rejected update only |
-| Legacy ledger worktree migration | moves `.git/tsk/bootstrap-ref-wt` (ADR 0009) | none: the ledger worktree has no earlier location |

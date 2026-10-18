@@ -1,7 +1,6 @@
 //! What a ledger store holds that origin does not, for `tsk ledger status` and
-//! `tsk ledger discard`. The types and the output are shared by both backends. The git
-//! helpers serve every store that keeps files in a worktree: the file ledger, and the
-//! documents of a Dolt ledger.
+//! `tsk ledger discard`. The git helpers serve the documents of a Dolt ledger, which are
+//! files in a worktree.
 
 use super::git::{split_nul, Git};
 
@@ -271,9 +270,6 @@ impl SideStatus {
 pub struct LedgerStatus {
     pub data: SideStatus,
     pub docs: SideStatus,
-    /// True when data and documents sit on one branch (the file ledger), so the two
-    /// sides share one set of commits and are counted once.
-    pub shared_branch: bool,
     /// Set when origin could not be fetched: one line, ready for stderr.
     pub fetch_note: Option<String>,
 }
@@ -334,30 +330,11 @@ impl LedgerStatus {
     }
 
     fn ahead(&self) -> (usize, usize) {
-        let docs = if self.shared_branch {
-            0
-        } else {
-            self.docs.remote.ahead()
-        };
-        (self.data.remote.ahead(), docs)
+        (self.data.remote.ahead(), self.docs.remote.ahead())
     }
 
     fn behind(&self) -> (usize, usize) {
-        let docs = if self.shared_branch {
-            0
-        } else {
-            self.docs.remote.behind()
-        };
-        (self.data.remote.behind(), docs)
-    }
-
-    /// The nouns the commit counts use: data and documents, or the one ledger branch.
-    fn nouns(&self) -> (&'static str, &'static str) {
-        if self.shared_branch {
-            ("ledger", "")
-        } else {
-            ("data", "document")
-        }
+        (self.data.remote.behind(), self.docs.remote.behind())
     }
 
     /// The `Local` block of the human output: the headline, then the detail lines.
@@ -417,7 +394,7 @@ impl LedgerStatus {
         } else if remotes.iter().any(|r| **r == RemoteState::Unpublished) {
             "not published yet (tsk ledger push creates it)".to_string()
         } else {
-            let (d_noun, doc_noun) = self.nouns();
+            let (d_noun, doc_noun) = ("data", "document");
             let (a_data, a_docs) = self.ahead();
             let (b_data, b_docs) = self.behind();
             let push = [(d_noun, a_data), (doc_noun, a_docs)];
@@ -633,7 +610,6 @@ mod tests {
         LedgerStatus {
             data,
             docs,
-            shared_branch: false,
             fetch_note: None,
         }
     }
@@ -897,19 +873,6 @@ mod tests {
             origin(Unknown, Unknown),
             "Origin  unknown (could not reach origin)"
         );
-    }
-
-    #[test]
-    fn one_shared_branch_is_counted_once_and_named_the_ledger() {
-        let mut s = clean(RemoteState::Behind(2));
-        s.shared_branch = true;
-        assert_eq!(
-            s.human_origin(),
-            "Origin  2 ledger commits to fetch (tsk ledger fetch)"
-        );
-        let mut s = clean(RemoteState::Ahead(1));
-        s.shared_branch = true;
-        assert_eq!(s.human_local(), vec!["Local   1 commit not pushed"]);
     }
 
     #[test]

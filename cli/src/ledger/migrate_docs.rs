@@ -9,13 +9,12 @@
 //! compares what the branch already holds and goes on from there.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::ledger::docs;
 use crate::ledger::dolt::{self, text, Dolt, BRANCH, REMOTE};
 use crate::ledger::git::Git;
 use crate::ledger::location::{dolt_db_path, state_root_from_env, LedgerLocation, Repo};
-use crate::ledger::migrate::TempWorktree;
 use crate::ledger::push::{commit_changes, PushStatus};
 use crate::ledger::store::check_docs_path;
 use crate::ledger::store::dolt::{remote_tip, DoltStore};
@@ -23,6 +22,27 @@ use crate::ledger::{report_refresh, retry_note};
 
 const DOCS_COMMIT: &str = "Move the documents out of Dolt";
 const DROP_COMMIT: &str = "Move the documents to the tsk/docs branch";
+
+/// Removes a half-built linked worktree unless it is kept.
+struct TempWorktree {
+    git: Git,
+    path: PathBuf,
+    keep: bool,
+}
+
+impl Drop for TempWorktree {
+    fn drop(&mut self) {
+        if self.keep {
+            return;
+        }
+        let path = self.path.to_string_lossy().into_owned();
+        let _ = self
+            .git
+            .output(["worktree", "remove", "--force", path.as_str()]);
+        let _ = std::fs::remove_dir_all(&self.path);
+        let _ = self.git.output(["worktree", "prune"]);
+    }
+}
 
 pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
     Dolt::new(".").run(["version"])?;

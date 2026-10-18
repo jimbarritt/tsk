@@ -26,7 +26,7 @@ emit() {
   fi
 }
 
-# The default ledger backend runs the dolt binary. Install it first. A failure
+# The ledger runs the dolt binary. Install it first. A failure
 # is a warning in the session context and does not stop session start.
 DOLT_MSG="$("$PLUGIN_DIR/hooks/install-dolt.sh" | tr '\n' ' ' | sed 's/ *$//')"
 

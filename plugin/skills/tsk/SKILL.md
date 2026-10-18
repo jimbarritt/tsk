@@ -23,8 +23,8 @@ Design references in the tsk repository: every ledger file and format is in
 
 A **thread** is one line of work on a mission. Its ID is 8 characters from `[0-9a-z]`.
 A thread names a mission, or has none, and holds one continuation state entry per pause.
-The file ledger keeps a thread as a directory, `threads/<thread-id>/`, with `index.md`
-and `continuation-state.jsonl`. The Dolt ledger keeps it in tables.
+The ledger keeps a thread in tables: a `threads` row, its continuation entries and its
+bindings.
 
 To see the state of the work, run `tsk mission list` for the missions, `tsk mission list
 <id> --json` for one mission in full, `tsk task list <id>`, `tsk decision list <id>` and
@@ -91,7 +91,6 @@ tsk ledger doc list [<prefix>]           list document paths, optionally under a
 tsk ledger doc rm <path>                 remove a document; changes the local store only
 tsk ledger status [--porcelain]          print Local (what is not pushed) and Origin (ahead or behind); --porcelain prints tab-separated facts for scripts; read-only
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
-tsk ledger migrate-to-dolt               one-off: move a file ledger into a Dolt database and push it
 
 tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push
 tsk thread pause <thread-id> <task-id> <whats-next>                   append a continuation state entry, push
@@ -125,11 +124,12 @@ stderr. The path and the link are ignored. Do not use them.
 
 ### Ledger
 
-The default ledger backend is Dolt. The ledger store is a Dolt database at
+The ledger store is a Dolt database at
 `${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db`, synced over git
 on `refs/heads/tsk/ledger`. `$TSK_LEDGER_WT` names it. Do not open files in it and do not
-run `dolt` against it by hand. The `git` backend (the file ledger) is selected with
-`[ledger] backend = "git"` in the user config or `TSK_LEDGER_BACKEND=git`.
+run `dolt` against it by hand. The files backend was removed in 0.16.0: `tsk` stops with an
+error when `[ledger] backend = "git"` is set in the user config or `TSK_LEDGER_BACKEND=git`
+is set. Use `tsk` 0.15.1 to read an old file ledger.
 
 Documents are plain Markdown files on a second branch, `refs/heads/tsk/docs` (on a nexus
 ledger, `refs/heads/ledgers/<repo-id>-docs`). They are checked out as a worktree beside the

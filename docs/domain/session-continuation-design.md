@@ -35,8 +35,7 @@ Every binding is one row of the ledger's `bindings` table: the actor key, its ki
 (`cloud` or `worktree`), the thread ID and the registration time. An actor has one row, so
 binding it to another thread replaces the row. A thread can have any number of rows. The
 table has no foreign key to `threads`: `tsk thread stop` deletes the thread and every row
-that names it, of either kind. On the file ledger the cloud rows are the JSON map `threads/lookup-by-cloud-session.json`
-and the worktree rows are one file each under `threads/.worktree-bindings/`.
+that names it, of either kind.
 
 `tsk thread list` shows the actors of each thread in `actors`, an array of
 `{"actor", "kind"}`. `tsk thread binding` prints `cloud:<thread-id>` or

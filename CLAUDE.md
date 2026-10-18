@@ -82,9 +82,10 @@ it. It holds records, and the `tsk` commands read and write them. Documents are 
 files on a second branch, `refs/heads/tsk/docs`, checked out as a worktree beside the
 database. Read and write them with `tsk ledger doc` (below), and find a file on disk with
 `tsk ledger doc path <path>`. `tsk ledger push` pushes the documents first and the Dolt
-data second. The backend is `dolt` by default. `[ledger] backend = "git"` in
-`${XDG_CONFIG_HOME:-$HOME/.config}/tsk/config.toml`, or `TSK_LEDGER_BACKEND=git`, selects
-the file ledger. This repo uses the default.
+data second. A ledger is a Dolt database. The files backend was removed in 0.16.0 (ADR
+0015). If `[ledger] backend = "git"` in
+`${XDG_CONFIG_HOME:-$HOME/.config}/tsk/config.toml`, or `TSK_LEDGER_BACKEND=git`, is set,
+`tsk` prints an error and exits 1. Release 0.15.1 is the last that reads a file ledger.
 
 **To read the path, use `tsk ledger path`, not `tsk ledger fetch`.** The fetch also
 refreshes the ledger store to origin's latest, so calling it merely to resolve a path

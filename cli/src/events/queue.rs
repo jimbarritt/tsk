@@ -5,8 +5,6 @@ use super::json::compact_values;
 
 pub const EVENTS_DIR: &str = "external-events";
 pub const QUEUE_FILE: &str = "queue.ndjson";
-pub const WATERMARK_FILE: &str = "watermark.json";
-
 #[derive(Serialize)]
 struct Envelope<'a> {
     source: &'a str,
@@ -93,47 +91,6 @@ pub fn new_events(queue: Option<&str>, processed_through: u64) -> Result<NewEven
         total_count,
         events,
     })
-}
-
-pub fn parse_watermark(text: &str) -> Result<u64, String> {
-    let invalid = |detail: String| {
-        format!(
-            "error: {}/{} is not a watermark: {}",
-            EVENTS_DIR, WATERMARK_FILE, detail
-        )
-    };
-    let value: serde_json::Value =
-        serde_json::from_str(text).map_err(|e| invalid(e.to_string()))?;
-    let field = match &value {
-        serde_json::Value::Null => return Ok(0),
-        serde_json::Value::Object(map) => map.get("processed_through"),
-        _ => return Err(invalid("expected a JSON object".to_string())),
-    };
-    match field {
-        None | Some(serde_json::Value::Null) | Some(serde_json::Value::Bool(false)) => Ok(0),
-        Some(v) => v.as_u64().ok_or_else(|| {
-            invalid(format!(
-                "processed_through is {}, not a non-negative integer",
-                v
-            ))
-        }),
-    }
-}
-
-#[derive(Serialize)]
-struct Watermark<'a> {
-    processed_through: u64,
-    updated_at: &'a str,
-}
-
-pub fn render_watermark(processed_through: u64, updated_at: &str) -> String {
-    let mut text = serde_json::to_string_pretty(&Watermark {
-        processed_through,
-        updated_at,
-    })
-    .unwrap_or_default();
-    text.push('\n');
-    text
 }
 
 #[cfg(test)]
@@ -227,36 +184,5 @@ mod tests {
     fn a_line_that_is_not_json_is_an_error() {
         let err = new_events(Some("{\"n\":1}\nnot json\n"), 0).err().unwrap();
         assert!(err.contains("external-events/queue.ndjson"), "{}", err);
-    }
-
-    #[test]
-    fn parse_watermark_reads_processed_through() {
-        assert_eq!(
-            parse_watermark("{\"processed_through\": 17, \"updated_at\": \"x\"}").unwrap(),
-            17
-        );
-    }
-
-    #[test]
-    fn parse_watermark_reads_a_missing_or_null_field_as_zero() {
-        assert_eq!(parse_watermark("{}").unwrap(), 0);
-        assert_eq!(parse_watermark("{\"processed_through\": null}").unwrap(), 0);
-        assert_eq!(parse_watermark("null").unwrap(), 0);
-    }
-
-    #[test]
-    fn parse_watermark_rejects_a_negative_or_fractional_count_and_a_non_object() {
-        assert!(parse_watermark("{\"processed_through\": -1}").is_err());
-        assert!(parse_watermark("{\"processed_through\": 1.5}").is_err());
-        assert!(parse_watermark("[1]").is_err());
-        assert!(parse_watermark("").is_err());
-    }
-
-    #[test]
-    fn render_watermark_matches_the_jq_layout() {
-        assert_eq!(
-            render_watermark(17, "2026-09-20T09:24:54Z"),
-            "{\n  \"processed_through\": 17,\n  \"updated_at\": \"2026-09-20T09:24:54Z\"\n}\n"
-        );
     }
 }

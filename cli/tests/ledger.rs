@@ -1,15 +1,22 @@
+//! The ledger commands on a Dolt ledger, end to end, with a bare git repo as origin. A
+//! publisher clone writes the first ledger. Clone `work` is the one under test. The
+//! documents of a ledger are files on the `tsk/docs` branch, checked out as a linked
+//! worktree of the clone, and these tests cover the fetch and the compare-and-swap push
+//! of that worktree as well as the commands that find it.
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
-const LEDGER_REF: &str = "refs/heads/tsk/ledger";
+const DOCS_REF: &str = "refs/heads/tsk/docs";
 
 struct Fixture {
     root: TempDir,
 }
 
 impl Fixture {
+    /// A bare origin holding `main`, and the clone `work`. No ledger is published.
     fn new() -> Fixture {
         let fixture = Fixture {
             root: tempfile::tempdir().unwrap(),
@@ -39,30 +46,22 @@ impl Fixture {
             &fixture.seed(),
             &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
         );
-        git(
-            &fixture.seed(),
-            &["switch", "--quiet", "--orphan", "ledger-seed"],
-        );
+        for name in ["work", "publisher"] {
+            git(
+                fixture.root.path(),
+                &["clone", "--quiet", fixture.origin().to_str().unwrap(), name],
+            );
+        }
         fixture
     }
 
-    fn with_ledger(manifest: Option<&str>) -> Fixture {
+    /// [`Fixture::new`] and a ledger the publisher has pushed: both branches exist on
+    /// origin. The clone `work` has not fetched it.
+    fn with_ledger() -> Fixture {
         let fixture = Fixture::new();
-        if let Some(text) = manifest {
-            write(&fixture.seed().join(".tsk-ledger.toml"), text);
-        }
-        write(&fixture.seed().join("index.md"), "# Ledger index\n");
-        commit_all(&fixture.seed(), "Seed the ledger");
-        fixture.push_ledger();
-        git(
-            fixture.root.path(),
-            &[
-                "clone",
-                "--quiet",
-                fixture.origin().to_str().unwrap(),
-                "work",
-            ],
-        );
+        let publisher = fixture.publisher();
+        assert_success(&fixture.tsk_in(&publisher, &["ledger", "fetch"]));
+        assert_success(&fixture.tsk_in(&publisher, &["ledger", "push", "Create the ledger"]));
         fixture
     }
 
@@ -78,6 +77,10 @@ impl Fixture {
         self.root.path().join("work")
     }
 
+    fn publisher(&self) -> PathBuf {
+        self.root.path().join("publisher")
+    }
+
     fn home(&self) -> PathBuf {
         self.root.path().join("home")
     }
@@ -86,22 +89,29 @@ impl Fixture {
         self.root.path().join("state")
     }
 
-    fn push_ledger(&self) {
+    fn origin_ref_sha(&self, reference: &str) -> String {
+        git_line(&self.origin(), &["rev-parse", reference])
+    }
+
+    fn origin_docs_sha(&self) -> String {
+        self.origin_ref_sha(DOCS_REF)
+    }
+
+    /// Land a commit on origin's documents branch from outside the clone under test.
+    fn add_docs_commit(&self, file: &str, content: &str) -> String {
+        let seed = self.seed();
+        git(&seed, &["fetch", "--quiet", "origin", DOCS_REF]);
         git(
-            &self.seed(),
-            &["push", "--quiet", "origin", &format!("HEAD:{}", LEDGER_REF)],
+            &seed,
+            &["checkout", "--quiet", "-B", "docs-seed", "FETCH_HEAD"],
         );
-    }
-
-    fn add_ledger_commit(&self, file: &str, content: &str) -> String {
-        write(&self.seed().join(file), content);
-        commit_all(&self.seed(), &format!("Add {}", file));
-        self.push_ledger();
-        git_line(&self.seed(), &["rev-parse", "HEAD"])
-    }
-
-    fn origin_ledger_sha(&self) -> String {
-        git_line(&self.origin(), &["rev-parse", LEDGER_REF])
+        write(&seed.join(file), content);
+        commit_all(&seed, &format!("Add {}", file));
+        git(
+            &seed,
+            &["push", "--quiet", "origin", &format!("HEAD:{}", DOCS_REF)],
+        );
+        git_line(&seed, &["rev-parse", "HEAD"])
     }
 
     fn clone_id_file(&self) -> PathBuf {
@@ -119,6 +129,7 @@ impl Fixture {
             .envs(git_env())
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
+            .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .output()
@@ -133,6 +144,7 @@ impl Fixture {
             .envs(git_env())
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
+            .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .stdin(std::process::Stdio::piped())
@@ -157,6 +169,8 @@ impl Fixture {
         self.root.path().join("racer")
     }
 
+    /// A pre-push hook in the clone that, for the first `races` pushes, lands a commit on
+    /// origin's documents branch from the racer clone before the push goes through.
     fn install_racing_pre_push_hook(&self, races: usize) {
         git(
             self.root.path(),
@@ -172,17 +186,17 @@ impl Fixture {
              [ \"$n\" -ge {races} ] && exit 0\n\
              n=$((n + 1))\n\
              echo \"$n\" > \"$count_file\"\n\
-             git -C \"$racer\" fetch --quiet origin {ledger_ref} || exit 1\n\
+             git -C \"$racer\" fetch --quiet origin {docs_ref} || exit 1\n\
              git -C \"$racer\" reset --quiet --hard FETCH_HEAD || exit 1\n\
              echo \"race $n\" > \"$racer/race-$n.md\"\n\
              git -C \"$racer\" add -A || exit 1\n\
              git -C \"$racer\" commit --quiet -m \"Race $n\" || exit 1\n\
-             git -C \"$racer\" push --quiet origin HEAD:{ledger_ref} || exit 1\n\
+             git -C \"$racer\" push --quiet origin HEAD:{docs_ref} || exit 1\n\
              exit 0\n",
             racer = self.racer().display(),
             count = self.root.path().join("race-count").display(),
             races = races,
-            ledger_ref = LEDGER_REF,
+            docs_ref = DOCS_REF,
         );
         let hook = self.work().join(".git").join("hooks").join("pre-push");
         std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
@@ -204,10 +218,16 @@ impl Fixture {
         }
     }
 
+    /// Fetch the ledger in the clone under test; returns the path of the Dolt database.
     fn fetch_ok(&self) -> PathBuf {
         let output = self.tsk(&["ledger", "fetch"]);
         assert_success(&output);
         PathBuf::from(stdout(&output).trim_end())
+    }
+
+    /// Fetch the ledger; returns the documents worktree, which sits beside the database.
+    fn fetch_docs(&self) -> PathBuf {
+        self.fetch_ok().parent().unwrap().join("docs")
     }
 }
 
@@ -219,7 +239,6 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
         ("GIT_AUTHOR_EMAIL", "test@example.com"),
         ("GIT_COMMITTER_NAME", "Test"),
         ("GIT_COMMITTER_EMAIL", "test@example.com"),
-        ("TSK_LEDGER_BACKEND", "git"),
     ]
 }
 
@@ -254,6 +273,9 @@ fn commit_all(dir: &Path, message: &str) {
 }
 
 fn write(path: &Path, content: &str) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
     std::fs::write(path, content).unwrap();
 }
 
@@ -279,9 +301,21 @@ fn head(dir: &Path) -> String {
     git_line(dir, &["rev-parse", "HEAD"])
 }
 
+fn is_ancestor(dir: &Path, ancestor: &str, descendant: &str) -> bool {
+    git_output(dir, &["merge-base", "--is-ancestor", ancestor, descendant])
+        .status
+        .success()
+}
+
+fn origin_docs_subject(fx: &Fixture) -> String {
+    git_line(&fx.origin(), &["log", "-1", "--format=%s", DOCS_REF])
+}
+
+// --- fetch ---
+
 #[test]
-fn fetch_materialises_the_ledger_at_the_fixed_worktree_path() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
+fn fetch_materialises_the_ledger_at_the_fixed_path() {
+    let fx = Fixture::with_ledger();
 
     let path = fx.fetch_ok();
 
@@ -294,32 +328,27 @@ fn fetch_materialises_the_ledger_at_the_fixed_worktree_path() {
         .chars()
         .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
 
-    assert_eq!(
-        path,
-        fx.state()
-            .join("tsk")
-            .join("repos")
-            .join(clone_id)
-            .join("ledger")
-    );
-    assert!(path.join("index.md").is_file());
-    assert!(path.join(".tsk-ledger.toml").is_file());
-    assert_eq!(head(&path), fx.origin_ledger_sha());
+    let base = fx.state().join("tsk").join("repos").join(clone_id);
+    assert_eq!(path, base.join("ledger-db"));
+    assert!(path.join(".dolt").is_dir());
+    let docs = base.join("docs");
+    assert!(docs.join("index.md").is_file());
+    assert_eq!(head(&docs), fx.origin_docs_sha());
 }
 
 #[test]
-fn fetch_creates_a_detached_worktree_of_the_clone() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
+fn fetch_creates_a_detached_documents_worktree_of_the_clone() {
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
 
-    let symbolic = git_output(&path, &["symbolic-ref", "-q", "HEAD"]);
+    let symbolic = git_output(&docs, &["symbolic-ref", "-q", "HEAD"]);
     assert!(
         !symbolic.status.success(),
         "worktree HEAD should be detached"
     );
 
     let listing = git(&fx.work(), &["worktree", "list", "--porcelain", "-z"]);
-    let canonical = std::fs::canonicalize(&path).unwrap();
+    let canonical = std::fs::canonicalize(&docs).unwrap();
     assert!(listing
         .split('\0')
         .filter_map(|f| f.strip_prefix("worktree "))
@@ -327,12 +356,12 @@ fn fetch_creates_a_detached_worktree_of_the_clone() {
 }
 
 #[test]
-fn fetch_refreshes_the_worktree_in_place() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let first = fx.fetch_ok();
+fn fetch_refreshes_the_documents_worktree_in_place() {
+    let fx = Fixture::with_ledger();
+    let first = fx.fetch_docs();
 
-    let new_sha = fx.add_ledger_commit("missions.md", "new mission\n");
-    let second = fx.fetch_ok();
+    let new_sha = fx.add_docs_commit("missions.md", "new mission\n");
+    let second = fx.fetch_docs();
 
     assert_eq!(first, second);
     assert_eq!(head(&second), new_sha);
@@ -344,12 +373,12 @@ fn fetch_refreshes_the_worktree_in_place() {
 
 #[test]
 fn fetch_refuses_to_reset_over_uncommitted_changes() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    let before = head(&path);
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
+    let before = head(&docs);
 
-    write(&path.join("index.md"), "edited locally\n");
-    fx.add_ledger_commit("other.md", "other\n");
+    write(&docs.join("index.md"), "edited locally\n");
+    fx.add_docs_commit("other.md", "other\n");
 
     let output = fx.tsk(&["ledger", "fetch"]);
     assert!(!output.status.success());
@@ -359,188 +388,89 @@ fn fetch_refuses_to_reset_over_uncommitted_changes() {
         stderr(&output)
     );
     assert!(stdout(&output).is_empty());
-    assert_eq!(head(&path), before);
+    assert_eq!(head(&docs), before);
     assert_eq!(
-        std::fs::read_to_string(path.join("index.md")).unwrap(),
+        std::fs::read_to_string(docs.join("index.md")).unwrap(),
         "edited locally\n"
     );
 }
 
 #[test]
 fn fetch_refuses_to_reset_over_untracked_files() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
 
-    write(&path.join("new-thread.md"), "draft\n");
+    write(&docs.join("new-thread.md"), "draft\n");
 
     let output = fx.tsk(&["ledger", "fetch"]);
     assert!(!output.status.success());
-    assert!(path.join("new-thread.md").is_file());
+    assert!(docs.join("new-thread.md").is_file());
 }
 
 #[test]
-fn fetch_keeps_an_unpushed_commit_and_still_prints_the_path() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
+fn fetch_keeps_an_unpushed_documents_commit_and_still_prints_the_path() {
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
 
-    write(&path.join("local.md"), "local\n");
-    commit_all(&path, "Unpushed ledger change");
-    let local = head(&path);
-    fx.add_ledger_commit("remote.md", "remote\n");
+    write(&docs.join("local.md"), "local\n");
+    commit_all(&docs, "Unpushed documents change");
+    let local = head(&docs);
+    fx.add_docs_commit("remote.md", "remote\n");
 
     let output = fx.tsk(&["ledger", "fetch"]);
     assert_success(&output);
-    assert_eq!(PathBuf::from(stdout(&output).trim_end()), path);
+    assert_eq!(
+        PathBuf::from(stdout(&output).trim_end()),
+        docs.parent().unwrap().join("ledger-db")
+    );
     assert!(
-        stderr(&output).contains("Unpushed ledger change"),
+        stderr(&output).contains("Unpushed documents change"),
         "{}",
         stderr(&output)
     );
     assert!(
-        stderr(&output).contains("not on origin's refs/heads/tsk/ledger"),
+        stderr(&output).contains("not on origin's refs/heads/tsk/docs"),
         "{}",
         stderr(&output)
     );
-    assert_eq!(head(&path), local);
+    assert_eq!(head(&docs), local);
 }
 
-#[test]
-fn fetch_uses_the_full_ref_name_when_a_custom_ref_shadows_it() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let branch_sha = fx.origin_ledger_sha();
-
-    git(&fx.seed(), &["switch", "--quiet", "--orphan", "shadow"]);
-    write(&fx.seed().join(".tsk-ledger.toml"), "version = 1\n");
+/// An orphan commit pushed to a custom ref of the same name as a branch, as the original
+/// design's refs were. Git resolves an unqualified name against it first.
+fn shadow(fx: &Fixture, custom_ref: &str) -> String {
+    let branch = format!("shadow-{}", custom_ref.replace('/', "-"));
+    git(&fx.seed(), &["switch", "--quiet", "--orphan", &branch]);
     write(&fx.seed().join("shadow.md"), "orphaned custom ref\n");
     commit_all(&fx.seed(), "Shadow");
     git(
         &fx.seed(),
-        &["push", "--quiet", "origin", "HEAD:refs/tsk/ledger"],
+        &["push", "--quiet", "origin", &format!("HEAD:{}", custom_ref)],
     );
-
-    let path = fx.fetch_ok();
-
-    assert_eq!(head(&path), branch_sha);
-    assert!(!path.join("shadow.md").exists());
+    git_line(&fx.origin(), &["rev-parse", custom_ref])
 }
 
 #[test]
-fn fetch_stops_on_an_unsupported_manifest_version_before_touching_the_worktree() {
-    let fx = Fixture::with_ledger(Some("version = 2\n"));
+fn fetch_uses_the_full_ref_names_when_custom_refs_shadow_them() {
+    let fx = Fixture::with_ledger();
+    let branch_sha = fx.origin_docs_sha();
+    shadow(&fx, "refs/tsk/docs");
+    shadow(&fx, "refs/tsk/ledger");
 
-    let output = fx.tsk(&["ledger", "fetch"]);
+    let docs = fx.fetch_docs();
 
-    assert!(!output.status.success());
-    assert!(
-        stderr(&output).contains("unsupported ledger version 2"),
-        "{}",
-        stderr(&output)
-    );
-    assert!(stdout(&output).is_empty());
-    assert!(!fx.state().join("tsk").exists());
-}
-
-#[test]
-fn fetch_stops_when_the_manifest_is_missing() {
-    let fx = Fixture::with_ledger(None);
-
-    let output = fx.tsk(&["ledger", "fetch"]);
-
-    assert!(!output.status.success());
-    assert!(
-        stderr(&output).contains("has no .tsk-ledger.toml"),
-        "{}",
-        stderr(&output)
-    );
-    assert!(!fx.state().join("tsk").exists());
-}
-
-#[test]
-fn fetch_stops_on_a_supported_to_unsupported_upgrade_without_resetting() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    let before = head(&path);
-
-    fx.add_ledger_commit(".tsk-ledger.toml", "version = 99\n");
-    let output = fx.tsk(&["ledger", "fetch"]);
-
-    assert!(!output.status.success());
-    assert!(
-        stderr(&output).contains("unsupported ledger version 99"),
-        "{}",
-        stderr(&output)
-    );
-    assert_eq!(head(&path), before);
-}
-
-#[test]
-fn fetch_creates_a_new_ledger_when_origin_has_no_ledger_branch() {
-    let fx = Fixture::new();
-    git(
-        fx.root.path(),
-        &["clone", "--quiet", fx.origin().to_str().unwrap(), "work"],
-    );
-
-    let output = fx.tsk(&["ledger", "fetch"]);
-
-    assert_success(&output);
-    assert!(
-        stderr(&output).contains("refs/heads/tsk/ledger does not exist yet"),
-        "{}",
-        stderr(&output)
-    );
-    let path = PathBuf::from(stdout(&output).trim_end());
-    assert_eq!(
-        std::fs::read_to_string(path.join(".tsk-ledger.toml")).unwrap(),
-        "version = 1\n"
-    );
-    assert!(path.join("index.md").is_file());
-    assert!(!git_output(
-        &fx.origin(),
-        &["rev-parse", "--verify", "--quiet", LEDGER_REF]
-    )
-    .status
-    .success());
-
-    let again = fx.fetch_ok();
-    assert_eq!(again, path);
-}
-
-#[test]
-fn the_first_push_creates_the_ledger_branch() {
-    let fx = Fixture::new();
-    git(
-        fx.root.path(),
-        &["clone", "--quiet", fx.origin().to_str().unwrap(), "work"],
-    );
-    let path = fx.fetch_ok();
-    std::fs::create_dir_all(path.join("missions")).unwrap();
-    write(&path.join("missions").join("M-1.md"), "mission\n");
-
-    let output = fx.push("First ledger commit");
-
-    assert_success(&output);
-    assert_eq!(stdout(&output).trim_end(), fx.origin_ledger_sha());
-    assert_eq!(
-        fx.origin_file(LEDGER_REF, "missions/M-1.md").as_deref(),
-        Some("mission\n")
-    );
-    assert_eq!(
-        fx.origin_file(LEDGER_REF, ".tsk-ledger.toml").as_deref(),
-        Some("version = 1\n")
-    );
-    let second = fx.push("Nothing new");
-    assert_success(&second);
+    assert_eq!(head(&docs), branch_sha);
+    assert!(!docs.join("shadow.md").exists());
 }
 
 #[test]
 fn fetch_reuses_an_existing_clone_id() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let fx = Fixture::with_ledger();
     write(&fx.clone_id_file(), "custom-1234abcd\n");
 
     let path = fx.fetch_ok();
 
-    assert_eq!(path, fx.state().join("tsk/repos/custom-1234abcd/ledger"));
+    assert_eq!(path, fx.state().join("tsk/repos/custom-1234abcd/ledger-db"));
     assert_eq!(
         std::fs::read_to_string(fx.clone_id_file()).unwrap(),
         "custom-1234abcd\n"
@@ -548,24 +478,24 @@ fn fetch_reuses_an_existing_clone_id() {
 }
 
 #[test]
-fn fetch_recreates_a_worktree_whose_directory_was_deleted() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    std::fs::remove_dir_all(&path).unwrap();
+fn fetch_recreates_a_documents_worktree_whose_directory_was_deleted() {
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
+    std::fs::remove_dir_all(&docs).unwrap();
 
-    let again = fx.fetch_ok();
+    let again = fx.fetch_docs();
 
-    assert_eq!(again, path);
-    assert_eq!(head(&again), fx.origin_ledger_sha());
+    assert_eq!(again, docs);
+    assert_eq!(head(&again), fx.origin_docs_sha());
 }
 
 #[test]
-fn fetch_refuses_a_directory_that_is_not_a_worktree_of_this_clone() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
+fn fetch_refuses_a_documents_directory_that_is_not_a_worktree_of_this_clone() {
+    let fx = Fixture::with_ledger();
     write(&fx.clone_id_file(), "work-00000000\n");
-    let path = fx.state().join("tsk/repos/work-00000000/ledger");
-    std::fs::create_dir_all(&path).unwrap();
-    write(&path.join("stray.txt"), "not a worktree\n");
+    let docs = fx.state().join("tsk/repos/work-00000000/docs");
+    std::fs::create_dir_all(&docs).unwrap();
+    write(&docs.join("stray.txt"), "not a worktree\n");
 
     let output = fx.tsk(&["ledger", "fetch"]);
 
@@ -575,12 +505,12 @@ fn fetch_refuses_a_directory_that_is_not_a_worktree_of_this_clone() {
         "{}",
         stderr(&output)
     );
-    assert!(path.join("stray.txt").is_file());
+    assert!(docs.join("stray.txt").is_file());
 }
 
 #[test]
 fn fetch_from_a_linked_worktree_uses_the_same_clone_id() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let fx = Fixture::with_ledger();
     let from_main = fx.fetch_ok();
 
     git(
@@ -593,9 +523,11 @@ fn fetch_from_a_linked_worktree_uses_the_same_clone_id() {
     assert_eq!(PathBuf::from(stdout(&output).trim_end()), from_main);
 }
 
+// --- path ---
+
 #[test]
-fn path_prints_the_fetched_worktree_path() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
+fn path_prints_the_fetched_store_path() {
+    let fx = Fixture::with_ledger();
     let fetched = fx.fetch_ok();
 
     let output = fx.tsk(&["ledger", "path"]);
@@ -605,21 +537,21 @@ fn path_prints_the_fetched_worktree_path() {
 }
 
 #[test]
-fn path_does_not_refresh_the_worktree() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    let before = head(&path);
-    fx.add_ledger_commit("later.md", "later\n");
+fn path_does_not_refresh_the_store() {
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
+    let before = head(&docs);
+    fx.add_docs_commit("later.md", "later\n");
 
     assert_success(&fx.tsk(&["ledger", "path"]));
 
-    assert_eq!(head(&path), before);
-    assert!(!path.join("later.md").exists());
+    assert_eq!(head(&docs), before);
+    assert!(!docs.join("later.md").exists());
 }
 
 #[test]
 fn path_without_a_clone_id_fails_and_writes_nothing() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let fx = Fixture::with_ledger();
 
     let output = fx.tsk(&["ledger", "path"]);
 
@@ -631,12 +563,17 @@ fn path_without_a_clone_id_fails_and_writes_nothing() {
     );
     assert!(stdout(&output).is_empty());
     assert!(!fx.clone_id_file().exists());
-    assert!(!fx.state().join("tsk").exists());
+    assert!(!fx
+        .state()
+        .join("tsk")
+        .join("repos")
+        .join("work-abcdef12")
+        .exists());
 }
 
 #[test]
 fn path_with_a_clone_id_prints_the_path_before_any_fetch() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let fx = Fixture::with_ledger();
     write(&fx.clone_id_file(), "work-abcdef12\n");
 
     let output = fx.tsk(&["ledger", "path"]);
@@ -646,15 +583,17 @@ fn path_with_a_clone_id_prints_the_path_before_any_fetch() {
         stdout(&output),
         format!(
             "{}\n",
-            fx.state().join("tsk/repos/work-abcdef12/ledger").display()
+            fx.state()
+                .join("tsk/repos/work-abcdef12/ledger-db")
+                .display()
         )
     );
-    assert!(!fx.state().join("tsk").exists());
+    assert!(!fx.state().join("tsk/repos/work-abcdef12").exists());
 }
 
 #[test]
 fn path_falls_back_to_home_when_xdg_state_home_is_empty() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let fx = Fixture::with_ledger();
     write(&fx.clone_id_file(), "work-abcdef12\n");
 
     let output = Command::new(env!("CARGO_BIN_EXE_tsk"))
@@ -663,6 +602,7 @@ fn path_falls_back_to_home_when_xdg_state_home_is_empty() {
         .envs(git_env())
         .env("HOME", fx.home())
         .env("XDG_STATE_HOME", "")
+        .env("XDG_CONFIG_HOME", fx.home().join("config"))
         .output()
         .unwrap();
 
@@ -672,7 +612,7 @@ fn path_falls_back_to_home_when_xdg_state_home_is_empty() {
         format!(
             "{}\n",
             fx.home()
-                .join(".local/state/tsk/repos/work-abcdef12/ledger")
+                .join(".local/state/tsk/repos/work-abcdef12/ledger-db")
                 .display()
         )
     );
@@ -693,7 +633,6 @@ fn ledger_commands_fail_outside_a_git_repository() {
         vec!["ledger", "doc", "put", "notes.md"],
         vec!["ledger", "doc", "get", "notes.md"],
         vec!["ledger", "migrate-docs"],
-        vec!["ledger", "migrate-to-dolt"],
         vec!["mission", "list"],
         vec!["mission", "create", "M-X", "Name"],
         vec!["task", "list", "M-X"],
@@ -733,118 +672,126 @@ fn commands_that_need_no_repository_still_run_outside_one() {
     }
 }
 
-fn is_ancestor(dir: &Path, ancestor: &str, descendant: &str) -> bool {
-    git_output(dir, &["merge-base", "--is-ancestor", ancestor, descendant])
-        .status
-        .success()
+#[test]
+fn the_removed_files_backend_is_refused_and_any_other_value_is_ignored() {
+    let fx = Fixture::with_ledger();
+    let refusal = "error: the files ledger backend was removed in 0.16.0; use tsk 0.15.1 to read an old file ledger\n";
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+    let output = command
+        .args(["ledger", "fetch"])
+        .current_dir(fx.work())
+        .envs(git_env())
+        .env("HOME", fx.home())
+        .env("XDG_STATE_HOME", fx.state())
+        .env("XDG_CONFIG_HOME", fx.home().join("config"))
+        .env("TSK_LEDGER_BACKEND", "git")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stderr(&output), refusal);
+    assert_eq!(stdout(&output), "");
+    assert!(!fx.clone_id_file().exists());
+
+    // The same value in the user config.
+    let config = fx.home().join("config").join("tsk");
+    std::fs::create_dir_all(&config).unwrap();
+    write(&config.join("config.toml"), "[ledger]\nbackend = \"git\"\n");
+    let output = fx.tsk(&["ledger", "path"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(stderr(&output), refusal);
+
+    // The environment wins over the file, and any other value is ignored.
+    for value in ["dolt", "sqlite"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_tsk"))
+            .args(["ledger", "fetch"])
+            .current_dir(fx.work())
+            .envs(git_env())
+            .env("HOME", fx.home())
+            .env("XDG_STATE_HOME", fx.state())
+            .env("XDG_CONFIG_HOME", fx.home().join("config"))
+            .env("TSK_LEDGER_BACKEND", value)
+            .output()
+            .unwrap();
+        assert_success(&output);
+    }
+    write(
+        &config.join("config.toml"),
+        "[ledger]\nbackend = \"mongo\"\n",
+    );
+    assert_success(&fx.tsk(&["ledger", "path"]));
 }
 
-fn origin_subject(fx: &Fixture) -> String {
-    git_line(&fx.origin(), &["log", "-1", "--format=%s", LEDGER_REF])
-}
+// --- push ---
 
 #[test]
-fn push_commits_every_change_and_pushes_it_to_the_ledger_branch() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    let before = fx.origin_ledger_sha();
+fn push_commits_every_document_change_and_pushes_it_to_the_documents_branch() {
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
+    let before = fx.origin_docs_sha();
 
-    write(&path.join("index.md"), "# Ledger index\nedited\n");
-    std::fs::create_dir_all(path.join("missions")).unwrap();
-    write(&path.join("missions/new.md"), "new mission\n");
+    write(&docs.join("index.md"), "# Ledger index\nedited\n");
+    write(&docs.join("missions/new.md"), "new mission\n");
 
     let output = fx.push("Record the new mission");
 
     assert_success(&output);
-    let tip = fx.origin_ledger_sha();
+    let tip = fx.origin_docs_sha();
     assert_ne!(tip, before);
-    assert_eq!(stdout(&output), format!("{}\n", tip));
-    assert_eq!(head(&path), tip);
-    assert_eq!(origin_subject(&fx), "Record the new mission");
+    assert_eq!(head(&docs), tip);
+    assert_eq!(origin_docs_subject(&fx), "Record the new mission");
+    assert_eq!(fx.origin_ref_sha(&format!("{}^", DOCS_REF)), before);
     assert_eq!(
-        git_line(&fx.origin(), &["rev-parse", &format!("{}^", LEDGER_REF)]),
-        before
-    );
-    assert_eq!(
-        fx.origin_file(LEDGER_REF, "index.md").unwrap(),
+        fx.origin_file(DOCS_REF, "index.md").unwrap(),
         "# Ledger index\nedited\n"
     );
     assert_eq!(
-        fx.origin_file(LEDGER_REF, "missions/new.md").unwrap(),
+        fx.origin_file(DOCS_REF, "missions/new.md").unwrap(),
         "new mission\n"
     );
-    assert!(git(&path, &["status", "--porcelain=v2", "-z"]).is_empty());
+    assert!(git(&docs, &["status", "--porcelain=v2", "-z"]).is_empty());
 }
 
 #[test]
-fn push_with_nothing_to_commit_pushes_nothing_and_exits_zero() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    let before = fx.origin_ledger_sha();
+fn push_sends_a_documents_commit_an_earlier_run_left_unpushed() {
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
 
-    let output = fx.push("Nothing changed");
-
-    assert_success(&output);
-    assert_eq!(fx.origin_ledger_sha(), before);
-    assert_eq!(head(&path), before);
-    assert_eq!(stdout(&output), format!("{}\n", before));
-    assert!(
-        stderr(&output).contains("nothing to commit"),
-        "{}",
-        stderr(&output)
-    );
-    assert!(
-        stderr(&output).contains("already holds this worktree's state"),
-        "{}",
-        stderr(&output)
-    );
-}
-
-#[test]
-fn push_with_nothing_to_commit_sends_a_commit_an_earlier_run_left_unpushed() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-
-    write(&path.join("left.md"), "committed, not pushed\n");
-    commit_all(&path, "Earlier run");
-    let local = head(&path);
+    write(&docs.join("left.md"), "committed, not pushed\n");
+    commit_all(&docs, "Earlier run");
+    let local = head(&docs);
 
     let output = fx.push("Second run");
 
     assert_success(&output);
-    assert!(
-        stderr(&output).contains("nothing to commit"),
-        "{}",
-        stderr(&output)
-    );
-    assert_eq!(fx.origin_ledger_sha(), local);
-    assert_eq!(origin_subject(&fx), "Earlier run");
+    assert_eq!(fx.origin_docs_sha(), local);
+    assert_eq!(origin_docs_subject(&fx), "Earlier run");
 }
 
 #[test]
-fn push_rebases_onto_a_commit_landed_since_the_worktree_was_fetched() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    let remote = fx.add_ledger_commit("remote.md", "remote\n");
+fn push_rebases_onto_a_documents_commit_landed_since_the_fetch() {
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
+    let remote = fx.add_docs_commit("remote.md", "remote\n");
 
-    write(&path.join("local.md"), "local\n");
+    write(&docs.join("local.md"), "local\n");
     let output = fx.push("Local change");
 
     assert_success(&output);
-    let tip = fx.origin_ledger_sha();
-    assert_eq!(head(&path), tip);
+    let tip = fx.origin_docs_sha();
+    assert_eq!(head(&docs), tip);
     assert!(is_ancestor(&fx.origin(), &remote, &tip));
-    assert_eq!(fx.origin_file(LEDGER_REF, "remote.md").unwrap(), "remote\n");
-    assert_eq!(fx.origin_file(LEDGER_REF, "local.md").unwrap(), "local\n");
+    assert_eq!(fx.origin_file(DOCS_REF, "remote.md").unwrap(), "remote\n");
+    assert_eq!(fx.origin_file(DOCS_REF, "local.md").unwrap(), "local\n");
 }
 
 #[test]
 fn push_retries_when_a_concurrent_writer_lands_between_fetch_and_push() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
     fx.install_racing_pre_push_hook(1);
 
-    write(&path.join("local.md"), "local\n");
+    write(&docs.join("local.md"), "local\n");
     let output = fx.push("Local change");
 
     assert_success(&output);
@@ -853,21 +800,20 @@ fn push_retries_when_a_concurrent_writer_lands_between_fetch_and_push() {
         "{}",
         stderr(&output)
     );
-    let tip = fx.origin_ledger_sha();
-    assert_eq!(stdout(&output), format!("{}\n", tip));
-    assert_eq!(origin_subject(&fx), "Local change");
+    let tip = fx.origin_docs_sha();
+    assert_eq!(origin_docs_subject(&fx), "Local change");
     assert!(is_ancestor(&fx.origin(), &head(&fx.racer()), &tip));
-    assert_eq!(fx.origin_file(LEDGER_REF, "race-1.md").unwrap(), "race 1\n");
-    assert_eq!(fx.origin_file(LEDGER_REF, "local.md").unwrap(), "local\n");
+    assert_eq!(fx.origin_file(DOCS_REF, "race-1.md").unwrap(), "race 1\n");
+    assert_eq!(fx.origin_file(DOCS_REF, "local.md").unwrap(), "local\n");
 }
 
 #[test]
 fn push_stops_after_the_retry_bound_without_overwriting_the_concurrent_writer() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
     fx.install_racing_pre_push_hook(100);
 
-    write(&path.join("local.md"), "local\n");
+    write(&docs.join("local.md"), "local\n");
     let output = fx.push("Local change");
 
     assert!(!output.status.success());
@@ -882,44 +828,34 @@ fn push_stops_after_the_retry_bound_without_overwriting_the_concurrent_writer() 
         "{}",
         stderr(&output)
     );
-    assert_eq!(fx.origin_ledger_sha(), head(&fx.racer()));
-    assert_eq!(origin_subject(&fx), "Race 5");
-    assert!(fx.origin_file(LEDGER_REF, "local.md").is_none());
+    assert_eq!(fx.origin_docs_sha(), head(&fx.racer()));
+    assert_eq!(origin_docs_subject(&fx), "Race 5");
+    assert!(fx.origin_file(DOCS_REF, "local.md").is_none());
     assert_eq!(
-        std::fs::read_to_string(path.join("local.md")).unwrap(),
+        std::fs::read_to_string(docs.join("local.md")).unwrap(),
         "local\n"
     );
     assert_eq!(
-        git_line(&path, &["log", "-1", "--format=%s", "HEAD"]),
+        git_line(&docs, &["log", "-1", "--format=%s", "HEAD"]),
         "Local change"
     );
 }
 
 #[test]
-fn push_never_writes_the_colliding_custom_ref() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
+fn push_never_writes_the_colliding_custom_refs() {
+    let fx = Fixture::with_ledger();
+    let docs_shadow = shadow(&fx, "refs/tsk/docs");
+    let ledger_shadow = shadow(&fx, "refs/tsk/ledger");
 
-    git(&fx.seed(), &["switch", "--quiet", "--orphan", "shadow"]);
-    write(&fx.seed().join(".tsk-ledger.toml"), "version = 1\n");
-    write(&fx.seed().join("shadow.md"), "orphaned custom ref\n");
-    commit_all(&fx.seed(), "Shadow");
-    git(
-        &fx.seed(),
-        &["push", "--quiet", "origin", "HEAD:refs/tsk/ledger"],
-    );
-    let shadow = git_line(&fx.origin(), &["rev-parse", "refs/tsk/ledger"]);
-
-    let path = fx.fetch_ok();
-    write(&path.join("local.md"), "local\n");
+    let docs = fx.fetch_docs();
+    write(&docs.join("local.md"), "local\n");
     let output = fx.push("Local change");
 
     assert_success(&output);
-    assert_eq!(
-        git_line(&fx.origin(), &["rev-parse", "refs/tsk/ledger"]),
-        shadow
-    );
-    assert_eq!(origin_subject(&fx), "Local change");
-    assert!(fx.origin_file(LEDGER_REF, "shadow.md").is_none());
+    assert_eq!(fx.origin_ref_sha("refs/tsk/docs"), docs_shadow);
+    assert_eq!(fx.origin_ref_sha("refs/tsk/ledger"), ledger_shadow);
+    assert_eq!(origin_docs_subject(&fx), "Local change");
+    assert!(fx.origin_file(DOCS_REF, "shadow.md").is_none());
     let refs = git(&fx.origin(), &["for-each-ref", "--format=%(refname)"]);
     let mut refs: Vec<&str> = refs.lines().collect();
     refs.sort();
@@ -927,7 +863,9 @@ fn push_never_writes_the_colliding_custom_ref() {
         refs,
         vec![
             "refs/heads/main",
+            "refs/heads/tsk/docs",
             "refs/heads/tsk/ledger",
+            "refs/tsk/docs",
             "refs/tsk/ledger"
         ]
     );
@@ -935,11 +873,11 @@ fn push_never_writes_the_colliding_custom_ref() {
 
 #[test]
 fn push_aborts_a_conflicting_rebase_and_leaves_the_remote_alone() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    let remote = fx.add_ledger_commit("index.md", "remote edit\n");
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
+    let remote = fx.add_docs_commit("index.md", "remote edit\n");
 
-    write(&path.join("index.md"), "local edit\n");
+    write(&docs.join("index.md"), "local edit\n");
     let output = fx.push("Local edit");
 
     assert!(!output.status.success());
@@ -949,14 +887,14 @@ fn push_aborts_a_conflicting_rebase_and_leaves_the_remote_alone() {
         "{}",
         stderr(&output)
     );
-    assert_eq!(fx.origin_ledger_sha(), remote);
+    assert_eq!(fx.origin_docs_sha(), remote);
     assert_eq!(
-        git_line(&path, &["log", "-1", "--format=%s", "HEAD"]),
+        git_line(&docs, &["log", "-1", "--format=%s", "HEAD"]),
         "Local edit"
     );
-    assert!(git(&path, &["status", "--porcelain=v2", "-z"]).is_empty());
+    assert!(git(&docs, &["status", "--porcelain=v2", "-z"]).is_empty());
     let git_dir = PathBuf::from(git_line(
-        &path,
+        &docs,
         &["rev-parse", "--path-format=absolute", "--git-dir"],
     ));
     assert!(!git_dir.join("rebase-merge").exists());
@@ -964,11 +902,11 @@ fn push_aborts_a_conflicting_rebase_and_leaves_the_remote_alone() {
 }
 
 #[test]
-fn push_without_a_worktree_fails_and_names_fetch() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let before = fx.origin_ledger_sha();
+fn push_without_a_store_fails_and_names_fetch() {
+    let fx = Fixture::with_ledger();
+    let before = fx.origin_docs_sha();
 
-    let output = fx.push("No worktree");
+    let output = fx.push("No store");
 
     assert!(!output.status.success());
     assert!(
@@ -977,36 +915,16 @@ fn push_without_a_worktree_fails_and_names_fetch() {
         stderr(&output)
     );
     assert!(!fx.clone_id_file().exists());
-    assert_eq!(fx.origin_ledger_sha(), before);
+    assert_eq!(fx.origin_docs_sha(), before);
 }
 
-#[test]
-fn push_stops_on_an_unsupported_manifest_version_before_committing() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    let before = head(&path);
-    let remote = fx.add_ledger_commit(".tsk-ledger.toml", "version = 99\n");
-
-    write(&path.join("local.md"), "local\n");
-    let output = fx.push("Local change");
-
-    assert!(!output.status.success());
-    assert!(
-        stderr(&output).contains("unsupported ledger version 99"),
-        "{}",
-        stderr(&output)
-    );
-    assert_eq!(head(&path), before);
-    assert_eq!(fx.origin_ledger_sha(), remote);
-    assert!(path.join("local.md").is_file());
-}
+// --- doc ---
 
 #[test]
 fn doc_get_prints_the_body_exactly_with_no_added_newline() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    std::fs::create_dir_all(path.join("missions")).unwrap();
-    write(&path.join("missions/m.md"), "no trailing newline");
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
+    write(&docs.join("missions/m.md"), "no trailing newline");
     let output = fx.tsk(&["ledger", "doc", "get", "missions/m.md"]);
     assert_success(&output);
     assert_eq!(stdout(&output), "no trailing newline");
@@ -1016,7 +934,7 @@ fn doc_get_prints_the_body_exactly_with_no_added_newline() {
 
 #[test]
 fn doc_get_of_an_absent_document_fails_with_the_path() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let fx = Fixture::with_ledger();
     fx.fetch_ok();
     let output = fx.tsk(&["ledger", "doc", "get", "missions/none.md"]);
     assert_eq!(output.status.code(), Some(1));
@@ -1029,15 +947,15 @@ fn doc_get_of_an_absent_document_fails_with_the_path() {
 
 #[test]
 fn doc_put_from_stdin_or_a_file_writes_the_worktree_and_does_not_push() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    let before = fx.origin_ledger_sha();
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
+    let before = fx.origin_docs_sha();
 
     let output = fx.tsk_stdin(&["ledger", "doc", "put", "missions/new.md"], "from stdin\n");
     assert_success(&output);
     assert_eq!(stdout(&output), "");
     assert_eq!(
-        std::fs::read_to_string(path.join("missions/new.md")).unwrap(),
+        std::fs::read_to_string(docs.join("missions/new.md")).unwrap(),
         "from stdin\n"
     );
 
@@ -1046,37 +964,32 @@ fn doc_put_from_stdin_or_a_file_writes_the_worktree_and_does_not_push() {
     let output = fx.tsk(&["ledger", "doc", "put", "index.md", source.to_str().unwrap()]);
     assert_success(&output);
     assert_eq!(
-        std::fs::read_to_string(path.join("index.md")).unwrap(),
+        std::fs::read_to_string(docs.join("index.md")).unwrap(),
         "from file"
     );
-    assert_eq!(fx.origin_ledger_sha(), before);
+    assert_eq!(fx.origin_docs_sha(), before);
 
     let output = fx.push("Record the documents");
     assert_success(&output);
     assert_eq!(
-        fx.origin_file(LEDGER_REF, "missions/new.md").unwrap(),
+        fx.origin_file(DOCS_REF, "missions/new.md").unwrap(),
         "from stdin\n"
     );
 }
 
 #[test]
 fn doc_list_prints_sorted_paths_and_filters_by_prefix() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    write(&path.join("future-missions-tbd.md"), "x");
-    std::fs::create_dir_all(path.join("missions/operational")).unwrap();
-    write(&path.join("missions/b.md"), "b");
-    write(&path.join("missions/operational/a.md"), "a");
-    std::fs::create_dir_all(path.join("threads/1234abcd")).unwrap();
-    std::fs::create_dir_all(path.join("external-events")).unwrap();
-    write(&path.join("threads/1234abcd/index.md"), "t");
-    write(&path.join("external-events/queue.ndjson"), "{}\n");
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
+    write(&docs.join("future-missions-tbd.md"), "x");
+    write(&docs.join("missions/b.md"), "b");
+    write(&docs.join("missions/operational/a.md"), "a");
 
     let output = fx.tsk(&["ledger", "doc", "list"]);
     assert_success(&output);
     assert_eq!(
         stdout(&output),
-        "future-missions-tbd.md\nindex.md\nmissions/b.md\nmissions/operational/a.md\n"
+        "README.md\nfuture-missions-tbd.md\nindex.md\nmissions/b.md\nmissions/operational/a.md\n"
     );
     let output = fx.tsk(&["ledger", "doc", "list", "missions/"]);
     assert_eq!(
@@ -1090,15 +1003,14 @@ fn doc_list_prints_sorted_paths_and_filters_by_prefix() {
 
 #[test]
 fn doc_rm_removes_the_document_and_fails_when_it_is_absent() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    std::fs::create_dir_all(path.join("missions")).unwrap();
-    write(&path.join("missions/m.md"), "m");
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
+    write(&docs.join("missions/m.md"), "m");
 
     let output = fx.tsk(&["ledger", "doc", "rm", "missions/m.md"]);
     assert_success(&output);
     assert_eq!(stdout(&output), "");
-    assert!(!path.join("missions/m.md").exists());
+    assert!(!docs.join("missions/m.md").exists());
 
     let output = fx.tsk(&["ledger", "doc", "rm", "missions/m.md"]);
     assert_eq!(output.status.code(), Some(1));
@@ -1106,18 +1018,15 @@ fn doc_rm_removes_the_document_and_fails_when_it_is_absent() {
 }
 
 #[test]
-fn doc_commands_reject_paths_that_are_not_documents() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
-    let path = fx.fetch_ok();
-    std::fs::create_dir_all(path.join("threads/1234abcd")).unwrap();
-    write(&path.join("threads/1234abcd/index.md"), "t");
+fn doc_commands_reject_paths_that_cannot_be_documents() {
+    let fx = Fixture::with_ledger();
+    fx.fetch_ok();
     for bad in [
         "/etc/passwd",
         "../outside.md",
         "missions/../../outside.md",
-        "threads/1234abcd/index.md",
-        "external-events/queue.ndjson",
-        ".tsk-ledger.toml",
+        ".git",
+        "a/.git/config",
     ] {
         for args in [
             vec!["ledger", "doc", "get", bad],
@@ -1130,18 +1039,14 @@ fn doc_commands_reject_paths_that_are_not_documents() {
         let output = fx.tsk_stdin(&["ledger", "doc", "put", bad], "x");
         assert_eq!(output.status.code(), Some(1), "put {}", bad);
     }
-    assert_eq!(
-        std::fs::read_to_string(path.join("threads/1234abcd/index.md")).unwrap(),
-        "t"
-    );
     assert!(!fx.root.path().join("outside.md").exists());
 }
 
 #[test]
 fn doc_commands_do_not_fetch_and_need_a_fetched_store() {
-    let fx = Fixture::with_ledger(Some("version = 1\n"));
+    let fx = Fixture::with_ledger();
     let output = fx.tsk(&["ledger", "doc", "list"]);
     assert_eq!(output.status.code(), Some(1));
     assert!(stderr(&output).contains("Run tsk ledger fetch first"));
-    assert!(!fx.state().join("tsk").exists());
+    assert!(!fx.clone_id_file().exists());
 }
