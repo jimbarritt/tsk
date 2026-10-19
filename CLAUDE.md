@@ -43,7 +43,16 @@ the tip of the earlier `tsk/bootstrap` branch. Its file-era history is on
 Claude Code cloud sandbox proxy refuses to push or update anything outside
 `refs/heads/*`). It comes down with a plain clone, and `git branch -a` lists it, but it
 is never checked out in the code worktree. The branch holds Dolt table files, not
-Markdown. Agents only ever touch the ledger through the `tsk` commands and the ledger
+Markdown.
+
+This repo keeps its ledger on branches because it is used from Claude Code cloud
+sessions, and the cloud proxy refuses to push a custom ref. `.tsk/config.toml` in the
+tree says so (`[ledger]` and `refs = "branches"`), so the choice is explicit and
+committed. A new ledger in any other repo uses a custom ref, `refs/tsk/ledger` and
+`refs/tsk/docs`, which GitHub does not list as a branch (ADR 0016). `tsk config
+ledger-refs` prints the refs in use and where the choice came from, and `tsk config
+ledger-refs branches|custom` writes the file. Whichever refs a ledger uses, a git
+command you run by hand names the ref in full, such as `refs/tsk/ledger`. Agents only ever touch the ledger through the `tsk` commands and the ledger
 store, a Dolt database at a fixed path outside the repository.
 
 The repo's `SessionStart` script (`ops/local/claude-session-start.sh`) installs the

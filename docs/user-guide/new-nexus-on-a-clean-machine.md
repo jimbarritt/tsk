@@ -150,6 +150,7 @@ next: run tsk ledger fetch in this repo
 | `id` | The repo ID: `--id <id>`, or the repo name in lower case with each run of other characters as `-`. Lower case letters, digits and `-`, starting with a letter or digit. The ledger branch is `ledgers/<id>`. |
 | `url` | The managed repo's `origin` URL. The HTTPS and SSH forms of one URL match each other. |
 | `ledger` | `--ledger nexus`, the default, holds the ledger in the nexus. `--ledger repo` holds it on `tsk/ledger` in the managed repo. |
+| `ledger_refs` | `--ledger-refs custom` or `--ledger-refs branches` sets which refs hold the ledger. Omit it to leave the choice to the repo config and discovery. A new ledger uses `custom`. |
 
 With more than one territory in `nexus.json`, name one with `--territory <id>`. With none,
 `--territory <id> --territory-name <name>` creates it.
@@ -190,14 +191,14 @@ The command finds the `work-api` entry, writes `work-api` to `.git/tsk-repo-id`,
 reports that `ledgers/work-api` does not exist yet. It creates a new ledger: a Dolt
 database and a documents worktree with an `index.md` stub. It prints the database path.
 
-Push it to create the branch in the nexus:
+Push it to create the ref in the nexus:
 
 ```bash
 tsk ledger push "Create the ledger"
-git ls-remote <nexus url> refs/heads/ledgers/work-api
+git ls-remote <nexus url> refs/tsk/ledgers/work-api
 ```
 
-The push creates the branch only when it does not exist, so it never overwrites a
+The push creates the ref only when it does not exist, so it never overwrites a
 ledger another machine created.
 
 ## 8. Install the Claude Code plugin
