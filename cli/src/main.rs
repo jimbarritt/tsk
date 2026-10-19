@@ -88,7 +88,23 @@ enum Commands {
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Restore the default SIGPIPE action. Rust sets it to "ignore", so a write to a closed
+/// pipe (`tsk thread list | head -1`) fails with EPIPE and `println!` panics. With the
+/// default action the process ends quietly, as other command-line tools do.
+#[cfg(unix)]
+fn restore_sigpipe() {
+    // SAFETY: `signal` with SIG_DFL installs no handler. It runs once at the start of
+    // `main`, before any thread exists.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn restore_sigpipe() {}
+
 fn main() {
+    restore_sigpipe();
     let cli = Cli::parse();
     match run_cli(cli) {
         Ok(0) => {}
