@@ -740,6 +740,12 @@ pub enum QuestionCommands {
         mission: String,
         #[arg(allow_hyphen_values = true, help = "One-line text of the question")]
         text: String,
+        #[arg(
+            long,
+            value_name = "YYYY-MM-DD",
+            help = "The date the question was asked, a real calendar date; today (UTC) when omitted"
+        )]
+        on: Option<String>,
     },
     #[command(
         about = "Rewrite the text of an open question; an answered question cannot be edited"
@@ -758,6 +764,12 @@ pub enum QuestionCommands {
         text: String,
         #[arg(long, help = "Who answered")]
         by: String,
+        #[arg(
+            long,
+            value_name = "YYYY-MM-DD",
+            help = "The date the question was answered, a real calendar date; today (UTC) when omitted"
+        )]
+        on: Option<String>,
     },
     #[command(
         about = "List open questions, one per line: mission, id, date asked, text; all missions when none is given. The columns are aligned with spaces; --porcelain prints them tab-separated"
@@ -885,8 +897,9 @@ pub fn run_decision_with(store: &dyn LedgerStore, action: DecisionCommands) -> R
 
 pub fn run_question_with(store: &dyn LedgerStore, action: QuestionCommands) -> Result<(), String> {
     match action {
-        QuestionCommands::Add { mission, text } => {
-            let date = today();
+        QuestionCommands::Add { mission, text, on } => {
+            let date = on.unwrap_or_else(today);
+            check_date(&date)?;
             let saved = change(store, |all| question_add(all, &mission, &text, &date))?;
             println!("{}", question_label(saved.next_question - 1));
         }
@@ -902,8 +915,10 @@ pub fn run_question_with(store: &dyn LedgerStore, action: QuestionCommands) -> R
             question,
             text,
             by,
+            on,
         } => {
-            let date = today();
+            let date = on.unwrap_or_else(today);
+            check_date(&date)?;
             change(store, |all| {
                 question_answer(all, &mission, &question, &text, &by, &date)
             })?;

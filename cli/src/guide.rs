@@ -126,8 +126,8 @@ tsk task block <mission> <task> <blocking-task>
 tsk task list <mission> [--porcelain]
 tsk decision add <mission> "<text>" --by <who> [--task <task>] [--on <YYYY-MM-DD>] [--adr <path>]
 tsk decision list [<mission>] [--adr <path>] [--porcelain]
-tsk question add <mission> "<text>"             # prints Q-nn
-tsk question answer <mission> <question> "<text>" --by <who>
+tsk question add <mission> "<text>" [--on <YYYY-MM-DD>]   # prints Q-nn
+tsk question answer <mission> <question> "<text>" --by <who> [--on <YYYY-MM-DD>]
 tsk question list [<mission>] [--porcelain]
 tsk ledger doc put <path> [<file>]              # body from the file, or from stdin
 tsk ledger doc list [<prefix>]
