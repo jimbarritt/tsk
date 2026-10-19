@@ -7,7 +7,7 @@
 //! [`crate::ledger::docs`]). A version 1 ledger still keeps them in a `documents` table
 //! until `tsk ledger migrate-docs` moves them.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 
 use crate::ledger::docs;
@@ -45,7 +45,46 @@ pub struct DoltStore {
     /// each. Anything that can move the database to another state clears it.
     checked: RefCell<Option<(PathBuf, i64)>>,
     synced: RefCell<Synced>,
+    /// What a thread command reads, loaded in one `dolt` process by its refresh. Any
+    /// write drops it, and the next read loads it again.
+    snapshot: RefCell<Option<Snapshot>>,
+    /// Set by the refresh of a thread command: its reads come from the snapshot.
+    read_ahead: Cell<bool>,
+    /// A snapshot could not be loaded, so the reads go one by one until the next write.
+    no_snapshot: Cell<bool>,
 }
+
+/// A thread of the `threads` table.
+#[derive(Clone)]
+struct ThreadRow {
+    id: String,
+    briefing_path: Option<String>,
+    mission_id: Option<String>,
+}
+
+/// The reads of a thread command, taken in one process after the refresh: the manifest
+/// version, every mission, the bindings, the threads, the commit `HEAD` is at, and
+/// whether the working set holds changes.
+struct Snapshot {
+    version: i64,
+    head: String,
+    dirty: bool,
+    bindings: Vec<BindingRow>,
+    threads: Vec<ThreadRow>,
+    missions: Vec<Mission>,
+}
+
+/// What the refresh found in the Dolt database.
+struct DataState {
+    remote_head: String,
+    pending: Vec<String>,
+    version: i64,
+}
+
+const DIRTY_QUERY: &str = "select count(*) as c from dolt_status";
+const BINDINGS_QUERY: &str =
+    "select actor, kind, thread_id, registered_at from bindings order by registered_at, actor";
+const THREADS_QUERY: &str = "select thread_id, briefing_path, mission_id from threads";
 
 /// What this process has found out about origin, so a command fetches each ref at most once.
 #[derive(Default)]
@@ -59,6 +98,8 @@ struct Synced {
     /// The documents tip this process fetched, checked or pushed: `Some(None)` for a
     /// branch origin does not hold.
     docs: Option<Option<String>>,
+    /// This process ran a fetch of the data.
+    fetched_here: bool,
 }
 
 impl DoltStore {
@@ -70,6 +111,9 @@ impl DoltStore {
             state_root,
             checked: RefCell::new(None),
             synced: RefCell::new(Synced::default()),
+            snapshot: RefCell::new(None),
+            read_ahead: Cell::new(false),
+            no_snapshot: Cell::new(false),
         })
     }
 
@@ -94,18 +138,31 @@ impl DoltStore {
     /// Bring the local Dolt store's copy of origin up to date: nothing when this process
     /// already did or origin's head is the one last fetched, else `dolt fetch`.
     fn sync_data(&self, db: &Dolt, location: &LedgerLocation) -> Result<(), String> {
-        if self.synced.borrow().data {
+        if self.data_is_current(location) {
+            self.synced.borrow_mut().data = true;
             return Ok(());
         }
-        let wanted = self.heads(location).and_then(|heads| heads.ledger);
-        let tips = self.tips();
-        if let (Some(wanted), Some(tips)) = (&wanted, &tips) {
-            if tips.get(location.remote(), location.ref_name()).as_deref() == Some(wanted.as_str())
-            {
-                self.synced.borrow_mut().data = true;
-                return Ok(());
-            }
+        self.fetch_data(db, location)
+    }
+
+    /// True when a fetch of the Dolt data would bring nothing: this process fetched it, or
+    /// origin's head is the one the last fetch recorded.
+    fn data_is_current(&self, location: &LedgerLocation) -> bool {
+        if self.synced.borrow().data {
+            return true;
         }
+        let Some(wanted) = self.heads(location).and_then(|heads| heads.ledger) else {
+            return false;
+        };
+        self.tips()
+            .and_then(|tips| tips.get(location.remote(), location.ref_name()))
+            .as_deref()
+            == Some(wanted.as_str())
+    }
+
+    /// `dolt fetch`, and the record of what it brought.
+    fn fetch_data(&self, db: &Dolt, location: &LedgerLocation) -> Result<(), String> {
+        let wanted = self.heads(location).and_then(|heads| heads.ledger);
         db.run(["fetch", REMOTE])?;
         self.note_data_fetched(location, wanted.as_deref());
         Ok(())
@@ -117,7 +174,9 @@ impl DoltStore {
         if let Some(tips) = self.tips() {
             tips.set(location.remote(), location.ref_name(), head);
         }
-        self.synced.borrow_mut().data = true;
+        let mut synced = self.synced.borrow_mut();
+        synced.data = true;
+        synced.fetched_here = true;
     }
 
     /// The documents tip: nothing is fetched when this process already holds it, when origin
@@ -279,6 +338,290 @@ impl DoltStore {
         *self.checked.borrow_mut() = None;
     }
 
+    /// Drop the snapshot: something changed the database, or is about to.
+    fn forget_snapshot(&self) {
+        *self.snapshot.borrow_mut() = None;
+        self.no_snapshot.set(false);
+    }
+
+    /// A write in one transaction. The snapshot no longer holds.
+    fn write(&self, db: &Dolt, sql: &str) -> Result<(), String> {
+        self.forget_snapshot();
+        db.exec(sql)
+    }
+
+    /// The queries of a snapshot, and how many of them read missions.
+    fn snapshot_queries() -> Result<(Vec<String>, usize), String> {
+        let mut recorded = Vec::new();
+        read_missions_with(dolt::LAYOUT_VERSION, &mut |sql| {
+            recorded.push(sql.to_string());
+            Ok(Vec::new())
+        })?;
+        let missions = recorded.len();
+        let mut queries = vec![MANIFEST_QUERY.to_string()];
+        queries.extend(recorded);
+        queries.push(BINDINGS_QUERY.to_string());
+        queries.push(THREADS_QUERY.to_string());
+        queries.push(hash_query("HEAD"));
+        queries.push(DIRTY_QUERY.to_string());
+        Ok((queries, missions))
+    }
+
+    /// The snapshot in the results of [`Self::snapshot_queries`]. The manifest check is
+    /// the one every command makes, so a ledger it refuses fails the same way. `None`
+    /// when the ledger is not at the current layout.
+    fn parse_snapshot(
+        &self,
+        location: &LedgerLocation,
+        sets: Vec<Vec<serde_json::Value>>,
+    ) -> Result<Option<Snapshot>, String> {
+        let mut sets = sets.into_iter();
+        let mut next = || {
+            sets.next()
+                .ok_or_else(|| "error: a batched read ran out of results".to_string())
+        };
+        let info = manifest_from_rows(&next()?)?;
+        manifest::check_values(
+            info.version,
+            info.repo_id.as_deref(),
+            location.repo_id(),
+            MANIFEST_SOURCE,
+            DOLT_SUPPORTED_VERSIONS,
+        )?;
+        if info.version != dolt::LAYOUT_VERSION {
+            return Ok(None);
+        }
+        let missions = read_missions_with(dolt::LAYOUT_VERSION, &mut |_| next())?;
+        let bindings = binding_rows(&next()?, false);
+        let threads = next()?
+            .iter()
+            .map(|row| ThreadRow {
+                id: text(row, "thread_id").unwrap_or_default(),
+                briefing_path: text(row, "briefing_path").filter(|p| !p.is_empty()),
+                mission_id: text(row, "mission_id").filter(|m| !m.is_empty()),
+            })
+            .collect();
+        let head = next()?
+            .first()
+            .and_then(|row| text(row, "h"))
+            .ok_or_else(|| "error: dolt could not resolve HEAD".to_string())?;
+        let dirty = dolt::first_count(&next()?) > 0;
+        Ok(Some(Snapshot {
+            version: info.version,
+            head,
+            dirty,
+            bindings,
+            threads,
+            missions,
+        }))
+    }
+
+    /// Load the snapshot in one process. `Ok(None)` when it cannot be loaded (batching is
+    /// off, a query fails, the layout is older): the reads then go one by one.
+    fn read_ahead(&self, db: &Dolt, location: &LedgerLocation) -> Result<Option<i64>, String> {
+        self.forget_snapshot();
+        let (queries, _) = Self::snapshot_queries()?;
+        let Ok(sets) = db.rows_each(&queries) else {
+            self.no_snapshot.set(true);
+            return Ok(None);
+        };
+        self.install_snapshot(db, location, sets)
+    }
+
+    fn install_snapshot(
+        &self,
+        db: &Dolt,
+        location: &LedgerLocation,
+        sets: Vec<Vec<serde_json::Value>>,
+    ) -> Result<Option<i64>, String> {
+        match self.parse_snapshot(location, sets)? {
+            Some(snapshot) => {
+                let version = snapshot.version;
+                self.remember_checked(db, version);
+                *self.snapshot.borrow_mut() = Some(snapshot);
+                Ok(Some(version))
+            }
+            None => {
+                self.no_snapshot.set(true);
+                Ok(None)
+            }
+        }
+    }
+
+    /// Read from the snapshot of a thread command, loading it when a write dropped it.
+    /// `None` when this command keeps no snapshot or none can be loaded.
+    fn read_snapshot<T>(
+        &self,
+        db: &Dolt,
+        pick: impl FnOnce(&Snapshot) -> T,
+    ) -> Result<Option<T>, String> {
+        if !self.read_ahead.get() || self.no_snapshot.get() {
+            return Ok(None);
+        }
+        if self.snapshot.borrow().is_none() {
+            let location = self.repo.location(&self.state_root)?;
+            self.read_ahead(db, &location)?;
+        }
+        Ok(self.snapshot.borrow().as_ref().map(pick))
+    }
+
+    /// The manifest check at the end of a refresh, reading the snapshot of a thread
+    /// command with it.
+    fn read_tail(
+        &self,
+        db: &Dolt,
+        location: &LedgerLocation,
+        thread_command: bool,
+    ) -> Result<i64, String> {
+        if thread_command {
+            if let Some(version) = self.read_ahead(db, location)? {
+                return Ok(version);
+            }
+        }
+        let version = self.check_manifest_of(db, location)?;
+        self.remember_checked(db, version);
+        Ok(version)
+    }
+
+    /// [`Self::read_tail`] for results the refresh's batch already holds.
+    fn finish_tail(
+        &self,
+        db: &Dolt,
+        location: &LedgerLocation,
+        thread_command: bool,
+        sets: Vec<Vec<serde_json::Value>>,
+    ) -> Result<i64, String> {
+        let info = manifest_from_rows(sets.first().map(Vec::as_slice).unwrap_or(&[]))?;
+        if thread_command {
+            if let Some(version) = self.install_snapshot(db, location, sets)? {
+                return Ok(version);
+            }
+        }
+        let version = manifest::check_values(
+            info.version,
+            info.repo_id.as_deref(),
+            location.repo_id(),
+            MANIFEST_SOURCE,
+            DOLT_SUPPORTED_VERSIONS,
+        )?;
+        self.remember_checked(db, version);
+        Ok(version)
+    }
+
+    /// Everything the refresh reads after the fetch decision, in one `dolt` process: the
+    /// remote check and the dirty check (when `first` holds the URL and path), the remote
+    /// branch, its head, the commits not pushed, the local head and the tail (the
+    /// manifest, or the snapshot of a thread command). Brings the database up to origin
+    /// when it is behind, and reads the tail again. `Ok(None)` when the batch fails or
+    /// the remote branch is missing, and the caller reads one by one, which gives the same
+    /// result or the same error.
+    fn read_state(
+        &self,
+        db: &Dolt,
+        location: &LedgerLocation,
+        present: bool,
+        first: Option<(&str, &Path)>,
+        dirty_before: bool,
+        thread_command: bool,
+    ) -> Result<Option<DataState>, String> {
+        let remote_ref = format!("{}/{}", REMOTE, BRANCH);
+        let mut queries = Vec::new();
+        if first.is_some() {
+            queries.push(remote_query());
+            queries.push(DIRTY_QUERY.to_string());
+        }
+        let branch_at = queries.len();
+        queries.push(remote_branch_query());
+        queries.push(hash_query(&remote_ref));
+        if present {
+            queries.push(pending_query());
+            queries.push(hash_query("HEAD"));
+        }
+        let tail_at = queries.len();
+        if thread_command {
+            queries.extend(Self::snapshot_queries()?.0);
+        } else {
+            queries.push(MANIFEST_QUERY.to_string());
+        }
+        let Ok(mut sets) = db.rows_each(&queries) else {
+            return Ok(None);
+        };
+        let mut dirty = dirty_before;
+        if let Some((url, path)) = first {
+            verify_remote_rows(db, &sets[0], url, location)?;
+            dirty = dolt::first_count(&sets[1]) > 0;
+            if dirty && !thread_command {
+                return Err(dirty_error(path));
+            }
+        }
+        let remote_head = sets[branch_at + 1].first().and_then(|r| text(r, "h"));
+        let Some(remote_head) = remote_head.filter(|_| dolt::first_count(&sets[branch_at]) > 0)
+        else {
+            return Ok(None);
+        };
+        let mut pending = Vec::new();
+        let mut behind = false;
+        if present {
+            pending = pending_from_rows(&sets[branch_at + 2]);
+            let local = sets[branch_at + 3].first().and_then(|r| text(r, "h"));
+            behind = pending.is_empty() && !dirty && local.as_deref() != Some(remote_head.as_str());
+        }
+        let version = if behind {
+            db.run(["reset", "--hard", remote_ref.as_str()])?;
+            self.read_tail(db, location, thread_command)?
+        } else {
+            let tail = sets.split_off(tail_at);
+            self.finish_tail(db, location, thread_command, tail)?
+        };
+        Ok(Some(DataState {
+            remote_head,
+            pending,
+            version,
+        }))
+    }
+
+    /// [`Self::read_state`] one query at a time.
+    fn read_state_one_by_one(
+        &self,
+        db: &Dolt,
+        location: &LedgerLocation,
+        present: bool,
+        dirty: bool,
+        thread_command: bool,
+    ) -> Result<DataState, String> {
+        let remote_ref = format!("{}/{}", REMOTE, BRANCH);
+        let mut has_remote_branch = remote_branch_exists(db)?;
+        if !has_remote_branch && !self.synced.borrow().fetched_here {
+            // The record of the last fetch said the store was current, and it lacks the
+            // branch. Fetch for real.
+            self.fetch_data(db, location)?;
+            has_remote_branch = remote_branch_exists(db)?;
+        }
+        if !has_remote_branch {
+            return Err(format!(
+                "error: {} on {} holds no Dolt branch '{}'; it is not a Dolt ledger",
+                location.ref_name(),
+                location.label(),
+                BRANCH
+            ));
+        }
+        let remote_head = db.hash_of(&remote_ref)?;
+        let pending = if present {
+            pending_commits(db)?
+        } else {
+            Vec::new()
+        };
+        if present && pending.is_empty() && !dirty {
+            db.run(["reset", "--hard", &remote_ref])?;
+        }
+        let version = self.read_tail(db, location, thread_command)?;
+        Ok(DataState {
+            remote_head,
+            pending,
+            version,
+        })
+    }
+
     /// The worktree of the documents branch, when this clone has an id.
     fn docs_hint(&self) -> Option<PathBuf> {
         self.repo
@@ -372,6 +715,7 @@ impl DoltStore {
         notes: &mut dyn FnMut(&str),
     ) -> Result<PushReport, String> {
         self.forget_checked();
+        self.forget_snapshot();
         let path = db.dir().to_path_buf();
         let outcome = |result: PushResult, commit: String| PushOutcome {
             location: location.clone(),
@@ -418,9 +762,15 @@ impl DoltStore {
                     remote_branch_query(),
                     flags_query.clone(),
                     hash_query(&remote_ref),
+                    hash_query("HEAD"),
                 ])
                 .ok()
                 .filter(|sets| dolt::first_count(&sets[0]) > 0);
+            // The commit `HEAD` is at, while nothing has moved it.
+            let mut head_before = batched
+                .as_ref()
+                .and_then(|sets| sets[3].first())
+                .and_then(|row| text(row, "h"));
             let known = batched.map(|sets| (sets[1].first().cloned(), sets[2].first().cloned()));
             if let Some((flags, tip)) = known {
                 let (head_in_remote, remote_in_head) = flags
@@ -434,6 +784,7 @@ impl DoltStore {
                 }
                 if !remote_in_head {
                     merge_remote(db, &remote_ref)?;
+                    head_before = None;
                 }
             } else if remote_branch_exists(db)? {
                 let rows = db.rows(&flags_query);
@@ -450,13 +801,17 @@ impl DoltStore {
                 }
                 if !remote_in_head {
                     merge_remote(db, &remote_ref)?;
+                    head_before = None;
                 }
             }
 
             let (args, pushed) = db.output(["push", REMOTE, BRANCH])?;
             if pushed.status.success() {
                 self.note_data_pushed(db, location);
-                let head = db.head_hash()?;
+                let head = match head_before {
+                    Some(head) => head,
+                    None => db.head_hash()?,
+                };
                 return Ok(finish(
                     outcome(PushResult::Pushed { attempts: attempt }, head),
                     notes,
@@ -980,6 +1335,8 @@ impl DoltStore {
     /// Refresh the Dolt database, and return the manifest version it holds.
     pub(crate) fn refresh_data(&self, keep_local: bool) -> Result<(RefreshOutcome, i64), String> {
         self.forget_checked();
+        self.forget_snapshot();
+        self.read_ahead.set(keep_local);
         dolt::ensure_identity()?;
         let location = self.repo.location(&self.state_root)?;
         let clone_id = self.repo.ensure_clone_id()?;
@@ -1029,29 +1386,46 @@ impl DoltStore {
         }
 
         let db;
-        let mut dirty = false;
-        let mut pending = Vec::new();
+        let state;
         if present {
             db = Dolt::new(&path);
-            // The remote check and the dirty check read in one process. When the batch
-            // fails, they read one by one, which gives the same result or error.
-            match db.rows_each(&[
-                remote_query(),
-                "select count(*) as c from dolt_status".to_string(),
-            ]) {
-                Ok(sets) => {
-                    verify_remote_rows(&db, &sets[0], &url, &location)?;
-                    dirty = dolt::first_count(&sets[1]) > 0;
+            // When origin has nothing new, one process reads everything the refresh needs.
+            // Otherwise the remote check and the dirty check come first, then the fetch,
+            // then the reads. When a batch fails, the reads go one by one, which gives the
+            // same result or error.
+            let mut found = None;
+            if self.data_is_current(&location) {
+                found = self.read_state(
+                    &db,
+                    &location,
+                    true,
+                    Some((url.as_str(), path.as_path())),
+                    false,
+                    keep_local,
+                )?;
+            }
+            if found.is_none() {
+                let dirty = match db.rows_each(&[remote_query(), DIRTY_QUERY.to_string()]) {
+                    Ok(sets) => {
+                        verify_remote_rows(&db, &sets[0], &url, &location)?;
+                        dolt::first_count(&sets[1]) > 0
+                    }
+                    Err(_) => {
+                        verify_remote(&db, &url, &location)?;
+                        db.count(DIRTY_QUERY)? > 0
+                    }
+                };
+                if dirty && !keep_local {
+                    return Err(dirty_error(&path));
                 }
-                Err(_) => {
-                    verify_remote(&db, &url, &location)?;
-                    dirty = db.count("select count(*) as c from dolt_status")? > 0;
+                self.sync_data(&db, &location)?;
+                found = self.read_state(&db, &location, true, None, dirty, keep_local)?;
+                if found.is_none() {
+                    found =
+                        Some(self.read_state_one_by_one(&db, &location, true, dirty, keep_local)?);
                 }
             }
-            if dirty && !keep_local {
-                return Err(dirty_error(&path));
-            }
-            self.sync_data(&db, &location)?;
+            state = found.expect("the state was read");
         } else {
             self.check_remote_kind(&location)?;
             let parent = path
@@ -1066,45 +1440,17 @@ impl DoltStore {
             Dolt::new(parent).run(["clone", "--ref", location.ref_name(), url.as_str(), &name])?;
             db = Dolt::new(&path);
             self.note_data_fetched(&location, ledger_tip.as_deref());
-        }
-        // One process for the three reads. When the batch fails (the remote branch is
-        // missing, say), they read one by one, which gives the same error.
-        let remote_ref = format!("{}/{}", REMOTE, BRANCH);
-        let mut queries = vec![remote_branch_query(), hash_query(&remote_ref)];
-        if present {
-            queries.push(pending_query());
-        }
-        let batched = db.rows_each(&queries).ok().filter(|sets| {
-            dolt::first_count(&sets[0]) > 0 && sets[1].first().and_then(|r| text(r, "h")).is_some()
-        });
-        let remote_head = if let Some(sets) = batched {
-            if present {
-                pending = pending_from_rows(&sets[2]);
+            let mut found = self.read_state(&db, &location, false, None, false, keep_local)?;
+            if found.is_none() {
+                found = Some(self.read_state_one_by_one(&db, &location, false, false, keep_local)?);
             }
-            sets[1]
-                .first()
-                .and_then(|r| text(r, "h"))
-                .unwrap_or_default()
-        } else {
-            if !remote_branch_exists(&db)? {
-                return Err(format!(
-                    "error: {} on {} holds no Dolt branch '{}'; it is not a Dolt ledger",
-                    location.ref_name(),
-                    location.label(),
-                    BRANCH
-                ));
-            }
-            let head = db.hash_of(&remote_ref)?;
-            if present {
-                pending = pending_commits(&db)?;
-            }
-            head
-        };
-        if present && pending.is_empty() && !dirty {
-            db.run(["reset", "--hard", &format!("{}/{}", REMOTE, BRANCH)])?;
+            state = found.expect("the state was read");
         }
-        let version = self.check_manifest_of(&db, &location)?;
-        self.remember_checked(&db, version);
+        let DataState {
+            remote_head,
+            pending,
+            version,
+        } = state;
         let pending_note = (!pending.is_empty()).then(|| {
             let mut note = format!(
                 "note: {} holds a commit that is not on {}:\n",
@@ -1150,7 +1496,12 @@ impl LedgerStore for DoltStore {
     }
 
     fn has_local_changes(&self) -> Result<bool, String> {
-        if self.db()?.count("select count(*) as c from dolt_status")? > 0 {
+        let db = self.db()?;
+        let dirty = match self.read_snapshot(&db, |snapshot| snapshot.dirty)? {
+            Some(dirty) => dirty,
+            None => db.count(DIRTY_QUERY)? > 0,
+        };
+        if dirty {
             return Ok(true);
         }
         let docs = Git::new(&self.docs_tree()?.root);
@@ -1247,6 +1598,7 @@ impl LedgerStore for DoltStore {
 
     fn discard(&self) -> Result<(), String> {
         self.forget_checked();
+        self.forget_snapshot();
         let db = self.db()?;
         let location = self.repo.location(&self.state_root)?;
         self.check_current(&db, &location)?;
@@ -1299,21 +1651,46 @@ impl LedgerStore for DoltStore {
         self.check_current(&db, &location)?;
         let docs_path = self.docs_tree()?.root;
 
-        // Stage everything and count the staged tables in one process; if that fails,
-        // the same two steps run on their own and give the same error.
+        // Stage everything, count the staged tables, list the document links and commit
+        // what is staged, in one process. When that fails (a ledger below the layout that
+        // has the link table, say), the steps run in two processes, and when that fails
+        // they run one by one. Each gives the same result or the same error.
+        self.forget_snapshot();
         let staged_query = "select count(*) as c from dolt_status where staged = 1";
-        let staged =
-            match db.rows_each(&["call dolt_add('-A')".to_string(), staged_query.to_string()]) {
-                Ok(sets) => dolt::first_count(&sets[1]),
-                Err(_) => {
-                    db.run(["add", "-A"])?;
-                    db.count(staged_query)?
+        let links_query = "select path from mission_documents";
+        let all_in_one = db.rows_each(&[
+            "call dolt_add('-A')".to_string(),
+            staged_query.to_string(),
+            links_query.to_string(),
+            format!("call dolt_commit('--skip-empty', '-m', {})", lit(message)),
+        ]);
+        let (committed, links) = match all_in_one {
+            Ok(sets) => (
+                dolt::first_count(&sets[1]) > 0,
+                Some(
+                    sets[2]
+                        .iter()
+                        .filter_map(|row| text(row, "path"))
+                        .collect::<Vec<_>>(),
+                ),
+            ),
+            Err(_) => {
+                let staged = match db
+                    .rows_each(&["call dolt_add('-A')".to_string(), staged_query.to_string()])
+                {
+                    Ok(sets) => dolt::first_count(&sets[1]),
+                    Err(_) => {
+                        db.run(["add", "-A"])?;
+                        db.count(staged_query)?
+                    }
+                };
+                let committed = staged > 0;
+                if committed {
+                    db.run(["commit", "-m", message])?;
                 }
-            };
-        let committed = staged > 0;
-        if committed {
-            db.run(["commit", "-m", message])?;
-        }
+                (committed, None)
+            }
+        };
 
         // The documents go first, then the Dolt data. A record must never name a document
         // the remote lacks: a reader who finds the record can then always open the
@@ -1346,12 +1723,20 @@ impl LedgerStore for DoltStore {
 
         // Every document a mission links must still exist. The documents are already
         // pushed, so this stops before the Dolt data goes and keeps both local commits.
+        // The linked paths came with the commit, so when each of them exists the missions
+        // are not read. A path that is missing, or no list, sends the check through the
+        // missions, which names the mission and the first path.
         let docs_tree = self.docs_tree()?;
-        model::check_links(
-            &self.missions_in(&db, &location)?,
-            &|path| docs_tree.doc_path(path).is_file(),
-            "The documents are pushed. The Dolt data stays committed locally and is not pushed yet",
-        )?;
+        let all_exist = links
+            .as_ref()
+            .is_some_and(|paths| paths.iter().all(|path| docs_tree.doc_path(path).is_file()));
+        if !all_exist {
+            model::check_links(
+                &self.missions_in(&db, &location)?,
+                &|path| docs_tree.doc_path(path).is_file(),
+                "The documents are pushed. The Dolt data stays committed locally and is not pushed yet",
+            )?;
+        }
 
         let mut report = self.push_data(&location, &db, committed, docs_changed, notes)?;
         if docs_changed {
@@ -1366,7 +1751,11 @@ impl LedgerStore for DoltStore {
     }
 
     fn head_id(&self) -> Result<String, String> {
-        self.db()?.head_hash()
+        let db = self.db()?;
+        match self.read_snapshot(&db, |snapshot| snapshot.head.clone())? {
+            Some(head) => Ok(head),
+            None => db.head_hash(),
+        }
     }
 
     fn doc_get(&self, path: &str) -> Result<Option<String>, String> {
@@ -1402,7 +1791,13 @@ impl LedgerStore for DoltStore {
     }
 
     fn thread_exists(&self, id: &str) -> Result<bool, String> {
-        Ok(self.db()?.count(&format!(
+        let db = self.db()?;
+        if let Some(found) = self.read_snapshot(&db, |snapshot| {
+            snapshot.threads.iter().any(|thread| thread.id == id)
+        })? {
+            return Ok(found);
+        }
+        Ok(db.count(&format!(
             "select count(*) as c from threads where thread_id = {}",
             lit(id)
         ))? > 0)
@@ -1431,7 +1826,7 @@ impl LedgerStore for DoltStore {
             briefing_path.map_or("NULL".to_string(), lit),
             mission_id.map_or("NULL".to_string(), lit)
         ));
-        db.exec(&sql)
+        self.write(&db, &sql)
     }
 
     fn thread_set_mission(
@@ -1456,19 +1851,34 @@ impl LedgerStore for DoltStore {
             mission_id.map_or("NULL".to_string(), lit),
             lit(id)
         ));
-        db.exec(&sql)
+        self.write(&db, &sql)
     }
 
     fn thread_delete(&self, id: &str) -> Result<(), String> {
-        self.db()?.exec(&format!(
-            "delete from continuation_entries where thread_id = {t};\n\
-             delete from threads where thread_id = {t};",
-            t = lit(id)
-        ))
+        let db = self.db()?;
+        self.write(
+            &db,
+            &format!(
+                "delete from continuation_entries where thread_id = {t};\n\
+                 delete from threads where thread_id = {t};",
+                t = lit(id)
+            ),
+        )
     }
 
     fn thread_ids(&self) -> Result<Vec<String>, String> {
-        let rows = self.db()?.rows("select thread_id from threads")?;
+        let db = self.db()?;
+        if let Some(mut ids) = self.read_snapshot(&db, |snapshot| {
+            snapshot
+                .threads
+                .iter()
+                .map(|thread| thread.id.clone())
+                .collect::<Vec<_>>()
+        })? {
+            ids.sort();
+            return Ok(ids);
+        }
+        let rows = db.rows("select thread_id from threads")?;
         let mut ids: Vec<String> = rows
             .iter()
             .filter_map(|row| text(row, "thread_id"))
@@ -1479,6 +1889,19 @@ impl LedgerStore for DoltStore {
 
     fn thread_info(&self, id: &str) -> Result<ThreadInfo, String> {
         let db = self.db()?;
+        if let Some(info) = self.read_snapshot(&db, |snapshot| {
+            snapshot
+                .threads
+                .iter()
+                .find(|thread| thread.id == id)
+                .map(|thread| ThreadInfo {
+                    mission_id: thread.mission_id.clone(),
+                    briefing_path: thread.briefing_path.clone(),
+                })
+                .unwrap_or_default()
+        })? {
+            return Ok(info);
+        }
         // A ledger below version 5 has no `mission_id` column.
         let version = match &*self.checked.borrow() {
             Some((dir, version)) if dir == db.dir() => *version,
@@ -1512,16 +1935,18 @@ impl LedgerStore for DoltStore {
                 self.describe_thread(id)
             ));
         }
-        let next = db.count(&format!(
-            "select coalesce(max(seq), 0) + 1 as n from continuation_entries where thread_id = {}",
-            lit(id)
-        ))?;
-        db.exec(&format!(
-            "insert into continuation_entries (thread_id, seq, entry) values ({}, {}, {});",
-            lit(id),
-            next,
-            lit(line)
-        ))
+        // The next number is worked out inside the write, so the read and the write cannot
+        // be separated by another writer.
+        self.write(
+            &db,
+            &format!(
+                "insert into continuation_entries (thread_id, seq, entry) \
+                 select {t}, coalesce(max(seq), 0) + 1, {e} \
+                 from continuation_entries where thread_id = {t};",
+                t = lit(id),
+                e = lit(line)
+            ),
+        )
     }
 
     fn continuation_list(&self, id: &str) -> Result<Vec<String>, String> {
@@ -1538,12 +1963,12 @@ impl LedgerStore for DoltStore {
 
     fn bindings_list(&self) -> Result<Vec<BindingRow>, String> {
         let db = self.db()?;
+        if let Some(rows) = self.read_snapshot(&db, |snapshot| snapshot.bindings.clone())? {
+            return Ok(rows);
+        }
         // One query on a current ledger. A ledger below version 8 has no `bindings` table:
         // its cloud rows are read from the old table, and nothing is upgraded.
-        let (rows, legacy) = match db.rows(
-            "select actor, kind, thread_id, registered_at from bindings \
-             order by registered_at, actor",
-        ) {
+        let (rows, legacy) = match db.rows(BINDINGS_QUERY) {
             Ok(rows) => (rows, false),
             Err(e) if e.contains("table not found: bindings") => (
                 db.rows(
@@ -1554,22 +1979,7 @@ impl LedgerStore for DoltStore {
             ),
             Err(e) => return Err(e),
         };
-        Ok(rows
-            .iter()
-            .filter_map(|row| {
-                let kind = if legacy {
-                    BindingKind::Cloud
-                } else {
-                    BindingKind::parse(&text(row, "kind")?)?
-                };
-                Some(BindingRow {
-                    actor: text(row, "actor")?,
-                    kind,
-                    thread_id: text(row, "thread_id").unwrap_or_default(),
-                    registered_at: text(row, "registered_at").unwrap_or_default(),
-                })
-            })
-            .collect())
+        Ok(binding_rows(&rows, legacy))
     }
 
     fn binding_set(&self, row: &BindingRow) -> Result<(), String> {
@@ -1623,10 +2033,13 @@ impl LedgerStore for DoltStore {
             .enumerate()
             .map(|(index, line)| format!("({}, {})", last + 1 + index as i64, lit(line)))
             .collect();
-        db.exec(&format!(
-            "insert into external_events (position, envelope) values {};",
-            values.join(", ")
-        ))
+        self.write(
+            &db,
+            &format!(
+                "insert into external_events (position, envelope) values {};",
+                values.join(", ")
+            ),
+        )
     }
 
     fn events_list(&self) -> Result<Option<Vec<String>>, String> {
@@ -1657,11 +2070,15 @@ impl LedgerStore for DoltStore {
     fn watermark_set(&self, processed_through: u64, updated_at: &str) -> Result<(), String> {
         let value = i64::try_from(processed_through)
             .map_err(|_| format!("error: watermark {} is too large", processed_through))?;
-        self.db()?.exec(&format!(
-            "replace into watermark (id, processed_through, updated_at) values (1, {}, {});",
-            value,
-            lit(updated_at)
-        ))
+        let db = self.db()?;
+        self.write(
+            &db,
+            &format!(
+                "replace into watermark (id, processed_through, updated_at) values (1, {}, {});",
+                value,
+                lit(updated_at)
+            ),
+        )
     }
 
     fn missions_load(&self) -> Result<Vec<Mission>, String> {
@@ -1680,7 +2097,7 @@ impl LedgerStore for DoltStore {
             sql.push_str(&self.upgrade_script(&db, version)?);
         }
         sql.push_str(&save_sql(mission));
-        db.exec(&sql)
+        self.write(&db, &sql)
     }
 
     fn describe_thread(&self, id: &str) -> String {
@@ -1722,7 +2139,7 @@ impl DoltStore {
             script.push_str(&self.upgrade_script(&db, version)?);
         }
         script.push_str(sql);
-        db.exec(&script)
+        self.write(&db, &script)
     }
 
     /// The statements that take a ledger at `version` to the newest layout. From versions 3
@@ -1752,6 +2169,9 @@ impl DoltStore {
     /// Every mission in `db`. A version 2 ledger has no mission tables: it has no
     /// missions. A version 1 ledger is refused.
     fn missions_in(&self, db: &Dolt, location: &LedgerLocation) -> Result<Vec<Mission>, String> {
+        if let Some(missions) = self.read_snapshot(db, |snapshot| snapshot.missions.clone())? {
+            return Ok(missions);
+        }
         if let Some(missions) = self.missions_in_one_call(db, location)? {
             return Ok(missions);
         }
@@ -1822,6 +2242,26 @@ impl DoltStore {
             )),
         }
     }
+}
+
+/// The bindings in the rows of [`BINDINGS_QUERY`], or of the older table when `legacy` is
+/// set: every row of that one is a cloud row.
+fn binding_rows(rows: &[serde_json::Value], legacy: bool) -> Vec<BindingRow> {
+    rows.iter()
+        .filter_map(|row| {
+            let kind = if legacy {
+                BindingKind::Cloud
+            } else {
+                BindingKind::parse(&text(row, "kind")?)?
+            };
+            Some(BindingRow {
+                actor: text(row, "actor")?,
+                kind,
+                thread_id: text(row, "thread_id").unwrap_or_default(),
+                registered_at: text(row, "registered_at").unwrap_or_default(),
+            })
+        })
+        .collect()
 }
 
 /// A nullable text column: NULL for an empty value.
