@@ -250,12 +250,111 @@ fn session_start_names_a_newer_release() {
         .unwrap();
     assert!(context.ends_with(&notice), "{}", context);
 
+    // The second start in the day answers from the cache and says so.
     let copilot = fx.tsk(&bin, &["thread", "session-start", "--format", "copilot"]);
     let json: serde_json::Value = serde_json::from_str(out(&copilot).trim()).unwrap();
-    assert!(json["additionalContext"]
-        .as_str()
-        .unwrap()
-        .ends_with(&notice));
+    let context = json["additionalContext"].as_str().unwrap();
+    assert!(context.contains(&notice), "{}", context);
+    assert!(
+        context.ends_with("Set TSK_UPDATE_CHECK=always to check now."),
+        "{}",
+        context
+    );
+    assert!(
+        context.contains("The release check is cached"),
+        "{}",
+        context
+    );
+}
+
+/// A `git` in front of the real one on `PATH` that appends each launch to a log.
+fn counting_git(fx: &Fixture) -> (PathBuf, PathBuf) {
+    let dir = fx.root.path().join("wrapbin");
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = fx.root.path().join("git-launches.log");
+    let real = String::from_utf8(
+        Command::new("sh")
+            .args(["-c", "command -v git"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    let script = dir.join("git");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> '{}'\nexec '{}' \"$@\"\n",
+            log.display(),
+            real.trim()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (dir, log)
+}
+
+fn launches(log: &Path, needle: &str) -> usize {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.contains(needle))
+        .count()
+}
+
+fn start_counting(fx: &Fixture, bin: &Path, dir: &Path, mode: Option<&str>) -> Output {
+    let path = format!("{}:{}", dir.display(), std::env::var("PATH").unwrap());
+    let mut command = fx.command(bin, &["thread", "session-start"]);
+    command.env("PATH", path).stdin(Stdio::null());
+    if let Some(mode) = mode {
+        command.env("TSK_UPDATE_CHECK", mode);
+    }
+    command.output_retry()
+}
+
+#[test]
+fn session_start_looks_up_releases_once_a_day_and_the_modes_override() {
+    let fx = Fixture::new(&["v0.1.0", "v99.0.0"], &[]);
+    let bin = fx.installed();
+    let (wrap, log) = counting_git(&fx);
+
+    start_counting(&fx, &bin, &wrap, None);
+    assert_eq!(launches(&log, "ls-remote --tags"), 1);
+    let second = start_counting(&fx, &bin, &wrap, None);
+    assert_eq!(launches(&log, "ls-remote --tags"), 1, "{}", err(&second));
+    assert!(out(&second).contains("is available"), "{}", out(&second));
+    assert!(
+        out(&second).contains("The release check is cached"),
+        "{}",
+        out(&second)
+    );
+
+    start_counting(&fx, &bin, &wrap, Some("always"));
+    assert_eq!(launches(&log, "ls-remote --tags"), 2);
+    start_counting(&fx, &bin, &wrap, Some("never"));
+    assert_eq!(launches(&log, "ls-remote --tags"), 2);
+
+    // A check older than a day goes to the network again.
+    let cache = fx.root.path().join("home/state/tsk/update-check");
+    let text = std::fs::read_to_string(&cache).unwrap();
+    let old = text
+        .lines()
+        .map(|line| match line.strip_prefix("checked_at=") {
+            Some(_) => "checked_at=1".to_string(),
+            None => line.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(&cache, old).unwrap();
+    start_counting(&fx, &bin, &wrap, None);
+    assert_eq!(launches(&log, "ls-remote --tags"), 3);
+
+    // The explicit command always asks the network.
+    let mut update = fx.command(&bin, &["self-update", "--check"]);
+    let path = format!("{}:{}", wrap.display(), std::env::var("PATH").unwrap());
+    update.env("PATH", path).stdin(Stdio::null());
+    update.output_retry();
+    assert_eq!(launches(&log, "ls-remote --tags"), 4);
 }
 
 #[test]

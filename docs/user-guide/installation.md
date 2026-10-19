@@ -188,8 +188,20 @@ installs.
 
 `tsk thread session-start` adds a sentence to the session context when a newer release
 exists: `tsk <new> is available (running <old>). Run `tsk self-update` to upgrade.` The
-lookup stops after 5 seconds, and a failure adds nothing. Set `TSK_NO_UPDATE_CHECK=1` to
-skip it.
+lookup stops after 5 seconds, and a failure adds nothing.
+
+The lookup runs at most once in 24 hours. `tsk` keeps the time and the result of the
+last lookup in `update-check`, in the tsk state directory
+(`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/`). Inside the day, a session start reads
+that file and makes no network call. When the file says a newer release exists, the
+sentence above is followed by `The release check is cached: it last ran <n> hours ago,
+and runs once a day. Set TSK_UPDATE_CHECK=always to check now.` A new release can reach
+you up to a day late. `tsk self-update` always asks the network.
+
+`TSK_UPDATE_CHECK` changes the rule:
+
+- `always` looks up the release at every session start.
+- `never` skips the lookup. `TSK_NO_UPDATE_CHECK=1` does the same.
 
 In a Claude Code cloud session, `tsk thread session-start --install-plugin claude-cli`
 runs the upgrade before it installs the plugin. A failed upgrade adds a warning to the
