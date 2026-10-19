@@ -8,6 +8,12 @@ use clap::Args;
 pub const REPO_URL_VAR: &str = "TSK_RELEASE_REPO_URL";
 pub const DOWNLOAD_URL_VAR: &str = "TSK_RELEASE_DOWNLOAD_URL";
 pub const NO_CHECK_VAR: &str = "TSK_NO_UPDATE_CHECK";
+/// `always` checks the network at every session start. `never` does not check.
+pub const UPDATE_CHECK_VAR: &str = "TSK_UPDATE_CHECK";
+/// The file in the tsk state directory that holds the last check.
+const CACHE_FILE: &str = "update-check";
+/// The session start check goes to the network at most this often.
+const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 pub const DEFAULT_REPO_URL: &str = "https://github.com/jimbarritt/tsk";
 pub const DEFAULT_DOWNLOAD_URL: &str = "https://github.com/jimbarritt/tsk/releases/download";
 pub const BREW_FORMULA: &str = "jimbarritt/tap/tsk";
@@ -86,8 +92,198 @@ fn download_base() -> String {
         .unwrap_or_else(|| DEFAULT_DOWNLOAD_URL.to_string())
 }
 
+/// How often the session start lookup goes to the network.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckMode {
+    /// At most once in `CHECK_INTERVAL`; in between, the last result is used.
+    Daily,
+    /// At every session start (`TSK_UPDATE_CHECK=always`).
+    Always,
+    /// Never (`TSK_UPDATE_CHECK=never`, or `TSK_NO_UPDATE_CHECK` set to any value but 0).
+    Never,
+}
+
+/// The mode from the values of `TSK_UPDATE_CHECK` and `TSK_NO_UPDATE_CHECK`. Any other
+/// value of `TSK_UPDATE_CHECK` means `Daily`.
+pub fn check_mode(update_check: Option<&str>, no_check: Option<&str>) -> CheckMode {
+    if no_check.is_some_and(|v| !v.is_empty() && v != "0") {
+        return CheckMode::Never;
+    }
+    match update_check
+        .map(|v| v.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("never") => CheckMode::Never,
+        Some("always") => CheckMode::Always,
+        _ => CheckMode::Daily,
+    }
+}
+
+fn mode_from_env() -> CheckMode {
+    check_mode(
+        std::env::var(UPDATE_CHECK_VAR).ok().as_deref(),
+        std::env::var(NO_CHECK_VAR).ok().as_deref(),
+    )
+}
+
 pub fn check_disabled() -> bool {
-    std::env::var(NO_CHECK_VAR).is_ok_and(|v| !v.is_empty() && v != "0")
+    mode_from_env() == CheckMode::Never
+}
+
+/// The result of the last network lookup, kept in the tsk state directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CachedCheck {
+    /// Seconds since the Unix epoch.
+    pub checked_at: u64,
+    /// The repository the lookup asked, so a changed `TSK_RELEASE_REPO_URL` misses.
+    pub repo_url: String,
+    pub latest: Option<Version>,
+}
+
+impl CachedCheck {
+    pub fn render(&self) -> String {
+        format!(
+            "checked_at={}\nrepo_url={}\nlatest={}\n",
+            self.checked_at,
+            self.repo_url,
+            self.latest
+                .map_or_else(|| "none".to_string(), |v| v.to_string())
+        )
+    }
+
+    pub fn parse(text: &str) -> Option<CachedCheck> {
+        let field = |name: &str| {
+            text.lines()
+                .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
+        };
+        let latest = match field("latest")? {
+            "none" => None,
+            version => Some(Version::parse(version)?),
+        };
+        Some(CachedCheck {
+            checked_at: field("checked_at")?.parse().ok()?,
+            repo_url: field("repo_url")?.to_string(),
+            latest,
+        })
+    }
+
+    /// True when the result answers a lookup of `repo_url` made at `now`, and is less
+    /// than `CHECK_INTERVAL` old. A result dated in the future (the clock moved back)
+    /// is not fresh.
+    pub fn is_fresh(&self, repo_url: &str, now: u64) -> bool {
+        self.repo_url == repo_url
+            && self.checked_at <= now
+            && now - self.checked_at < CHECK_INTERVAL.as_secs()
+    }
+}
+
+/// A release lookup, from the network or from the cache.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Lookup {
+    pub latest: Option<Version>,
+    /// Seconds since the Unix epoch of the network lookup, set when the cache answered.
+    pub cached_from: Option<u64>,
+}
+
+fn cache_file() -> Option<PathBuf> {
+    crate::ledger::location::state_root_from_env()
+        .ok()
+        .map(|root| root.join(CACHE_FILE))
+}
+
+fn read_cache(file: &Path) -> Option<CachedCheck> {
+    CachedCheck::parse(&std::fs::read_to_string(file).ok()?)
+}
+
+fn write_cache(file: &Path, check: &CachedCheck) {
+    // A cache that cannot be written only means the next start looks again.
+    let _ = (|| -> std::io::Result<()> {
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let staged = file.with_extension(format!("tmp{}", std::process::id()));
+        std::fs::write(&staged, check.render())?;
+        std::fs::rename(&staged, file).inspect_err(|_| {
+            let _ = std::fs::remove_file(&staged);
+        })
+    })();
+}
+
+/// The latest release under `mode`. `Daily` answers from the cache file when it is
+/// fresh, and otherwise calls `fetch` and stores its result. `Always` calls `fetch`
+/// and stores the result. `Never` returns `Ok` with no release and does not call
+/// `fetch`. A failed `fetch` is not stored, so the next call looks again. `now` is
+/// seconds since the Unix epoch.
+pub fn lookup_with(
+    mode: CheckMode,
+    cache: Option<&Path>,
+    repo_url: &str,
+    now: u64,
+    fetch: &dyn Fn() -> Result<Option<Version>, String>,
+) -> Result<Lookup, String> {
+    if mode == CheckMode::Never {
+        return Ok(Lookup {
+            latest: None,
+            cached_from: None,
+        });
+    }
+    if mode == CheckMode::Daily {
+        if let Some(cached) = cache.and_then(read_cache) {
+            if cached.is_fresh(repo_url, now) {
+                return Ok(Lookup {
+                    latest: cached.latest,
+                    cached_from: Some(cached.checked_at),
+                });
+            }
+        }
+    }
+    let latest = fetch()?;
+    if let Some(file) = cache {
+        write_cache(
+            file,
+            &CachedCheck {
+                checked_at: now,
+                repo_url: repo_url.to_string(),
+                latest,
+            },
+        );
+    }
+    Ok(Lookup {
+        latest,
+        cached_from: None,
+    })
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// The release lookup of the session start paths: cached under `TSK_UPDATE_CHECK`.
+fn session_lookup(timeout: Duration) -> Result<Lookup, String> {
+    let url = repo_url();
+    lookup_with(
+        mode_from_env(),
+        cache_file().as_deref(),
+        &url,
+        unix_now(),
+        &|| Ok(highest_version(&ls_remote(&url, timeout)?)),
+    )
+}
+
+/// The sentence added to the notice when the cache answered.
+pub fn cached_sentence(checked_at: u64, now: u64) -> String {
+    let hours = now.saturating_sub(checked_at) / 3600;
+    let age = match hours {
+        0 => "less than an hour ago".to_string(),
+        1 => "1 hour ago".to_string(),
+        n => format!("{} hours ago", n),
+    };
+    format!(
+        "The release check is cached: it last ran {}, and runs once a day. Set TSK_UPDATE_CHECK=always to check now.",
+        age
+    )
 }
 
 fn drain<R: Read + Send + 'static>(stream: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
@@ -359,8 +555,20 @@ pub fn session_notice() -> Option<String> {
         return None;
     }
     let current = running_version().ok()?;
-    let latest = latest_release(NOTICE_TIMEOUT).ok().flatten()?;
-    (latest > current).then(|| available_sentence(latest, current))
+    let lookup = session_lookup(NOTICE_TIMEOUT).ok()?;
+    notice_for(lookup, current, unix_now())
+}
+
+/// The notice for a lookup, or `None` when `current` is the latest release. A cached
+/// lookup adds a sentence that says so.
+pub fn notice_for(lookup: Lookup, current: Version, now: u64) -> Option<String> {
+    let latest = lookup.latest.filter(|latest| *latest > current)?;
+    let mut notice = available_sentence(latest, current);
+    if let Some(checked_at) = lookup.cached_from {
+        notice.push(' ');
+        notice.push_str(&cached_sentence(checked_at, now));
+    }
+    Some(notice)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -379,7 +587,7 @@ pub fn upgrade_for_cloud() -> CloudUpgrade {
     let Ok(current) = running_version() else {
         return CloudUpgrade::Current;
     };
-    let latest = match latest_release(CLOUD_LOOKUP_TIMEOUT) {
+    let latest = match session_lookup(CLOUD_LOOKUP_TIMEOUT).map(|lookup| lookup.latest) {
         Ok(Some(latest)) if latest > current => latest,
         Ok(_) => return CloudUpgrade::Current,
         Err(e) => {
@@ -504,6 +712,204 @@ mod tests {
             archive_url("file:///r/", Version(1, 0, 0), "t"),
             "file:///r/v1.0.0/tsk-1.0.0-t.tar.gz"
         );
+    }
+
+    const DAY: u64 = 24 * 60 * 60;
+    const URL: &str = "https://example.test/tsk";
+
+    fn counting_fetch(
+        calls: &std::cell::Cell<u32>,
+        result: Option<Version>,
+    ) -> impl Fn() -> Result<Option<Version>, String> + '_ {
+        move || {
+            calls.set(calls.get() + 1);
+            Ok(result)
+        }
+    }
+
+    #[test]
+    fn the_mode_follows_the_two_variables() {
+        assert_eq!(check_mode(None, None), CheckMode::Daily);
+        assert_eq!(check_mode(Some("daily"), None), CheckMode::Daily);
+        assert_eq!(check_mode(Some("nonsense"), None), CheckMode::Daily);
+        assert_eq!(check_mode(Some("always"), None), CheckMode::Always);
+        assert_eq!(check_mode(Some(" Always "), None), CheckMode::Always);
+        assert_eq!(check_mode(Some("never"), None), CheckMode::Never);
+        assert_eq!(check_mode(None, Some("1")), CheckMode::Never);
+        assert_eq!(check_mode(Some("always"), Some("1")), CheckMode::Never);
+        assert_eq!(check_mode(None, Some("0")), CheckMode::Daily);
+        assert_eq!(check_mode(None, Some("")), CheckMode::Daily);
+    }
+
+    #[test]
+    fn a_cached_check_round_trips_and_a_damaged_file_is_ignored() {
+        let found = CachedCheck {
+            checked_at: 1_800_000_000,
+            repo_url: URL.to_string(),
+            latest: Some(Version(0, 17, 0)),
+        };
+        assert_eq!(CachedCheck::parse(&found.render()), Some(found));
+        let none = CachedCheck {
+            checked_at: 5,
+            repo_url: URL.to_string(),
+            latest: None,
+        };
+        assert_eq!(CachedCheck::parse(&none.render()), Some(none));
+        for bad in [
+            "",
+            "latest=1.0.0\n",
+            "checked_at=x\nrepo_url=u\nlatest=none\n",
+        ] {
+            assert_eq!(CachedCheck::parse(bad), None, "{}", bad);
+        }
+    }
+
+    #[test]
+    fn a_check_is_fresh_for_24_hours_for_the_same_repository() {
+        let check = CachedCheck {
+            checked_at: 1_000,
+            repo_url: URL.to_string(),
+            latest: None,
+        };
+        assert!(check.is_fresh(URL, 1_000));
+        assert!(check.is_fresh(URL, 1_000 + DAY - 1));
+        assert!(!check.is_fresh(URL, 1_000 + DAY));
+        assert!(!check.is_fresh("https://other.test/tsk", 1_100));
+        // The clock moved back.
+        assert!(!check.is_fresh(URL, 999));
+    }
+
+    #[test]
+    fn the_daily_mode_looks_once_a_day() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("state").join("update-check");
+        let calls = std::cell::Cell::new(0);
+        let fetch = counting_fetch(&calls, Some(Version(9, 0, 0)));
+        let t0 = 1_800_000_000;
+
+        let first = lookup_with(CheckMode::Daily, Some(&cache), URL, t0, &fetch).unwrap();
+        assert_eq!(first.latest, Some(Version(9, 0, 0)));
+        assert_eq!(first.cached_from, None);
+        assert_eq!(calls.get(), 1);
+
+        let again =
+            lookup_with(CheckMode::Daily, Some(&cache), URL, t0 + 3 * 3600, &fetch).unwrap();
+        assert_eq!(again.latest, Some(Version(9, 0, 0)));
+        assert_eq!(again.cached_from, Some(t0));
+        assert_eq!(calls.get(), 1);
+
+        let next_day = lookup_with(CheckMode::Daily, Some(&cache), URL, t0 + DAY, &fetch).unwrap();
+        assert_eq!(next_day.cached_from, None);
+        assert_eq!(calls.get(), 2);
+        let after =
+            lookup_with(CheckMode::Daily, Some(&cache), URL, t0 + DAY + 60, &fetch).unwrap();
+        assert_eq!(after.cached_from, Some(t0 + DAY));
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn a_cached_answer_of_no_release_is_also_used() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("update-check");
+        let calls = std::cell::Cell::new(0);
+        let fetch = counting_fetch(&calls, None);
+        lookup_with(CheckMode::Daily, Some(&cache), URL, 100, &fetch).unwrap();
+        let second = lookup_with(CheckMode::Daily, Some(&cache), URL, 200, &fetch).unwrap();
+        assert_eq!(second.latest, None);
+        assert_eq!(second.cached_from, Some(100));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn the_always_mode_looks_every_time_and_stores_the_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("update-check");
+        let calls = std::cell::Cell::new(0);
+        let fetch = counting_fetch(&calls, Some(Version(1, 2, 3)));
+        lookup_with(CheckMode::Always, Some(&cache), URL, 100, &fetch).unwrap();
+        let second = lookup_with(CheckMode::Always, Some(&cache), URL, 101, &fetch).unwrap();
+        assert_eq!(second.cached_from, None);
+        assert_eq!(calls.get(), 2);
+        assert_eq!(read_cache(&cache).unwrap().checked_at, 101);
+    }
+
+    #[test]
+    fn the_never_mode_does_not_look_and_does_not_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("update-check");
+        let calls = std::cell::Cell::new(0);
+        let fetch = counting_fetch(&calls, Some(Version(1, 2, 3)));
+        let lookup = lookup_with(CheckMode::Never, Some(&cache), URL, 100, &fetch).unwrap();
+        assert_eq!(lookup.latest, None);
+        assert_eq!(calls.get(), 0);
+        assert!(!cache.exists());
+    }
+
+    #[test]
+    fn a_failed_lookup_is_not_stored() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("update-check");
+        let failing = || -> Result<Option<Version>, String> { Err("offline".to_string()) };
+        assert!(lookup_with(CheckMode::Daily, Some(&cache), URL, 100, &failing).is_err());
+        assert!(!cache.exists());
+    }
+
+    #[test]
+    fn a_changed_repository_or_a_damaged_cache_looks_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("update-check");
+        let calls = std::cell::Cell::new(0);
+        let fetch = counting_fetch(&calls, None);
+        lookup_with(CheckMode::Daily, Some(&cache), URL, 100, &fetch).unwrap();
+        lookup_with(
+            CheckMode::Daily,
+            Some(&cache),
+            "https://other.test/tsk",
+            101,
+            &fetch,
+        )
+        .unwrap();
+        assert_eq!(calls.get(), 2);
+        std::fs::write(&cache, "garbage").unwrap();
+        lookup_with(CheckMode::Daily, Some(&cache), URL, 102, &fetch).unwrap();
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[test]
+    fn a_missing_state_directory_means_no_cache_and_a_lookup_every_time() {
+        let calls = std::cell::Cell::new(0);
+        let fetch = counting_fetch(&calls, None);
+        lookup_with(CheckMode::Daily, None, URL, 100, &fetch).unwrap();
+        lookup_with(CheckMode::Daily, None, URL, 101, &fetch).unwrap();
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
+    fn a_cached_notice_says_so_and_a_fresh_one_does_not() {
+        let current = Version(0, 16, 0);
+        let fresh = Lookup {
+            latest: Some(Version(0, 17, 0)),
+            cached_from: None,
+        };
+        assert_eq!(
+            notice_for(fresh, current, 20_000).unwrap(),
+            "tsk 0.17.0 is available (running 0.16.0). Run `tsk self-update` to upgrade."
+        );
+        let cached = Lookup {
+            latest: Some(Version(0, 17, 0)),
+            cached_from: Some(20_000 - 3 * 3600 - 5),
+        };
+        assert_eq!(
+            notice_for(cached, current, 20_000).unwrap(),
+            "tsk 0.17.0 is available (running 0.16.0). Run `tsk self-update` to upgrade. The release check is cached: it last ran 3 hours ago, and runs once a day. Set TSK_UPDATE_CHECK=always to check now."
+        );
+        let current_only = Lookup {
+            latest: Some(current),
+            cached_from: Some(1),
+        };
+        assert_eq!(notice_for(current_only, current, 20_000), None);
+        assert!(cached_sentence(100, 150).contains("less than an hour ago"));
+        assert!(cached_sentence(0, 3600).contains("1 hour ago"));
     }
 
     #[test]
