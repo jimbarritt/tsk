@@ -248,6 +248,9 @@ mod tests {
             vec!["tsk", "thread", "detach"],
             vec!["tsk", "thread", "list"],
             vec!["tsk", "thread", "guard"],
+            vec!["tsk", "thread", "prune-bindings"],
+            vec!["tsk", "thread", "prune-bindings", "--dry-run"],
+            vec!["tsk", "thread", "prune-bindings", "--older-than", "7"],
             vec!["tsk", "thread", "session-start"],
             vec!["tsk", "thread", "session-start", "--format", "copilot"],
         ] {
@@ -255,6 +258,10 @@ mod tests {
         }
         assert!(
             Cli::try_parse_from(["tsk", "thread", "session-start", "--format", "gemini"]).is_err()
+        );
+        assert!(Cli::try_parse_from(["tsk", "thread", "prune-bindings", "--older-than"]).is_err());
+        assert!(
+            Cli::try_parse_from(["tsk", "thread", "prune-bindings", "--older-than", "x"]).is_err()
         );
         assert!(Cli::try_parse_from(["tsk", "thread", "pause", "1234abcd"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "thread", "resume"]).is_err());

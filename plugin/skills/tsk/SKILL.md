@@ -102,6 +102,7 @@ tsk thread skip                                                       work witho
 tsk thread stop [<thread-id>]                                         delete a thread and every cloud binding to it, push
 tsk thread list                                                       list threads, most recently paused first
 tsk thread binding [--no-fetch]                                       print the current binding
+tsk thread prune-bindings [--older-than <days>] [--dry-run]           remove old cloud bindings, local; tsk ledger push publishes
 tsk thread guard                                                      Stop hook check for a binding; never fetches
 tsk thread session-start [--format claude|copilot] [--plugin-version <semver>]
                                                                       SessionStart hook: fetch the ledger, export TSK_LEDGER_WT, print the hook output JSON; warns when the plugin is older than this tsk expects
@@ -278,7 +279,14 @@ stderr.
 | `thread skip` | `skipped` | |
 | `thread list` | one compact JSON object per line: `id`, `mission_id` (null for a thread with no mission), `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp` | |
 | `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding |
+| `thread prune-bindings` | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; with `--dry-run`, `would remove <actor> <thread-id>` lines and `<n> bindings would be removed`, and nothing changes | |
 | `thread guard` | nothing when bound, after `thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | |
+
+`thread prune-bindings` removes the bindings of cloud sessions that ended, which collect in
+the ledger because a cloud session rarely detaches. It removes a cloud row registered more
+than `--older-than` days ago (30 by default), except the row of the session that runs it.
+It never removes a worktree row. It is a local write like the record commands, so run `tsk
+ledger push` to publish it. Try `--dry-run` first.
 
 In `thread resume`, `latest` is the thread's last continuation state entry as stored, or
 `{}` with no entry. `warning` is empty unless the thread's entries name a `written_by`

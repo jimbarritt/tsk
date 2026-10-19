@@ -926,6 +926,133 @@ fn detach_removes_the_worktree_binding_and_pushes_it() {
     assert_eq!(fx.origin_thread_ids(), vec![id]);
 }
 
+const LONG_AGO: &str = "2020-01-01T00:00:00Z";
+const FAR_FUTURE: &str = "2999-01-01T00:00:00Z";
+
+/// A fixture whose work clone holds four cloud bindings (two old, one in the future, and
+/// the old one of `cse_mine`) and an old worktree binding.
+fn fixture_with_old_and_new_bindings() -> Fixture {
+    let fx = Fixture::new();
+    fx.seed_thread("7777aaaa", "");
+    fx.seed_cloud_bindings(&[
+        ("cse_old1", "7777aaaa", LONG_AGO),
+        ("cse_old2", "7777aaaa", "2020-02-01T00:00:00Z"),
+        ("cse_future", "7777aaaa", FAR_FUTURE),
+        ("cse_mine", "7777aaaa", LONG_AGO),
+    ]);
+    assert_success(&fx.tsk(&["thread", "resume", "7777aaaa"]));
+    fx.exec_in(
+        &fx.work(),
+        &format!(
+            "update bindings set registered_at = '{}' where kind = 'worktree'",
+            LONG_AGO
+        ),
+    );
+    fx
+}
+
+fn local_actors(fx: &Fixture) -> Vec<String> {
+    fx.rows("select actor from bindings order by actor")
+        .iter()
+        .map(|row| row["actor"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn prune_bindings_removes_old_cloud_rows_and_keeps_the_rest() {
+    let fx = fixture_with_old_and_new_bindings();
+    let worktree = fx.worktree_actor();
+    let before = fx.origin_ledger_sha();
+
+    let output = fx.tsk_cloud("cse_mine", &["thread", "prune-bindings"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        "removed cse_old1 7777aaaa\nremoved cse_old2 7777aaaa\n2 bindings removed\n"
+    );
+    let mut expected = vec![
+        "cse_future".to_string(),
+        "cse_mine".to_string(),
+        worktree.clone(),
+    ];
+    expected.sort();
+    assert_eq!(local_actors(&fx), expected);
+    // A local write: origin is unchanged until the push.
+    assert_eq!(fx.origin_ledger_sha(), before);
+    assert!(fx.origin_binding_threads().contains_key("cse_old1"));
+    assert_success(&fx.tsk(&["ledger", "push", "Prune bindings"]));
+    let published = fx.origin_binding_threads();
+    assert!(!published.contains_key("cse_old1"));
+    assert!(!published.contains_key("cse_old2"));
+    assert!(published.contains_key("cse_future"));
+    assert!(published.contains_key("cse_mine"));
+    assert!(published.contains_key(&worktree));
+
+    // Nothing is left to remove.
+    let again = fx.tsk_cloud("cse_mine", &["thread", "prune-bindings"]);
+    assert_success(&again);
+    assert_eq!(stdout(&again), "0 bindings removed\n");
+}
+
+#[test]
+fn prune_bindings_with_dry_run_prints_what_it_would_remove_and_changes_nothing() {
+    let fx = fixture_with_old_and_new_bindings();
+    let rows_before = local_actors(&fx);
+
+    let output = fx.tsk_cloud(
+        "cse_mine",
+        &[
+            "thread",
+            "prune-bindings",
+            "--dry-run",
+            "--older-than",
+            "30",
+        ],
+    );
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        "would remove cse_old1 7777aaaa\nwould remove cse_old2 7777aaaa\n2 bindings would be removed\n"
+    );
+    assert_eq!(local_actors(&fx), rows_before);
+}
+
+#[test]
+fn prune_bindings_never_removes_a_worktree_row_however_old() {
+    let fx = fixture_with_old_and_new_bindings();
+    let rows_before = local_actors(&fx);
+
+    // From the worktree, every old cloud row goes, `cse_mine` included: it is not this
+    // actor's binding. The old worktree row stays.
+    let output = fx.tsk(&["thread", "prune-bindings", "--older-than", "0"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        "removed cse_mine 7777aaaa\nremoved cse_old1 7777aaaa\nremoved cse_old2 7777aaaa\n3 bindings removed\n"
+    );
+    let left = local_actors(&fx);
+    assert!(left.contains(&fx.worktree_actor()));
+    assert!(left.contains(&"cse_future".to_string()));
+    assert_eq!(left.len(), rows_before.len() - 3);
+}
+
+#[test]
+fn prune_bindings_honours_older_than_and_refuses_a_bad_number() {
+    let fx = fixture_with_old_and_new_bindings();
+
+    // No seeded row is 100000 days old, and the future row is never old.
+    let output = fx.tsk(&["thread", "prune-bindings", "--older-than", "100000"]);
+    assert_success(&output);
+    assert_eq!(stdout(&output), "0 bindings removed\n");
+
+    let bad = fx.tsk(&["thread", "prune-bindings", "--older-than", "soon"]);
+    assert!(!bad.status.success());
+    assert!(stderr(&bad).contains("--older-than"), "{}", stderr(&bad));
+}
+
 #[test]
 fn detach_without_a_binding_exits_1_with_no_stdout() {
     let fx = Fixture::new();
