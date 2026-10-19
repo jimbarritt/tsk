@@ -67,6 +67,7 @@ Architecture Decision Records capture why significant technical choices were mad
 - [0013-tsk-works-in-any-harness-mission-control-stays-separate.md](adr/0013-tsk-works-in-any-harness-mission-control-stays-separate.md): tsk depends on no harness and each harness reaches it through an adapter. Mission Control stays a separate product, and depends on tsk, not the reverse.
 - [0014-dolt-is-the-ledger-store-behind-a-storage-seam.md](adr/0014-dolt-is-the-ledger-store-behind-a-storage-seam.md): Dolt is the ledger store, run as an external binary and synced over git on a branch, behind a storage trait that kept the git-file ledger as a backend (decision 2, superseded by ADR 0015). Beads is not adopted. Six options compared.
 - [0015-the-files-backend-is-removed.md](adr/0015-the-files-backend-is-removed.md): the files backend is removed in 0.16.0. Tsk is committed to Dolt, v0.15.1 is the last release with the backend, and the `LedgerStore` trait stays with one implementation.
+- [0016-a-custom-ref-is-the-default-for-a-new-ledger.md](adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md): a new ledger uses a custom ref (`refs/tsk/*`), and branches under `refs/heads/*` are an override for a repo used from Claude Code cloud sessions. The setting is read from the nexus, then `.tsk/config.toml`, then discovery. Supersedes the "a branch, not a custom ref" part of ADR 0008 for a new ledger.
 
 ## Knowledge base
 

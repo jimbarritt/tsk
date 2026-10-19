@@ -23,10 +23,12 @@ see the Artefact and Ledger entries in `docs/domain/ubiquitous-language.md`.
 | | What it holds | Where |
 |---|---|---|
 | **The artefacts** | What a mission builds: source, `docs/`, `ops/`, `.claude/` | `main`, in the ordinary checkout |
-| **The ledger** | Mission records (tasks, decisions, questions), documents, threads, continuation state entries | A Dolt database (the ledger store), synced over the `tsk/ledger` branch |
+| **The ledger** | Mission records (tasks, decisions, questions), documents, threads, continuation state entries | A Dolt database (the ledger store), synced over the ledger ref (`refs/tsk/ledger`, or the branch `tsk/ledger`) |
 
-They are two branches of the same GitHub repository, `jimbarritt/tsk`. They are never
-checked out together. Changes to the artefacts go to `main` in the normal way. The
+They live in the same GitHub repository, `jimbarritt/tsk`, as `main` and as the ledger
+ref. This repo keeps the ledger on branches, because it is used from Claude Code cloud
+sessions (`.tsk/config.toml` says so). A new ledger elsewhere uses a custom ref, which
+GitHub does not list as a branch. They are never checked out together. Changes to the artefacts go to `main` in the normal way. The
 ledger is written through the `tsk ledger` commands.
 
 The reason they are split: the ledger is data, not a line of development. Keeping it on
@@ -38,8 +40,7 @@ account of the building.
 
 **The artefacts**: wherever you cloned the repository. Nothing unusual.
 
-**The ledger**: the ledger store, a Dolt database (a `dolt clone` of the `tsk/ledger`
-branch) at
+**The ledger**: the ledger store, a Dolt database (a `dolt clone` of the ledger ref) at
 
 ```
 ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
@@ -185,8 +186,8 @@ warning tells you who else has worked it.
   says.
 - **Do not run `git fetch`, `git push`, `git reset` or `git rebase` against
   `tsk/ledger` by hand**, including for a read-only check. To check the branch
-  directly, spell it out: `git fetch origin refs/heads/tsk/ledger`, then read
-  `FETCH_HEAD`.
+  directly, spell it out: `git fetch origin refs/heads/tsk/ledger` (or
+  `refs/tsk/ledger` for a custom ref), then read `FETCH_HEAD`.
 - **To undo local ledger changes that are not pushed, run `tsk ledger status` to see
   them and `tsk ledger discard`.** Never `dolt reset` or `git reset` by hand.
 - **A script that needs to push to `tsk/ledger` calls `tsk ledger push`**

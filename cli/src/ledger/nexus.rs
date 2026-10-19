@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 use super::git::Git;
 use super::location::{LedgerLocation, Repo};
+use super::refs;
 use crate::config;
 
 pub const NEXUS_FILE: &str = "nexus.json";
@@ -17,6 +18,10 @@ pub struct Entry {
     pub url: Option<String>,
     pub local: Option<String>,
     pub ledger: Option<String>,
+    /// `branches` or `custom`: which refs hold this repo's ledger. Absent means the repo
+    /// config and discovery decide.
+    #[serde(default)]
+    pub ledger_refs: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -207,17 +212,28 @@ pub fn load_index(state_root: &Path, nexus_url: &str) -> Result<NexusIndex, Stri
     NexusIndex::parse(&text)
 }
 
-pub fn resolve(
+/// Where a repo's ledger lives, before the refs mode is decided: the remote and the repo
+/// id (the location on branches), and the `ledger_refs` setting of the nexus entry.
+pub struct Placement {
+    pub base: LedgerLocation,
+    pub entry_refs: Option<refs::EntrySetting>,
+}
+
+pub fn place(
     repo: &Repo,
     state_root: &Path,
     config_file: Option<&Path>,
-) -> Result<LedgerLocation, String> {
+) -> Result<Placement, String> {
+    let in_repo = || Placement {
+        base: LedgerLocation::in_repo(),
+        entry_refs: None,
+    };
     let nexus_url = match config_file {
         Some(file) => config::read_nexus_url(file)?,
         None => None,
     };
     let Some(nexus_url) = nexus_url else {
-        return Ok(LedgerLocation::in_repo());
+        return Ok(in_repo());
     };
     let cached = repo.read_repo_id()?;
     let origin = repo.raw_origin_url()?;
@@ -229,12 +245,44 @@ pub fn resolve(
         origin.as_deref(),
         machine.as_deref(),
     ) else {
-        return Ok(LedgerLocation::in_repo());
+        return Ok(in_repo());
     };
-    let location = entry_location(entry, &nexus_url)?;
+    let base = entry_location(entry, &nexus_url)?;
     if valid_repo_id(&entry.id) && cached.as_deref() != Some(entry.id.as_str()) {
         repo.write_repo_id(&entry.id)?;
     }
+    Ok(Placement {
+        base,
+        entry_refs: entry
+            .ledger_refs
+            .as_ref()
+            .map(|value| (entry.id.clone(), value.clone())),
+    })
+}
+
+/// The refs mode in force for a repo, and where it came from, with no check against an
+/// existing ledger.
+pub fn choose(
+    repo: &Repo,
+    state_root: &Path,
+    config_file: Option<&Path>,
+) -> Result<(Placement, refs::RefsChoice), String> {
+    let placement = place(repo, state_root, config_file)?;
+    let choice = match refs::configured(repo, placement.entry_refs.as_ref())? {
+        Some(choice) => choice,
+        None => refs::discover(repo, state_root, &placement.base),
+    };
+    Ok((placement, choice))
+}
+
+pub fn resolve(
+    repo: &Repo,
+    state_root: &Path,
+    config_file: Option<&Path>,
+) -> Result<LedgerLocation, String> {
+    let (placement, choice) = choose(repo, state_root, config_file)?;
+    let location = placement.base.with_refs(choice.refs, choice.source);
+    refs::check_store(repo, state_root, &location)?;
     Ok(location)
 }
 
@@ -334,6 +382,20 @@ mod tests {
     }
 
     #[test]
+    fn an_entry_may_carry_ledger_refs_and_unknown_fields() {
+        let index = NexusIndex::parse(
+            r#"{"territories":[{"repos":[
+              {"id":"a","ledger_refs":"custom","note":"kept"},
+              {"id":"b","ledger_refs":"branches"},
+              {"id":"c"}
+            ]}]}"#,
+        )
+        .unwrap();
+        let refs: Vec<Option<&str>> = index.entries().map(|e| e.ledger_refs.as_deref()).collect();
+        assert_eq!(refs, vec![Some("custom"), Some("branches"), None]);
+    }
+
+    #[test]
     fn parse_rejects_malformed_json() {
         assert!(NexusIndex::parse("{").is_err());
     }
@@ -420,6 +482,7 @@ mod tests {
             url: None,
             local: None,
             ledger: Some("repo".into()),
+            ledger_refs: None,
         };
         assert_eq!(
             entry_location(&repo, nexus).unwrap(),
@@ -441,6 +504,7 @@ mod tests {
             url: None,
             local: None,
             ledger: Some("nexus".into()),
+            ledger_refs: None,
         };
         assert!(entry_location(&entry, "n")
             .unwrap_err()

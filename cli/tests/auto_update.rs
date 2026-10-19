@@ -174,6 +174,7 @@ impl Fixture {
             .env("XDG_STATE_HOME", self.home().join("state"))
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
+            .env("TSK_LEDGER_REFS", "branches")
             .env("TSK_UPDATE_CHECK", "never")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove("TSK_NO_UPDATE_CHECK")

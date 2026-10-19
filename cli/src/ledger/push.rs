@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use super::fetch::{ensure_worktree_of_repo, fetch_tip};
 use super::git::{failure_message, split_nul, Git};
 use super::location::{LedgerLocation, Repo};
+use super::refs::{is_server_refusal, refused_push, LedgerRefs};
 
 pub const MAX_ATTEMPTS: usize = 5;
 
@@ -183,8 +184,17 @@ fn push_head(
         refspec.as_str(),
     ])?;
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let status = parse_push_status(&stdout, location.ref_name())
-        .ok_or_else(|| failure_message(&args, &output))?;
+    let custom = location.refs() == LedgerRefs::Custom;
+    let Some(status) = parse_push_status(&stdout, location.ref_name()) else {
+        let failure = failure_message(&args, &output);
+        if custom && is_server_refusal(&failure) {
+            return Err(refused_push(location.ref_name(), &failure));
+        }
+        return Err(failure);
+    };
+    if custom && status.rejected() && is_server_refusal(&status.summary) {
+        return Err(refused_push(location.ref_name(), &status.summary));
+    }
     if !status.rejected() && !output.status.success() {
         return Err(failure_message(&args, &output));
     }

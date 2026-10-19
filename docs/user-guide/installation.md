@@ -245,9 +245,13 @@ session, not after `/clear`.
 1. In the repo's root, run `tsk install-plugin claude-cli`.
 2. Start `claude`. The plugin's `SessionStart` hook installs `dolt` and `tsk` when needed,
    then runs `tsk thread session-start`.
-3. With no `tsk/ledger` branch on `origin`, the fetch creates a new, local ledger and
-   prints a note that the branch does not exist yet. The first `tsk ledger push` creates
-   the branch.
+3. With no ledger ref on `origin`, the fetch creates a new, local ledger and prints a
+   note that the ref does not exist yet. The first `tsk ledger push` creates it. A new
+   ledger uses a custom ref, `refs/tsk/ledger`, which GitHub does not list as a branch.
+   Run `tsk config ledger-refs` to see the refs in use. A repo used from Claude Code
+   cloud sessions needs branches, because the cloud proxy refuses to push a custom ref:
+   run `tsk config ledger-refs branches`, commit `.tsk/config.toml`, and do it before the
+   first push. In a cloud session a new ledger takes branches by itself and says so.
 
 ## CI
 
