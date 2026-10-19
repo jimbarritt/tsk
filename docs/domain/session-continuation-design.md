@@ -127,7 +127,7 @@ One JSON object per line, appended, never rewritten. Fields:
 | What's next | Agent | A short account of where things stand |
 | Git state | Binary | A nested `git` object. `git.ledger.commit` is the commit the ledger branch was at when the pause began, read before this entry is appended. It cannot be the commit the push creates: that commit holds this entry, so its hash is unknown here. `git.code.ref` is the full ref of the branch the code worktree is on at pause time. `git.code.commit` is the commit at its `HEAD`. |
 | Timestamp | Script | When the entry was appended |
-| Written by | Script | `urn:tsk:worktree:<name>` or `urn:tsk:cloudsession:<session-id>`, naming the actor that wrote this entry. For a worktree, `<name>` is the basename of the git directory (`.git` for a main worktree). It is not the `bindings` actor key, and an entry written before the `bindings` table keeps it |
+| Written by | Script | The `bindings` actor key of the actor that wrote this entry: the session ID in a cloud session, otherwise `<clone-id>/<worktree-name>` (`main` for a main worktree). An entry written by 0.16.0 or earlier holds `urn:tsk:worktree:<name>` or `urn:tsk:cloudsession:<session-id>`, which `thread resume` treats as an unknown writer |
 
 The commit and timestamp fields are deterministic: a script captures them, since the
 same script already handles the git side of a pause. The mission comes from the thread.

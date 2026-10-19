@@ -457,7 +457,7 @@ tsk mission out-of-scope remove <id> <n>
 tsk mission out-of-scope list <id>
 tsk mission link <id> <path> --role <intelligence|report|design>
 tsk mission unlink <id> <path>
-tsk mission list [<id>] [--json]
+tsk mission list [<id>] [--json] [--porcelain]
 ```
 
 Rules:
@@ -493,9 +493,13 @@ Rules:
   every linked path still exists. A missing one stops the push with exit 1 and names the
   mission and path. Both local commits stay and the next push resumes.
 
-`list` with no ID prints one line per mission, ordered by ID, tab-separated: `id`, `status`,
+`list` with no ID prints one line per mission, ordered by ID: `id`, `status`,
 `blocked-by` (the IDs of the blockers that are not done, comma-separated, or `-`), `parent`
-(or `-`) and `name`. With an ID it prints that mission's line. `list <id> --json` prints the
+(or `-`) and `name`. The columns are aligned: each is padded with spaces to the widest cell
+in it, over all lines, two spaces separate columns, and the last column (the name) is not
+padded. The output has no tabs and no trailing whitespace, like `tsk ledger status`.
+`--porcelain` prints the same lines tab-separated, unpadded, for scripts. With an ID it
+prints that mission's line. `list <id> --json` prints the
 full record as one JSON object, and `list --json` prints an array of them:
 
 ```
@@ -522,14 +526,14 @@ tsk task add <mission> <description>
 tsk task set <mission> <task> <field> <value>
 tsk task block <mission> <task> <by>
 tsk task unblock <mission> <task> <by>
-tsk task list <mission>
+tsk task list <mission> [--porcelain]
 tsk decision add <mission> <text> --by <who> [--task <T-nn>] [--on <YYYY-MM-DD>] [--adr <path>]
-tsk decision list <mission> [--adr <path>]
-tsk decision list --adr <path>
-tsk question add <mission> <text>
+tsk decision list <mission> [--adr <path>] [--porcelain]
+tsk decision list [--adr <path>] [--porcelain]   # no mission: every mission, led by the mission ID
+tsk question add <mission> <text> [--on <YYYY-MM-DD>]
 tsk question edit <mission> <question> <text>
-tsk question answer <mission> <question> <text> --by <who>
-tsk question list [<mission>]
+tsk question answer <mission> <question> <text> --by <who> [--on <YYYY-MM-DD>]
+tsk question list [<mission>] [--porcelain]
 ```
 
 Rules:
@@ -564,21 +568,30 @@ Rules:
 - `decision list --adr <path>` takes the path as `--adr` does, without the check that the
   file exists, so a decision of an ADR that was since renamed is still found by its old
   path. With no mission it lists the decisions of every mission that name the ADR. A call
-  with neither a mission nor `--adr` is an error.
+  with neither a mission nor `--adr` lists every decision of every mission, as `question
+  list` does with no mission.
 - `question edit` rewrites the text of an open question and nothing else: the ID and the
   date asked stay. An answered question cannot be edited:
   `error: Q-nn of M-X is answered; it cannot be edited`.
-- `question answer` records the answer, the name after `--by` and the UTC date, and the
-  question is no longer open. A question is answered once: a second answer is an error.
+- `question add` records the UTC date of the command as `asked_on`, or the date given to
+  `--on`. `question answer` records the answer, the name after `--by` and the UTC date, or
+  the date given to `--on`, as `answered_on`, and the question is no longer open. `--on`
+  is checked as it is for `decision add`: `YYYY-MM-DD`, a real calendar date, else an
+  error and nothing is written. No check compares `answered_on` with `asked_on`. A question is answered once: a second answer is an error.
 - An unknown mission, task or question is an error that names the ID.
 
-Each `list` prints one record per line, tab-separated, with no header:
+Each `list` prints one record per line, with no header. The columns are aligned as in
+`mission list`: padded with spaces to the widest cell of the column over all lines, two
+spaces apart, no tabs, no trailing whitespace, and the last column unpadded. (In
+`decision list` the text is padded, and the ADR path is the last column.) `--porcelain`
+prints the same columns tab-separated and unpadded, the stable form for scripts. The JSON
+form of `mission list` is not changed by either. The columns:
 
 | Command | Columns |
 |---|---|
 | `task list <mission>` | `T-nn`, `status`, `blocked-by` (the IDs of the blockers that are not done, comma-separated, or `-`), `description`. Ordered by number. |
 | `decision list <mission>` | `decided_on` (`YYYY-MM-DD`), `decided_by`, `T-nn` or `-`, `text`, `adr` (the ADR path, or `-`). Oldest first. With `--adr`, only the decisions that name that ADR, in the same five columns. |
-| `decision list --adr <path>` | `mission`, then the five columns above. Ordered by mission and then oldest first. |
+| `decision list` with no mission | `mission`, then the five columns above. Every decision of every mission, ordered by mission and then oldest first. With `--adr <path>`, only the decisions that name that ADR. |
 | `question list [<mission>]` | `mission`, `Q-nn`, `asked_on` (`YYYY-MM-DD`), `text`. Open questions only, ordered by mission and number. All missions when none is given. |
 
 `tsk mission list --json` carries the records. Each mission object has three more keys after
@@ -865,7 +878,7 @@ Fields, in the order written. `git` holds `ledger` then `code`; `ledger` holds `
 | `git.code.ref` | string | command | Full ref of the branch the code worktree's `HEAD` is on at pause time, for example `refs/heads/feature/x`. |
 | `git.code.commit` | string | command | Full SHA of the code worktree's `HEAD` at pause time. |
 | `timestamp` | string | command | UTC time the entry is appended. |
-| `written_by` | string | command | URN of the binding that wrote the entry. |
+| `written_by` | string | command | The actor key of the session or worktree that wrote the entry: the session ID in a cloud session, otherwise `<clone-id>/<worktree-name>` as in the `bindings` table, so two clones' main worktrees are two writers. Entries written by 0.16.0 or earlier hold an actor URN (`urn:tsk:worktree:.git`, `urn:tsk:cloudsession:<id>`) instead. A URN names an unknown writer: `thread resume` leaves it out of the takeover check. |
 
 `git.ledger.commit` cannot be the commit the push creates: that commit holds this entry,
 so its hash is unknown when the entry is written.
@@ -906,6 +919,9 @@ The latest entry is the one with the highest `seq`. A thread with no entries has
 latest entry yet; `thread resume` prints `{}` for it. `thread list` sorts threads by the
 latest entry's `timestamp`, newest first, with threads that have no entry last. The
 `written_by` values across all entries are the set of actors that have touched the thread.
+`thread resume` warns when the resuming actor key is not among the actor keys of that set.
+An old-format value (a `urn:` value) is not an actor key and is left out of the set, so a
+thread paused before the change gives no warning until a pause writes an actor key.
 
 ### Bindings
 
@@ -914,6 +930,16 @@ A binding is a row of `bindings`: `actor`, `kind` (`cloud` or `worktree`), `thre
 (`cse_...`). The actor of a worktree binding is `<clone-id>/<worktree-name>`. A bind sets
 or replaces the actor's row. Detach deletes that one row. Stop deletes every row whose
 `thread_id` is the stopped thread, of either kind. `thread list` shows the rows as actors.
+
+A cloud session rarely detaches, so its row stays after it ends. `tsk thread prune-bindings
+[--older-than <days>] [--dry-run]` deletes the cloud rows whose `registered_at` is more
+than `<days>` days (30 by default) before the command runs, except the row of the session
+that runs it. It never deletes a `worktree` row, and it keeps a row whose `registered_at`
+is not a timestamp. It prints `removed <actor> <thread-id>` for each row, in the order
+`registered_at` then `actor`, then `<n> bindings removed`. With `--dry-run` it prints
+`would remove <actor> <thread-id>` lines and `<n> bindings would be removed`, and changes
+nothing. The delete is one local write, which `tsk ledger push` publishes. The command
+does not fetch.
 
 ## `external-events/`
 
@@ -1029,7 +1055,7 @@ without a thread. Never in the ledger and never pushed.
 | Timestamp | UTC, second precision, `YYYY-MM-DDTHH:MM:SSZ` (`date -u +%Y-%m-%dT%H:%M:%SZ`). |
 | Commit | A git commit is the full 40-character lowercase hexadecimal SHA-1. A Dolt commit is a 32-character hash. |
 | Thread ID | 8 characters, `[0-9a-z]`. Minted as 8 lowercase hexadecimal characters; IDs minted before hex minting are base36 (for example `4onylfsg`) and stay valid. Unique among the threads of the ledger: a new ID that matches an existing thread is discarded and minted again, up to 100 attempts. |
-| Actor URN | `urn:tsk:cloudsession:<CLAUDE_CODE_REMOTE_SESSION_ID>` in a cloud session, otherwise `urn:tsk:worktree:<name>`, where `<name>` is the basename of `git rev-parse --git-dir` (`.git` in a main code worktree). |
+| Actor URN | `urn:tsk:cloudsession:<CLAUDE_CODE_REMOTE_SESSION_ID>` in a cloud session, otherwise `urn:tsk:worktree:<name>`, where `<name>` is the basename of `git rev-parse --git-dir` (`.git` in a main code worktree). It appears in commit messages of bind and detach pushes. A pause entry's `written_by` is the actor key instead. |
 | Text encoding | UTF-8. JSON strings use standard JSON escaping. |
 
 ## Fetching and printing the path
@@ -1288,6 +1314,7 @@ what the harness expects until then.
 | `thread-stop.sh` | `stopped:<thread-id>` | | `tsk thread stop [<thread-id>]` |
 | `thread-list.sh` | one compact JSON object per line: `id`, `mission_id` (`null` for a thread with no mission), `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry), `actors` (an array of `{"actor", "kind"}`, one for each session or worktree bound to the thread, oldest binding first; `kind` is `cloud` or `worktree`; empty when none is bound) | | `tsk thread list` |
 | `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger store |
+| (none) | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; `would remove ...` and `<n> bindings would be removed` with `--dry-run` | | `tsk thread prune-bindings [--older-than <days>] [--dry-run]` |
 | (none) | `mission-set:<thread-id>:<mission-id>`, or `mission-cleared:<thread-id>` with `--none` | exit 1 for an unknown mission or thread, or with no thread ID and no binding | `tsk thread set mission <mission-id> [<thread-id>]`, `tsk thread set mission --none [<thread-id>]` |
 | `thread-binding-guard.sh` | nothing when bound, after `tsk thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | | `tsk thread guard` |
 | `claude-session-start.sh` (the tsk parts) | one JSON object, `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}` | exit 0 in every case, including a failed fetch, which prints a warning context | `tsk thread session-start` (see [Session start command](#session-start-command)) |

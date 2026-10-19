@@ -431,6 +431,7 @@ name = "tsk-bin"
 version = "0.16.0"
 dependencies = [
  "clap",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",

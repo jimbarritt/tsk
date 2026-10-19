@@ -88,7 +88,23 @@ enum Commands {
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Restore the default SIGPIPE action. Rust sets it to "ignore", so a write to a closed
+/// pipe (`tsk thread list | head -1`) fails with EPIPE and `println!` panics. With the
+/// default action the process ends quietly, as other command-line tools do.
+#[cfg(unix)]
+fn restore_sigpipe() {
+    // SAFETY: `signal` with SIG_DFL installs no handler. It runs once at the start of
+    // `main`, before any thread exists.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn restore_sigpipe() {}
+
 fn main() {
+    restore_sigpipe();
     let cli = Cli::parse();
     match run_cli(cli) {
         Ok(0) => {}
@@ -234,6 +250,9 @@ mod tests {
             vec!["tsk", "thread", "detach"],
             vec!["tsk", "thread", "list"],
             vec!["tsk", "thread", "guard"],
+            vec!["tsk", "thread", "prune-bindings"],
+            vec!["tsk", "thread", "prune-bindings", "--dry-run"],
+            vec!["tsk", "thread", "prune-bindings", "--older-than", "7"],
             vec!["tsk", "thread", "session-start"],
             vec!["tsk", "thread", "session-start", "--format", "copilot"],
         ] {
@@ -241,6 +260,10 @@ mod tests {
         }
         assert!(
             Cli::try_parse_from(["tsk", "thread", "session-start", "--format", "gemini"]).is_err()
+        );
+        assert!(Cli::try_parse_from(["tsk", "thread", "prune-bindings", "--older-than"]).is_err());
+        assert!(
+            Cli::try_parse_from(["tsk", "thread", "prune-bindings", "--older-than", "x"]).is_err()
         );
         assert!(Cli::try_parse_from(["tsk", "thread", "pause", "1234abcd"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "thread", "resume"]).is_err());
@@ -385,10 +408,44 @@ mod tests {
             vec!["tsk", "decision", "list", "M-X"],
             vec!["tsk", "question", "add", "M-X", "Why?"],
             vec![
+                "tsk",
+                "question",
+                "add",
+                "M-X",
+                "Why?",
+                "--on",
+                "2026-02-27",
+            ],
+            vec![
                 "tsk", "question", "answer", "M-X", "Q-01", "Because", "--by", "jim",
+            ],
+            vec![
+                "tsk",
+                "question",
+                "answer",
+                "M-X",
+                "Q-01",
+                "Because",
+                "--by",
+                "jim",
+                "--on",
+                "2026-03-01",
             ],
             vec!["tsk", "question", "list"],
             vec!["tsk", "question", "list", "M-X"],
+            vec!["tsk", "mission", "list", "--porcelain"],
+            vec!["tsk", "mission", "list", "M-X", "--porcelain"],
+            vec!["tsk", "task", "list", "M-X", "--porcelain"],
+            vec!["tsk", "decision", "list", "M-X", "--porcelain"],
+            vec![
+                "tsk",
+                "decision",
+                "list",
+                "--adr",
+                "docs/a.md",
+                "--porcelain",
+            ],
+            vec!["tsk", "question", "list", "--porcelain"],
         ] {
             assert!(Cli::try_parse_from(&args).is_ok(), "{:?}", args);
         }

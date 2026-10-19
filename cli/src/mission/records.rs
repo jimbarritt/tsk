@@ -11,6 +11,7 @@ use crate::thread::clock;
 
 use super::change;
 use super::model::{self, Decision, Mission, Question, QuestionStatus, Status, Task};
+use super::table::print_lines;
 
 pub const TASK_FIELDS: &[&str] = &["status", "description"];
 
@@ -507,9 +508,10 @@ pub fn decision_line(decision: &Decision) -> String {
 }
 
 /// The lines of `decision list`. With a mission, that mission's decisions in the five
-/// columns of [`decision_line`]. With only an ADR path, the decisions of every mission
-/// that name it, each line led by the mission ID. With both, the mission's decisions
-/// that name the ADR, in the five columns.
+/// columns of [`decision_line`]. With no mission, the decisions of every mission (only
+/// those that name the ADR when there is an ADR path), each line led by the mission ID.
+/// With a mission and an ADR path, the mission's decisions that name the ADR, in the five
+/// columns.
 pub fn decision_rows(
     missions: &[Mission],
     mission: Option<&str>,
@@ -524,7 +526,7 @@ pub fn decision_rows(
             .filter(names)
             .map(decision_line)
             .collect()),
-        None if adr.is_some() => Ok(missions
+        None => Ok(missions
             .iter()
             .flat_map(|m| {
                 m.decisions
@@ -533,9 +535,6 @@ pub fn decision_rows(
                     .map(move |d| format!("{}\t{}", m.id, decision_line(d)))
             })
             .collect()),
-        None => Err(
-            "error: decision list needs a mission, or --adr with the path of an ADR".to_string(),
-        ),
     }
 }
 
@@ -679,9 +678,16 @@ pub enum TaskCommands {
         by: String,
     },
     #[command(
-        about = "List the tasks of a mission, one per line: id, status, blocked-by, description"
+        about = "List the tasks of a mission, one per line: id, status, blocked-by, description. The columns are aligned with spaces; --porcelain prints them tab-separated"
     )]
-    List { mission: String },
+    List {
+        mission: String,
+        #[arg(
+            long,
+            help = "Print tab-separated columns, the stable form for scripts, instead of aligned columns"
+        )]
+        porcelain: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -709,10 +715,15 @@ pub enum DecisionCommands {
         adr: Option<String>,
     },
     #[command(
-        about = "List the decisions of a mission, oldest first: date, who, task, text, ADR path (- for none). With --adr and no mission, list the decisions of every mission that name the ADR, with the mission ID as a first column"
+        about = "List the decisions of a mission, oldest first: date, who, task, text, ADR path (- for none). With no mission, list the decisions of every mission, with the mission ID as a first column; with --adr as well, only those that name the ADR. The columns are aligned with spaces; --porcelain prints them tab-separated"
     )]
     List {
         mission: Option<String>,
+        #[arg(
+            long,
+            help = "Print tab-separated columns, the stable form for scripts, instead of aligned columns"
+        )]
+        porcelain: bool,
         #[arg(
             long,
             value_name = "PATH",
@@ -729,6 +740,12 @@ pub enum QuestionCommands {
         mission: String,
         #[arg(allow_hyphen_values = true, help = "One-line text of the question")]
         text: String,
+        #[arg(
+            long,
+            value_name = "YYYY-MM-DD",
+            help = "The date the question was asked, a real calendar date; today (UTC) when omitted"
+        )]
+        on: Option<String>,
     },
     #[command(
         about = "Rewrite the text of an open question; an answered question cannot be edited"
@@ -747,11 +764,24 @@ pub enum QuestionCommands {
         text: String,
         #[arg(long, help = "Who answered")]
         by: String,
+        #[arg(
+            long,
+            value_name = "YYYY-MM-DD",
+            help = "The date the question was answered, a real calendar date; today (UTC) when omitted"
+        )]
+        on: Option<String>,
     },
     #[command(
-        about = "List open questions, one per line: mission, id, date asked, text; all missions when none is given"
+        about = "List open questions, one per line: mission, id, date asked, text; all missions when none is given. The columns are aligned with spaces; --porcelain prints them tab-separated"
     )]
-    List { mission: Option<String> },
+    List {
+        mission: Option<String>,
+        #[arg(
+            long,
+            help = "Print tab-separated columns, the stable form for scripts, instead of aligned columns"
+        )]
+        porcelain: bool,
+    },
 }
 
 pub fn run_task(action: TaskCommands) -> Result<(), String> {
@@ -813,12 +843,11 @@ pub fn run_task_with(store: &dyn LedgerStore, action: TaskCommands) -> Result<()
         TaskCommands::Unblock { mission, task, by } => {
             change(store, |all| task_unblock(all, &mission, &task, &by))?;
         }
-        TaskCommands::List { mission } => {
+        TaskCommands::List { mission, porcelain } => {
             let all = store.missions_load()?;
             let found = mission_of(&all, &mission)?;
-            for task in &found.tasks {
-                println!("{}", task_line(found, task));
-            }
+            let lines = found.tasks.iter().map(|t| task_line(found, t)).collect();
+            print_lines(lines, porcelain);
         }
     }
     Ok(())
@@ -851,11 +880,16 @@ pub fn run_decision_with(store: &dyn LedgerStore, action: DecisionCommands) -> R
                 )
             })?;
         }
-        DecisionCommands::List { mission, adr } => {
+        DecisionCommands::List {
+            mission,
+            adr,
+            porcelain,
+        } => {
             let all = store.missions_load()?;
-            for line in decision_rows(&all, mission.as_deref(), adr.as_deref())? {
-                println!("{}", line);
-            }
+            print_lines(
+                decision_rows(&all, mission.as_deref(), adr.as_deref())?,
+                porcelain,
+            );
         }
     }
     Ok(())
@@ -863,8 +897,9 @@ pub fn run_decision_with(store: &dyn LedgerStore, action: DecisionCommands) -> R
 
 pub fn run_question_with(store: &dyn LedgerStore, action: QuestionCommands) -> Result<(), String> {
     match action {
-        QuestionCommands::Add { mission, text } => {
-            let date = today();
+        QuestionCommands::Add { mission, text, on } => {
+            let date = on.unwrap_or_else(today);
+            check_date(&date)?;
             let saved = change(store, |all| question_add(all, &mission, &text, &date))?;
             println!("{}", question_label(saved.next_question - 1));
         }
@@ -880,27 +915,31 @@ pub fn run_question_with(store: &dyn LedgerStore, action: QuestionCommands) -> R
             question,
             text,
             by,
+            on,
         } => {
-            let date = today();
+            let date = on.unwrap_or_else(today);
+            check_date(&date)?;
             change(store, |all| {
                 question_answer(all, &mission, &question, &text, &by, &date)
             })?;
         }
-        QuestionCommands::List { mission } => {
+        QuestionCommands::List { mission, porcelain } => {
             let all = store.missions_load()?;
             let shown: Vec<&Mission> = match &mission {
                 Some(id) => vec![mission_of(&all, id)?],
                 None => all.iter().collect(),
             };
-            for found in shown {
-                for question in found
-                    .questions
-                    .iter()
-                    .filter(|q| q.status == QuestionStatus::Open)
-                {
-                    println!("{}", question_line(found, question));
-                }
-            }
+            let lines = shown
+                .into_iter()
+                .flat_map(|found| {
+                    found
+                        .questions
+                        .iter()
+                        .filter(|q| q.status == QuestionStatus::Open)
+                        .map(move |q| question_line(found, q))
+                })
+                .collect();
+            print_lines(lines, porcelain);
         }
     }
     Ok(())
@@ -1146,7 +1185,14 @@ mod tests {
         assert!(decision_rows(&all, Some("M-A"), Some("docs/adr/2.md"))
             .unwrap()
             .is_empty());
-        assert!(decision_rows(&all, None, None).is_err());
+        assert_eq!(
+            decision_rows(&all, None, None).unwrap(),
+            vec![
+                "M-A\t2026-01-01\tjim\t-\tOne\tdocs/adr/1.md",
+                "M-A\t2026-01-02\tjim\t-\tTwo\t-",
+                "M-B\t2026-01-03\tann\t-\tThree\tdocs/adr/1.md"
+            ]
+        );
         assert!(decision_rows(&all, Some("M-Z"), None).is_err());
     }
 

@@ -212,6 +212,9 @@ pub trait LedgerStore {
     fn binding_set(&self, row: &BindingRow) -> Result<(), String>;
     /// Remove an actor's binding, if it has one.
     fn binding_remove(&self, actor: &str) -> Result<(), String>;
+    /// Remove the bindings of several actors in one write. An actor with no binding is
+    /// skipped.
+    fn bindings_remove(&self, actors: &[String]) -> Result<(), String>;
     /// Remove every binding to a thread, of either kind.
     fn binding_remove_thread(&self, thread_id: &str) -> Result<(), String>;
 

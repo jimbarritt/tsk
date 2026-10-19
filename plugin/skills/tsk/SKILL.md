@@ -102,6 +102,7 @@ tsk thread skip                                                       work witho
 tsk thread stop [<thread-id>]                                         delete a thread and every cloud binding to it, push
 tsk thread list                                                       list threads, most recently paused first
 tsk thread binding [--no-fetch]                                       print the current binding
+tsk thread prune-bindings [--older-than <days>] [--dry-run]           remove old cloud bindings, local; tsk ledger push publishes
 tsk thread guard                                                      Stop hook check for a binding; never fetches
 tsk thread session-start [--format claude|copilot] [--plugin-version <semver>]
                                                                       SessionStart hook: fetch the ledger, export TSK_LEDGER_WT, print the hook output JSON; warns when the plugin is older than this tsk expects
@@ -203,12 +204,13 @@ tsk mission out-of-scope add <id> "<text>"    # prints n; also remove <id> <n> a
 tsk mission block <id> <by-id>                # and unblock
 tsk mission objective add <id> <outcome>      # prints n; also done, undone, remove, list
 tsk mission link <id> <path> --role <intelligence|report|design>   # and unlink
-tsk mission list [<id>] [--json]
+tsk mission list [<id>] [--json] [--porcelain]
 ```
 
 Status is `todo`, `in-progress` or `done`. An administrative mission stays `in-progress`.
 Blocked is derived: a mission is blocked while any mission it names in `block` is not
-`done`. `list` prints `id`, `status`, `blocked-by`, `parent` and `name`, tab-separated.
+`done`. `list` prints `id`, `status`, `blocked-by`, `parent` and `name` in columns aligned
+with spaces. Add `--porcelain` to print them tab-separated, the stable form for a script.
 `list <id> --json` prints the full record. A linked path must be a document on `tsk/docs`,
 written with `tsk ledger doc put`.
 
@@ -229,21 +231,23 @@ Every command changes the local store only. `tsk ledger push` publishes.
 tsk task add <mission> <description>          # prints the new ID, T-01 upward
 tsk task set <mission> <task> <field> <value> # status (todo|in-progress|done) or description
 tsk task block <mission> <task> <by>          # and unblock; <by> is a task of the same mission
-tsk task list <mission>
+tsk task list <mission> [--porcelain]
 tsk decision add <mission> "<text>" --by <who> [--task T-nn] [--on YYYY-MM-DD] [--adr <path>]
-tsk decision list <mission> [--adr <path>]
-tsk decision list --adr <path>                # the decisions of every mission that name the ADR
-tsk question add <mission> "<text>"           # prints the new ID, Q-01 upward
+tsk decision list <mission> [--adr <path>] [--porcelain]
+tsk decision list [--adr <path>]                # no mission: every decision of every mission, or those that name the ADR
+tsk question add <mission> "<text>" [--on YYYY-MM-DD]   # prints the new ID, Q-01 upward
 tsk question edit <mission> <q> "<text>"      # rewrites an open question; an answered one is refused
-tsk question answer <mission> <q> "<text>" --by <who>
-tsk question list [<mission>]                 # open questions, all missions when none is given
+tsk question answer <mission> <q> "<text>" --by <who> [--on YYYY-MM-DD]
+tsk question list [<mission>] [--porcelain]   # open questions, all missions when none is given
 ```
 
-Text is one line. `task list` prints `T-nn`, `status`, `blocked-by` and `description`,
-tab-separated. A task is blocked while any task it names in `block` is not `done`.
+Text is one line. Every `list` here prints aligned columns: two spaces between columns, no
+tabs, no trailing spaces. `--porcelain` prints the tab-separated lines instead, with no
+header, and a script that parses the output must use it. `task list` prints `T-nn`,
+`status`, `blocked-by` and `description`. A task is blocked while any task it names in `block` is not `done`.
 `decision list` prints the date, who, the task or `-`, the text and the ADR path or `-`,
-oldest first. With `--adr` and no mission it prints the mission ID first, for every
-decision that names that ADR.
+oldest first. With no mission it prints the mission ID first, for every decision of every
+mission, or with `--adr` for every decision that names that ADR.
 A decision links to an ADR when an ADR explains it: `--adr docs/adr/0014-x.md`, the path
 from the root of the repository you are in. The file must exist there. A decision is a
 one-line fact about the work. The reasoning belongs in the ADR, so link it and do not
@@ -251,6 +255,8 @@ repeat it.
 `decision add` dates the decision today (UTC). When the decision was made earlier, give
 its date with `--on`, a real calendar date such as `2026-03-14`, rather than writing the
 date into the text.
+`question add` and `question answer` date the question and the answer today (UTC) in the
+same way. Give `--on` to keep the original date of a question you bring in from elsewhere.
 `question list` prints the mission, `Q-nn`, the date asked and the text. Use `--by` with
 the name of the person who made the decision or gave the answer. `tsk mission list <id>
 --json` prints the mission with its tasks, decisions and questions.
@@ -273,7 +279,14 @@ stderr.
 | `thread skip` | `skipped` | |
 | `thread list` | one compact JSON object per line: `id`, `mission_id` (null for a thread with no mission), `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp` | |
 | `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding |
+| `thread prune-bindings` | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; with `--dry-run`, `would remove <actor> <thread-id>` lines and `<n> bindings would be removed`, and nothing changes | |
 | `thread guard` | nothing when bound, after `thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | |
+
+`thread prune-bindings` removes the bindings of cloud sessions that ended, which collect in
+the ledger because a cloud session rarely detaches. It removes a cloud row registered more
+than `--older-than` days ago (30 by default), except the row of the session that runs it.
+It never removes a worktree row. It is a local write like the record commands, so run `tsk
+ledger push` to publish it. Try `--dry-run` first.
 
 In `thread resume`, `latest` is the thread's last continuation state entry as stored, or
 `{}` with no entry. `warning` is empty unless the thread's entries name a `written_by`

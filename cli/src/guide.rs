@@ -79,9 +79,10 @@ its status. Link its final report as a document if one exists.
 ## Reading a mission back
 
 `tsk mission list` lists every mission, one per line: id, status, blocked-by, parent,
-name. `tsk mission list <id> --json` prints one mission in full: purpose, decision
-authority, constraints, out of scope, objectives, blocks, linked documents, tasks,
-decisions, and questions, open and answered. `tsk task list <id>`, `tsk decision list
+name, in aligned columns. A script adds `--porcelain` for tab-separated columns.
+`tsk mission list <id> --json` prints one mission in full: purpose, decision authority,
+constraints, out of scope, objectives, blocks, linked documents, tasks, decisions, and
+questions, open and answered. `tsk task list <id>`, `tsk decision list
 <id>` and `tsk question list` print the parts.
 
 There is no command that prints a mission as Markdown yet. Projections, which render the
@@ -118,16 +119,16 @@ tsk mission objective done <id> <n>
 tsk mission constraint add <id> "<text>"
 tsk mission out-of-scope add <id> "<text>"
 tsk mission link <id> <path> --role <intelligence|report|design>
-tsk mission list [<id>] [--json]
+tsk mission list [<id>] [--json] [--porcelain]
 tsk task add <mission> "<description>"          # prints T-nn
 tsk task set <mission> <task> <status|description> <value>
 tsk task block <mission> <task> <blocking-task>
-tsk task list <mission>
+tsk task list <mission> [--porcelain]
 tsk decision add <mission> "<text>" --by <who> [--task <task>] [--on <YYYY-MM-DD>] [--adr <path>]
-tsk decision list [<mission>] [--adr <path>]
-tsk question add <mission> "<text>"             # prints Q-nn
-tsk question answer <mission> <question> "<text>" --by <who>
-tsk question list [<mission>]
+tsk decision list [<mission>] [--adr <path>] [--porcelain]
+tsk question add <mission> "<text>" [--on <YYYY-MM-DD>]   # prints Q-nn
+tsk question answer <mission> <question> "<text>" --by <who> [--on <YYYY-MM-DD>]
+tsk question list [<mission>] [--porcelain]
 tsk ledger doc put <path> [<file>]              # body from the file, or from stdin
 tsk ledger doc list [<prefix>]
 tsk ledger doc get <path>
