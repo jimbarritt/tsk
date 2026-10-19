@@ -6460,3 +6460,243 @@ fn a_clone_that_pushes_between_the_refresh_and_the_push_is_merged_not_overwritte
     assert!(status.contains("nothing to push"), "{}", status);
     assert!(status.contains("up to date"), "{}", status);
 }
+
+// --- The up-to-date check: one ls-remote, and a fetch only when origin has something new ---
+
+/// A directory with a `git` stand-in that logs its arguments, one line per run, to the file
+/// named by `TSK_GIT_LOG`, then runs the real `git`. The processes that `dolt` starts find
+/// it on `PATH` too.
+fn git_log_shim(root: &Path) -> PathBuf {
+    let dir = root.join("git-log-shim");
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = format!(
+        "#!/bin/sh\necho \"$@\" >> \"$TSK_GIT_LOG\"\nexec '{}' \"$@\"\n",
+        installed_program("git").display()
+    );
+    let shim = dir.join("git");
+    std::fs::write(&shim, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    dir
+}
+
+/// The network operations a command started: the `git` runs whose verb is `ls-remote`,
+/// `fetch` or `push`, counting those that `dolt` started.
+#[derive(Debug, PartialEq, Eq)]
+struct NetOps {
+    /// The runs of `tsk` asking for both ledger refs at once.
+    asks: usize,
+    /// Every `ls-remote`, which includes those `dolt` starts inside a fetch or a push.
+    ls_remote: usize,
+    fetch: usize,
+    push: usize,
+}
+
+fn net_ops(log: &str) -> NetOps {
+    let count = |verb: &str| {
+        log.lines()
+            .filter(|line| line.split_whitespace().any(|word| word == verb))
+            .count()
+    };
+    let asks = log
+        .lines()
+        .filter(|line| {
+            line.split_whitespace().any(|word| word == "ls-remote")
+                && line.contains(LEDGER_REF)
+                && line.contains(DOCS_REF)
+        })
+        .count();
+    NetOps {
+        asks,
+        ls_remote: count("ls-remote"),
+        fetch: count("fetch"),
+        push: count("push"),
+    }
+}
+
+impl Fixture {
+    /// Run `tsk` with the logging `git` stand-in and return its output and the network
+    /// operations it started.
+    fn counted(&self, dir: &Path, args: &[&str]) -> (Output, NetOps, String) {
+        let log = self.root.path().join("git-log.txt");
+        let _ = std::fs::remove_file(&log);
+        let output = self
+            .command(dir, args)
+            .env("PATH", path_with_first(&git_log_shim(self.root.path())))
+            .env("TSK_GIT_LOG", &log)
+            .output()
+            .unwrap();
+        let text = std::fs::read_to_string(&log).unwrap_or_default();
+        (output, net_ops(&text), text)
+    }
+
+    fn counted_ok(&self, dir: &Path, args: &[&str]) -> (String, NetOps) {
+        let (output, ops, log) = self.counted(dir, args);
+        assert_success(&output);
+        if std::env::var_os("TSK_TEST_SHOW_GIT_LOG").is_some() {
+            eprintln!("--- {:?}\n{}", args, log);
+        }
+        (stdout(&output), ops)
+    }
+}
+
+const NOTHING_NEW: NetOps = NetOps {
+    asks: 1,
+    ls_remote: 1,
+    fetch: 0,
+    push: 0,
+};
+
+#[test]
+fn a_refresh_with_nothing_new_asks_origin_once_and_fetches_nothing() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&b, &["ledger", "fetch"]);
+
+    // The first fetch of a clone brings the data. The second finds nothing new.
+    let (output, ops, log) = fx.counted(&b, &["ledger", "fetch"]);
+    assert_success(&output);
+    assert_eq!(ops, NOTHING_NEW);
+    // One question names both refs, so one connection answers for the data and the documents.
+    assert!(
+        log.contains(&format!("ls-remote origin {} {}", LEDGER_REF, DOCS_REF)),
+        "{}",
+        log
+    );
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "status"]);
+    assert_eq!(ops, NOTHING_NEW);
+    let (_, ops) = fx.counted_ok(&b, &["thread", "list"]);
+    assert_eq!(ops, NOTHING_NEW);
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "push", "Nothing"]);
+    assert_eq!(ops, NOTHING_NEW);
+    let (output, ops, _) = fx.counted(&b, &["thread", "session-start", "--format", "claude"]);
+    assert_success(&output);
+    assert_eq!(ops, NOTHING_NEW);
+
+    // The same holds on the clone that pushed: its own push is recorded as fetched.
+    fx.put(&a, "late.md", "late\n");
+    fx.add_binding(&a, "late");
+    let (_, ops) = fx.counted_ok(&a, &["ledger", "push", "A pushes"]);
+    assert_eq!(ops.asks, 1);
+    assert!(ops.push >= 2, "{:?}", ops);
+    let (_, ops) = fx.counted_ok(&a, &["ledger", "fetch"]);
+    assert_eq!(ops, NOTHING_NEW);
+    let (_, ops) = fx.counted_ok(&a, &["ledger", "status"]);
+    assert_eq!(ops, NOTHING_NEW);
+
+    // A command that does not read origin starts no network operation.
+    let (_, ops) = fx.counted_ok(&a, &["mission", "list"]);
+    assert_eq!(
+        ops,
+        NetOps {
+            asks: 0,
+            ls_remote: 0,
+            fetch: 0,
+            push: 0
+        }
+    );
+}
+
+#[test]
+fn a_change_on_origin_is_fetched_once_and_then_the_check_is_quiet_again() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&b, &["ledger", "fetch"]);
+
+    // A changes the data and the documents.
+    fx.put(&a, "late.md", "late\n");
+    fx.add_binding(&a, "late");
+    fx.ok(&a, &["ledger", "push", "A pushes both"]);
+
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "status"]);
+    assert_eq!(ops.asks, 1);
+    assert!(ops.fetch >= 2, "both refs are fetched: {:?}", ops);
+    // The status fetched the remote refs and nothing else: B still has to merge.
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "fetch"]);
+    assert_eq!(ops, NOTHING_NEW);
+    assert_eq!(fx.binding_count(&b), "1");
+    assert_eq!(fx.ok(&b, &["ledger", "doc", "get", "late.md"]), "late\n");
+
+    // Only the documents change: the data is not fetched.
+    fx.put(&a, "later.md", "later\n");
+    fx.ok(&a, &["ledger", "push", "A pushes a document"]);
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "fetch"]);
+    assert_eq!(ops.asks, 1);
+    assert_eq!(ops.fetch, 1, "only the documents moved: {:?}", ops);
+    assert_eq!(fx.ok(&b, &["ledger", "doc", "get", "later.md"]), "later\n");
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "fetch"]);
+    assert_eq!(ops, NOTHING_NEW);
+}
+
+#[test]
+fn status_local_asks_origin_nothing_and_says_it_did_not_check() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&b, &["ledger", "fetch"]);
+
+    // Clean, then with a data change and a document change that are not pushed.
+    let (text, ops) = fx.counted_ok(&b, &["ledger", "status", "--local"]);
+    assert_eq!(
+        ops,
+        NetOps {
+            asks: 0,
+            ls_remote: 0,
+            fetch: 0,
+            push: 0
+        }
+    );
+    assert_eq!(
+        text,
+        "Local   nothing to push\nOrigin  not checked (--local)\n"
+    );
+
+    fx.add_binding(&b, "late");
+    fx.put(&b, "note.md", "n\n");
+    let (text, ops) = fx.counted_ok(&b, &["ledger", "status", "--local"]);
+    assert_eq!(ops.asks + ops.ls_remote + ops.fetch + ops.push, 0);
+    assert!(
+        text.starts_with("Local   2 changes not pushed\n"),
+        "{}",
+        text
+    );
+    assert!(
+        text.ends_with("Origin  not checked (--local)\n"),
+        "{}",
+        text
+    );
+    let (porcelain, _) = fx.counted_ok(&b, &["ledger", "status", "--local", "--porcelain"]);
+    assert!(
+        porcelain.ends_with("data\tremote\tnot checked\ndocs\tremote\tnot checked\n"),
+        "{}",
+        porcelain
+    );
+
+    // Commits not pushed are counted from what was last fetched, and origin moving is
+    // not noticed: that is what the flag means.
+    fx.ok(&b, &["ledger", "push", "B pushes"]);
+    fx.put(&a, "from-a.md", "a\n");
+    fx.ok(&a, &["ledger", "push", "A pushes"]);
+    let text = fx.ok(&b, &["ledger", "status", "--local"]);
+    assert_eq!(
+        text,
+        "Local   nothing to push\nOrigin  not checked (--local)\n"
+    );
+    // The plain status does ask, and sees A's push.
+    let text = fx.ok(&b, &["ledger", "status"]);
+    assert!(text.contains("to fetch"), "{}", text);
+}

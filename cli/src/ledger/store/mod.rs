@@ -123,6 +123,11 @@ pub trait LedgerStore {
     /// fetch fails, `fetch_note` says so and the report comes from what is local.
     fn status(&self) -> Result<LedgerStatus, String>;
 
+    /// [`status`](LedgerStatus) without asking origin anything: no network and no fetch.
+    /// The commit counts come from what was last fetched, and
+    /// [`LedgerStatus::origin_checked`] is false.
+    fn status_local(&self) -> Result<LedgerStatus, String>;
+
     /// Drop every local change not yet pushed, in the data and the documents: uncommitted
     /// changes and local commits origin lacks. Fetches first and resets both sides to
     /// origin's state; when the fetch fails nothing is discarded. Leaves thread state

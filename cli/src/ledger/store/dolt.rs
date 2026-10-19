@@ -22,6 +22,7 @@ use crate::ledger::location::{
 use crate::ledger::manifest::{self, ManifestInfo, DOLT_SUPPORTED_VERSIONS};
 use crate::ledger::push::{PushOutcome, PushResult, PushStatus, MAX_ATTEMPTS};
 use crate::ledger::status::{self, Change, ChangeKind, LedgerStatus, RemoteState, SideStatus};
+use crate::ledger::tips::{self, RemoteHeads, Tips};
 use crate::mission::model::{
     self, Category, Decision, Document, Item, Mission, Outcome, Question, QuestionStatus, Role,
     Status, Task,
@@ -49,11 +50,14 @@ pub struct DoltStore {
 /// What this process has found out about origin, so a command fetches each ref at most once.
 #[derive(Default)]
 struct Synced {
-    /// The local Dolt store holds origin's data as this process fetched it. Cleared by a
-    /// push of the data.
+    /// The heads origin held when this process asked, once: `Some(None)` when the question
+    /// failed, so the fetches run as they did before the question existed.
+    heads: Option<Option<RemoteHeads>>,
+    /// The local Dolt store holds origin's data as of the heads: it was fetched, or its
+    /// record of the last fetch matched. Cleared by a push of the data.
     data: bool,
-    /// The documents tip this process fetched or pushed: `Some(None)` for a branch origin
-    /// does not hold.
+    /// The documents tip this process fetched, checked or pushed: `Some(None)` for a
+    /// branch origin does not hold.
     docs: Option<Option<String>>,
 }
 
@@ -69,30 +73,107 @@ impl DoltStore {
         })
     }
 
+    /// The record of the commits this clone last fetched, once the clone has an id.
+    fn tips(&self) -> Option<Tips> {
+        let id = self.repo.read_clone_id().ok().flatten()?;
+        dolt_db_path(&self.state_root, &id).parent().map(Tips::new)
+    }
+
+    /// What origin holds for the ledger ref and the documents ref, from one `git
+    /// ls-remote` per process. `None` when origin cannot be asked: the caller then fetches
+    /// as before, and the fetch reports the failure.
+    fn heads(&self, location: &LedgerLocation) -> Option<RemoteHeads> {
+        if let Some(known) = &self.synced.borrow().heads {
+            return known.clone();
+        }
+        let asked = tips::remote_heads(&self.repo.git, location).ok();
+        self.synced.borrow_mut().heads = Some(asked.clone());
+        asked
+    }
+
     /// Bring the local Dolt store's copy of origin up to date: nothing when this process
-    /// already did, else `dolt fetch`.
-    fn sync_data(&self, db: &Dolt) -> Result<(), String> {
+    /// already did or origin's head is the one last fetched, else `dolt fetch`.
+    fn sync_data(&self, db: &Dolt, location: &LedgerLocation) -> Result<(), String> {
         if self.synced.borrow().data {
             return Ok(());
         }
+        let wanted = self.heads(location).and_then(|heads| heads.ledger);
+        let tips = self.tips();
+        if let (Some(wanted), Some(tips)) = (&wanted, &tips) {
+            if tips.get(location.remote(), location.ref_name()).as_deref() == Some(wanted.as_str())
+            {
+                self.synced.borrow_mut().data = true;
+                return Ok(());
+            }
+        }
         db.run(["fetch", REMOTE])?;
-        self.synced.borrow_mut().data = true;
+        self.note_data_fetched(location, wanted.as_deref());
         Ok(())
     }
 
-    /// The documents tip: the one this process already holds, else `git fetch`.
+    /// Record that the local Dolt store holds origin's data as of `head`, the commit the
+    /// ledger ref was at before the fetch ran (or `None` when it is not known).
+    fn note_data_fetched(&self, location: &LedgerLocation, head: Option<&str>) {
+        if let Some(tips) = self.tips() {
+            tips.set(location.remote(), location.ref_name(), head);
+        }
+        self.synced.borrow_mut().data = true;
+    }
+
+    /// The documents tip: nothing is fetched when this process already holds it, when origin
+    /// has no documents branch, or when the commit origin names is the one last fetched
+    /// and is still in the repository. Else `git fetch`.
     fn sync_docs_tip(&self, location: &LedgerLocation) -> Result<Option<String>, String> {
         if let Some(known) = self.synced.borrow().docs.clone() {
             return Ok(known);
         }
-        let tip = fetch_tip(&self.repo.git, &location.docs())?;
-        self.synced.borrow_mut().docs = Some(tip.clone());
+        let docs = location.docs();
+        let tips = self.tips();
+        if let Some(heads) = self.heads(location) {
+            match (&heads.docs, &tips) {
+                (None, _) => {
+                    if let Some(tips) = &tips {
+                        tips.set(docs.remote(), docs.ref_name(), None);
+                    }
+                    self.synced.borrow_mut().docs = Some(None);
+                    return Ok(None);
+                }
+                (Some(head), Some(tips)) => {
+                    let recorded = tips.get(docs.remote(), docs.ref_name());
+                    if recorded.as_deref() == Some(head.as_str())
+                        && tips::commit_is_local(&self.repo.git, head)
+                    {
+                        self.synced.borrow_mut().docs = Some(Some(head.clone()));
+                        return Ok(Some(head.clone()));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let tip = fetch_tip(&self.repo.git, &docs)?;
+        self.note_docs_tip(location, tip.as_deref());
         Ok(tip)
     }
 
+    /// Record the documents tip this process fetched or pushed.
+    fn note_docs_tip(&self, location: &LedgerLocation, tip: Option<&str>) {
+        let docs = location.docs();
+        if let Some(tips) = self.tips() {
+            tips.set(docs.remote(), docs.ref_name(), tip);
+        }
+        self.synced.borrow_mut().docs = Some(tip.map(str::to_string));
+    }
+
     /// After a push of the data: the local copy of origin is no longer the one fetched.
-    fn note_data_pushed(&self) {
+    /// Dolt's cache of the remote holds the commit the push made, under `.../last`. When
+    /// it can be read, it is the head origin has now, and the next command finds the
+    /// store current.
+    fn note_data_pushed(&self, db: &Dolt, location: &LedgerLocation) {
         self.synced.borrow_mut().data = false;
+        let pushed = pushed_commit(db, location);
+        if let Some(tips) = self.tips() {
+            tips.set(location.remote(), location.ref_name(), pushed.as_deref());
+        }
     }
 
     fn hint(&self) -> Option<PathBuf> {
@@ -316,13 +397,14 @@ impl DoltStore {
 
         let remote_ref = format!("{}/{}", REMOTE, BRANCH);
         for attempt in 1..=MAX_ATTEMPTS {
-            // The first attempt goes on what the refresh of this command fetched. If origin
-            // moved since, Dolt rejects the push and the next attempt fetches.
+            // The first attempt goes on what the refresh of this command fetched, or what
+            // the record of the last fetch says is current. If origin moved since, Dolt
+            // rejects the push and the next attempt fetches.
             if attempt == 1 {
-                self.sync_data(db)?;
+                self.sync_data(db, location)?;
             } else {
                 db.run(["fetch", REMOTE])?;
-                self.synced.borrow_mut().data = true;
+                self.note_data_fetched(location, None);
             }
             // The branch check, the merge base and the remote tip read in one process.
             // When the batch fails (no remote branch yet, say), they read one by one.
@@ -373,7 +455,7 @@ impl DoltStore {
 
             let (args, pushed) = db.output(["push", REMOTE, BRANCH])?;
             if pushed.status.success() {
-                self.note_data_pushed();
+                self.note_data_pushed(db, location);
                 let head = db.head_hash()?;
                 return Ok(finish(
                     outcome(PushResult::Pushed { attempts: attempt }, head),
@@ -406,6 +488,101 @@ impl DoltStore {
             path.display()
         ))
     }
+}
+
+/// The bare repository Dolt keeps for the database's `origin` remote: the one under
+/// `.dolt/git-remote-cache` whose `origin` URL is the one `repo_state.json` records. A
+/// database that moved to a new URL has an older repository beside it, which is not it.
+/// When several match, the one whose anchor ref was written last is.
+fn cache_repo(db: &Dolt, anchor: &str) -> Option<PathBuf> {
+    let state = std::fs::read_to_string(db.dir().join(".dolt").join("repo_state.json")).ok()?;
+    let state: serde_json::Value = serde_json::from_str(&state).ok()?;
+    let url = state.get("remotes")?.get(REMOTE)?.get("url")?.as_str()?;
+    let url = url.strip_prefix("git+").unwrap_or(url);
+    let wanted = format!("url = {}", url);
+    let cache = db.dir().join(".dolt").join("git-remote-cache");
+    let written = |repo: &Path| {
+        [repo.join("packed-refs"), repo.join(anchor)]
+            .iter()
+            .filter_map(|file| std::fs::metadata(file).ok()?.modified().ok())
+            .max()
+    };
+    std::fs::read_dir(&cache)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("repo.git"))
+        .filter(|repo| {
+            std::fs::read_to_string(repo.join("config"))
+                .is_ok_and(|config| config.lines().any(|line| line.trim() == wanted))
+        })
+        .max_by_key(|repo| written(repo))
+}
+
+/// The commit Dolt's cache of the remote records as the last one it wrote or read for the
+/// ledger ref, when the cache can be found and holds one. Called after a successful push,
+/// where it is the commit the push made.
+fn pushed_commit(db: &Dolt, location: &LedgerLocation) -> Option<String> {
+    let name = location.ref_name().strip_prefix("refs/")?;
+    let reference = format!("refs/dolt/remotes/{}/{}/last", REMOTE, name);
+    let repo = cache_repo(db, &reference)?;
+    let git_dir = repo.to_string_lossy().into_owned();
+    let spec = format!("{}^{{commit}}", reference);
+    Git::new(db.dir())
+        .run_line([
+            "--git-dir",
+            git_dir.as_str(),
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            spec.as_str(),
+        ])
+        .ok()
+        .filter(|commit| !commit.is_empty())
+}
+
+/// The merge base of the local and remote branches, and the commits on each side.
+fn merge_base_queries(remote_ref: &str) -> [String; 3] {
+    [
+        format!("select dolt_merge_base('HEAD', {}) as b", lit(remote_ref)),
+        format!(
+            "select count(*) as c from dolt_log({})",
+            lit(&format!("{}..{}", remote_ref, BRANCH))
+        ),
+        format!(
+            "select count(*) as c from dolt_log({})",
+            lit(&format!("{}..{}", BRANCH, remote_ref))
+        ),
+    ]
+}
+
+/// The base, the commits ahead and the commits behind, in the results of
+/// [`merge_base_queries`].
+fn merge_base_from(sets: &[Vec<serde_json::Value>]) -> (String, usize, usize) {
+    (
+        sets[0]
+            .first()
+            .and_then(|row| text(row, "b"))
+            .unwrap_or_else(|| "HEAD".to_string()),
+        dolt::first_count(&sets[1]) as usize,
+        dolt::first_count(&sets[2]) as usize,
+    )
+}
+
+/// What the first two reads of the data side of `status` found, when they came with the
+/// manifest check in one process.
+struct FirstReads {
+    local_version: Option<i64>,
+    base: String,
+    ahead: usize,
+    behind: usize,
+}
+
+/// How far `status` asked origin: it fetched, it could not, or it was told not to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    Fetched,
+    Unreachable,
+    NotAsked,
 }
 
 fn join_notes(existing: Option<String>, note: String) -> String {
@@ -622,54 +799,58 @@ impl DoltStore {
     /// The data side of `status`: the tables that differ from the merge base of the local
     /// and remote branches, with row counts, and the commits on each side. Changes
     /// nothing. `online` says the fetch worked, so the commit counts can be trusted.
-    fn data_side(&self, db: &Dolt, online: bool) -> Result<SideStatus, String> {
+    fn data_side(
+        &self,
+        db: &Dolt,
+        online: Origin,
+        first: Option<FirstReads>,
+    ) -> Result<SideStatus, String> {
         let remote_ref = format!("{}/{}", REMOTE, BRANCH);
         // Each step reads in one `dolt sql` process. When a batch fails, the step reads
         // query by query instead, which gives the same result or the same error.
-        let (has_remote, local_version) =
-            match db.rows_each(&[remote_branch_query(), manifest_version_query(None)]) {
-                Ok(sets) => (dolt::first_count(&sets[0]) > 0, version_of_rows(&sets[1])),
-                Err(_) => (remote_branch_exists(db)?, manifest_version_of(db, None)),
-            };
-        let (base, remote) = if has_remote {
-            let queries = [
-                format!("select dolt_merge_base('HEAD', {}) as b", lit(&remote_ref)),
-                format!(
-                    "select count(*) as c from dolt_log({})",
-                    lit(&format!("{}..{}", remote_ref, BRANCH))
-                ),
-                format!(
-                    "select count(*) as c from dolt_log({})",
-                    lit(&format!("{}..{}", BRANCH, remote_ref))
-                ),
-            ];
-            let (base, ahead, behind) = match db.rows_each(&queries) {
+        let (has_remote, local_version, preread) = match first {
+            Some(first) => (
+                true,
+                first.local_version,
+                Some((first.base, first.ahead, first.behind)),
+            ),
+            None => match db.rows_each(&[remote_branch_query(), manifest_version_query(None)]) {
                 Ok(sets) => (
-                    sets[0]
-                        .first()
-                        .and_then(|row| text(row, "b"))
-                        .unwrap_or_else(|| "HEAD".to_string()),
-                    dolt::first_count(&sets[1]) as usize,
-                    dolt::first_count(&sets[2]) as usize,
+                    dolt::first_count(&sets[0]) > 0,
+                    version_of_rows(&sets[1]),
+                    None,
                 ),
-                Err(_) => {
-                    let base = db
-                        .rows(&queries[0])
-                        .ok()
-                        .and_then(|rows| rows.first().and_then(|row| text(row, "b")))
-                        .unwrap_or_else(|| "HEAD".to_string());
-                    let ahead = db.count(&queries[1])? as usize;
-                    let behind = db.count(&queries[2])? as usize;
-                    (base, ahead, behind)
-                }
+                Err(_) => (
+                    remote_branch_exists(db)?,
+                    manifest_version_of(db, None),
+                    None,
+                ),
+            },
+        };
+        let (base, remote) = if has_remote {
+            let queries = merge_base_queries(&remote_ref);
+            let (base, ahead, behind) = match preread {
+                Some(read) => read,
+                None => match db.rows_each(&queries) {
+                    Ok(sets) => merge_base_from(&sets),
+                    Err(_) => {
+                        let base = db
+                            .rows(&queries[0])
+                            .ok()
+                            .and_then(|rows| rows.first().and_then(|row| text(row, "b")))
+                            .unwrap_or_else(|| "HEAD".to_string());
+                        let ahead = db.count(&queries[1])? as usize;
+                        let behind = db.count(&queries[2])? as usize;
+                        (base, ahead, behind)
+                    }
+                },
             };
-            let state = if online {
-                RemoteState::from_counts(ahead, behind)
-            } else {
-                RemoteState::Unknown
+            let state = match online {
+                Origin::Fetched | Origin::NotAsked => RemoteState::from_counts(ahead, behind),
+                Origin::Unreachable => RemoteState::Unknown,
             };
             (base, state)
-        } else if online {
+        } else if online == Origin::Fetched {
             ("HEAD".to_string(), RemoteState::Unpublished)
         } else {
             ("HEAD".to_string(), RemoteState::Unknown)
@@ -752,6 +933,50 @@ impl DoltStore {
         Ok(SideStatus { changes, remote })
     }
 
+    /// The manifest check and the first reads of the data side of `status` in one process,
+    /// for a status that fetches nothing. `Ok(None)` when the batch fails or the database
+    /// has no remote branch: the check and the reads then run on their own, which gives
+    /// the same result or the same error. A ledger the manifest check refuses fails here
+    /// as it does there.
+    fn status_first_reads(
+        &self,
+        db: &Dolt,
+        location: &LedgerLocation,
+    ) -> Result<Option<FirstReads>, String> {
+        let remote_ref = format!("{}/{}", REMOTE, BRANCH);
+        let mut queries = vec![
+            MANIFEST_QUERY.to_string(),
+            remote_branch_query(),
+            manifest_version_query(None),
+        ];
+        queries.extend(merge_base_queries(&remote_ref));
+        let Ok(sets) = db.rows_each(&queries) else {
+            return Ok(None);
+        };
+        let info = manifest_from_rows(&sets[0])?;
+        let version = manifest::check_values(
+            info.version,
+            info.repo_id.as_deref(),
+            location.repo_id(),
+            MANIFEST_SOURCE,
+            DOLT_SUPPORTED_VERSIONS,
+        )?;
+        if version == LEGACY_LAYOUT_VERSION {
+            return Err(VERSION_1_REFUSAL.to_string());
+        }
+        self.remember_checked(db, version);
+        if dolt::first_count(&sets[1]) == 0 {
+            return Ok(None);
+        }
+        let (base, ahead, behind) = merge_base_from(&sets[3..]);
+        Ok(Some(FirstReads {
+            local_version: version_of_rows(&sets[2]),
+            base,
+            ahead,
+            behind,
+        }))
+    }
+
     /// Refresh the Dolt database, and return the manifest version it holds.
     pub(crate) fn refresh_data(&self, keep_local: bool) -> Result<(RefreshOutcome, i64), String> {
         self.forget_checked();
@@ -769,7 +994,13 @@ impl DoltStore {
             ));
         }
 
-        if remote_tip(&self.repo.git, &location)?.is_none() {
+        // One question to origin names the ledger ref and the documents ref. When it cannot
+        // be asked, the ledger ref is asked alone, which reports the failure as before.
+        let ledger_tip = match self.heads(&location) {
+            Some(heads) => heads.ledger,
+            None => remote_tip(&self.repo.git, &location)?,
+        };
+        if ledger_tip.is_none() {
             let version = if present {
                 let db = Dolt::new(&path);
                 verify_remote(&db, &url, &location)?;
@@ -820,7 +1051,7 @@ impl DoltStore {
             if dirty && !keep_local {
                 return Err(dirty_error(&path));
             }
-            self.sync_data(&db)?;
+            self.sync_data(&db, &location)?;
         } else {
             self.check_remote_kind(&location)?;
             let parent = path
@@ -834,7 +1065,7 @@ impl DoltStore {
                 .unwrap_or_default();
             Dolt::new(parent).run(["clone", "--ref", location.ref_name(), url.as_str(), &name])?;
             db = Dolt::new(&path);
-            self.synced.borrow_mut().data = true;
+            self.note_data_fetched(&location, ledger_tip.as_deref());
         }
         // One process for the three reads. When the batch fails (the remote branch is
         // missing, say), they read one by one, which gives the same error.
@@ -929,12 +1160,28 @@ impl LedgerStore for DoltStore {
     fn status(&self) -> Result<LedgerStatus, String> {
         let db = self.db()?;
         let location = self.repo.location(&self.state_root)?;
-        self.check_current(&db, &location)?;
+        // When origin has nothing new, the manifest check and the first reads are one process.
+        let first = if self.data_is_current(&location) {
+            self.status_first_reads(&db, &location)?
+        } else {
+            None
+        };
+        if first.is_none() {
+            self.check_current(&db, &location)?;
+        }
         let docs = Git::new(&self.docs_tree()?.root);
 
-        let data_fetch = self.sync_data(&db);
+        let data_fetch = self.sync_data(&db, &location);
         let docs_fetch = self.sync_docs_tip(&location);
-        let data = self.data_side(&db, data_fetch.is_ok())?;
+        let data = self.data_side(
+            &db,
+            if data_fetch.is_ok() {
+                Origin::Fetched
+            } else {
+                Origin::Unreachable
+            },
+            first,
+        )?;
         let side = status::worktree_side(&docs, &docs_fetch)?;
         let docs_ref = location.docs();
         let fetch_note = match (&data_fetch, &docs_fetch) {
@@ -959,6 +1206,42 @@ impl LedgerStore for DoltStore {
                 remote: side.remote,
             },
             fetch_note,
+            origin_checked: true,
+        })
+    }
+
+    fn status_local(&self) -> Result<LedgerStatus, String> {
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        let first = self.status_first_reads(&db, &location)?;
+        if first.is_none() {
+            self.check_current(&db, &location)?;
+        }
+        let docs = Git::new(&self.docs_tree()?.root);
+
+        let data = self.data_side(&db, Origin::NotAsked, first)?;
+        // The documents tip last fetched, when this clone recorded it and still has the commit.
+        let docs_ref = location.docs();
+        let tip = self
+            .tips()
+            .and_then(|tips| tips.get(docs_ref.remote(), docs_ref.ref_name()))
+            .filter(|tip| tips::commit_is_local(&self.repo.git, tip));
+        let fetched = tip
+            .map(Some)
+            .ok_or_else(|| "origin was not asked".to_string());
+        let side = status::worktree_side(&docs, &fetched)?;
+        Ok(LedgerStatus {
+            data,
+            docs: SideStatus {
+                changes: side
+                    .files
+                    .iter()
+                    .map(|(letter, path)| Change::file(*letter, path))
+                    .collect(),
+                remote: side.remote,
+            },
+            fetch_note: None,
+            origin_checked: false,
         })
     }
 
@@ -976,7 +1259,7 @@ impl LedgerStore for DoltStore {
                 e
             )
         };
-        self.sync_data(&db).map_err(refused)?;
+        self.sync_data(&db, &location).map_err(refused)?;
         let docs_tip = self.sync_docs_tip(&location).map_err(refused)?;
 
         let remote_ref = format!("{}/{}", REMOTE, BRANCH);
@@ -1044,8 +1327,8 @@ impl LedgerStore for DoltStore {
             let mut on_retry = |attempt: usize, status: &PushStatus| {
                 notes(&crate::ledger::retry_note(attempt, status))
             };
-            // The tip the refresh of this command fetched, else one fetched now. The push
-            // carries it as its lease.
+            // The tip the refresh of this command fetched, else the one the record of the
+            // last fetch names. The push carries it as its lease.
             let known = self.sync_docs_tip(&location)?;
             let outcome = docs::push(
                 &self.repo,
@@ -1055,7 +1338,7 @@ impl LedgerStore for DoltStore {
                 Some(known),
                 &mut on_retry,
             )?;
-            self.synced.borrow_mut().docs = Some(Some(outcome.commit.clone()));
+            self.note_docs_tip(&location, Some(outcome.commit.as_str()));
             outcome
         };
         let docs_changed =
