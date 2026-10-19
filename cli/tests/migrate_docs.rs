@@ -114,6 +114,7 @@ impl Fixture {
             .env("XDG_STATE_HOME", self.state())
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
+            .env("TSK_LEDGER_REFS", "branches")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove(CLOUD_VAR);
         command

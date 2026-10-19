@@ -17,6 +17,18 @@ pub enum ConfigCommands {
     },
     #[command(about = "Print the user config file path and the nexus URL it records")]
     Show,
+    #[command(
+        name = "ledger-refs",
+        about = "Print which refs hold this repo's ledger and where that was decided, or set them in .tsk/config.toml",
+        long_about = "Print which refs hold this repo's ledger and where that was decided, or set them in .tsk/config.toml.\n\nbranches: refs/heads/tsk/ledger and refs/heads/tsk/docs. GitHub lists them as branches. A repo used from Claude Code cloud sessions needs them, because the cloud proxy refuses to push a ref outside refs/heads/*.\ncustom: refs/tsk/ledger and refs/tsk/docs. GitHub does not list them. The default for a new ledger outside a cloud session.\n\nThe mode is read from the nexus entry of the repo (ledger_refs), then .tsk/config.toml, then discovered on origin. tsk does not move a ledger that origin holds from one mode to the other."
+    )]
+    LedgerRefs {
+        #[arg(
+            value_parser = ["branches", "custom"],
+            help = "The mode to write to .tsk/config.toml; omit it to print the mode in force"
+        )]
+        mode: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,8 +170,18 @@ pub fn attach_and_report(file: &Path, url: &str) -> Result<(), String> {
 }
 
 pub fn run(action: ConfigCommands) -> Result<(), String> {
+    if let ConfigCommands::LedgerRefs { mode } = action {
+        return match mode
+            .as_deref()
+            .and_then(crate::ledger::refs::LedgerRefs::parse)
+        {
+            Some(mode) => crate::ledger::refs_cmd::set(mode),
+            None => crate::ledger::refs_cmd::show(),
+        };
+    }
     let file = required_config_file()?;
     match action {
+        ConfigCommands::LedgerRefs { .. } => unreachable!("handled above"),
         ConfigCommands::AttachNexus { url } => attach_and_report(&file, &url),
         ConfigCommands::Show => {
             println!("config: {}", file.display());

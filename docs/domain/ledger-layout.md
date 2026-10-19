@@ -8,7 +8,8 @@ in a git branch was removed in 0.16.0: see [File ledger (removed)](#file-ledger-
 Depends on: `docs/domain/session-continuation-design.md` (threads, bindings and
 continuation state), `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`,
 `docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md`,
-`docs/adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md`.
+`docs/adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md`,
+`docs/adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md`.
 
 ## Contents
 
@@ -63,8 +64,9 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 ```
 
 - `tsk ledger path` prints this path. `$TSK_LEDGER_WT` names it.
-- The clone has one remote, added with `--ref refs/heads/tsk/ledger` for an in-repo
-  ledger, or `--ref refs/heads/ledgers/<repo-id>` for a nexus ledger. Its URL is
+- The clone has one remote, added with `--ref refs/tsk/ledger` for an in-repo ledger, or
+  `--ref refs/tsk/ledgers/<repo-id>` for a nexus ledger, or the `refs/heads/...` form of
+  either on a ledger that uses branches (see [Location and ref](#location-and-ref)). Its URL is
   `git+<remote url>`, with the remote URL resolved as in
   [Location and ref](#location-and-ref).
 - The database needs the external `dolt` binary, version 2.5.0 or later. The `SessionStart` hook
@@ -133,8 +135,8 @@ need a branch of their own. Any tool can open them: GitHub, an editor, `marq`.
 
 | Item | Value |
 |---|---|
-| Ref, in-repo ledger | `refs/heads/tsk/docs` on the same remote as `refs/heads/tsk/ledger` |
-| Ref, nexus ledger | `refs/heads/ledgers/<repo-id>-docs` on the nexus remote |
+| Ref, in-repo ledger | `refs/tsk/docs` (`refs/heads/tsk/docs` in `branches` mode) on the same remote as the ledger ref |
+| Ref, nexus ledger | `refs/tsk/ledgers/<repo-id>-docs` (`refs/heads/ledgers/<repo-id>-docs` in `branches` mode) on the nexus remote |
 | Local checkout | `${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/docs`, a detached linked worktree of the managed clone |
 | First commit | An orphan commit holding `README.md` ("Documents of the tsk ledger. Written by tsk ledger doc put.") and the seed `index.md`, made with git plumbing |
 | Manifest | None. The documents branch has no manifest |
@@ -704,20 +706,118 @@ describes the file layout. Read the 0.15.1 copy of this file for it.
 
 ## Location and ref
 
-A ledger is a git branch. It is never a custom ref: a Claude Code cloud session can
-write only `refs/heads/*` (ADR 0008). It is never checked out in the managed repo's main
-working copy.
+A ledger is a git ref. It is never checked out in the managed repo's main working copy.
+Two modes decide which refs hold it (ADR 0016):
 
-| Location | Remote | Ref |
-|---|---|---|
-| In-repo (default) | the managed repo's `origin` | `refs/heads/tsk/ledger` |
-| Nexus (option) | the nexus repo | `refs/heads/ledgers/<repo-id>` |
+- `custom` is the default for a new ledger. The refs are outside `refs/heads/*`, so GitHub
+  lists no branch and offers no "Compare & pull request" banner for them.
+- `branches` keeps the refs under `refs/heads/*`. A repo used from Claude Code cloud
+  sessions needs it, because the cloud proxy refuses to push or update a ref outside
+  `refs/heads/*` (ADR 0008).
 
-The binary passes the full ref name to every git command. It never passes `tsk/ledger`
-or any other unqualified name. On the tsk repo's `origin`, an orphaned custom ref
-`refs/tsk/bootstrap` shadows the unqualified name `tsk/bootstrap`, and an unqualified
-fetch returns that ref's content with exit status 0 (ADR 0008, amended 2026-09-16). The
-full name makes the same trap impossible for `tsk/ledger`.
+| Location | Remote | Ref in `custom` | Ref in `branches` |
+|---|---|---|---|
+| In-repo (default) | the managed repo's `origin` | `refs/tsk/ledger` | `refs/heads/tsk/ledger` |
+| Nexus (option) | the nexus repo | `refs/tsk/ledgers/<repo-id>` | `refs/heads/ledgers/<repo-id>` |
+
+The documents ref is `refs/tsk/docs` or `refs/heads/tsk/docs` in-repo, and
+`refs/tsk/ledgers/<repo-id>-docs` or `refs/heads/ledgers/<repo-id>-docs` on a nexus.
+
+The binary passes the full ref name to every git command, and `dolt remote add --ref` takes
+the full name too. It never passes `tsk/ledger` or any other unqualified name. On the tsk
+repo's `origin`, an orphaned custom ref `refs/tsk/bootstrap` shadows the unqualified name
+`tsk/bootstrap`, and an unqualified fetch returns that ref's content with exit status 0
+(ADR 0008, amended 2026-09-16). The full name makes the same trap impossible for
+`tsk/ledger`. A conformance case runs a logging `git` and fails when a short name reaches
+it. Git fetches a custom ref into `FETCH_HEAD`, as it does a branch, and creates no
+remote-tracking ref for either mode. Dolt 2.5.0 accepts a ref outside `refs/heads/*` for
+its remote: push, clone, fetch and merge work, and it keeps its copy of the remote under
+`refs/dolt/remotes/origin/tsk/ledger/last`.
+
+### Which mode a repo uses
+
+The mode is read from these sources. The first that has an answer wins:
+
+1. `TSK_LEDGER_REFS`, the environment of one process. It holds `branches` or `custom`.
+2. The repo's entry in the nexus: the field `ledger_refs` (see
+   [The nexus entry](#the-nexus-entry)).
+3. The repo config, `.tsk/config.toml` at the top of the code repo, committed with the repo:
+
+   ```toml
+   [ledger]
+   refs = "branches"
+   ```
+
+4. Discovery, for a ledger that no person or file configured:
+   1. The ledger store on this machine, when it exists. The ref its `origin` remote
+      records decides the mode. This is a file read.
+   2. The answer an earlier discovery cached in `<state>/repos/<clone-id>/ledger-refs`.
+   3. One `git ls-remote <remote> refs/heads/tsk/ledger refs/tsk/ledger` (the nexus ref
+      names for a nexus ledger). The branch ledger wins when both exist. The answer is
+      cached. When origin cannot be reached, nothing is cached and the next rule applies.
+   4. A new ledger takes `custom`. In a Claude Code cloud session
+      (`CLAUDE_CODE_REMOTE=true`) it takes `branches` instead, because the first push of a
+      custom ref would fail. The command that creates the ledger, and the session start
+      context, say so:
+
+      > This is a Claude Code cloud session, which cannot push a custom ref, so the ledger
+      > uses branches. To choose, run tsk config ledger-refs custom or branches before the
+      > first push.
+
+A nexus entry or a repo config that says nothing leaves the choice to the next source. The
+nexus is part of the environment and holds the setting for a repo that keeps nothing of
+tsk's. The repo config serves a standalone repo with no nexus entry, such as one used from
+cloud sessions.
+
+`tsk config ledger-refs` with no argument prints the mode and where it came from:
+
+```
+ledger refs: custom
+source: default
+ledger ref: refs/tsk/ledger
+docs ref: refs/tsk/docs
+```
+
+`source` is `environment`, `nexus`, `repo config (<path>)`, `ledger store`,
+`discovered on origin`, `default` or `default (Claude Code cloud session)`.
+`tsk config ledger-refs branches|custom` writes `[ledger] refs` to `.tsk/config.toml` at
+the top of the code worktree. It creates the directory, keeps every other key, and prints
+the new mode, the two refs and `wrote <path>`. It forgets the cached discovery. It prints a
+note to stderr when the environment or the nexus entry outranks the file. When a ledger
+store exists that was never published, the command points its Dolt remote at the new refs,
+so a person who chose the wrong mode before the first push can correct it. `tsk nexus
+register-repo --ledger-refs branches|custom` writes `ledger_refs` on the new entry.
+
+tsk does not move a ledger from one mode to the other. A mode that disagrees with a ledger
+that exists stops the command with an error that names both refs and the place to change
+the setting:
+
+```
+error: this repo is set to custom ledger refs (repo config), which use refs/tsk/ledger, but origin holds the ledger on refs/heads/tsk/ledger.
+       tsk does not move a ledger between branches and a custom ref, and it does not start a second ledger.
+       To follow origin, run: tsk config ledger-refs branches
+```
+
+The same error comes with "the ledger store on this machine" in place of `origin` when the
+store is on the other refs. Where the setting comes from the nexus, the last line reads
+`set "ledger_refs": "branches" on the repo's entry in nexus.json`, and from the
+environment, `set TSK_LEDGER_REFS to branches, or unset it`. The check at fetch time asks
+origin for the other refs only when the ledger ref is absent, so a ledger that exists
+costs no extra call. `tsk config ledger-refs <mode>` refuses to switch a ledger that
+origin holds.
+
+A host that refuses a custom ref (the Claude Code cloud proxy, or a server hook) stops
+`tsk ledger push` with:
+
+```
+error: origin refused the push to refs/tsk/docs. The host may accept only branches, as the Claude Code cloud proxy does.
+       The local commits stay. To use branches for this ledger, run: tsk config ledger-refs branches
+```
+
+When git or Dolt reported the refusal, a line that starts `The server said:` and quotes
+it follows the first line. The documents push comes first, so the documents ref is the one
+named when both are refused. Nothing is lost: the records and documents stay in the
+ledger store, and after the fix the next `tsk ledger push` sends them.
 
 The nexus location is for a managed repo the operator cannot push a ledger branch to,
 such as a work repo. The ledger objects live in the nexus repo. The managed repo's clone
@@ -766,8 +866,9 @@ The choice is per managed repo:
       otherwise the output of `hostname`. An entry whose `local` names another machine
       is skipped in both steps.
 3. No entry means in-repo. An entry with no `ledger` field, or `"ledger": "repo"`, means
-   in-repo. `"ledger": "nexus"` means the ref `refs/heads/ledgers/<repo-id>` in the nexus,
-   where `<repo-id>` is the entry's `id`. Any other `ledger` value stops with an error.
+   in-repo. `"ledger": "nexus"` means the ref `ledgers/<repo-id>` in the nexus (under
+   `refs/heads/` or `refs/tsk/`, by the mode), where `<repo-id>` is the entry's `id`. Any
+   other `ledger` value stops with an error.
 4. When an entry is found and `tsk-repo-id` does not already hold its `id`, tsk writes the
    `id` to `tsk-repo-id`.
 
@@ -809,6 +910,7 @@ not: it needs only the clone ID.
 | `url` | no | The repo's clone URL, in any form that normalises to the same name (see below). Absent for a repo with no remote yet. |
 | `local` | no | A machine name. The entry is visible only on that machine, and is found only through the cached repo ID. Used with no `url`. |
 | `ledger` | no | `"repo"` or `"nexus"`. Absent means `"repo"`. |
+| `ledger_refs` | no | `"branches"` or `"custom"`: which refs hold the ledger (see [Which mode a repo uses](#which-mode-a-repo-uses)). Absent leaves the choice to the repo config and discovery. Any other value stops with an error. |
 
 `tsk nexus register-repo`, run in the managed repo, adds its entry. It fetches the
 nexus's default branch, adds the entry to `nexus.json`, and commits and pushes it with the
@@ -824,7 +926,8 @@ machine's own git credentials. On a rejected push it fetches again and retries o
 - The territory is `--territory`, required when `nexus.json` has more than one. With one
   territory, that one is used. With none, `--territory` creates it, named
   `--territory-name` or, without that option, its ID.
-- `ledger` is `--ledger`, `nexus` by default, and is always written.
+- `ledger` is `--ledger`, `nexus` by default, and is always written. `ledger_refs` is
+  `--ledger-refs`, written only when the option is given.
 - An entry with the same normalised `url` and the same ID, or the same ID and the same
   `local`, means the repo is registered: the command prints `already registered` and
   commits nothing. The same `url` under another ID, or the same ID for another repo, stops
@@ -880,8 +983,9 @@ different URL needs no clean-up.
 ### Fetching and pushing a nexus ledger
 
 The Dolt remote of a nexus ledger is `git+<nexus-url>` with the ref
-`refs/heads/ledgers/<repo-id>`. The documents branch is `refs/heads/ledgers/<repo-id>-docs`
-on the same remote. The managed repo's clone fetches the documents ref into its own object
+`refs/tsk/ledgers/<repo-id>` (`refs/heads/ledgers/<repo-id>` in `branches` mode). The
+documents ref is `refs/tsk/ledgers/<repo-id>-docs` (`refs/heads/ledgers/<repo-id>-docs`) on
+the same remote. The managed repo's clone fetches the documents ref into its own object
 database, which `git worktree add` needs. The nexus repo is not an `origin` or any named
 remote of the managed clone, and no `.git/config` entry is written. A manifest `repo_id`
 that differs from the entry's `id` stops `tsk ledger fetch` and `tsk ledger push` before
@@ -897,11 +1001,16 @@ other failure is an error.
    `repo_id` for a nexus ledger), commits, and adds the remote with the ledger ref.
 2. If the documents ref is absent, it makes the orphan documents commit with git
    plumbing and creates the documents worktree on it, detached.
-3. tsk prints a note to stderr that the branch does not exist yet, and the path of the
-   Dolt database to stdout.
+3. tsk prints a note to stderr that the ref does not exist yet, and the path of the
+   Dolt database to stdout. A ledger that took `branches` because it was made in a Claude
+   Code cloud session adds the sentence from
+   [Which mode a repo uses](#which-mode-a-repo-uses).
 
-The branches are created by the first `tsk ledger push`. A later `tsk ledger fetch` while
-the branch is still absent leaves the store as it is and prints the note again.
+Before step 1, tsk asks origin for the ledger ref of the other mode. When origin holds the
+ledger there, the command stops with the mismatch error and makes nothing.
+
+The refs are created by the first `tsk ledger push`. A later `tsk ledger fetch` while
+the ref is still absent leaves the store as it is and prints the note again.
 
 ## `missions/`
 

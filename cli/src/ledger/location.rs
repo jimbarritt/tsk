@@ -4,16 +4,14 @@ use std::hash::{BuildHasher, Hasher};
 use std::path::{Path, PathBuf};
 
 use super::git::Git;
+use super::refs::{LedgerRefs, RefsSource};
 
 pub const IN_REPO_REMOTE: &str = "origin";
-pub const IN_REPO_REF: &str = "refs/heads/tsk/ledger";
-pub const IN_REPO_DOCS_REF: &str = "refs/heads/tsk/docs";
 pub const DOCS_DIR_NAME: &str = "docs";
 pub const DOLT_DIR_NAME: &str = "ledger-db";
 pub const CLONE_ID_FILE: &str = "tsk-clone-id";
 const CLONE_ID_SUFFIX_LEN: usize = 8;
 
-pub const NEXUS_REF_PREFIX: &str = "refs/heads/ledgers/";
 pub const REPO_ID_FILE: &str = "tsk-repo-id";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,23 +19,55 @@ pub struct LedgerLocation {
     remote: String,
     ref_name: String,
     repo_id: Option<String>,
+    refs: LedgerRefs,
+    source: RefsSource,
 }
 
 impl LedgerLocation {
+    /// The location of a repo's own ledger on branches. Resolution builds the location in
+    /// the mode in force with [`LedgerLocation::with_refs`].
     pub fn in_repo() -> LedgerLocation {
         LedgerLocation {
             remote: IN_REPO_REMOTE.to_string(),
-            ref_name: IN_REPO_REF.to_string(),
+            ref_name: LedgerRefs::Branches.ledger_ref().to_string(),
             repo_id: None,
+            refs: LedgerRefs::Branches,
+            source: RefsSource::Default,
         }
     }
 
+    /// The location of a nexus-held ledger on branches.
     pub fn nexus(nexus_url: &str, repo_id: &str) -> LedgerLocation {
         LedgerLocation {
             remote: nexus_url.to_string(),
-            ref_name: format!("{}{}", NEXUS_REF_PREFIX, repo_id),
+            ref_name: format!("{}{}", LedgerRefs::Branches.nexus_prefix(), repo_id),
             repo_id: Some(repo_id.to_string()),
+            refs: LedgerRefs::Branches,
+            source: RefsSource::Default,
         }
+    }
+
+    /// The same ledger in `refs` mode: the data ref and the documents ref change, the remote
+    /// and the repo id do not.
+    pub fn with_refs(&self, refs: LedgerRefs, source: RefsSource) -> LedgerLocation {
+        LedgerLocation {
+            remote: self.remote.clone(),
+            ref_name: match &self.repo_id {
+                Some(id) => format!("{}{}", refs.nexus_prefix(), id),
+                None => refs.ledger_ref().to_string(),
+            },
+            repo_id: self.repo_id.clone(),
+            refs,
+            source,
+        }
+    }
+
+    pub fn refs(&self) -> LedgerRefs {
+        self.refs
+    }
+
+    pub fn source(&self) -> RefsSource {
+        self.source
     }
 
     pub fn remote(&self) -> &str {
@@ -57,8 +87,8 @@ impl LedgerLocation {
     /// `ledgers/<id>/docs` as refs: one would be a file and the other a directory.
     pub fn docs_ref_name(&self) -> String {
         match &self.repo_id {
-            Some(id) => format!("{}{}-docs", NEXUS_REF_PREFIX, id),
-            None => IN_REPO_DOCS_REF.to_string(),
+            Some(id) => format!("{}{}-docs", self.refs.nexus_prefix(), id),
+            None => self.refs.docs_ref().to_string(),
         }
     }
 
@@ -69,6 +99,8 @@ impl LedgerLocation {
             remote: self.remote.clone(),
             ref_name: self.docs_ref_name(),
             repo_id: self.repo_id.clone(),
+            refs: self.refs,
+            source: self.source,
         }
     }
 
@@ -112,12 +144,19 @@ impl Repo {
         })
     }
 
+    /// The ledger's location in the mode in force. Resolved once per process: the nexus
+    /// index, the repo config and discovery are read the first time.
     pub fn location(&self, state_root: &Path) -> Result<LedgerLocation, String> {
-        super::nexus::resolve(
+        if let Some(known) = super::refs::memo_get(self, state_root) {
+            return Ok(known);
+        }
+        let location = super::nexus::resolve(
             self,
             state_root,
             crate::config::config_file_from_env().as_deref(),
-        )
+        )?;
+        super::refs::memo_set(self, state_root, &location);
+        Ok(location)
     }
 
     pub fn repo_id_file(&self) -> PathBuf {
@@ -296,6 +335,41 @@ mod tests {
         assert!(!docs
             .ref_name()
             .starts_with(&format!("{}/", nexus.ref_name())));
+    }
+
+    #[test]
+    fn a_custom_ref_location_names_every_ref_in_full() {
+        use crate::ledger::refs::{LedgerRefs, RefsSource};
+        let in_repo = LedgerLocation::in_repo().with_refs(LedgerRefs::Custom, RefsSource::Default);
+        assert_eq!(in_repo.ref_name(), "refs/tsk/ledger");
+        assert_eq!(in_repo.docs_ref_name(), "refs/tsk/docs");
+        assert_eq!(in_repo.docs().ref_name(), "refs/tsk/docs");
+        assert_eq!(in_repo.remote(), "origin");
+        assert_eq!(in_repo.refs(), LedgerRefs::Custom);
+        assert_eq!(in_repo.source(), RefsSource::Default);
+
+        let nexus = LedgerLocation::nexus("https://example.test/o/nexus", "work-api")
+            .with_refs(LedgerRefs::Custom, RefsSource::Nexus);
+        assert_eq!(nexus.ref_name(), "refs/tsk/ledgers/work-api");
+        assert_eq!(nexus.docs_ref_name(), "refs/tsk/ledgers/work-api-docs");
+        assert_eq!(nexus.docs().label(), "the nexus");
+        assert_eq!(nexus.repo_id(), Some("work-api"));
+        // The two refs can coexist: neither is a path prefix of the other.
+        assert!(!nexus
+            .docs_ref_name()
+            .starts_with(&format!("{}/", nexus.ref_name())));
+    }
+
+    #[test]
+    fn with_refs_round_trips_to_the_branch_location() {
+        use crate::ledger::refs::{LedgerRefs, RefsSource};
+        let branches = LedgerLocation::nexus("n", "x");
+        let custom = branches.with_refs(LedgerRefs::Custom, RefsSource::Default);
+        assert_ne!(branches, custom);
+        assert_eq!(
+            custom.with_refs(LedgerRefs::Branches, RefsSource::Default),
+            branches
+        );
     }
 
     #[test]

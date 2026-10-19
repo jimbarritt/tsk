@@ -14,6 +14,7 @@ pub struct NewEntry {
     pub url: Option<String>,
     pub local: Option<String>,
     pub ledger: String,
+    pub ledger_refs: Option<String>,
 }
 
 impl NewEntry {
@@ -27,6 +28,9 @@ impl NewEntry {
             entry.insert("local".to_string(), json!(local));
         }
         entry.insert("ledger".to_string(), json!(self.ledger));
+        if let Some(refs) = &self.ledger_refs {
+            entry.insert("ledger_refs".to_string(), json!(refs));
+        }
         Value::Object(entry)
     }
 }
@@ -352,7 +356,19 @@ mod tests {
             url: Some(url.to_string()),
             local: None,
             ledger: "nexus".to_string(),
+            ledger_refs: None,
         }
+    }
+
+    #[test]
+    fn ledger_refs_is_written_only_when_given() {
+        let plain = url_entry("work-api", "https://example.test/acme/work-api");
+        assert!(plain.to_json().get("ledger_refs").is_none());
+        let custom = NewEntry {
+            ledger_refs: Some("custom".to_string()),
+            ..plain
+        };
+        assert_eq!(custom.to_json()["ledger_refs"], "custom");
     }
 
     fn local_entry(id: &str, machine: &str) -> NewEntry {
@@ -361,6 +377,7 @@ mod tests {
             url: None,
             local: Some(machine.to_string()),
             ledger: "nexus".to_string(),
+            ledger_refs: None,
         }
     }
 

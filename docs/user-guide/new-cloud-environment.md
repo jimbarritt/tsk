@@ -186,6 +186,30 @@ The binary claims each session start event by session ID and source. When the pl
 own `SessionStart` hook also runs, the second run prints nothing, so the context appears
 once.
 
+### Set the ledger refs before the first push
+
+A new ledger uses a custom ref, `refs/tsk/ledger`, which GitHub does not list as a branch.
+The cloud proxy refuses to push a ref outside `refs/heads/*`, so a repo used from cloud
+sessions keeps its ledger on branches. The choice is made once per repo, before the first
+push:
+
+```bash
+tsk config ledger-refs branches
+git add .tsk/config.toml && git commit -m "Keep the tsk ledger on branches" && git push
+```
+
+- The command writes `.tsk/config.toml` with `[ledger]` and `refs = "branches"`. Commit
+  the file, so every clone and cloud session reads it.
+- A cloud session that creates a ledger with nothing set takes branches by itself and
+  prints: "This is a Claude Code cloud session, which cannot push a custom ref, so the
+  ledger uses branches." The file keeps the choice for the sessions that follow, and for
+  a clone on a laptop.
+- A repo registered in a nexus can carry the choice on its entry instead:
+  `tsk nexus register-repo --ledger-refs branches`. The entry wins over the file.
+- A ledger that already exists as a custom ref cannot be used from a cloud session, and
+  tsk does not move it. `tsk config ledger-refs` with no argument prints the refs in use
+  and where the choice came from.
+
 ### The tsk repo
 
 The tsk repo has its own hook, `ops/local/claude-session-start.sh`, which also builds
@@ -247,7 +271,7 @@ The stamp shows reuse only when the cache keeps the container's filesystem.
 | The `SessionStart` context reports `WARNING: adding the ... marketplace failed` | `github.com` is blocked, or the marketplace repo is not readable. | Allow `github.com`. Confirm `jimbarritt/claude-plugins` is readable from the session. |
 | A session starts with no tsk context, and `/tsk:` commands are missing | The repo has no `SessionStart` hook yet. | Add it once, see [step 4](#add-the-hook-once-per-repo). |
 | `$TSK_LEDGER_WT` is empty | The hook did not run, or `tsk thread session-start` failed. | Run `WT="${TSK_LEDGER_WT:-$(tsk ledger fetch)}"` and read any error. |
-| `tsk ledger push` is rejected | The cloud sandbox proxy refuses writes outside `refs/heads/*`. | The ledger is the branch `tsk/ledger`, not a custom ref. See [ADR 0008](../adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md). |
+| `tsk ledger push` stops with `origin refused the push to refs/tsk/...` | The cloud sandbox proxy refuses writes outside `refs/heads/*`, and the ledger is on a custom ref. | Run `tsk config ledger-refs branches` and push again. See [ADR 0008](../adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md) and [ADR 0016](../adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md). |
 | `git merge-base` reports unrelated branches | The clone is shallow. | `git fetch --unshallow origin`. The hook does this at session start. |
 | A new `tsk` release is not picked up | The setup script result is cached for the environment. | Edit the script, for example by pinning `TSK_VERSION`, so the environment rebuilds. |
 | The context warns that `tsk` could not be upgraded | `github.com` is blocked, or the release asset is missing for the platform. | Allow `github.com`, then run `tsk self-update` in the session and read the error. |

@@ -7,6 +7,8 @@ pub mod manifest;
 pub mod migrate_docs;
 pub mod nexus;
 pub mod push;
+pub mod refs;
+pub mod refs_cmd;
 pub mod register;
 pub mod status;
 pub mod store;
@@ -269,6 +271,9 @@ pub(crate) fn report_refresh(outcome: RefreshOutcome) -> RefreshOutcome {
     }
     if let Some(note) = &outcome.unpublished_note {
         eprintln!("{}", note);
+        if let Some(cloud) = refs::cloud_default_note() {
+            eprintln!("{}", cloud);
+        }
     }
     outcome
 }
@@ -317,11 +322,17 @@ pub(crate) fn unpublished_note(outcome: &fetch::FetchOutcome) -> String {
 }
 
 pub(crate) fn unpublished_text(label: &str, ref_name: &str, path: &std::path::Path) -> String {
+    let kind = if ref_name.starts_with("refs/heads/") {
+        "branch"
+    } else {
+        "ref"
+    };
     format!(
-        "note: {}'s {} does not exist yet; {} holds a new ledger.\n      The first tsk ledger push creates the branch",
+        "note: {}'s {} does not exist yet; {} holds a new ledger.\n      The first tsk ledger push creates the {}",
         label,
         ref_name,
-        path.display()
+        path.display(),
+        kind
     )
 }
 

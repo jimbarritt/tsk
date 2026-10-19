@@ -53,7 +53,9 @@ enum Commands {
         #[command(subcommand)]
         action: mission::records::QuestionCommands,
     },
-    #[command(about = "Read and write the user config: attach the nexus")]
+    #[command(
+        about = "Read and write the user config (attach the nexus) and the repo config (choose the ledger refs)"
+    )]
     Config {
         #[command(subcommand)]
         action: config::ConfigCommands,
@@ -639,6 +641,7 @@ mod tests {
                         territory,
                         territory_name,
                         ledger,
+                        ledger_refs,
                         local,
                     },
             }) => {
@@ -646,6 +649,7 @@ mod tests {
                 assert_eq!(territory, None);
                 assert_eq!(territory_name, None);
                 assert_eq!(ledger, nexus_cmd::LedgerChoice::Nexus);
+                assert_eq!(ledger_refs, None);
                 assert!(!local);
             }
             _ => panic!("register-repo did not parse"),
@@ -674,6 +678,42 @@ mod tests {
         );
         assert!(Cli::try_parse_from(["tsk", "nexus", "add"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "nexus"]).is_err());
+    }
+
+    #[test]
+    fn ledger_refs_subcommands_parse() {
+        for (args, mode) in [
+            (vec!["tsk", "config", "ledger-refs"], None),
+            (
+                vec!["tsk", "config", "ledger-refs", "custom"],
+                Some("custom"),
+            ),
+            (
+                vec!["tsk", "config", "ledger-refs", "branches"],
+                Some("branches"),
+            ),
+        ] {
+            match Cli::try_parse_from(args).unwrap().command {
+                Some(Commands::Config {
+                    action: config::ConfigCommands::LedgerRefs { mode: found },
+                }) => assert_eq!(found.as_deref(), mode),
+                _ => panic!("ledger-refs did not parse"),
+            }
+        }
+        assert!(Cli::try_parse_from(["tsk", "config", "ledger-refs", "tags"]).is_err());
+        match Cli::try_parse_from(["tsk", "nexus", "register-repo", "--ledger-refs", "branches"])
+            .unwrap()
+            .command
+        {
+            Some(Commands::Nexus {
+                action: nexus_cmd::NexusCommands::RegisterRepo { ledger_refs, .. },
+            }) => assert_eq!(ledger_refs.as_deref(), Some("branches")),
+            _ => panic!("register-repo did not parse"),
+        }
+        assert!(
+            Cli::try_parse_from(["tsk", "nexus", "register-repo", "--ledger-refs", "tags"])
+                .is_err()
+        );
     }
 
     // --- TUI scroll helpers ---
