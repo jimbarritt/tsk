@@ -10,6 +10,7 @@ pub mod push;
 pub mod register;
 pub mod status;
 pub mod store;
+pub mod tips;
 
 use clap::Subcommand;
 use std::io::{Read, Write};
@@ -41,6 +42,11 @@ pub enum LedgerCommands {
             help = "Print one tab-separated fact per line, the stable form for scripts, instead of the Local and Origin summary"
         )]
         porcelain: bool,
+        #[arg(
+            long,
+            help = "Do not ask origin anything: print the Local block from what was last fetched, and the Origin line as not checked. No network"
+        )]
+        local: bool,
     },
     #[command(
         about = "Drop every local change that is not pushed, in the data and the documents, and reset both to origin's state; without --yes it prints what it would drop and exits 1"
@@ -139,8 +145,12 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             println!("{}", report.head);
             Ok(())
         }
-        LedgerCommands::Status { porcelain } => {
-            let status = store.status()?;
+        LedgerCommands::Status { porcelain, local } => {
+            let status = if local {
+                store.status_local()?
+            } else {
+                store.status()?
+            };
             if let Some(note) = &status.fetch_note {
                 eprintln!("{}", note);
             }

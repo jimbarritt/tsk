@@ -272,7 +272,13 @@ pub struct LedgerStatus {
     pub docs: SideStatus,
     /// Set when origin could not be fetched: one line, ready for stderr.
     pub fetch_note: Option<String>,
+    /// False for `tsk ledger status --local`, which asks origin nothing. The commit counts
+    /// then come from what was last fetched, and the Origin line says it was not checked.
+    pub origin_checked: bool,
 }
+
+/// What the `--porcelain` remote lines say when origin was not asked.
+const NOT_CHECKED: &str = "not checked";
 
 const LABEL_WIDTH: usize = 8;
 const DETAIL_INDENT: usize = 10;
@@ -324,6 +330,11 @@ impl LedgerStatus {
     /// The whole `tsk ledger status --porcelain` output.
     pub fn lines(&self) -> Vec<String> {
         let mut lines = self.changes_lines();
+        if !self.origin_checked {
+            lines.push(format!("data\tremote\t{}", NOT_CHECKED));
+            lines.push(format!("docs\tremote\t{}", NOT_CHECKED));
+            return lines;
+        }
         lines.push(format!("data\tremote\t{}", self.data.remote.render()));
         lines.push(format!("docs\tremote\t{}", self.docs.remote.render()));
         lines
@@ -388,6 +399,9 @@ impl LedgerStatus {
 
     /// The `Origin` line of the human output.
     pub fn human_origin(&self) -> String {
+        if !self.origin_checked {
+            return labelled("Origin", "not checked (--local)");
+        }
         let remotes = [&self.data.remote, &self.docs.remote];
         let text = if remotes.iter().any(|r| **r == RemoteState::Unknown) {
             "unknown (could not reach origin)".to_string()
@@ -608,6 +622,7 @@ mod tests {
 
     fn status(data: SideStatus, docs: SideStatus) -> LedgerStatus {
         LedgerStatus {
+            origin_checked: true,
             data,
             docs,
             fetch_note: None,
