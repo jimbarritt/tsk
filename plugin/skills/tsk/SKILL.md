@@ -203,12 +203,13 @@ tsk mission out-of-scope add <id> "<text>"    # prints n; also remove <id> <n> a
 tsk mission block <id> <by-id>                # and unblock
 tsk mission objective add <id> <outcome>      # prints n; also done, undone, remove, list
 tsk mission link <id> <path> --role <intelligence|report|design>   # and unlink
-tsk mission list [<id>] [--json]
+tsk mission list [<id>] [--json] [--porcelain]
 ```
 
 Status is `todo`, `in-progress` or `done`. An administrative mission stays `in-progress`.
 Blocked is derived: a mission is blocked while any mission it names in `block` is not
-`done`. `list` prints `id`, `status`, `blocked-by`, `parent` and `name`, tab-separated.
+`done`. `list` prints `id`, `status`, `blocked-by`, `parent` and `name` in columns aligned
+with spaces. Add `--porcelain` to print them tab-separated, the stable form for a script.
 `list <id> --json` prints the full record. A linked path must be a document on `tsk/docs`,
 written with `tsk ledger doc put`.
 
@@ -229,18 +230,20 @@ Every command changes the local store only. `tsk ledger push` publishes.
 tsk task add <mission> <description>          # prints the new ID, T-01 upward
 tsk task set <mission> <task> <field> <value> # status (todo|in-progress|done) or description
 tsk task block <mission> <task> <by>          # and unblock; <by> is a task of the same mission
-tsk task list <mission>
+tsk task list <mission> [--porcelain]
 tsk decision add <mission> "<text>" --by <who> [--task T-nn] [--on YYYY-MM-DD] [--adr <path>]
-tsk decision list <mission> [--adr <path>]
+tsk decision list <mission> [--adr <path>] [--porcelain]
 tsk decision list --adr <path>                # the decisions of every mission that name the ADR
 tsk question add <mission> "<text>"           # prints the new ID, Q-01 upward
 tsk question edit <mission> <q> "<text>"      # rewrites an open question; an answered one is refused
 tsk question answer <mission> <q> "<text>" --by <who>
-tsk question list [<mission>]                 # open questions, all missions when none is given
+tsk question list [<mission>] [--porcelain]   # open questions, all missions when none is given
 ```
 
-Text is one line. `task list` prints `T-nn`, `status`, `blocked-by` and `description`,
-tab-separated. A task is blocked while any task it names in `block` is not `done`.
+Text is one line. Every `list` here prints aligned columns: two spaces between columns, no
+tabs, no trailing spaces. `--porcelain` prints the tab-separated lines instead, with no
+header, and a script that parses the output must use it. `task list` prints `T-nn`,
+`status`, `blocked-by` and `description`. A task is blocked while any task it names in `block` is not `done`.
 `decision list` prints the date, who, the task or `-`, the text and the ADR path or `-`,
 oldest first. With `--adr` and no mission it prints the mission ID first, for every
 decision that names that ADR.
