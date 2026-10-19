@@ -274,7 +274,11 @@ pub(crate) fn report_refresh(outcome: RefreshOutcome) -> RefreshOutcome {
 }
 
 pub fn push_reporting(store: &dyn LedgerStore, message: &str) -> Result<PushReport, String> {
-    store.commit_and_push(message, &mut |note| eprintln!("{}", note))
+    let report = store.commit_and_push(message, &mut |note| eprintln!("{}", note))?;
+    for line in &report.renumbered {
+        println!("{}", line);
+    }
+    Ok(report)
 }
 
 pub(crate) fn retry_note(attempt: usize, status: &push::PushStatus) -> String {

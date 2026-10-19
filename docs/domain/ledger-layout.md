@@ -178,9 +178,12 @@ the remote. It still prints the path of the Dolt database.
 3. Makes up to 5 attempts at the Dolt data:
    1. `dolt fetch origin`. If `HEAD` already equals `origin/main` or is its ancestor,
       the remote holds this state: exit 0.
-   2. `dolt merge origin/main`, then read `dolt_conflicts` and
+   2. When both sides hold commits the other lacks, renumbers the local rows that took
+      a number the remote also took (see [Numbers and collisions](#numbers-and-collisions)),
+      in one local commit. Then `dolt merge origin/main`, then reads `dolt_conflicts` and
       `dolt_constraint_violations`. Any row aborts the merge with `dolt merge --abort`,
-      and the command exits 1 and names the conflicting tables.
+      drops the renumbering commit, and the command exits 1 and names the conflicting
+      tables.
    3. `dolt push origin main`. A rejected push prints a note and goes to the next
       attempt. Any other failure stops with exit 1.
 
@@ -195,8 +198,62 @@ The local commit stays in the database after a conflict or a failure, and a late
 different rows, or different cells of one row, do not conflict. Two writers that append
 an external event at the same moment take the same `position` and conflict.
 
-On success, stdout carries the Dolt commit hash, or the documents commit when only the
-documents changed. Notes go to stderr.
+On success, stdout carries one line per renumbered row, then the Dolt commit hash, or the
+documents commit when only the documents changed. Notes go to stderr.
+
+### Numbers and collisions
+
+Tasks, questions, objective outcomes, constraints, out-of-scope items and decisions are
+rows keyed by the mission and a number. A clone mints the next number for its own rows.
+Two clones that each add one to the same mission before they push mint the same number.
+Dolt cannot merge two new rows with one key, so the second push would stop with a
+conflict. A number is a short name that people say across sessions, so tsk keeps numbers
+and renumbers the second clone's rows instead of using random ids.
+
+At push, after the fetch and before the merge, tsk compares the local unpushed history
+with the remote since their merge base. A local row that is new, with a key the remote
+also added, takes the next free number for its mission and table. That number is higher
+than every number either side holds, and higher than a number a removal freed. In one
+transaction and one local commit, `Renumber after a collision`, tsk:
+
+- gives the row its new number;
+- updates the rows that name a renumbered task: the `task_blocks` rows and the `task_seq`
+  of the decisions;
+- leaves every other row alone. A row the clone did not add never changes its number, and
+  neither does a new row whose number is free on the remote.
+
+Then the merge runs with no key collision left, and the push completes. The command
+prints one line per renumbered row on stdout, before the commit hash:
+
+```text
+T-03 is now T-05 in M-X
+Q-02 is now Q-03 in M-X
+objective 2 is now objective 3 in M-X
+constraint 2 is now constraint 4 in M-X
+out-of-scope 1 is now out-of-scope 2 in M-X
+decision 2 is now decision 3 in M-X
+```
+
+A row that is renumbered again by a second attempt of the same push keeps one line, from
+its first number to its last. Text that names an old number, such as a decision or a
+document that says `T-03`, does not change. The printed lines are the record, so a caller
+reads them and uses the new numbers.
+
+The counters `next_task`, `next_question`, `next_objective`, `next_constraint` and
+`next_out_of_scope` on the mission row are one cell each. When both clones moved the same
+counter to different values, Dolt reports a conflict on `missions`. Before the merge, tsk
+sets the local counter back to its value at the merge base, so the remote's value wins the
+merge. After the merge and before its commit, tsk raises each such counter to the highest
+of the two clones' values and one more than the highest number in the merged table. This
+runs for a counter whose rows were renumbered, and for a counter that both clones moved
+without a collision. A counter never goes down, so a number that a removal freed is not
+reused.
+
+A conflict that is not a counter cell, such as both clones editing one field, keeps the
+old behaviour. The push exits 1 and names the tables. The renumbering commit is dropped
+with the merge, so the local rows keep the numbers the clone gave them. A mission that
+both clones created is a conflict of its own, and its rows are not renumbered. There is
+no flag to turn renumbering off.
 
 ### Status and discard
 
@@ -625,8 +682,9 @@ of `id` and `blocking`), `decisions` (`text`, `decided_by`, `decided_on`, `task`
 and `questions` (`id`, `text`, `status`, `asked_on`, and `answer`, `answered_by` and
 `answered_on`, null while open). There is no `show` command and no Markdown output.
 
-Two decisions added at the same time by two clones get the same `seq` and conflict at
-push, as do two tasks added to one mission.
+Two decisions added at the same time by two clones get the same `seq`, as do two tasks
+added to one mission. The second push renumbers its rows and prints each change as, for
+example, `T-03 is now T-05 in M-X` (see [Numbers and collisions](#numbers-and-collisions)).
 
 ## File ledger (removed)
 

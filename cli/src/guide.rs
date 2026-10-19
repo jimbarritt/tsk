@@ -102,7 +102,9 @@ or one after another, and check the result before you push.
   undo a mistake before the push. After the push, correct a record with `set`, `edit` or
   `unlink`. Never run `dolt reset`, `dolt commit` or any other `dolt` or `git` command on
   the ledger store.
-- `tsk ledger push "<message>"` publishes the records and the documents together.
+- `tsk ledger push "<message>"` publishes the records and the documents together. When
+  another clone took a number first, the push gives your row the next free number and
+  prints a line such as `T-03 is now T-05 in M-X`. Read those lines and use the new numbers.
 
 Quote every text argument. A value of `-` for `mission set` is read from stdin, which
 suits a purpose of several lines.

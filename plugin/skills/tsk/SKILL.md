@@ -189,10 +189,20 @@ read the tsk source code to learn the format.
 
 `tsk ledger fetch` and `path` print a bare path on stdout, so
 `WT="$(tsk ledger fetch)"` works. `tsk ledger push` runs `dolt add -A` and `dolt commit`,
-then up to 5 attempts of `dolt fetch`, `dolt merge` and `dolt push`. A merge conflict stops it with exit
-1 and names the conflicting tables. The local commit stays. `git.ledger.commit` in a
+then up to 5 attempts of `dolt fetch`, `dolt merge` and `dolt push`. A merge conflict, such as
+two clones editing one field, stops it with exit 1 and names the conflicting tables. The local
+commit stays. `git.ledger.commit` in a
 continuation state entry holds the Dolt commit hash. An older `tsk` finds no
 `.tsk-ledger.toml` on the Dolt branch and stops before writing: update `tsk`.
+
+**Read the `is now` lines after a push.** Two clones that each add a task, question,
+objective outcome, constraint, out-of-scope item or decision to one mission take the same
+number. The second push gives its rows the next free numbers and prints one line per change
+on stdout, before the commit hash: `T-03 is now T-05 in M-X`, `Q-02 is now Q-03 in M-X`,
+`objective 2 is now objective 3 in M-X`, and the same for `constraint`, `out-of-scope` and
+`decision`. Use the new numbers from then on. Text that names the old number, in a document
+or a thread entry, does not change, so the printed lines are the only record. A push that
+renumbers nothing prints the commit hash alone. No flag turns renumbering off.
 
 ### Missions
 

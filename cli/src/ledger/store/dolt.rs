@@ -29,6 +29,7 @@ use crate::mission::model::{
 };
 
 use super::doc_tree::DocTree;
+use super::renumber::{self, Renumbered};
 use super::{BindingKind, BindingRow, LedgerStore, PushReport, RefreshOutcome, ThreadInfo};
 
 const MANIFEST_SOURCE: &str = "the manifest table";
@@ -714,6 +715,42 @@ impl DoltStore {
         docs_changed: bool,
         notes: &mut dyn FnMut(&str),
     ) -> Result<PushReport, String> {
+        let mut renumbered = Vec::new();
+        let result = self.push_data_renumbering(
+            location,
+            db,
+            committed,
+            docs_changed,
+            notes,
+            &mut renumbered,
+        );
+        let lines: Vec<String> = renumbered.iter().map(Renumbered::line).collect();
+        match result {
+            Ok(mut report) => {
+                report.renumbered = lines;
+                Ok(report)
+            }
+            // A failure after a renumbering still tells which rows moved, as the lines
+            // would have been printed on success.
+            Err(error) if !lines.is_empty() => Err(format!(
+                "{}\n       Rows renumbered before the failure:\n       {}",
+                error,
+                lines.join("\n       ")
+            )),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// [`Self::push_data`], with the rows it renumbered collected in `renumbered`.
+    fn push_data_renumbering(
+        &self,
+        location: &LedgerLocation,
+        db: &Dolt,
+        committed: bool,
+        docs_changed: bool,
+        notes: &mut dyn FnMut(&str),
+        renumbered: &mut Vec<Renumbered>,
+    ) -> Result<PushReport, String> {
         self.forget_checked();
         self.forget_snapshot();
         let path = db.dir().to_path_buf();
@@ -736,6 +773,7 @@ impl DoltStore {
                 committed: outcome.committed,
                 head: outcome.commit.clone(),
                 already_on_remote: outcome.result == PushResult::AlreadyOnRemote,
+                renumbered: Vec::new(),
             }
         };
 
@@ -783,7 +821,7 @@ impl DoltStore {
                     return Ok(finish(outcome(PushResult::AlreadyOnRemote, tip), notes));
                 }
                 if !remote_in_head {
-                    merge_remote(db, &remote_ref)?;
+                    merge_renumbering(db, &remote_ref, renumbered)?;
                     head_before = None;
                 }
             } else if remote_branch_exists(db)? {
@@ -800,7 +838,7 @@ impl DoltStore {
                     return Ok(finish(outcome(PushResult::AlreadyOnRemote, tip), notes));
                 }
                 if !remote_in_head {
-                    merge_remote(db, &remote_ref)?;
+                    merge_renumbering(db, &remote_ref, renumbered)?;
                     head_before = None;
                 }
             }
@@ -2755,7 +2793,7 @@ fn date(row: &serde_json::Value, column: &str) -> Option<String> {
 
 /// A revision as the plain string literal `as of` needs, which takes no `CONVERT`. Only
 /// a branch name or a commit hash reaches here; any other character is dropped.
-fn plain(revision: &str) -> String {
+pub(super) fn plain(revision: &str) -> String {
     let safe: String = revision
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.' | '~' | '^'))
@@ -2824,10 +2862,39 @@ fn edited_rows(db: &Dolt, base: &str, table: &str) -> Result<i64, String> {
         .count() as i64)
 }
 
+/// Merge the remote branch into the local one, after the local rows that collide with
+/// rows the remote added have taken new numbers (see [`renumber`]). When the merge fails,
+/// the renumbering commit is dropped too, so the local branch stays as it was.
+fn merge_renumbering(
+    db: &Dolt,
+    remote_ref: &str,
+    renumbered: &mut Vec<Renumbered>,
+) -> Result<(), String> {
+    let kept = renumbered.len();
+    let Some(prepared) = renumber::prepare(db, remote_ref, renumbered)? else {
+        return merge_remote(db, remote_ref, None);
+    };
+    let merged = merge_remote(db, remote_ref, Some(&prepared.fixup_sql));
+    if let Err(error) = merged {
+        renumbered.truncate(kept);
+        return Err(match renumber::undo(db, &prepared) {
+            Ok(()) => error,
+            Err(undo) => format!("{}\n{}", error, undo),
+        });
+    }
+    Ok(())
+}
+
 /// Merge the remote branch into the local one. A conflict aborts the merge and fails;
 /// the local commit stays. `dolt pull` exits 0 on a conflict, so the tables are read.
-fn merge_remote(db: &Dolt, remote_ref: &str) -> Result<(), String> {
-    let (args, output) = db.output(["merge", remote_ref])?;
+/// `fixup` is SQL to run on the merged rows before the merge commit, which is then made
+/// with that SQL in it.
+fn merge_remote(db: &Dolt, remote_ref: &str, fixup: Option<&str>) -> Result<(), String> {
+    let (args, output) = if fixup.is_some() {
+        db.output(["merge", "--no-commit", remote_ref])?
+    } else {
+        db.output(["merge", remote_ref])?
+    };
     let mut tables = Vec::new();
     for query in [
         "select `table` as t from dolt_conflicts",
@@ -2856,6 +2923,21 @@ fn merge_remote(db: &Dolt, remote_ref: &str) -> Result<(), String> {
     }
     if !output.status.success() {
         return Err(dolt::failure_message(&args, &output));
+    }
+    if let Some(sql) = fixup {
+        let finished = db.exec(sql).and_then(|_| {
+            db.run(["add", "-A"])?;
+            db.run([
+                "commit",
+                "-m",
+                &format!("Merge {} into {}", remote_ref, BRANCH),
+            ])
+            .map(|_| ())
+        });
+        if let Err(error) = finished {
+            let _ = db.output(["merge", "--abort"])?;
+            return Err(error);
+        }
     }
     Ok(())
 }
