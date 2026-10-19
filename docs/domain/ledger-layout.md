@@ -446,7 +446,7 @@ tsk mission out-of-scope remove <id> <n>
 tsk mission out-of-scope list <id>
 tsk mission link <id> <path> --role <intelligence|report|design>
 tsk mission unlink <id> <path>
-tsk mission list [<id>] [--json]
+tsk mission list [<id>] [--json] [--porcelain]
 ```
 
 Rules:
@@ -482,9 +482,13 @@ Rules:
   every linked path still exists. A missing one stops the push with exit 1 and names the
   mission and path. Both local commits stay and the next push resumes.
 
-`list` with no ID prints one line per mission, ordered by ID, tab-separated: `id`, `status`,
+`list` with no ID prints one line per mission, ordered by ID: `id`, `status`,
 `blocked-by` (the IDs of the blockers that are not done, comma-separated, or `-`), `parent`
-(or `-`) and `name`. With an ID it prints that mission's line. `list <id> --json` prints the
+(or `-`) and `name`. The columns are aligned: each is padded with spaces to the widest cell
+in it, over all lines, two spaces separate columns, and the last column (the name) is not
+padded. The output has no tabs and no trailing whitespace, like `tsk ledger status`.
+`--porcelain` prints the same lines tab-separated, unpadded, for scripts. With an ID it
+prints that mission's line. `list <id> --json` prints the
 full record as one JSON object, and `list --json` prints an array of them:
 
 ```
@@ -511,14 +515,14 @@ tsk task add <mission> <description>
 tsk task set <mission> <task> <field> <value>
 tsk task block <mission> <task> <by>
 tsk task unblock <mission> <task> <by>
-tsk task list <mission>
+tsk task list <mission> [--porcelain]
 tsk decision add <mission> <text> --by <who> [--task <T-nn>] [--on <YYYY-MM-DD>] [--adr <path>]
-tsk decision list <mission> [--adr <path>]
-tsk decision list --adr <path>
+tsk decision list <mission> [--adr <path>] [--porcelain]
+tsk decision list --adr <path> [--porcelain]
 tsk question add <mission> <text>
 tsk question edit <mission> <question> <text>
 tsk question answer <mission> <question> <text> --by <who>
-tsk question list [<mission>]
+tsk question list [<mission>] [--porcelain]
 ```
 
 Rules:
@@ -561,7 +565,12 @@ Rules:
   question is no longer open. A question is answered once: a second answer is an error.
 - An unknown mission, task or question is an error that names the ID.
 
-Each `list` prints one record per line, tab-separated, with no header:
+Each `list` prints one record per line, with no header. The columns are aligned as in
+`mission list`: padded with spaces to the widest cell of the column over all lines, two
+spaces apart, no tabs, no trailing whitespace, and the last column unpadded. (In
+`decision list` the text is padded, and the ADR path is the last column.) `--porcelain`
+prints the same columns tab-separated and unpadded, the stable form for scripts. The JSON
+form of `mission list` is not changed by either. The columns:
 
 | Command | Columns |
 |---|---|

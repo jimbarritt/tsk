@@ -1012,7 +1012,9 @@ mod cases {
         fx.ok(&a, &["mission", "create", "M-PEND", "Pending"]);
         fx.ok(&a, &["thread", "resume", &id]);
         fx.ok(&other, &["ledger", "fetch"]);
-        assert!(fx.ok(&other, &["mission", "list"]).contains("M-PEND"));
+        assert!(fx
+            .ok(&other, &["mission", "list", "--porcelain"])
+            .contains("M-PEND"));
         assert_eq!(
             fx.actors_of(&other, &id),
             vec![format!("worktree:{}", fx.main_actor(&a))]
@@ -1219,7 +1221,7 @@ mod cases {
     pub fn missions_are_created_and_listed_one_per_line() {
         let fx = Fixture::fetched();
         let a = fx.a();
-        assert_eq!(fx.ok(&a, &["mission", "list"]), "");
+        assert_eq!(fx.ok(&a, &["mission", "list", "--porcelain"]), "");
         assert_eq!(fx.ok(&a, &["mission", "create", "M-B-TWO", "Second"]), "");
         fx.ok(&a, &["mission", "create", "M-A1", "First one"]);
         fx.ok(
@@ -1236,17 +1238,17 @@ mod cases {
             ],
         );
         assert_eq!(
-            fx.ok(&a, &["mission", "list"]),
+            fx.ok(&a, &["mission", "list", "--porcelain"]),
             "M-A1\ttodo\t-\t-\tFirst one\n\
              M-ADMIN\tin-progress\t-\tM-A1\tStanding work\n\
              M-B-TWO\ttodo\t-\t-\tSecond\n"
         );
         assert_eq!(
-            fx.ok(&a, &["mission", "list", "M-ADMIN"]),
+            fx.ok(&a, &["mission", "list", "M-ADMIN", "--porcelain"]),
             "M-ADMIN\tin-progress\t-\tM-A1\tStanding work\n"
         );
 
-        let before = fx.ok(&a, &["mission", "list"]);
+        let before = fx.ok(&a, &["mission", "list", "--porcelain"]);
         fails(
             &fx,
             &a,
@@ -1288,10 +1290,10 @@ mod cases {
         fails(
             &fx,
             &a,
-            &["mission", "list", "M-NONE"],
+            &["mission", "list", "M-NONE", "--porcelain"],
             "no such mission: M-NONE",
         );
-        assert_eq!(fx.ok(&a, &["mission", "list"]), before);
+        assert_eq!(fx.ok(&a, &["mission", "list", "--porcelain"]), before);
     }
 
     pub fn every_mission_field_round_trips() {
@@ -1452,7 +1454,7 @@ mod cases {
         fails(&fx, &a, &["mission", "block", "M-C", "M-B"], "cycle");
 
         // Blocked is never stored: it follows the status of the blockers.
-        let listed = |fx: &Fixture, dir: &Path| fx.ok(dir, &["mission", "list"]);
+        let listed = |fx: &Fixture, dir: &Path| fx.ok(dir, &["mission", "list", "--porcelain"]);
         assert_eq!(
             listed(&fx, &a),
             "M-A\ttodo\tM-B\t-\tAlpha\nM-B\ttodo\tM-C\t-\tBeta\nM-C\ttodo\t-\t-\tGamma\n"
@@ -1714,12 +1716,12 @@ mod cases {
         fx.ok(&a, &["mission", "set", "M-BASE", "purpose", "changed"]);
         assert_eq!(fx.remote_ledger(), ledger);
         assert_eq!(
-            fx.ok(&other, &["mission", "list"]),
+            fx.ok(&other, &["mission", "list", "--porcelain"]),
             "M-BASE\ttodo\t-\t-\tBase\n"
         );
         fx.ok(&other, &["ledger", "fetch"]);
         assert_eq!(
-            fx.ok(&other, &["mission", "list"]),
+            fx.ok(&other, &["mission", "list", "--porcelain"]),
             "M-BASE\ttodo\t-\t-\tBase\n"
         );
         assert_eq!(mission_json(&fx, &other, "M-BASE")["purpose"], "");
@@ -1728,7 +1730,7 @@ mod cases {
         assert_ne!(fx.remote_ledger(), ledger);
         fx.ok(&other, &["ledger", "fetch"]);
         assert_eq!(
-            fx.ok(&other, &["mission", "list"]),
+            fx.ok(&other, &["mission", "list", "--porcelain"]),
             "M-BASE\ttodo\t-\t-\tBase\nM-NEW\ttodo\t-\t-\tNew\n"
         );
         assert_eq!(mission_json(&fx, &other, "M-BASE")["purpose"], "changed");
@@ -1748,9 +1750,9 @@ mod cases {
         assert_success(&stale);
         fx.ok(&a, &["ledger", "fetch"]);
         let expected = "M-BASE\ttodo\t-\t-\tBase\nM-FROM-A\ttodo\t-\t-\tFrom A\nM-FROM-B\ttodo\t-\t-\tFrom B\n";
-        assert_eq!(fx.ok(&a, &["mission", "list"]), expected);
+        assert_eq!(fx.ok(&a, &["mission", "list", "--porcelain"]), expected);
         fx.ok(&other, &["ledger", "fetch"]);
-        assert_eq!(fx.ok(&other, &["mission", "list"]), expected);
+        assert_eq!(fx.ok(&other, &["mission", "list", "--porcelain"]), expected);
 
         // Different fields of one mission merge.
         fx.ok(&a, &["mission", "set", "M-BASE", "purpose", "from a"]);
@@ -1887,7 +1889,7 @@ mod cases {
     pub fn tasks_are_minted_per_mission_listed_and_changed() {
         let (fx, a) = mission_with_tasks(0);
         fx.ok(&a, &["mission", "create", "M-U", "Other"]);
-        assert_eq!(fx.ok(&a, &["task", "list", "M-T"]), "");
+        assert_eq!(fx.ok(&a, &["task", "list", "M-T", "--porcelain"]), "");
         // The counter is per mission and only grows.
         for i in 1..=12 {
             assert_eq!(
@@ -1897,12 +1899,12 @@ mod cases {
         }
         assert_eq!(fx.ok(&a, &["task", "add", "M-U", "First of U"]), "T-01\n");
         assert_eq!(fx.ok(&a, &["task", "add", "M-T", "-dash"]), "T-13\n");
-        let list = fx.ok(&a, &["task", "list", "M-T"]);
+        let list = fx.ok(&a, &["task", "list", "M-T", "--porcelain"]);
         assert_eq!(list.lines().count(), 13);
         assert_eq!(list.lines().next().unwrap(), "T-01\ttodo\t-\tTask 1");
         assert_eq!(list.lines().last().unwrap(), "T-13\ttodo\t-\t-dash");
         assert_eq!(
-            fx.ok(&a, &["task", "list", "M-U"]),
+            fx.ok(&a, &["task", "list", "M-U", "--porcelain"]),
             "T-01\ttodo\t-\tFirst of U\n"
         );
 
@@ -1910,7 +1912,10 @@ mod cases {
         for status in ["in-progress", "done", "todo"] {
             fx.ok(&a, &["task", "set", "M-T", "T-02", "status", status]);
             assert_eq!(
-                fx.ok(&a, &["task", "list", "M-T"]).lines().nth(1).unwrap(),
+                fx.ok(&a, &["task", "list", "M-T", "--porcelain"])
+                    .lines()
+                    .nth(1)
+                    .unwrap(),
                 format!("T-02\t{}\t-\tTask 2", status)
             );
         }
@@ -1925,7 +1930,10 @@ mod cases {
             &["task", "set", "M-T", "T-02", "description", "Renamed"],
         );
         assert_eq!(
-            fx.ok(&a, &["task", "list", "M-T"]).lines().nth(1).unwrap(),
+            fx.ok(&a, &["task", "list", "M-T", "--porcelain"])
+                .lines()
+                .nth(1)
+                .unwrap(),
             "T-02\ttodo\t-\tRenamed"
         );
         fails(
@@ -1951,7 +1959,7 @@ mod cases {
         fails(
             &fx,
             &a,
-            &["task", "list", "M-NONE"],
+            &["task", "list", "M-NONE", "--porcelain"],
             "no such mission: M-NONE",
         );
         fails(
@@ -1983,8 +1991,8 @@ mod cases {
         let other = fx.b();
         fx.ok(&other, &["ledger", "fetch"]);
         assert_eq!(
-            fx.ok(&other, &["task", "list", "M-T"]),
-            fx.ok(&a, &["task", "list", "M-T"])
+            fx.ok(&other, &["task", "list", "M-T", "--porcelain"]),
+            fx.ok(&a, &["task", "list", "M-T", "--porcelain"])
         );
         assert_eq!(fx.ok(&other, &["task", "add", "M-T", "From B"]), "T-15\n");
     }
@@ -1998,7 +2006,7 @@ mod cases {
         fx.ok(&a, &["task", "block", "M-T", "T-01", "T-03"]);
         fx.ok(&a, &["task", "block", "M-T", "T-02", "T-03"]);
         assert_eq!(
-            fx.ok(&a, &["task", "list", "M-T"]),
+            fx.ok(&a, &["task", "list", "M-T", "--porcelain"]),
             "T-01\ttodo\tT-02,T-03\tTask 1\n\
              T-02\ttodo\tT-03\tTask 2\n\
              T-03\ttodo\t-\tTask 3\n"
@@ -2018,7 +2026,7 @@ mod cases {
         // Done blockers stop blocking; the link stays.
         fx.ok(&a, &["task", "set", "M-T", "T-03", "status", "done"]);
         assert_eq!(
-            fx.ok(&a, &["task", "list", "M-T"]),
+            fx.ok(&a, &["task", "list", "M-T", "--porcelain"]),
             "T-01\ttodo\tT-02\tTask 1\n\
              T-02\ttodo\t-\tTask 2\n\
              T-03\tdone\t-\tTask 3\n"
@@ -2033,9 +2041,11 @@ mod cases {
             ])
         );
         fx.ok(&a, &["task", "set", "M-T", "T-03", "status", "in-progress"]);
-        assert!(fx.ok(&a, &["task", "list", "M-T"]).contains("T-02,T-03"));
+        assert!(fx
+            .ok(&a, &["task", "list", "M-T", "--porcelain"])
+            .contains("T-02,T-03"));
 
-        let before = fx.ok(&a, &["task", "list", "M-T"]);
+        let before = fx.ok(&a, &["task", "list", "M-T", "--porcelain"]);
         fails(&fx, &a, &["task", "block", "M-T", "T-01", "T-01"], "itself");
         fails(
             &fx,
@@ -2070,15 +2080,15 @@ mod cases {
             &["task", "unblock", "M-T", "T-03", "T-01"],
             "not blocked",
         );
-        assert_eq!(fx.ok(&a, &["task", "list", "M-T"]), before);
+        assert_eq!(fx.ok(&a, &["task", "list", "M-T", "--porcelain"]), before);
 
         assert_eq!(fx.ok(&a, &["task", "unblock", "M-T", "T-01", "T-03"]), "");
         assert!(fx
-            .ok(&a, &["task", "list", "M-T"])
+            .ok(&a, &["task", "list", "M-T", "--porcelain"])
             .starts_with("T-01\ttodo\tT-02\tTask 1\n"));
         fx.ok(&a, &["task", "unblock", "M-T", "T-01", "T-02"]);
         assert!(fx
-            .ok(&a, &["task", "list", "M-T"])
+            .ok(&a, &["task", "list", "M-T", "--porcelain"])
             .starts_with("T-01\ttodo\t-\tTask 1\n"));
         // With the chain cut, the reverse block is allowed.
         fx.ok(&a, &["task", "unblock", "M-T", "T-02", "T-03"]);
@@ -2089,7 +2099,7 @@ mod cases {
         let other = fx.b();
         fx.ok(&other, &["ledger", "fetch"]);
         assert!(fx
-            .ok(&other, &["task", "list", "M-T"])
+            .ok(&other, &["task", "list", "M-T", "--porcelain"])
             .contains("T-03\tin-progress\tT-01\tTask 3"));
     }
 
@@ -2097,7 +2107,7 @@ mod cases {
         let (fx, a) = mission_with_tasks(2);
         fx.ok(&a, &["mission", "create", "M-U", "Other"]);
         fx.ok(&a, &["task", "add", "M-U", "In U"]);
-        assert_eq!(fx.ok(&a, &["decision", "list", "M-T"]), "");
+        assert_eq!(fx.ok(&a, &["decision", "list", "M-T", "--porcelain"]), "");
         assert_eq!(
             fx.ok(&a, &["decision", "add", "M-T", "Use Dolt", "--by", "Jim"]),
             ""
@@ -2119,7 +2129,7 @@ mod cases {
             &a,
             &["decision", "add", "M-T", "-leading dash", "--by", "Jim"],
         );
-        let rows = lines(&fx.ok(&a, &["decision", "list", "M-T"]));
+        let rows = lines(&fx.ok(&a, &["decision", "list", "M-T", "--porcelain"]));
         assert_eq!(rows.len(), 3);
         // Oldest first: the order they were added.
         let texts: Vec<&str> = rows.iter().map(|r| r[3].as_str()).collect();
@@ -2132,9 +2142,9 @@ mod cases {
         }
         assert_eq!(rows[0][1..3], ["Jim", "-"]);
         assert_eq!(rows[1][1..3], ["an agent", "T-02"]);
-        assert_eq!(fx.ok(&a, &["decision", "list", "M-U"]), "");
+        assert_eq!(fx.ok(&a, &["decision", "list", "M-U", "--porcelain"]), "");
 
-        let before = fx.ok(&a, &["decision", "list", "M-T"]);
+        let before = fx.ok(&a, &["decision", "list", "M-T", "--porcelain"]);
         fails(
             &fx,
             &a,
@@ -2166,7 +2176,12 @@ mod cases {
             &["decision", "add", "M-NONE", "x", "--by", "Jim"],
             "M-NONE",
         );
-        fails(&fx, &a, &["decision", "list", "M-NONE"], "M-NONE");
+        fails(
+            &fx,
+            &a,
+            &["decision", "list", "M-NONE", "--porcelain"],
+            "M-NONE",
+        );
         fails(
             &fx,
             &a,
@@ -2185,7 +2200,10 @@ mod cases {
             &["decision", "add", "M-T", "x", "--by", ""],
             "cannot be empty",
         );
-        assert_eq!(fx.ok(&a, &["decision", "list", "M-T"]), before);
+        assert_eq!(
+            fx.ok(&a, &["decision", "list", "M-T", "--porcelain"]),
+            before
+        );
 
         let json = mission_json(&fx, &a, "M-T");
         assert_eq!(json["decisions"][1]["task"], "T-02");
@@ -2198,10 +2216,15 @@ mod cases {
         fx.ok(&a, &["ledger", "push", "Decisions"]);
         let other = fx.b();
         fx.ok(&other, &["ledger", "fetch"]);
-        assert_eq!(fx.ok(&other, &["decision", "list", "M-T"]), before);
+        assert_eq!(
+            fx.ok(&other, &["decision", "list", "M-T", "--porcelain"]),
+            before
+        );
         fx.ok(&other, &["decision", "add", "M-T", "From B", "--by", "Jim"]);
         assert_eq!(
-            fx.ok(&other, &["decision", "list", "M-T"]).lines().count(),
+            fx.ok(&other, &["decision", "list", "M-T", "--porcelain"])
+                .lines()
+                .count(),
             4
         );
     }
@@ -2209,7 +2232,7 @@ mod cases {
     pub fn questions_are_minted_answered_and_listed_while_open() {
         let (fx, a) = mission_with_tasks(0);
         fx.ok(&a, &["mission", "create", "M-U", "Other"]);
-        assert_eq!(fx.ok(&a, &["question", "list"]), "");
+        assert_eq!(fx.ok(&a, &["question", "list", "--porcelain"]), "");
         assert_eq!(fx.ok(&a, &["question", "add", "M-T", "Why one?"]), "Q-01\n");
         assert_eq!(fx.ok(&a, &["question", "add", "M-T", "Why two?"]), "Q-02\n");
         assert_eq!(
@@ -2218,7 +2241,7 @@ mod cases {
         );
         assert_eq!(fx.ok(&a, &["question", "add", "M-T", "-dash?"]), "Q-03\n");
 
-        let rows = lines(&fx.ok(&a, &["question", "list"]));
+        let rows = lines(&fx.ok(&a, &["question", "list", "--porcelain"]));
         assert_eq!(rows.len(), 4);
         // Across all missions, by mission and then number.
         let keys: Vec<String> = rows.iter().map(|r| format!("{} {}", r[0], r[1])).collect();
@@ -2228,7 +2251,12 @@ mod cases {
             assert!(is_date(&row[2]), "{:?}", row);
         }
         assert_eq!(rows[0][3], "Why one?");
-        assert_eq!(fx.ok(&a, &["question", "list", "M-U"]).lines().count(), 1);
+        assert_eq!(
+            fx.ok(&a, &["question", "list", "M-U", "--porcelain"])
+                .lines()
+                .count(),
+            1
+        );
 
         assert_eq!(
             fx.ok(
@@ -2237,10 +2265,15 @@ mod cases {
             ),
             ""
         );
-        let open = fx.ok(&a, &["question", "list", "M-T"]);
+        let open = fx.ok(&a, &["question", "list", "M-T", "--porcelain"]);
         assert_eq!(open.lines().count(), 2);
         assert!(!open.contains("Why two?"));
-        assert_eq!(fx.ok(&a, &["question", "list"]).lines().count(), 3);
+        assert_eq!(
+            fx.ok(&a, &["question", "list", "--porcelain"])
+                .lines()
+                .count(),
+            3
+        );
         let json = mission_json(&fx, &a, "M-T");
         let q = &json["questions"][1];
         assert_eq!(q["id"], "Q-02");
@@ -2302,17 +2335,22 @@ mod cases {
             "one line",
         );
         fails(&fx, &a, &["question", "add", "M-NONE", "x"], "M-NONE");
-        fails(&fx, &a, &["question", "list", "M-NONE"], "M-NONE");
+        fails(
+            &fx,
+            &a,
+            &["question", "list", "M-NONE", "--porcelain"],
+            "M-NONE",
+        );
         // The refused answer left Q-01 open, and nothing was minted.
-        assert_eq!(fx.ok(&a, &["question", "list", "M-T"]), open);
+        assert_eq!(fx.ok(&a, &["question", "list", "M-T", "--porcelain"]), open);
         assert_eq!(fx.ok(&a, &["question", "add", "M-T", "Next"]), "Q-04\n");
 
         fx.ok(&a, &["ledger", "push", "Questions"]);
         let other = fx.b();
         fx.ok(&other, &["ledger", "fetch"]);
         assert_eq!(
-            fx.ok(&other, &["question", "list"]),
-            fx.ok(&a, &["question", "list"])
+            fx.ok(&other, &["question", "list", "--porcelain"]),
+            fx.ok(&a, &["question", "list", "--porcelain"])
         );
     }
 
@@ -2336,16 +2374,23 @@ mod cases {
         for dir in [&a, &other] {
             fx.ok(dir, &["ledger", "fetch"]);
             assert_eq!(
-                fx.ok(dir, &["task", "list", "M-ONE"]),
+                fx.ok(dir, &["task", "list", "M-ONE", "--porcelain"]),
                 "T-01\ttodo\t-\tFrom A\n"
             );
             assert_eq!(
-                fx.ok(dir, &["task", "list", "M-TWO"]),
+                fx.ok(dir, &["task", "list", "M-TWO", "--porcelain"]),
                 "T-01\ttodo\t-\tFrom B\n"
             );
-            assert_eq!(fx.ok(dir, &["question", "list"]).lines().count(), 1);
             assert_eq!(
-                fx.ok(dir, &["decision", "list", "M-TWO"]).lines().count(),
+                fx.ok(dir, &["question", "list", "--porcelain"])
+                    .lines()
+                    .count(),
+                1
+            );
+            assert_eq!(
+                fx.ok(dir, &["decision", "list", "M-TWO", "--porcelain"])
+                    .lines()
+                    .count(),
                 1
             );
         }
@@ -2721,7 +2766,7 @@ mod cases {
         assert!(!context.contains("could not be fetched"), "{}", context);
         assert!(context.contains("M-REC\ttodo"), "{}", context);
         assert_eq!(
-            fx.ok(&a, &["task", "list", "M-REC"]),
+            fx.ok(&a, &["task", "list", "M-REC", "--porcelain"]),
             "T-01\ttodo\t-\tFirst\n"
         );
 
@@ -2732,7 +2777,7 @@ mod cases {
         let id = fx.started(&a, &["thread", "start", "M-REC"]);
         fx.ok(&other, &["ledger", "fetch"]);
         assert_eq!(
-            fx.ok(&other, &["task", "list", "M-REC"]),
+            fx.ok(&other, &["task", "list", "M-REC", "--porcelain"]),
             "T-01\ttodo\t-\tFirst\n"
         );
         assert_eq!(
@@ -2751,7 +2796,12 @@ mod cases {
         fx.ok(&a, &["task", "add", "M-REC", "Second"]);
         fx.ok(&a, &["thread", "pause", &id, "T-02", "carry on"]);
         fx.ok(&other, &["ledger", "fetch"]);
-        assert_eq!(fx.ok(&other, &["task", "list", "M-REC"]).lines().count(), 2);
+        assert_eq!(
+            fx.ok(&other, &["task", "list", "M-REC", "--porcelain"])
+                .lines()
+                .count(),
+            2
+        );
         assert_eq!(fx.latest_entry(&other, &id)["task_id"], "T-02");
 
         // Session start with the changes pending again, and a detach that does not refuse
@@ -2771,7 +2821,9 @@ mod cases {
         fx.ok(&a, &["thread", "detach"]);
         fx.ok(&a, &["ledger", "push", "Push the rest"]);
         fx.ok(&other, &["ledger", "fetch"]);
-        assert!(fx.ok(&other, &["mission", "list"]).contains("M-TWO"));
+        assert!(fx
+            .ok(&other, &["mission", "list", "--porcelain"])
+            .contains("M-TWO"));
         // `ledger fetch` itself still refuses uncommitted changes.
         fx.ok(&a, &["mission", "create", "M-THREE", "Three"]);
         assert_exit(&fx.tsk(&a, &["ledger", "fetch"]), 1);
@@ -3167,11 +3219,13 @@ mod cases {
         assert_eq!(status_lines(&fx, &a), expected);
         // Status wrote nothing: the changes are all still there.
         assert_eq!(status_lines(&fx, &a), expected);
-        assert!(fx.ok(&a, &["mission", "list"]).contains("M-LOCAL"));
+        assert!(fx
+            .ok(&a, &["mission", "list", "--porcelain"])
+            .contains("M-LOCAL"));
 
         // The other clone never saw any of it.
         fx.ok(&other, &["ledger", "fetch"]);
-        assert_eq!(fx.ok(&other, &["mission", "list"]), "");
+        assert_eq!(fx.ok(&other, &["mission", "list", "--porcelain"]), "");
         assert_exit(&fx.get(&other, "local-note.md"), 1);
 
         // Without --yes: the same summary, no remote lines, exit 1, nothing changes.
@@ -3186,7 +3240,9 @@ mod cases {
             "error: this would discard the local changes above. Rerun with --yes to discard them.\n"
         );
         assert_eq!(status_lines(&fx, &a), expected);
-        assert!(fx.ok(&a, &["mission", "list"]).contains("M-LOCAL"));
+        assert!(fx
+            .ok(&a, &["mission", "list", "--porcelain"])
+            .contains("M-LOCAL"));
         assert_eq!(
             fx.ok(&a, &["ledger", "doc", "get", "local-note.md"]),
             "local\n"
@@ -3194,7 +3250,7 @@ mod cases {
 
         assert_eq!(fx.ok(&a, &["ledger", "discard", "--yes"]), "discarded\n");
         assert_eq!(status_lines(&fx, &a), clean_status("up to date"));
-        assert_eq!(fx.ok(&a, &["mission", "list"]), "");
+        assert_eq!(fx.ok(&a, &["mission", "list", "--porcelain"]), "");
         assert_exit(&fx.get(&a, "local-note.md"), 1);
         assert_eq!(
             fx.ok(&a, &["ledger", "doc", "get", BRIEFING]),
@@ -3218,7 +3274,9 @@ mod cases {
         fx.ok(&a, &["mission", "create", "M-AFTER", "After"]);
         fx.ok(&a, &["ledger", "push", "After the discard"]);
         fx.ok(&other, &["ledger", "fetch"]);
-        assert!(fx.ok(&other, &["mission", "list"]).contains("M-AFTER"));
+        assert!(fx
+            .ok(&other, &["mission", "list", "--porcelain"])
+            .contains("M-AFTER"));
     }
 
     pub fn status_counts_commits_ahead_and_behind_origin() {
@@ -3295,7 +3353,7 @@ mod cases {
         // Discard drops the commit and lands on origin's state.
         assert_eq!(fx.ok(&a, &["ledger", "discard", "--yes"]), "discarded\n");
         assert_eq!(status_lines(&fx, &a), clean_status("up to date"));
-        let missions = fx.ok(&a, &["mission", "list"]);
+        let missions = fx.ok(&a, &["mission", "list", "--porcelain"]);
         assert!(!missions.contains("M-AHEAD"), "{}", missions);
         assert!(missions.contains("M-OTHER-2"), "{}", missions);
         assert_exit(&fx.get(&a, "ahead.md"), 1);
@@ -3343,7 +3401,9 @@ mod cases {
             "{}",
             stderr(&refused)
         );
-        assert!(fx.ok(&a, &["mission", "list"]).contains("M-OFF"));
+        assert!(fx
+            .ok(&a, &["mission", "list", "--porcelain"])
+            .contains("M-OFF"));
         assert_eq!(fx.ok(&a, &["ledger", "doc", "get", "off.md"]), "off\n");
 
         std::fs::rename(&moved, fx.origin()).unwrap();
@@ -3527,13 +3587,13 @@ mod cases {
             ],
         );
         fx.ok(&a, &["decision", "add", "M-T", "Today", "--by", "Jim"]);
-        let rows = lines(&fx.ok(&a, &["decision", "list", "M-T"]));
+        let rows = lines(&fx.ok(&a, &["decision", "list", "M-T", "--porcelain"]));
         assert_eq!(rows[0], ["2026-02-27", "Jim", "-", "Old call", "-"]);
         assert_eq!(rows[1], ["2024-02-29", "Jim", "T-01", "Leap day", "-"]);
         assert!(is_date(&rows[2][0]), "{:?}", rows[2]);
         assert_ne!(rows[2][0], "2026-02-27");
 
-        let before = fx.ok(&a, &["decision", "list", "M-T"]);
+        let before = fx.ok(&a, &["decision", "list", "M-T", "--porcelain"]);
         for bad in [
             "2026-02-30",
             "2026-02-29",
@@ -3551,12 +3611,18 @@ mod cases {
                 "YYYY-MM-DD",
             );
         }
-        assert_eq!(fx.ok(&a, &["decision", "list", "M-T"]), before);
+        assert_eq!(
+            fx.ok(&a, &["decision", "list", "M-T", "--porcelain"]),
+            before
+        );
         // The date survives a push and a fetch on the other clone.
         fx.ok(&a, &["ledger", "push", "Decisions"]);
         let other = fx.b();
         fx.ok(&other, &["ledger", "fetch"]);
-        assert_eq!(fx.ok(&other, &["decision", "list", "M-T"]), before);
+        assert_eq!(
+            fx.ok(&other, &["decision", "list", "M-T", "--porcelain"]),
+            before
+        );
         let record = mission_json(&fx, &other, "M-T");
         assert_eq!(record["decisions"][0]["decided_on"], "2026-02-27");
     }
@@ -3567,13 +3633,13 @@ mod cases {
         fx.ok(&a, &["question", "add", "M-T", "Why one?"]);
         fx.ok(&a, &["question", "add", "M-T", "Why two?"]);
         fx.ok(&a, &["question", "add", "M-U", "Why in U?"]);
-        let before = lines(&fx.ok(&a, &["question", "list"]));
+        let before = lines(&fx.ok(&a, &["question", "list", "--porcelain"]));
         assert_eq!(
             fx.ok(&a, &["question", "edit", "M-T", "Q-01", "Why, then?"]),
             ""
         );
         // Only the text changes: the list keeps its columns, order and dates.
-        let after = lines(&fx.ok(&a, &["question", "list"]));
+        let after = lines(&fx.ok(&a, &["question", "list", "--porcelain"]));
         assert_eq!(after.len(), 3);
         assert_eq!(after[0][..3], before[0][..3]);
         assert_eq!(after[0][3], "Why, then?");
@@ -3713,7 +3779,7 @@ mod cases {
         );
 
         // By mission: the four columns and the ADR path last.
-        let rows = lines(&fx.ok(&a, &["decision", "list", "M-T"]));
+        let rows = lines(&fx.ok(&a, &["decision", "list", "M-T", "--porcelain"]));
         assert_eq!(rows.len(), 3);
         for row in &rows {
             assert_eq!(row.len(), 5, "{:?}", row);
@@ -3725,7 +3791,7 @@ mod cases {
 
         // By ADR across missions: the mission leads, so there are six columns.
         for spelling in [adr.to_string(), format!("./{}", adr)] {
-            let found = lines(&fx.ok(&a, &["decision", "list", "--adr", &spelling]));
+            let found = lines(&fx.ok(&a, &["decision", "list", "--adr", &spelling, "--porcelain"]));
             assert_eq!(found.len(), 3, "{:?}", found);
             for row in &found {
                 assert_eq!(row.len(), 6, "{:?}", row);
@@ -3746,35 +3812,63 @@ mod cases {
             assert_eq!(found[2][1..4], [rows[0][0].as_str(), "Ann", "-"][..]);
         }
         // By mission and ADR: one mission, the five-column form.
-        let one = lines(&fx.ok(&a, &["decision", "list", "M-U", "--adr", other_adr]));
+        let one = lines(&fx.ok(
+            &a,
+            &["decision", "list", "M-U", "--adr", other_adr, "--porcelain"],
+        ));
         assert_eq!(one.len(), 1);
         assert_eq!(one[0].len(), 5);
         assert_eq!(one[0][3..], ["Other ADR", other_adr]);
-        let two = lines(&fx.ok(&a, &["decision", "list", "M-T", "--adr", adr]));
+        let two = lines(&fx.ok(
+            &a,
+            &["decision", "list", "M-T", "--adr", adr, "--porcelain"],
+        ));
         assert_eq!(two.len(), 2);
         assert_eq!(
-            fx.ok(&a, &["decision", "list", "M-T", "--adr", other_adr]),
+            fx.ok(
+                &a,
+                &["decision", "list", "M-T", "--adr", other_adr, "--porcelain"]
+            ),
             ""
         );
         // An ADR that no decision names is not an error, even when the file is gone.
         assert_eq!(
-            fx.ok(&a, &["decision", "list", "--adr", "docs/adr/9999-none.md"]),
+            fx.ok(
+                &a,
+                &[
+                    "decision",
+                    "list",
+                    "--adr",
+                    "docs/adr/9999-none.md",
+                    "--porcelain"
+                ]
+            ),
             ""
         );
-        fails(&fx, &a, &["decision", "list"], "needs a mission");
         fails(
             &fx,
             &a,
-            &["decision", "list", "M-NONE", "--adr", adr],
+            &["decision", "list", "--porcelain"],
+            "needs a mission",
+        );
+        fails(
+            &fx,
+            &a,
+            &["decision", "list", "M-NONE", "--adr", adr, "--porcelain"],
             "M-NONE",
         );
         fails(
             &fx,
             &a,
-            &["decision", "list", "--adr", "/etc/passwd"],
+            &["decision", "list", "--adr", "/etc/passwd", "--porcelain"],
             "absolute",
         );
-        fails(&fx, &a, &["decision", "list", "--adr", "../x.md"], "'..'");
+        fails(
+            &fx,
+            &a,
+            &["decision", "list", "--adr", "../x.md", "--porcelain"],
+            "'..'",
+        );
 
         // The record carries the path, and null when there is none.
         let json = mission_json(&fx, &a, "M-T");
@@ -3800,15 +3894,15 @@ mod cases {
         );
         assert_success(&out);
         assert_eq!(
-            fx.ok(&a, &["decision", "list", "--adr", other_adr])
+            fx.ok(&a, &["decision", "list", "--adr", other_adr, "--porcelain"])
                 .lines()
                 .count(),
             2
         );
 
         // Refused paths write nothing.
-        let before = fx.ok(&a, &["decision", "list", "--adr", adr]);
-        let count = fx.ok(&a, &["decision", "list", "M-T"]);
+        let before = fx.ok(&a, &["decision", "list", "--adr", adr, "--porcelain"]);
+        let count = fx.ok(&a, &["decision", "list", "M-T", "--porcelain"]);
         fails(
             &fx,
             &a,
@@ -3867,14 +3961,23 @@ mod cases {
             ],
             "tab or a line break",
         );
-        assert_eq!(fx.ok(&a, &["decision", "list", "M-T"]), count);
-        assert_eq!(fx.ok(&a, &["decision", "list", "--adr", adr]), before);
+        assert_eq!(
+            fx.ok(&a, &["decision", "list", "M-T", "--porcelain"]),
+            count
+        );
+        assert_eq!(
+            fx.ok(&a, &["decision", "list", "--adr", adr, "--porcelain"]),
+            before
+        );
 
         // The links travel with the push, and the other clone finds them without the file.
         fx.ok(&a, &["ledger", "push", "Decisions with ADRs"]);
         let other = fx.b();
         fx.ok(&other, &["ledger", "fetch"]);
-        assert_eq!(fx.ok(&other, &["decision", "list", "--adr", adr]), before);
+        assert_eq!(
+            fx.ok(&other, &["decision", "list", "--adr", adr, "--porcelain"]),
+            before
+        );
     }
 
     pub fn constraints_and_out_of_scope_are_numbered_lists_whose_numbers_are_not_reused() {
@@ -3989,6 +4092,119 @@ mod cases {
         );
     }
 
+    pub fn lists_print_aligned_columns_and_porcelain_keeps_the_tabs() {
+        let fx = Fixture::fetched();
+        let a = fx.a();
+        fx.ok(&a, &["mission", "create", "M-A1", "First one"]);
+        fx.ok(
+            &a,
+            &[
+                "mission",
+                "create",
+                "M-LONGER-ID",
+                "Second",
+                "--parent",
+                "M-A1",
+            ],
+        );
+        fx.ok(&a, &["task", "add", "M-A1", "Write it"]);
+        fx.ok(&a, &["task", "add", "M-A1", "Test it"]);
+        fx.ok(
+            &a,
+            &["task", "set", "M-A1", "T-02", "status", "in-progress"],
+        );
+        fx.ok(&a, &["task", "block", "M-A1", "T-02", "T-01"]);
+        fx.ok(
+            &a,
+            &[
+                "decision",
+                "add",
+                "M-A1",
+                "Use Dolt",
+                "--by",
+                "Jim",
+                "--on",
+                "2026-02-27",
+            ],
+        );
+        fx.ok(
+            &a,
+            &[
+                "decision",
+                "add",
+                "M-A1",
+                "Split",
+                "--by",
+                "an agent",
+                "--task",
+                "T-02",
+                "--on",
+                "2026-03-01",
+            ],
+        );
+        fx.ok(&a, &["question", "add", "M-A1", "Why?"]);
+        fx.ok(&a, &["question", "add", "M-LONGER-ID", "How?"]);
+
+        let aligned = |args: &[&str]| -> Vec<String> {
+            let out = fx.ok(&a, args);
+            assert!(!out.contains('\t'), "{:?}", out);
+            for line in out.lines() {
+                assert_eq!(line, line.trim_end(), "{:?}", line);
+            }
+            out.lines().map(str::to_string).collect()
+        };
+        // The same command with --porcelain prints the tab-separated form.
+        let squeeze = |line: &str| line.split_whitespace().collect::<Vec<_>>().join("\t");
+        let same_cells = |args: &[&str]| {
+            let mut porcelain = args.to_vec();
+            porcelain.push("--porcelain");
+            let tabs = fx.ok(&a, &porcelain);
+            assert!(tabs.contains('\t') || tabs.is_empty(), "{:?}", tabs);
+            let cells: Vec<String> = aligned(args).iter().map(|l| squeeze(l)).collect();
+            let expected: Vec<String> = tabs.lines().map(squeeze).collect();
+            assert_eq!(cells, expected);
+        };
+
+        assert_eq!(
+            aligned(&["mission", "list"]),
+            vec![
+                "M-A1         todo  -  -     First one",
+                "M-LONGER-ID  todo  -  M-A1  Second",
+            ]
+        );
+        assert_eq!(
+            aligned(&["task", "list", "M-A1"]),
+            vec![
+                "T-01  todo         -     Write it",
+                "T-02  in-progress  T-01  Test it",
+            ]
+        );
+        assert_eq!(
+            aligned(&["question", "list"])
+                .iter()
+                .map(|l| l.split("  ").next().unwrap().to_string())
+                .collect::<Vec<_>>(),
+            vec!["M-A1", "M-LONGER-ID"]
+        );
+        let decisions = aligned(&["decision", "list", "M-A1"]);
+        assert_eq!(decisions.len(), 2);
+        assert!(
+            decisions[0].starts_with("2026-02-27  Jim "),
+            "{:?}",
+            decisions
+        );
+        same_cells(&["mission", "list"]);
+        same_cells(&["task", "list", "M-A1"]);
+        same_cells(&["question", "list"]);
+        same_cells(&["decision", "list", "M-A1"]);
+        assert_eq!(
+            fx.ok(&a, &["task", "list", "M-A1", "--porcelain"]),
+            "T-01\ttodo\t-\tWrite it\nT-02\tin-progress\tT-01\tTest it\n"
+        );
+        // The JSON form is not aligned.
+        assert!(fx.ok(&a, &["mission", "list", "--json"]).starts_with("[{"));
+    }
+
     pub fn mission_set_refuses_the_list_fields_and_keeps_the_text_fields() {
         let fx = Fixture::fetched();
         let a = fx.a();
@@ -4099,6 +4315,7 @@ conformance!(
     decisions_name_an_adr_and_are_found_from_the_adr,
     constraints_and_out_of_scope_are_numbered_lists_whose_numbers_are_not_reused,
     mission_set_refuses_the_list_fields_and_keeps_the_text_fields,
+    lists_print_aligned_columns_and_porcelain_keeps_the_tabs,
 );
 
 // --- A ref that holds a file ledger ---
@@ -4726,9 +4943,12 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
     assert!(!fx.tables(&other).contains("tasks"));
 
     // Reads see the missions and no records, and write nothing.
-    assert_eq!(fx.ok(&other, &["task", "list", "M-OLD"]), "");
-    assert_eq!(fx.ok(&other, &["decision", "list", "M-OLD"]), "");
-    assert_eq!(fx.ok(&other, &["question", "list"]), "");
+    assert_eq!(fx.ok(&other, &["task", "list", "M-OLD", "--porcelain"]), "");
+    assert_eq!(
+        fx.ok(&other, &["decision", "list", "M-OLD", "--porcelain"]),
+        ""
+    );
+    assert_eq!(fx.ok(&other, &["question", "list", "--porcelain"]), "");
     let before = fx.ok(&other, &["mission", "list", "M-OLD", "--json"]);
     let parsed = json(&before);
     assert_eq!(parsed["tasks"], serde_json::json!([]));
@@ -4764,7 +4984,7 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
     );
     // The mission rows are intact.
     assert_eq!(
-        fx.ok(&other, &["mission", "list"]),
+        fx.ok(&other, &["mission", "list", "--porcelain"]),
         "M-DEP\ttodo\t-\t-\tDependency\nM-OLD\ttodo\tM-DEP\t-\tMade on three\n"
     );
     let after = json(&fx.ok(&other, &["mission", "list", "M-OLD", "--json"]));
@@ -4795,11 +5015,21 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
     fx.ok(&a, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&a), "8");
     assert_eq!(
-        fx.ok(&a, &["task", "list", "M-OLD"]),
+        fx.ok(&a, &["task", "list", "M-OLD", "--porcelain"]),
         "T-01\ttodo\t-\tFirst on version 3\nT-02\ttodo\tT-01\tSecond\n"
     );
-    assert_eq!(fx.ok(&a, &["decision", "list", "M-OLD"]).lines().count(), 1);
-    assert_eq!(fx.ok(&a, &["question", "list"]).lines().count(), 1);
+    assert_eq!(
+        fx.ok(&a, &["decision", "list", "M-OLD", "--porcelain"])
+            .lines()
+            .count(),
+        1
+    );
+    assert_eq!(
+        fx.ok(&a, &["question", "list", "--porcelain"])
+            .lines()
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -4851,10 +5081,10 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
     assert_eq!(fx.manifest_version(&other), "2");
 
     // Reads behave as an empty mission set and write nothing.
-    assert_eq!(fx.ok(&other, &["mission", "list"]), "");
+    assert_eq!(fx.ok(&other, &["mission", "list", "--porcelain"]), "");
     assert_eq!(fx.ok(&other, &["mission", "list", "--json"]), "[]\n");
     for args in [
-        vec!["mission", "list", "M-X"],
+        vec!["mission", "list", "M-X", "--porcelain"],
         vec!["mission", "list", "M-X", "--json"],
         vec!["mission", "objective", "list", "M-X"],
         vec!["mission", "set", "M-X", "status", "done"],
@@ -4906,7 +5136,7 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
     assert!(status.contains("missions"), "{}", status);
     assert!(status.contains("threads"), "{}", status);
     assert_eq!(
-        fx.ok(&other, &["mission", "list"]),
+        fx.ok(&other, &["mission", "list", "--porcelain"]),
         "M-X\ttodo\t-\t-\tFirst on version 2\n"
     );
     // The other clone is still at version 2 until the push.
@@ -4915,7 +5145,7 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
     fx.ok(&a, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&a), "8");
     assert_eq!(
-        fx.ok(&a, &["mission", "list"]),
+        fx.ok(&a, &["mission", "list", "--porcelain"]),
         "M-X\ttodo\t-\t-\tFirst on version 2\n"
     );
     fx.ok(&a, &["mission", "create", "M-Y", "Second"]);
@@ -4975,7 +5205,7 @@ fn a_version_two_ledger_upgrades_at_the_first_thread_write_and_not_before() {
     assert_eq!(fx.manifest_version(&a), "2");
     fx.ok(&a, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&a), "8");
-    assert_eq!(fx.ok(&a, &["mission", "list"]), "");
+    assert_eq!(fx.ok(&a, &["mission", "list", "--porcelain"]), "");
 }
 
 impl Fixture {
@@ -5090,7 +5320,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
     let a = fx.a();
     fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '9')");
     for args in [
-        vec!["mission", "list"],
+        vec!["mission", "list", "--porcelain"],
         vec!["mission", "create", "M-X", "x"],
         vec!["ledger", "push", "x"],
     ] {
@@ -5293,11 +5523,14 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
 
     // Reads see the decision with no ADR, and write nothing.
     assert_eq!(
-        fx.ok(&other, &["decision", "list", "M-OLD"]),
+        fx.ok(&other, &["decision", "list", "M-OLD", "--porcelain"]),
         "2026-01-02\tJim\tT-01\tOld call\t-\n"
     );
     assert_eq!(
-        fx.ok(&other, &["decision", "list", "--adr", "docs/adr/x.md"]),
+        fx.ok(
+            &other,
+            &["decision", "list", "--adr", "docs/adr/x.md", "--porcelain"]
+        ),
         ""
     );
     let record = json(&fx.ok(&other, &["mission", "list", "M-OLD", "--json"]));
@@ -5355,7 +5588,7 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
     );
     // The old decision keeps its row, with a null path.
     assert_eq!(
-        fx.ok(&other, &["decision", "list", "M-OLD"]),
+        fx.ok(&other, &["decision", "list", "M-OLD", "--porcelain"]),
         "2026-01-02\tJim\tT-01\tOld call\t-\n2026-01-03\tJim\t-\tNew call\tdocs/adr/0001-first.md\n"
     );
     assert_eq!(
@@ -5379,7 +5612,16 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
     fx.ok(&a, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&a), "8");
     assert_eq!(
-        fx.ok(&a, &["decision", "list", "--adr", "docs/adr/0001-first.md"]),
+        fx.ok(
+            &a,
+            &[
+                "decision",
+                "list",
+                "--adr",
+                "docs/adr/0001-first.md",
+                "--porcelain"
+            ]
+        ),
         "M-OLD\t2026-01-03\tJim\t-\tNew call\tdocs/adr/0001-first.md\n"
     );
 }
@@ -5399,7 +5641,7 @@ fn a_decision_without_an_adr_upgrades_a_version_five_ledger_too() {
     );
     assert_eq!(fx.manifest_version(&other), "8");
     assert!(fx
-        .ok(&other, &["decision", "list", "M-OLD"])
+        .ok(&other, &["decision", "list", "M-OLD", "--porcelain"])
         .lines()
         .all(|l| l.ends_with("\t-")));
 }
@@ -5967,10 +6209,10 @@ fn a_ledger_held_in_a_nexus_repo_round_trips_between_clones() {
         "# Mission: conformance\n"
     );
     assert!(fx
-        .ok(&other, &["mission", "list"])
+        .ok(&other, &["mission", "list", "--porcelain"])
         .starts_with("M-CONF-01\t"));
     assert_eq!(
-        fx.ok(&other, &["task", "list", "M-CONF-01"])
+        fx.ok(&other, &["task", "list", "M-CONF-01", "--porcelain"])
             .lines()
             .count(),
         1
@@ -5987,12 +6229,14 @@ fn a_ledger_held_in_a_nexus_repo_round_trips_between_clones() {
     fx.ok(&a, &["ledger", "push", "From A"]);
     fx.ok(&other, &["ledger", "fetch"]);
     assert_eq!(
-        fx.ok(&other, &["task", "list", "M-CONF-01"])
+        fx.ok(&other, &["task", "list", "M-CONF-01", "--porcelain"])
             .lines()
             .count(),
         2
     );
-    assert!(fx.ok(&other, &["mission", "list"]).contains("M-CONF-02"));
+    assert!(fx
+        .ok(&other, &["mission", "list", "--porcelain"])
+        .contains("M-CONF-02"));
     assert_eq!(fx.remote_ledger(), None);
 
     // A manifest that names another repo stops the push, and the nexus is unchanged.

@@ -11,6 +11,7 @@ use crate::thread::clock;
 
 use super::change;
 use super::model::{self, Decision, Mission, Question, QuestionStatus, Status, Task};
+use super::table::print_lines;
 
 pub const TASK_FIELDS: &[&str] = &["status", "description"];
 
@@ -679,9 +680,16 @@ pub enum TaskCommands {
         by: String,
     },
     #[command(
-        about = "List the tasks of a mission, one per line: id, status, blocked-by, description"
+        about = "List the tasks of a mission, one per line: id, status, blocked-by, description. The columns are aligned with spaces; --porcelain prints them tab-separated"
     )]
-    List { mission: String },
+    List {
+        mission: String,
+        #[arg(
+            long,
+            help = "Print tab-separated columns, the stable form for scripts, instead of aligned columns"
+        )]
+        porcelain: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -709,10 +717,15 @@ pub enum DecisionCommands {
         adr: Option<String>,
     },
     #[command(
-        about = "List the decisions of a mission, oldest first: date, who, task, text, ADR path (- for none). With --adr and no mission, list the decisions of every mission that name the ADR, with the mission ID as a first column"
+        about = "List the decisions of a mission, oldest first: date, who, task, text, ADR path (- for none). The columns are aligned with spaces; --porcelain prints them tab-separated. With --adr and no mission, list the decisions of every mission that name the ADR, with the mission ID as a first column"
     )]
     List {
         mission: Option<String>,
+        #[arg(
+            long,
+            help = "Print tab-separated columns, the stable form for scripts, instead of aligned columns"
+        )]
+        porcelain: bool,
         #[arg(
             long,
             value_name = "PATH",
@@ -749,9 +762,16 @@ pub enum QuestionCommands {
         by: String,
     },
     #[command(
-        about = "List open questions, one per line: mission, id, date asked, text; all missions when none is given"
+        about = "List open questions, one per line: mission, id, date asked, text; all missions when none is given. The columns are aligned with spaces; --porcelain prints them tab-separated"
     )]
-    List { mission: Option<String> },
+    List {
+        mission: Option<String>,
+        #[arg(
+            long,
+            help = "Print tab-separated columns, the stable form for scripts, instead of aligned columns"
+        )]
+        porcelain: bool,
+    },
 }
 
 pub fn run_task(action: TaskCommands) -> Result<(), String> {
@@ -813,12 +833,11 @@ pub fn run_task_with(store: &dyn LedgerStore, action: TaskCommands) -> Result<()
         TaskCommands::Unblock { mission, task, by } => {
             change(store, |all| task_unblock(all, &mission, &task, &by))?;
         }
-        TaskCommands::List { mission } => {
+        TaskCommands::List { mission, porcelain } => {
             let all = store.missions_load()?;
             let found = mission_of(&all, &mission)?;
-            for task in &found.tasks {
-                println!("{}", task_line(found, task));
-            }
+            let lines = found.tasks.iter().map(|t| task_line(found, t)).collect();
+            print_lines(lines, porcelain);
         }
     }
     Ok(())
@@ -851,11 +870,16 @@ pub fn run_decision_with(store: &dyn LedgerStore, action: DecisionCommands) -> R
                 )
             })?;
         }
-        DecisionCommands::List { mission, adr } => {
+        DecisionCommands::List {
+            mission,
+            adr,
+            porcelain,
+        } => {
             let all = store.missions_load()?;
-            for line in decision_rows(&all, mission.as_deref(), adr.as_deref())? {
-                println!("{}", line);
-            }
+            print_lines(
+                decision_rows(&all, mission.as_deref(), adr.as_deref())?,
+                porcelain,
+            );
         }
     }
     Ok(())
@@ -886,21 +910,23 @@ pub fn run_question_with(store: &dyn LedgerStore, action: QuestionCommands) -> R
                 question_answer(all, &mission, &question, &text, &by, &date)
             })?;
         }
-        QuestionCommands::List { mission } => {
+        QuestionCommands::List { mission, porcelain } => {
             let all = store.missions_load()?;
             let shown: Vec<&Mission> = match &mission {
                 Some(id) => vec![mission_of(&all, id)?],
                 None => all.iter().collect(),
             };
-            for found in shown {
-                for question in found
-                    .questions
-                    .iter()
-                    .filter(|q| q.status == QuestionStatus::Open)
-                {
-                    println!("{}", question_line(found, question));
-                }
-            }
+            let lines = shown
+                .into_iter()
+                .flat_map(|found| {
+                    found
+                        .questions
+                        .iter()
+                        .filter(|q| q.status == QuestionStatus::Open)
+                        .map(move |q| question_line(found, q))
+                })
+                .collect();
+            print_lines(lines, porcelain);
         }
     }
     Ok(())

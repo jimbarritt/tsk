@@ -4,6 +4,7 @@
 
 pub mod model;
 pub mod records;
+pub mod table;
 
 use std::io::Read;
 
@@ -73,12 +74,17 @@ pub enum MissionCommands {
     #[command(about = "Remove a document link")]
     Unlink { id: String, path: String },
     #[command(
-        about = "List missions, one per line: id, status, blocked-by, parent, name; or one mission with an id"
+        about = "List missions, one per line: id, status, blocked-by, parent, name; or one mission with an id. The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records"
     )]
     List {
         id: Option<String>,
         #[arg(long, help = "Print the full record as JSON")]
         json: bool,
+        #[arg(
+            long,
+            help = "Print tab-separated columns, the stable form for scripts, instead of aligned columns"
+        )]
+        porcelain: bool,
     },
 }
 
@@ -192,7 +198,11 @@ pub fn run_with(store: &dyn LedgerStore, action: MissionCommands) -> Result<(), 
             let path = check_docs_path(&path).unwrap_or(path);
             change(store, |missions| model::unlink(missions, &id, &path))?;
         }
-        MissionCommands::List { id, json } => list(store, id.as_deref(), json)?,
+        MissionCommands::List {
+            id,
+            json,
+            porcelain,
+        } => list(store, id.as_deref(), json, porcelain)?,
     }
     Ok(())
 }
@@ -262,7 +272,12 @@ fn items(store: &dyn LedgerStore, kind: ListKind, action: ItemCommands) -> Resul
     Ok(())
 }
 
-fn list(store: &dyn LedgerStore, id: Option<&str>, json: bool) -> Result<(), String> {
+fn list(
+    store: &dyn LedgerStore,
+    id: Option<&str>,
+    json: bool,
+    porcelain: bool,
+) -> Result<(), String> {
     let missions = store.missions_load()?;
     let shown: Vec<&Mission> = match id {
         Some(id) => vec![missions
@@ -283,9 +298,11 @@ fn list(store: &dyn LedgerStore, id: Option<&str>, json: bool) -> Result<(), Str
             printed.map_err(|e| format!("error: could not print JSON: {}", e))?
         );
     } else {
-        for mission in shown {
-            println!("{}", model::list_line(&missions, mission));
-        }
+        let lines = shown
+            .into_iter()
+            .map(|mission| model::list_line(&missions, mission))
+            .collect();
+        table::print_lines(lines, porcelain);
     }
     Ok(())
 }

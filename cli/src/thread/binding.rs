@@ -182,7 +182,8 @@ fn no_clone_id() -> String {
         .to_string()
 }
 
-/// The missions not done, as `tsk mission list` prints them.
+/// The missions not done, as `tsk mission list --porcelain` prints them. The lines stay
+/// tab-separated: they are context for the agent, not for a terminal. Do not align them.
 pub fn open_mission_lines(missions: &[Mission]) -> Vec<String> {
     missions
         .iter()

@@ -138,7 +138,8 @@ tsk decision list <id>           # the decisions of a mission
 tsk question list [<id>]         # the open questions
 ```
 
-`tsk mission list` is the index. There is no `index.md` and no briefing to read. Write
+`tsk mission list` is the index. The list commands print columns aligned with spaces, and
+`--porcelain` prints them tab-separated for a script. There is no `index.md` and no briefing to read. Write
 state with the record commands: `tsk mission create|set|block|objective|constraint|
 out-of-scope|link`, `tsk task add|set|block`, `tsk decision add`, `tsk question
 add|edit|answer`. Run `tsk <command> --help` for the syntax, or load the `tsk` skill.

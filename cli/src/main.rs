@@ -387,6 +387,19 @@ mod tests {
             ],
             vec!["tsk", "question", "list"],
             vec!["tsk", "question", "list", "M-X"],
+            vec!["tsk", "mission", "list", "--porcelain"],
+            vec!["tsk", "mission", "list", "M-X", "--porcelain"],
+            vec!["tsk", "task", "list", "M-X", "--porcelain"],
+            vec!["tsk", "decision", "list", "M-X", "--porcelain"],
+            vec![
+                "tsk",
+                "decision",
+                "list",
+                "--adr",
+                "docs/a.md",
+                "--porcelain",
+            ],
+            vec!["tsk", "question", "list", "--porcelain"],
         ] {
             assert!(Cli::try_parse_from(&args).is_ok(), "{:?}", args);
         }
