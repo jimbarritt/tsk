@@ -38,13 +38,13 @@ brew install rust
 mise use -g rust@latest
 ```
 
-**dolt** (version 1.88.2 or later): the default ledger backend stores the ledger in a Dolt
-database and runs the external `dolt` binary. Both `SessionStart` hooks install 1.88.2
-when no `dolt` 1.88.2 or later is installed: the plugin's hook in any repo, and the tsk
+**dolt** (version 2.5.0 or later): the default ledger backend stores the ledger in a Dolt
+database and runs the external `dolt` binary. Both `SessionStart` hooks install 2.5.0
+when no `dolt` 2.5.0 or later is installed: the plugin's hook in any repo, and the tsk
 repo's own script. Each runs `plugin/hooks/install-dolt.sh`, which installs to `/usr/local/bin` when
 that directory is writable, otherwise to `$HOME/.local/bin`, and sets a Dolt identity when
 none is set. By hand, download the archive for your platform from
-`https://github.com/dolthub/dolt/releases/download/v1.88.2/` (`dolt-linux-amd64.tar.gz`,
+`https://github.com/dolthub/dolt/releases/download/v2.5.0/` (`dolt-linux-amd64.tar.gz`,
 `dolt-linux-arm64.tar.gz`, `dolt-darwin-amd64.tar.gz` or `dolt-darwin-arm64.tar.gz`),
 unpack it and copy `bin/dolt` to a directory on your `PATH`. Then set an identity:
 ```bash

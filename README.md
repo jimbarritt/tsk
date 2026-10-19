@@ -66,7 +66,7 @@ tsk install-plugin claude-cli    # or: tsk install-plugin copilot-cli
 claude                           # or: copilot
 ```
 
-The plugin's session start hook installs `dolt` 1.88.2 when no `dolt` 1.88.2 or later is
+The plugin's session start hook installs `dolt` 2.5.0 when no `dolt` 2.5.0 or later is
 installed. See [docs/user-guide/installation.md](docs/user-guide/installation.md) for each
 step by hand.
 
