@@ -74,7 +74,7 @@ curl -sSfL "https://github.com/jimbarritt/tsk/releases/download/v$TSK_VERSION/ts
   tar -xz --no-same-owner -C /usr/local/bin tsk
 
 # dolt: the ledger store.
-DOLT_VERSION=1.88.2
+DOLT_VERSION=2.5.0
 tmp="$(mktemp -d)"
 curl -sSfL "https://github.com/dolthub/dolt/releases/download/v$DOLT_VERSION/dolt-linux-$DOLT_ARCH.tar.gz" |
   tar -xz --no-same-owner -C "$tmp"
@@ -91,7 +91,7 @@ dolt version
 The script reads the latest release from the redirect of
 `github.com/jimbarritt/tsk/releases/latest`, downloads the prebuilt `tsk` for the
 machine, and installs it to `/usr/local/bin`, which is on `PATH`. It installs `dolt`
-1.88.2 beside it and sets a Dolt identity when none is set. It needs no Rust toolchain.
+2.5.0 beside it and sets a Dolt identity when none is set. It needs no Rust toolchain.
 Measured in a cloud session on 2026-10-13: about 6 seconds.
 
 The plugin's own `SessionStart` hook also installs `dolt`, but a plugin installed during
@@ -211,7 +211,7 @@ claude plugin list
 
 Expected:
 
-- `tsk --version` prints the installed version, and `dolt version` prints 1.88.2.
+- `tsk --version` prints the installed version, and `dolt version` prints 2.5.0.
 - `$TSK_LEDGER_WT` names a directory that exists.
 - `claude plugin list` shows `tsk@jimbarritt-claude-plugins` enabled.
 

@@ -67,7 +67,7 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
   ledger, or `--ref refs/heads/ledgers/<repo-id>` for a nexus ledger. Its URL is
   `git+<remote url>`, with the remote URL resolved as in
   [Location and ref](#location-and-ref).
-- The database needs the external `dolt` binary, version 1.88.2 or later. The `SessionStart` hook
+- The database needs the external `dolt` binary, version 2.5.0 or later. The `SessionStart` hook
   installs it.
 - No file in `ledger-db` is edited by hand. The `tsk ledger` commands are the interface.
 - The documents have their own worktree, `docs`, beside `ledger-db` (see
@@ -105,7 +105,7 @@ call:
 - `DOLT_REMOTE_INFO_BRANCH` to an empty string. Without it, each `dolt push` to a git
   remote also writes a branch `__dolt_remote_info__` holding one file, `DOLT_REMOTE.md`,
   with the data ref, its head commit and a timestamp. No tsk command reads that branch.
-  The variable is not in Dolt's documentation. Measured with Dolt 1.88.2: a name sets
+  The variable is not in Dolt's documentation. Measured with Dolt 1.88.2 and 2.5.0, with the same result: a name sets
   the branch's name, and an empty string writes no branch. The conformance suite checks
   that a push leaves no branch on the remote other than the ledger ref.
 

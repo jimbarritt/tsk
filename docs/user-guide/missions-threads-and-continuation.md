@@ -49,7 +49,7 @@ exported to every session as `$TSK_LEDGER_WT`. `<clone-id>` is minted once per
 clone and stored in that clone's `.git/tsk-clone-id`, so two clones of tsk on one
 machine each get their own store, and renaming a clone directory does not orphan
 it. The ordinary checkout of the repository is the code worktree. The default backend
-needs the `dolt` binary, version 1.88.2 or later. The `git` backend keeps the ledger as files in a
+needs the `dolt` binary, version 2.5.0 or later. The `git` backend keeps the ledger as files in a
 ledger worktree instead (see `docs/domain/ledger-layout.md`).
 
 The store holds records, as tables. You read and write them with the `tsk mission`,

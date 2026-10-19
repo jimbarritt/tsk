@@ -7,7 +7,7 @@ set -uo pipefail
 # WARNING line on stdout when the install or the identity setup fails, and
 # nothing otherwise. Always exits 0, so a caller never stops on it.
 
-DOLT_VERSION="1.88.2"
+DOLT_VERSION="2.5.0"
 
 installed_is_current() {
   local installed
