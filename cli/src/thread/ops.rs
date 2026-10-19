@@ -526,9 +526,12 @@ pub fn stop(session: &Session, target: Option<&str>) -> Result<String, String> {
 pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
     let bindings = store.bindings_list()?;
     let mut rows = Vec::new();
-    for name in store.thread_ids()? {
+    let names = store.thread_ids()?;
+    // Every thread's lines are read together, not one process per thread.
+    let lines = store.continuation_lists(&names)?;
+    for (name, lines) in names.into_iter().zip(lines) {
         let info = store.thread_info(&name)?;
-        let entries = entries_of(store, &name)?;
+        let entries = parse_store(&lines.join("\n"), &store.describe_thread(&name))?;
         let latest = entries.last().map(|stored| &stored.entry);
         rows.push(ListRow {
             mission_id: thread_mission(&info),

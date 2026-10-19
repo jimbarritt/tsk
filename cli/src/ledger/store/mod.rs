@@ -205,6 +205,13 @@ pub trait LedgerStore {
     /// skipped. Empty for a thread with no log.
     fn continuation_list(&self, id: &str) -> Result<Vec<String>, String>;
 
+    /// The stored continuation lines of each of `ids`, in the order given, as
+    /// [`continuation_list`](LedgerStore::continuation_list) reads them one by one. A Dolt
+    /// ledger reads them all in one process.
+    fn continuation_lists(&self, ids: &[String]) -> Result<Vec<Vec<String>>, String> {
+        ids.iter().map(|id| self.continuation_list(id)).collect()
+    }
+
     // --- Bindings ---
 
     /// Every binding, sorted by registration time and then actor. Empty when nothing is

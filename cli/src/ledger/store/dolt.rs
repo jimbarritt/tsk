@@ -1961,6 +1961,31 @@ impl LedgerStore for DoltStore {
             .collect())
     }
 
+    fn continuation_lists(&self, ids: &[String]) -> Result<Vec<Vec<String>>, String> {
+        let db = self.db()?;
+        // Every thread's lines in one process. When the batch fails, they are read one
+        // thread at a time, which gives the same lines or the same error.
+        if let Ok(mut sets) = db.rows_each(&[
+            "select thread_id, entry from continuation_entries order by thread_id, seq".to_string(),
+        ]) {
+            let mut by_thread: std::collections::BTreeMap<String, Vec<String>> =
+                std::collections::BTreeMap::new();
+            for row in sets.remove(0) {
+                if let (Some(thread), Some(entry)) = (text(&row, "thread_id"), text(&row, "entry"))
+                {
+                    if !entry.trim().is_empty() {
+                        by_thread.entry(thread).or_default().push(entry);
+                    }
+                }
+            }
+            return Ok(ids
+                .iter()
+                .map(|id| by_thread.remove(id).unwrap_or_default())
+                .collect());
+        }
+        ids.iter().map(|id| self.continuation_list(id)).collect()
+    }
+
     fn bindings_list(&self) -> Result<Vec<BindingRow>, String> {
         let db = self.db()?;
         if let Some(rows) = self.read_snapshot(&db, |snapshot| snapshot.bindings.clone())? {
