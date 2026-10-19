@@ -4331,6 +4331,334 @@ mod cases {
         assert_eq!(after["constraints"], before["constraints"]);
         assert_eq!(after["purpose"], "v");
     }
+
+    // --- Numbers and collisions ---
+
+    /// Two missions, M-X with one record of every kind and M-Y with none, pushed from clone
+    /// A and fetched into clone B.
+    fn numbered_fixture() -> Fixture {
+        let fx = Fixture::fetched();
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["mission", "create", "M-X", "X"]);
+        fx.ok(&a, &["mission", "create", "M-Y", "Y"]);
+        fx.ok(&a, &["task", "add", "M-X", "base task"]);
+        fx.ok(&a, &["question", "add", "M-X", "base question?"]);
+        fx.ok(&a, &["mission", "objective", "add", "M-X", "base outcome"]);
+        fx.ok(
+            &a,
+            &["mission", "constraint", "add", "M-X", "base constraint"],
+        );
+        fx.ok(&a, &["mission", "out-of-scope", "add", "M-X", "base scope"]);
+        fx.ok(
+            &a,
+            &["decision", "add", "M-X", "base decision", "--by", "Jim"],
+        );
+        fx.ok(&a, &["ledger", "push", "Base"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        fx
+    }
+
+    /// The lines a push printed before the commit it prints last.
+    fn renumber_lines(out: &Output) -> Vec<String> {
+        let text = stdout(out);
+        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+        assert!(lines.pop().is_some_and(|l| l.len() >= 20), "{}", text);
+        lines
+    }
+
+    /// `(number, text)` of each item of a kind of a mission, oldest first. A decision has
+    /// no number to read, so its number is its place in the list.
+    fn items(fx: &Fixture, dir: &Path, mission: &str, kind: &str) -> Vec<(i64, String)> {
+        let record = mission_json(fx, dir, mission);
+        let list = |key: &str, number: &str, field: &str| -> Vec<(i64, String)> {
+            record[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .enumerate()
+                .map(|(place, item)| {
+                    let digits: String = item[number]
+                        .to_string()
+                        .chars()
+                        .filter(|c| c.is_ascii_digit())
+                        .collect();
+                    (
+                        digits.parse().unwrap_or(place as i64 + 1),
+                        item[field].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect()
+        };
+        match kind {
+            "task" => list("tasks", "id", "description"),
+            "question" => list("questions", "id", "text"),
+            "objective" => list("objective", "n", "outcome"),
+            "constraint" => list("constraints", "n", "text"),
+            "out-of-scope" => list("out_of_scope", "n", "text"),
+            "decision" => list("decisions", "none", "text"),
+            other => panic!("{}", other),
+        }
+    }
+
+    fn add_item(fx: &Fixture, dir: &Path, mission: &str, kind: &str, text: &str) -> String {
+        let args: Vec<&str> = match kind {
+            "task" => vec!["task", "add", mission, text],
+            "question" => vec!["question", "add", mission, text],
+            "objective" => vec!["mission", "objective", "add", mission, text],
+            "constraint" => vec!["mission", "constraint", "add", mission, text],
+            "out-of-scope" => vec!["mission", "out-of-scope", "add", mission, text],
+            "decision" => vec!["decision", "add", mission, text, "--by", "Jim"],
+            other => panic!("{}", other),
+        };
+        fx.ok(dir, &args).trim().to_string()
+    }
+
+    pub fn a_second_push_renumbers_its_task_and_prints_the_change() {
+        let fx = numbered_fixture();
+        let (a, other) = (fx.a(), fx.b());
+        assert_eq!(fx.ok(&a, &["task", "add", "M-X", "from a"]), "T-02\n");
+        assert_eq!(fx.ok(&other, &["task", "add", "M-X", "from b"]), "T-02\n");
+
+        // The first push has nothing to renumber: it prints the commit and nothing else.
+        let first = fx.tsk(&a, &["ledger", "push", "A adds a task"]);
+        assert_success(&first);
+        assert_eq!(stdout(&first).lines().count(), 1);
+
+        let second = fx.tsk(&other, &["ledger", "push", "B adds a task"]);
+        assert_success(&second);
+        assert_eq!(renumber_lines(&second), vec!["T-02 is now T-03 in M-X"]);
+        assert_eq!(stdout(&second).lines().count(), 2);
+        assert!(!stderr(&second).contains("conflict"), "{}", stderr(&second));
+        let expected = "T-01\ttodo\t-\tbase task\nT-02\ttodo\t-\tfrom a\nT-03\ttodo\t-\tfrom b\n";
+        assert_eq!(
+            fx.ok(&other, &["task", "list", "M-X", "--porcelain"]),
+            expected
+        );
+        // The remote holds both tasks, and the counter is past both.
+        fx.ok(&a, &["ledger", "fetch"]);
+        assert_eq!(fx.ok(&a, &["task", "list", "M-X", "--porcelain"]), expected);
+        assert_eq!(fx.ok(&other, &["task", "add", "M-X", "third"]), "T-04\n");
+        assert_eq!(fx.ok(&a, &["task", "add", "M-X", "fourth"]), "T-04\n");
+        assert_success(&fx.tsk(&other, &["ledger", "push", "B adds a third"]));
+        let again = fx.tsk(&a, &["ledger", "push", "A adds a fourth"]);
+        assert_success(&again);
+        assert_eq!(renumber_lines(&again), vec!["T-04 is now T-05 in M-X"]);
+        assert_eq!(
+            fx.ok(&a, &["task", "list", "M-X", "--porcelain"]),
+            format!("{}T-04\ttodo\t-\tthird\nT-05\ttodo\t-\tfourth\n", expected)
+        );
+    }
+
+    pub fn every_kind_of_record_is_renumbered_at_the_second_push() {
+        for (kind, old, new, third) in [
+            ("task", "T-02", "T-03", "T-04"),
+            ("question", "Q-02", "Q-03", "Q-04"),
+            ("objective", "objective 2", "objective 3", "4"),
+            ("constraint", "constraint 2", "constraint 3", "4"),
+            ("out-of-scope", "out-of-scope 2", "out-of-scope 3", "4"),
+            ("decision", "decision 2", "decision 3", ""),
+        ] {
+            let fx = numbered_fixture();
+            let (a, other) = (fx.a(), fx.b());
+            add_item(&fx, &a, "M-X", kind, "from a");
+            add_item(&fx, &other, "M-X", kind, "from b");
+            assert_success(&fx.tsk(&a, &["ledger", "push", "A"]));
+            let second = fx.tsk(&other, &["ledger", "push", "B"]);
+            assert_success(&second);
+            assert_eq!(
+                renumber_lines(&second),
+                vec![format!("{} is now {} in M-X", old, new)],
+                "{}",
+                kind
+            );
+            let found = items(&fx, &other, "M-X", kind);
+            let numbers: Vec<i64> = found.iter().map(|i| i.0).collect();
+            let texts: Vec<&str> = found.iter().map(|i| i.1.as_str()).collect();
+            assert_eq!(numbers, vec![1, 2, 3], "{}", kind);
+            assert_eq!(texts[1..], ["from a", "from b"], "{}", kind);
+            // The counter is past both rows, here and on the remote.
+            let added = add_item(&fx, &other, "M-X", kind, "third");
+            if kind != "decision" {
+                assert_eq!(added, third, "{}", kind);
+            }
+            assert_success(&fx.tsk(&other, &["ledger", "push", "B again"]));
+            fx.ok(&a, &["ledger", "fetch"]);
+            let on_a = items(&fx, &a, "M-X", kind);
+            assert_eq!(on_a.len(), 4, "{}", kind);
+            assert_eq!(on_a[2].1, "from b", "{}", kind);
+            assert_eq!(on_a[3].1, "third", "{}", kind);
+        }
+    }
+
+    pub fn a_renumbered_task_keeps_its_blocks_and_its_decisions() {
+        let fx = numbered_fixture();
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["task", "add", "M-X", "a1"]);
+        assert_success(&fx.tsk(&a, &["ledger", "push", "A"]));
+        fx.ok(&other, &["task", "add", "M-X", "b1"]);
+        fx.ok(&other, &["task", "add", "M-X", "b2"]);
+        fx.ok(&other, &["task", "block", "M-X", "T-03", "T-02"]);
+        fx.ok(
+            &other,
+            &[
+                "decision", "add", "M-X", "about b1", "--task", "T-02", "--by", "Jim",
+            ],
+        );
+        fx.ok(
+            &other,
+            &[
+                "decision", "add", "M-X", "about b2", "--task", "T-03", "--by", "Jim",
+            ],
+        );
+        let out = fx.tsk(&other, &["ledger", "push", "B"]);
+        assert_success(&out);
+        // Only T-02 collided. T-03 is free on the remote, so it keeps its number.
+        assert_eq!(renumber_lines(&out), vec!["T-02 is now T-04 in M-X"]);
+        assert_eq!(
+            fx.ok(&other, &["task", "list", "M-X", "--porcelain"]),
+            "T-01\ttodo\t-\tbase task\nT-02\ttodo\t-\ta1\nT-03\ttodo\tT-04\tb2\nT-04\ttodo\t-\tb1\n"
+        );
+        let decisions = fx.ok(&other, &["decision", "list", "M-X", "--porcelain"]);
+        let named: Vec<(&str, &str)> = decisions
+            .lines()
+            .map(|row| {
+                let cells: Vec<&str> = row.split('\t').collect();
+                (cells[3], cells[2])
+            })
+            .collect();
+        assert_eq!(
+            named,
+            vec![
+                ("base decision", "-"),
+                ("about b1", "T-04"),
+                ("about b2", "T-03")
+            ]
+        );
+        fx.ok(&a, &["ledger", "fetch"]);
+        assert_eq!(
+            fx.ok(&a, &["task", "list", "M-X", "--porcelain"]),
+            fx.ok(&other, &["task", "list", "M-X", "--porcelain"])
+        );
+    }
+
+    pub fn several_collisions_in_one_push_are_all_renumbered_in_order() {
+        let fx = numbered_fixture();
+        let (a, other) = (fx.a(), fx.b());
+        for text in ["a2", "a3"] {
+            fx.ok(&a, &["task", "add", "M-X", text]);
+        }
+        fx.ok(&a, &["question", "add", "M-X", "from a?"]);
+        fx.ok(&a, &["mission", "constraint", "add", "M-X", "from a"]);
+        for text in ["b2", "b3"] {
+            fx.ok(&other, &["task", "add", "M-X", text]);
+        }
+        fx.ok(&other, &["question", "add", "M-X", "from b?"]);
+        fx.ok(&other, &["mission", "constraint", "add", "M-X", "from b"]);
+        fx.ok(
+            &other,
+            &["mission", "constraint", "add", "M-X", "from b too"],
+        );
+        assert_success(&fx.tsk(&a, &["ledger", "push", "A"]));
+        let out = fx.tsk(&other, &["ledger", "push", "B"]);
+        assert_success(&out);
+        // Only constraint 2 collided: A added no 3.
+        assert_eq!(
+            renumber_lines(&out),
+            vec![
+                "T-02 is now T-04 in M-X",
+                "T-03 is now T-05 in M-X",
+                "Q-02 is now Q-03 in M-X",
+                "constraint 2 is now constraint 4 in M-X",
+            ]
+        );
+        let tasks = fx.ok(&other, &["task", "list", "M-X", "--porcelain"]);
+        let texts: Vec<&str> = tasks
+            .lines()
+            .map(|l| l.rsplit('\t').next().unwrap())
+            .collect();
+        assert_eq!(texts, vec!["base task", "a2", "a3", "b2", "b3"]);
+        let constraints = items(&fx, &other, "M-X", "constraint");
+        assert_eq!(
+            constraints,
+            vec![
+                (1, "base constraint".to_string()),
+                (2, "from a".to_string()),
+                (3, "from b too".to_string()),
+                (4, "from b".to_string())
+            ]
+        );
+    }
+
+    pub fn a_collision_and_changes_elsewhere_merge_together() {
+        let fx = numbered_fixture();
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["task", "add", "M-X", "from a"]);
+        fx.ok(&a, &["mission", "set", "M-X", "purpose", "set by a"]);
+        fx.ok(&other, &["task", "add", "M-X", "from b"]);
+        fx.ok(&other, &["task", "add", "M-Y", "in y"]);
+        fx.ok(&other, &["mission", "create", "M-NEW", "New"]);
+        assert_success(&fx.tsk(&a, &["ledger", "push", "A"]));
+        let out = fx.tsk(&other, &["ledger", "push", "B"]);
+        assert_success(&out);
+        // M-Y was untouched on the other side, so its task keeps its number.
+        assert_eq!(renumber_lines(&out), vec!["T-02 is now T-03 in M-X"]);
+        fx.ok(&a, &["ledger", "fetch"]);
+        for dir in [&a, &other] {
+            assert_eq!(
+                fx.ok(dir, &["task", "list", "M-Y", "--porcelain"]),
+                "T-01\ttodo\t-\tin y\n"
+            );
+            assert_eq!(
+                fx.ok(dir, &["mission", "list", "--porcelain"]),
+                "M-NEW\ttodo\t-\t-\tNew\nM-X\ttodo\t-\t-\tX\nM-Y\ttodo\t-\t-\tY\n"
+            );
+            assert_eq!(mission_json(&fx, dir, "M-X")["purpose"], "set by a");
+            assert_eq!(items(&fx, dir, "M-X", "task").len(), 3);
+        }
+    }
+
+    pub fn a_counter_that_both_clones_moved_is_settled_without_a_collision() {
+        let fx = numbered_fixture();
+        let (a, other) = (fx.a(), fx.b());
+        // A adds two outcomes and removes them: no row, but the counter moves to 4.
+        fx.ok(&a, &["mission", "objective", "add", "M-X", "gone"]);
+        fx.ok(&a, &["mission", "objective", "add", "M-X", "gone too"]);
+        fx.ok(&a, &["mission", "objective", "remove", "M-X", "2"]);
+        fx.ok(&a, &["mission", "objective", "remove", "M-X", "3"]);
+        fx.ok(&other, &["mission", "objective", "add", "M-X", "from b"]);
+        assert_success(&fx.tsk(&a, &["ledger", "push", "A"]));
+        let out = fx.tsk(&other, &["ledger", "push", "B"]);
+        assert_success(&out);
+        // Outcome 2 is free on the remote, since A removed it: no collision, no line.
+        assert_eq!(renumber_lines(&out), Vec::<String>::new());
+        // The numbers A used and dropped are not handed out again.
+        assert_eq!(
+            fx.ok(&other, &["mission", "objective", "add", "M-X", "next"]),
+            "4\n"
+        );
+    }
+
+    pub fn a_conflict_that_remains_stops_the_push_and_undoes_the_renumbering() {
+        let fx = numbered_fixture();
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["task", "add", "M-X", "from a"]);
+        fx.ok(&a, &["mission", "set", "M-X", "status", "in-progress"]);
+        assert_success(&fx.tsk(&a, &["ledger", "push", "A"]));
+        let before = fx.remote_ledger();
+        fx.ok(&other, &["task", "add", "M-X", "from b"]);
+        fx.ok(&other, &["mission", "set", "M-X", "status", "done"]);
+        let out = fx.tsk(&other, &["ledger", "push", "B"]);
+        assert_exit(&out, 1);
+        assert!(stderr(&out).contains("conflicted"), "{}", stderr(&out));
+        assert!(stderr(&out).contains("missions"), "{}", stderr(&out));
+        assert_eq!(stdout(&out), "");
+        assert_eq!(fx.remote_ledger(), before);
+        // B's local commit stays as it was, with its own number.
+        assert_eq!(
+            fx.ok(&other, &["task", "list", "M-X", "--porcelain"]),
+            "T-01\ttodo\t-\tbase task\nT-02\ttodo\t-\tfrom b\n"
+        );
+    }
 }
 
 macro_rules! conformance {
@@ -4405,6 +4733,13 @@ conformance!(
     constraints_and_out_of_scope_are_numbered_lists_whose_numbers_are_not_reused,
     mission_set_refuses_the_list_fields_and_keeps_the_text_fields,
     lists_print_aligned_columns_and_porcelain_keeps_the_tabs,
+    a_second_push_renumbers_its_task_and_prints_the_change,
+    every_kind_of_record_is_renumbered_at_the_second_push,
+    a_renumbered_task_keeps_its_blocks_and_its_decisions,
+    several_collisions_in_one_push_are_all_renumbered_in_order,
+    a_collision_and_changes_elsewhere_merge_together,
+    a_counter_that_both_clones_moved_is_settled_without_a_collision,
+    a_conflict_that_remains_stops_the_push_and_undoes_the_renumbering,
 );
 
 // --- A ref that holds a file ledger ---

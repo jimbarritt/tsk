@@ -10,6 +10,7 @@
 
 pub mod doc_tree;
 pub mod dolt;
+mod renumber;
 
 use std::path::{Component, Path, PathBuf};
 
@@ -44,6 +45,9 @@ pub struct PushReport {
     pub head: String,
     /// True when the remote already held the local state and nothing was pushed.
     pub already_on_remote: bool,
+    /// One line per row the push gave a new number, such as `T-03 is now T-05 in M-X`,
+    /// because another clone had taken the number. Empty when no row moved.
+    pub renumbered: Vec<String>,
 }
 
 /// What kind of actor a binding names.
