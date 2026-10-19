@@ -1245,6 +1245,17 @@ impl LedgerStore for DoltStore {
         ))
     }
 
+    fn bindings_remove(&self, actors: &[String]) -> Result<(), String> {
+        if actors.is_empty() {
+            return Ok(());
+        }
+        let list: Vec<String> = actors.iter().map(|actor| lit(actor)).collect();
+        self.write_bindings(&format!(
+            "delete from bindings where actor in ({});",
+            list.join(", ")
+        ))
+    }
+
     fn binding_remove_thread(&self, thread_id: &str) -> Result<(), String> {
         self.write_bindings(&format!(
             "delete from bindings where thread_id = {};",
