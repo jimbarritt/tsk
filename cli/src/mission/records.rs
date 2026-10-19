@@ -508,9 +508,10 @@ pub fn decision_line(decision: &Decision) -> String {
 }
 
 /// The lines of `decision list`. With a mission, that mission's decisions in the five
-/// columns of [`decision_line`]. With only an ADR path, the decisions of every mission
-/// that name it, each line led by the mission ID. With both, the mission's decisions
-/// that name the ADR, in the five columns.
+/// columns of [`decision_line`]. With no mission, the decisions of every mission (only
+/// those that name the ADR when there is an ADR path), each line led by the mission ID.
+/// With a mission and an ADR path, the mission's decisions that name the ADR, in the five
+/// columns.
 pub fn decision_rows(
     missions: &[Mission],
     mission: Option<&str>,
@@ -525,7 +526,7 @@ pub fn decision_rows(
             .filter(names)
             .map(decision_line)
             .collect()),
-        None if adr.is_some() => Ok(missions
+        None => Ok(missions
             .iter()
             .flat_map(|m| {
                 m.decisions
@@ -534,9 +535,6 @@ pub fn decision_rows(
                     .map(move |d| format!("{}\t{}", m.id, decision_line(d)))
             })
             .collect()),
-        None => Err(
-            "error: decision list needs a mission, or --adr with the path of an ADR".to_string(),
-        ),
     }
 }
 
@@ -717,7 +715,7 @@ pub enum DecisionCommands {
         adr: Option<String>,
     },
     #[command(
-        about = "List the decisions of a mission, oldest first: date, who, task, text, ADR path (- for none). The columns are aligned with spaces; --porcelain prints them tab-separated. With --adr and no mission, list the decisions of every mission that name the ADR, with the mission ID as a first column"
+        about = "List the decisions of a mission, oldest first: date, who, task, text, ADR path (- for none). With no mission, list the decisions of every mission, with the mission ID as a first column; with --adr as well, only those that name the ADR. The columns are aligned with spaces; --porcelain prints them tab-separated"
     )]
     List {
         mission: Option<String>,
@@ -1172,7 +1170,14 @@ mod tests {
         assert!(decision_rows(&all, Some("M-A"), Some("docs/adr/2.md"))
             .unwrap()
             .is_empty());
-        assert!(decision_rows(&all, None, None).is_err());
+        assert_eq!(
+            decision_rows(&all, None, None).unwrap(),
+            vec![
+                "M-A\t2026-01-01\tjim\t-\tOne\tdocs/adr/1.md",
+                "M-A\t2026-01-02\tjim\t-\tTwo\t-",
+                "M-B\t2026-01-03\tann\t-\tThree\tdocs/adr/1.md"
+            ]
+        );
         assert!(decision_rows(&all, Some("M-Z"), None).is_err());
     }
 

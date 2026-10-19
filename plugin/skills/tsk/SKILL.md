@@ -233,7 +233,7 @@ tsk task block <mission> <task> <by>          # and unblock; <by> is a task of t
 tsk task list <mission> [--porcelain]
 tsk decision add <mission> "<text>" --by <who> [--task T-nn] [--on YYYY-MM-DD] [--adr <path>]
 tsk decision list <mission> [--adr <path>] [--porcelain]
-tsk decision list --adr <path>                # the decisions of every mission that name the ADR
+tsk decision list [--adr <path>]                # no mission: every decision of every mission, or those that name the ADR
 tsk question add <mission> "<text>"           # prints the new ID, Q-01 upward
 tsk question edit <mission> <q> "<text>"      # rewrites an open question; an answered one is refused
 tsk question answer <mission> <q> "<text>" --by <who>
@@ -245,8 +245,8 @@ tabs, no trailing spaces. `--porcelain` prints the tab-separated lines instead, 
 header, and a script that parses the output must use it. `task list` prints `T-nn`,
 `status`, `blocked-by` and `description`. A task is blocked while any task it names in `block` is not `done`.
 `decision list` prints the date, who, the task or `-`, the text and the ADR path or `-`,
-oldest first. With `--adr` and no mission it prints the mission ID first, for every
-decision that names that ADR.
+oldest first. With no mission it prints the mission ID first, for every decision of every
+mission, or with `--adr` for every decision that names that ADR.
 A decision links to an ADR when an ADR explains it: `--adr docs/adr/0014-x.md`, the path
 from the root of the repository you are in. The file must exist there. A decision is a
 one-line fact about the work. The reasoning belongs in the ADR, so link it and do not
