@@ -6357,23 +6357,24 @@ fn installed_program(name: &str) -> PathBuf {
         .unwrap_or_else(|| panic!("{} is not on PATH", name))
 }
 
-/// A directory with a `dolt` stand-in. Before the first `dolt commit` of a command that
-/// has `TSK_RACE` set, it runs that shell command once (`TSK_RACE_DONE` marks that it ran),
-/// then runs the real `dolt`. A command's refresh is over by the time it commits, so
-/// the shell command acts between the refresh and the push.
+/// A directory with a `git` stand-in. Before the first `git push` of a command that has
+/// `TSK_RACE` set, it runs that shell command once (`TSK_RACE_DONE` marks that it ran), then
+/// runs the real `git`. The first push of a command is the push of the documents, after its
+/// refresh and before the push of the data, so the shell command acts between the refresh
+/// and the pushes.
 fn race_shim(root: &Path) -> PathBuf {
     let dir = root.join("race-shim");
     std::fs::create_dir_all(&dir).unwrap();
     let script = format!(
         "#!/bin/sh\n\
-         if [ \"$1\" = commit ] && [ -n \"$TSK_RACE\" ] && [ ! -e \"$TSK_RACE_DONE\" ]; then\n\
+         if [ \"$1\" = push ] && [ -n \"$TSK_RACE\" ] && [ ! -e \"$TSK_RACE_DONE\" ]; then\n\
          \x20 : > \"$TSK_RACE_DONE\"\n\
          \x20 sh -c \"$TSK_RACE\" >&2 || exit 97\n\
          fi\n\
          exec '{}' \"$@\"\n",
-        installed_program("dolt").display()
+        installed_program("git").display()
     );
-    let shim = dir.join("dolt");
+    let shim = dir.join("git");
     std::fs::write(&shim, script).unwrap();
     #[cfg(unix)]
     {
@@ -6699,4 +6700,93 @@ fn status_local_asks_origin_nothing_and_says_it_did_not_check() {
     // The plain status does ask, and sees A's push.
     let text = fx.ok(&b, &["ledger", "status"]);
     assert!(text.contains("to fetch"), "{}", text);
+}
+
+// --- The dolt processes of a thread write ---
+
+/// A directory with a `dolt` stand-in that logs its arguments, one line per run, to the file
+/// named by `TSK_DOLT_LOG`, then runs the real `dolt`.
+fn dolt_log_shim(root: &Path) -> PathBuf {
+    let dir = root.join("dolt-log-shim");
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = format!(
+        "#!/bin/sh\necho \"$@\" >> \"$TSK_DOLT_LOG\"\nexec '{}' \"$@\"\n",
+        installed_program("dolt").display()
+    );
+    let shim = dir.join("dolt");
+    std::fs::write(&shim, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    dir
+}
+
+impl Fixture {
+    /// Run `tsk` and count the `dolt` processes it started.
+    fn dolt_launches(&self, dir: &Path, args: &[&str]) -> (Output, usize) {
+        let log = self.root.path().join("dolt-log.txt");
+        let _ = std::fs::remove_file(&log);
+        let output = self
+            .command(dir, args)
+            .env("PATH", path_with_first(&dolt_log_shim(self.root.path())))
+            .env("TSK_DOLT_LOG", &log)
+            .output()
+            .unwrap();
+        let launches = std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .count();
+        (output, launches)
+    }
+}
+
+#[test]
+fn a_thread_write_launches_a_handful_of_dolt_processes() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let a = fx.a();
+    fx.ok(&a, &["mission", "create", "M-LAUNCH", "Launch"]);
+    fx.ok(&a, &["task", "add", "M-LAUNCH", "A task"]);
+    fx.ok(&a, &["ledger", "push", "Mission"]);
+    // The first command of a machine sets the Dolt identity, which costs a process. Run
+    // one before counting.
+    fx.ok(&a, &["ledger", "fetch"]);
+
+    // Each count is the refresh in one process, the writes, the commit and its reads in
+    // one process, the checks before the push in one, and the push. Before the reads were
+    // batched these took 18 or more.
+    let (output, launches) = fx.dolt_launches(&a, &["thread", "start", "M-LAUNCH"]);
+    assert_success(&output);
+    assert!(
+        launches <= 6,
+        "thread start launched {} dolt processes",
+        launches
+    );
+    let id = stdout(&output)
+        .trim_end()
+        .strip_prefix("started:")
+        .unwrap()
+        .to_string();
+
+    let (output, launches) = fx.dolt_launches(&a, &["thread", "pause", &id, "T-01", "Next"]);
+    assert_success(&output);
+    assert!(
+        launches <= 5,
+        "thread pause launched {} dolt processes",
+        launches
+    );
+
+    // A resume of the thread this clone is bound to writes nothing.
+    let (output, launches) = fx.dolt_launches(&a, &["thread", "resume", &id]);
+    assert_success(&output);
+    assert!(
+        launches <= 2,
+        "thread resume launched {} dolt processes",
+        launches
+    );
 }
