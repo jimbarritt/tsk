@@ -151,6 +151,7 @@ impl Fixture {
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("TSK_NO_UPDATE_CHECK", "1")
+            .env("TSK_LEDGER_REFS", "branches")
             .env("TSK_MACHINE_NAME", "laptop")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove(CLOUD_VAR);

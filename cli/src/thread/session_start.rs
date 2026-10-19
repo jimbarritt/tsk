@@ -389,6 +389,11 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
         ),
         &thread_text,
     );
+    if outcome.unpublished {
+        if let Some(cloud) = crate::ledger::refs::cloud_default_note() {
+            push_part(&mut context, cloud);
+        }
+    }
     if store.has_local_changes().unwrap_or(false) {
         push_part(&mut context, LOCAL_CHANGES_NOTE);
     }

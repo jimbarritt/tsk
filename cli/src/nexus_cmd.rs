@@ -72,6 +72,12 @@ pub enum NexusCommands {
         ledger: LedgerChoice,
         #[arg(
             long,
+            value_parser = ["branches", "custom"],
+            help = "Which refs hold the repo's ledger: branches under refs/heads/*, or a custom ref (refs/tsk/*). Written to the entry as ledger_refs; omit it to leave the choice to the repo config and discovery"
+        )]
+        ledger_refs: Option<String>,
+        #[arg(
+            long,
             help = "Register a repo with no remote URL: the entry names this machine, and the id is written to the repo's tsk-repo-id"
         )]
         local: bool,
@@ -108,6 +114,7 @@ pub fn run(action: NexusCommands) -> Result<(), String> {
             territory,
             territory_name,
             ledger,
+            ledger_refs,
             local,
         } => register_repo(
             &file,
@@ -117,6 +124,7 @@ pub fn run(action: NexusCommands) -> Result<(), String> {
                 name: territory_name,
             },
             ledger,
+            ledger_refs,
             local,
         ),
     }
@@ -127,6 +135,7 @@ fn register_repo(
     id: Option<String>,
     territory: TerritoryChoice,
     ledger: LedgerChoice,
+    ledger_refs: Option<String>,
     local: bool,
 ) -> Result<(), String> {
     let nexus = config::read_nexus_url(config_file)?
@@ -134,7 +143,7 @@ fn register_repo(
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
     let repo = Repo::discover(&cwd)?;
-    let entry = new_entry(&repo, id, ledger, local)?;
+    let entry = new_entry(&repo, id, ledger, ledger_refs, local)?;
     let state_root = state_root_from_env()?;
     let outcome = register(&state_root, &nexus, &entry, &territory, &mut || {
         eprintln!("note: the nexus's default branch moved before the push; fetching again and retrying once")
@@ -150,6 +159,7 @@ fn new_entry(
     repo: &Repo,
     id: Option<String>,
     ledger: LedgerChoice,
+    ledger_refs: Option<String>,
     local: bool,
 ) -> Result<NewEntry, String> {
     let (name, url, machine) = if local {
@@ -195,6 +205,7 @@ fn new_entry(
         url,
         local: machine,
         ledger: ledger.as_str().to_string(),
+        ledger_refs,
     })
 }
 
@@ -386,6 +397,7 @@ mod tests {
             url: Some("https://example.test/acme/work-api".to_string()),
             local: None,
             ledger: "nexus".to_string(),
+            ledger_refs: None,
         }
     }
 

@@ -160,6 +160,7 @@ impl Fixture {
             )
             .env("TSK_HOME", self.root.path().join("home").join(".tsk"))
             .env("TSK_NO_UPDATE_CHECK", "1")
+            .env("TSK_LEDGER_REFS", "branches")
             .env("TSK_MACHINE_NAME", "laptop")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove("GIT_CONFIG_COUNT")
