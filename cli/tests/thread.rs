@@ -665,6 +665,9 @@ fn pause_does_not_count_a_deleted_origin_branch() {
         &["push", "--quiet", "origin", "HEAD:refs/heads/gone"],
     );
     git(&fx.origin(), &["update-ref", "-d", "refs/heads/gone"]);
+    // A fetch that prunes has run since the branch went, so no tracking ref holds the
+    // commit. A pause that finds no tracking ref asks origin again.
+    git(&fx.work(), &["fetch", "--quiet", "--prune", "origin"]);
     let before = fx.origin_ledger_sha();
 
     let output = fx.tsk(&["thread", "pause", &id, BRIEFING, "T-05", "next"]);
@@ -672,6 +675,135 @@ fn pause_does_not_count_a_deleted_origin_branch() {
     assert_exit(&output, 1);
     assert!(stderr(&output).contains("is not reachable from any branch on origin"));
     assert_pause_not_recorded(&fx, &id, &before);
+}
+
+/// A directory with a `git` stand-in that logs its arguments, one line per run, to the
+/// file named by `TSK_GIT_LOG`, then runs the real `git`.
+fn git_log_shim(root: &Path) -> PathBuf {
+    let real = std::env::var_os("PATH")
+        .and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|dir| dir.join("git"))
+                .find(|candidate| candidate.is_file())
+        })
+        .expect("git is not on PATH");
+    let dir = root.join("git-log-shim");
+    std::fs::create_dir_all(&dir).unwrap();
+    let shim = dir.join("git");
+    std::fs::write(
+        &shim,
+        format!(
+            "#!/bin/sh\necho \"$@\" >> \"$TSK_GIT_LOG\"\nexec '{}' \"$@\"\n",
+            real.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    dir
+}
+
+impl Fixture {
+    /// A pause, and whether it fetched the code repository: ran `git fetch` with the refspec
+    /// that mirrors the branches of origin.
+    fn pause_fetching_code(&self, id: &str) -> (Output, bool) {
+        let log = self.root.path().join("git-log.txt");
+        let _ = std::fs::remove_file(&log);
+        let mut dirs = vec![git_log_shim(self.root.path())];
+        dirs.extend(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        ));
+        let output = self
+            .command(&["thread", "pause", id, BRIEFING, "T-05", "next"], None)
+            .env("PATH", std::env::join_paths(dirs).unwrap())
+            .env("TSK_GIT_LOG", &log)
+            .output()
+            .expect("failed to run tsk");
+        let fetched = std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .any(|line| line.contains("+refs/heads/*:refs/remotes/origin/*"));
+        (output, fetched)
+    }
+}
+
+#[test]
+fn pause_does_not_fetch_the_code_repository_when_a_tracking_ref_holds_the_commit() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    // The commit was pushed from this clone, which updates its tracking ref.
+    write(&fx.work().join("pushed.md"), "pushed\n");
+    commit_all(&fx.work(), "Pushed from here");
+    git(
+        &fx.work(),
+        &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
+    );
+
+    let (output, fetched) = fx.pause_fetching_code(&id);
+
+    assert_success(&output);
+    assert!(!fetched, "the pause fetched the code repository");
+    assert_eq!(fx.origin_entries(&id).len(), 1);
+}
+
+#[test]
+fn pause_fetches_the_code_repository_when_no_tracking_ref_holds_the_commit() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    write(&fx.work().join("later.md"), "later\n");
+    commit_all(&fx.work(), "Pushed from elsewhere");
+    git(
+        &fx.work(),
+        &["push", "--quiet", "origin", "HEAD:refs/heads/elsewhere"],
+    );
+    git(
+        &fx.work(),
+        &["update-ref", "-d", "refs/remotes/origin/elsewhere"],
+    );
+
+    let (output, fetched) = fx.pause_fetching_code(&id);
+
+    assert_success(&output);
+    assert!(fetched, "the pause did not ask origin");
+    assert_eq!(fx.origin_entries(&id).len(), 1);
+}
+
+#[test]
+fn pause_that_finds_the_commit_nowhere_fetches_once_and_refuses() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    write(&fx.work().join("local.md"), "unpushed\n");
+    commit_all(&fx.work(), "Local only");
+
+    let (output, fetched) = fx.pause_fetching_code(&id);
+
+    assert_exit(&output, 1);
+    assert!(fetched, "the pause did not ask origin before it refused");
+    assert!(stderr(&output).contains("is not reachable from any branch on origin"));
+}
+
+#[test]
+fn pause_accepts_a_tracking_ref_until_the_next_fetch() {
+    // A branch deleted on origin still has its tracking ref here until a fetch prunes it.
+    // The pause goes by the refs it has and does not ask origin.
+    let fx = Fixture::new();
+    let id = fx.start();
+    git(&fx.work(), &["switch", "--quiet", "-c", "gone"]);
+    write(&fx.work().join("gone.md"), "gone\n");
+    commit_all(&fx.work(), "On a branch that is then deleted");
+    git(
+        &fx.work(),
+        &["push", "--quiet", "origin", "HEAD:refs/heads/gone"],
+    );
+    git(&fx.origin(), &["update-ref", "-d", "refs/heads/gone"]);
+
+    let (output, fetched) = fx.pause_fetching_code(&id);
+
+    assert_success(&output);
+    assert!(!fetched);
 }
 
 #[test]

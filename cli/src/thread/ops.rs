@@ -330,6 +330,11 @@ fn current_branch_ref(git: &Git) -> Result<String, String> {
 }
 
 fn ensure_on_an_origin_branch(git: &Git, code_ref: &str, commit: &str) -> Result<(), String> {
+    // The remote-tracking branches the last fetch left say whether a branch on origin
+    // holds the commit. Only when they do not is origin asked.
+    if on_an_origin_branch(git, commit)? {
+        return Ok(());
+    }
     git.run([
         "fetch",
         "--quiet",
@@ -337,14 +342,7 @@ fn ensure_on_an_origin_branch(git: &Git, code_ref: &str, commit: &str) -> Result
         "origin",
         ORIGIN_HEADS_REFSPEC,
     ])?;
-    let listing = git.run([
-        "for-each-ref",
-        "--contains",
-        commit,
-        "--format=%(refname)",
-        ORIGIN_REMOTE_PREFIX,
-    ])?;
-    if origin_branches(&listing).is_empty() {
+    if !on_an_origin_branch(git, commit)? {
         return Err(format!(
             "error: HEAD ({}) is not reachable from any branch on origin.\n       \
              A different actor resuming this thread elsewhere would not be able\n       \
@@ -354,6 +352,18 @@ fn ensure_on_an_origin_branch(git: &Git, code_ref: &str, commit: &str) -> Result
         ));
     }
     Ok(())
+}
+
+/// True when a remote-tracking branch of origin holds `commit`, as the clone last fetched.
+fn on_an_origin_branch(git: &Git, commit: &str) -> Result<bool, String> {
+    let listing = git.run([
+        "for-each-ref",
+        "--contains",
+        commit,
+        "--format=%(refname)",
+        ORIGIN_REMOTE_PREFIX,
+    ])?;
+    Ok(!origin_branches(&listing).is_empty())
 }
 
 fn origin_branches(listing: &str) -> Vec<String> {
