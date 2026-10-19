@@ -74,7 +74,8 @@ enum Commands {
     InstallPlugin(install_plugin::InstallPluginArgs),
     #[command(
         name = "self-update",
-        about = "Upgrade tsk to the latest release, by the method it was installed with (Homebrew, Cargo or a release binary)"
+        about = "Upgrade tsk to the latest release, by the method it was installed with (Homebrew, Cargo or a release binary)",
+        long_about = "Upgrade tsk to the latest release, by the method it was installed with (Homebrew, Cargo or a release binary).\n\nA command that stops with `unsupported ledger version` because the ledger is newer than this tsk runs this update itself, then runs the command again. `tsk thread session-start` and `tsk thread guard` never do. TSK_AUTO_UPDATE=never or TSK_NO_UPDATE_CHECK=1 switches it off."
     )]
     SelfUpdate(self_update::SelfUpdateArgs),
     #[command(about = "Print guides for agents, such as importing an existing plan")]
@@ -106,14 +107,29 @@ fn restore_sigpipe() {}
 fn main() {
     restore_sigpipe();
     let cli = Cli::parse();
+    let hook = is_hook_command(&cli);
     match run_cli(cli) {
         Ok(0) => {}
         Ok(code) => std::process::exit(code),
         Err(e) => {
+            let extra = auto_update::handle(&e, hook);
             eprintln!("{}", e);
+            if let Some(line) = extra {
+                eprintln!("{}", line);
+            }
             std::process::exit(1);
         }
     }
+}
+
+/// The hook commands have timeouts, so they never run an update.
+fn is_hook_command(cli: &Cli) -> bool {
+    matches!(
+        cli.command,
+        Some(Commands::Thread {
+            action: thread::ThreadCommands::SessionStart { .. } | thread::ThreadCommands::Guard
+        })
+    )
 }
 
 fn run_cli(cli: Cli) -> Result<i32, String> {
@@ -151,6 +167,8 @@ mod install_plugin;
 mod guide;
 
 mod self_update;
+
+mod auto_update;
 
 mod nexus_cmd;
 

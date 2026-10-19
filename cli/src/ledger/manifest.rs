@@ -11,6 +11,25 @@ pub const MANIFEST_FILE: &str = ".tsk-ledger.toml";
 /// bindings of local worktrees.
 pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8];
 
+/// How the unsupported-version error starts. `auto_update` finds the error by this
+/// prefix, so the text is built from it and from nothing else.
+pub const UNSUPPORTED_PREFIX: &str = "error: unsupported ledger version ";
+
+/// The layout number of an unsupported-version error that `check_values` made, or `None`
+/// for any other error. The error may follow other lines or text on its own line.
+pub fn unsupported_layout(error: &str) -> Option<i64> {
+    let at = error.find(UNSUPPORTED_PREFIX)?;
+    if at != 0 && !error[..at].ends_with('\n') {
+        return None;
+    }
+    let rest = &error[at + UNSUPPORTED_PREFIX.len()..];
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    if !rest[digits.len()..].starts_with(" in ") {
+        return None;
+    }
+    digits.parse().ok()
+}
+
 /// The fields of a ledger manifest that a caller can read back.
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,7 +49,8 @@ pub fn check_values(
 ) -> Result<i64, String> {
     if !supported.contains(&version) {
         return Err(format!(
-            "error: unsupported ledger version {} in {}; this tsk supports version {}. Update tsk",
+            "{}{} in {}; this tsk supports version {}. Update tsk",
+            UNSUPPORTED_PREFIX,
             version,
             source,
             supported_list(supported)
@@ -58,6 +78,28 @@ fn supported_list(supported: &[i64]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_unsupported_layout_is_read_back_from_the_error_check_values_makes() {
+        let err = check_values(9, None, None, "the manifest", DOLT_SUPPORTED_VERSIONS).unwrap_err();
+        assert_eq!(unsupported_layout(&err), Some(9));
+        assert_eq!(unsupported_layout(&format!("note\n{}", err)), Some(9));
+    }
+
+    #[test]
+    fn no_other_error_reads_as_an_unsupported_layout() {
+        for text in [
+            "",
+            "error: network is down",
+            "error: unsupported ledger version",
+            "error: unsupported ledger version x in the manifest",
+            "error: unsupported ledger version 9",
+            "context: error: unsupported ledger version 9 in the manifest",
+            "error: merge conflict in table missions",
+        ] {
+            assert_eq!(unsupported_layout(text), None, "{}", text);
+        }
+    }
 
     #[test]
     fn a_binary_that_knows_only_version_one_stops_at_a_version_two_ledger() {
