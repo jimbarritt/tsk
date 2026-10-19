@@ -6790,3 +6790,57 @@ fn a_thread_write_launches_a_handful_of_dolt_processes() {
         launches
     );
 }
+
+#[test]
+fn thread_list_reads_every_thread_in_a_few_dolt_processes() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let a = fx.a();
+    fx.ok(&a, &["mission", "create", "M-LIST", "List"]);
+    fx.ok(&a, &["task", "add", "M-LIST", "A task"]);
+    // Four threads, each bound to a cloud session of its own, two of them paused.
+    let mut ids = Vec::new();
+    for session in ["cse_one", "cse_two", "cse_three", "cse_four"] {
+        let started = fx.tsk_cloud(&a, session, &["thread", "start", "M-LIST"]);
+        assert_success(&started);
+        ids.push(
+            stdout(&started)
+                .trim_end()
+                .strip_prefix("started:")
+                .unwrap()
+                .to_string(),
+        );
+    }
+    for (index, session) in ["cse_one", "cse_two"].iter().enumerate() {
+        let paused = fx.tsk_cloud(
+            &a,
+            session,
+            &["thread", "pause", &ids[index], "T-01", "Next steps"],
+        );
+        assert_success(&paused);
+    }
+
+    let (output, launches) = fx.dolt_launches(&a, &["thread", "list"]);
+    assert_success(&output);
+    // The refresh with its reads, and the continuation lines of every thread. It was two
+    // processes for each thread, and more for the refresh.
+    assert!(
+        launches <= 3,
+        "thread list launched {} dolt processes",
+        launches
+    );
+    let rows: Vec<serde_json::Value> = stdout(&output).lines().map(json).collect();
+    assert_eq!(rows.len(), 4);
+    let paused: Vec<&serde_json::Value> = rows
+        .iter()
+        .filter(|row| row["latest_whats_next"] == "Next steps")
+        .collect();
+    assert_eq!(paused.len(), 2);
+    // Newest pause first, then the threads that were never paused.
+    assert_eq!(rows[0]["latest_whats_next"], "Next steps");
+    assert_eq!(rows[1]["latest_whats_next"], "Next steps");
+    assert!(rows[2]["latest_whats_next"].is_null());
+}
