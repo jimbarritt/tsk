@@ -304,8 +304,10 @@ pub fn merge_hook(existing: Option<&str>) -> Result<Option<String>, String> {
 }
 
 fn repo_root() -> Result<PathBuf, String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
+    let mut command = Command::new("git");
+    command.args(["rev-parse", "--show-toplevel"]);
+    crate::gitenv::apply(&mut command);
+    let output = command
         .output()
         .map_err(|e| format!("error: could not run git to find the repo root: {}", e))?;
     if !output.status.success() {

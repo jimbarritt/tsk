@@ -102,9 +102,12 @@ fn drain<R: Read + Send + 'static>(stream: Option<R>) -> std::thread::JoinHandle
 
 /// Runs `git ls-remote` against `url` and kills it after `timeout`.
 fn ls_remote(url: &str, timeout: Duration) -> Result<String, String> {
-    let mut child = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .args(["ls-remote", "--tags", "--refs", url, "refs/tags/v*"])
-        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_TERMINAL_PROMPT", "0");
+    crate::gitenv::apply(&mut command);
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

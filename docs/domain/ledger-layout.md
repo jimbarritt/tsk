@@ -109,6 +109,17 @@ call:
   the branch's name, and an empty string writes no branch. The conformance suite checks
   that a push leaves no branch on the remote other than the ledger ref.
 
+The binary also sets git protocol version 0 for every `git` process it starts, and for
+the `git` processes that `dolt` starts for it. It adds the entry `protocol.version=0`
+to `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n` and `GIT_CONFIG_VALUE_n` in the child's
+environment, after any entries the user already set. The user's own git configuration
+stays as it is. Version 2 sends two HTTP requests for a fetch with nothing new, and
+version 0 sends one; a live fetch of this ledger took 2.65 s on version 2 and 1.9 s on
+version 0 (median of 6 interleaved runs). Two things leave the setting out:
+
+- `TSK_GIT_PROTOCOL=default`, for a server that rejects version 0.
+- A `protocol.version` entry in the user's own `GIT_CONFIG_COUNT` list, which stands.
+
 `git.ledger.commit` in a continuation entry holds the Dolt commit hash with the Dolt
 backend.
 

@@ -340,6 +340,8 @@ impl Dolt {
             .env("DOLT_DISABLE_EVENT_FLUSH", "1")
             // Empty, so a push to a git remote writes no `__dolt_remote_info__` branch.
             .env("DOLT_REMOTE_INFO_BRANCH", "");
+        // Reaches the git processes that dolt starts for a fetch or a push.
+        crate::gitenv::apply(&mut command);
         command
     }
 
