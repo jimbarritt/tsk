@@ -267,7 +267,7 @@ pub fn pause(session: &Session, id: &str, task_id: &str, whats_next: &str) -> Re
     let code_commit = code_git.run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
     ensure_on_an_origin_branch(code_git, &code_ref, &code_commit)?;
     let timestamp = utc_now();
-    let written_by = session.actor_urn();
+    let written_by = session.written_by()?;
     store.continuation_append(
         id,
         &NewEntry {
@@ -370,16 +370,28 @@ fn is_branch_ref(target: &str) -> bool {
         .is_some_and(|name| !name.is_empty() && !name.contains(char::is_whitespace))
 }
 
+/// Whether a `written_by` value is an old-format actor URN (`urn:tsk:...`). Entries
+/// written before the actor key replaced it carry one. It does not tell two clones'
+/// main worktrees apart, so it names an unknown writer.
+fn is_old_format_writer(value: &str) -> bool {
+    value.starts_with("urn:")
+}
+
+/// The actor keys that wrote to a thread. An old-format value is left out: it names an
+/// unknown writer, and a warning against it would fire for every thread paused before
+/// the actor key was written.
 pub fn prior_actors(entries: &[entry::StoredEntry]) -> BTreeSet<String> {
     entries
         .iter()
         .filter_map(|stored| stored.entry.written_by.clone())
-        .filter(|actor| !actor.is_empty())
+        .filter(|actor| !actor.is_empty() && !is_old_format_writer(actor))
         .collect()
 }
 
+/// The warning for a thread other actors wrote to, or an empty string. Nothing is
+/// compared when `current` is an old-format value, which names an unknown actor.
 pub fn takeover_warning(id: &str, prior: &BTreeSet<String>, current: &str) -> String {
-    if prior.is_empty() || prior.contains(current) {
+    if prior.is_empty() || prior.contains(current) || is_old_format_writer(current) {
         return String::new();
     }
     format!(
@@ -398,7 +410,7 @@ pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
     }
     let entries = entries_of(store, id)?;
     let current = session.actor_urn();
-    let warning = takeover_warning(id, &prior_actors(&entries), &current);
+    let warning = takeover_warning(id, &prior_actors(&entries), &session.written_by()?);
 
     // The binding is pushed, with any pending local records and documents. A cloud push
     // must succeed. A worktree binding is valid locally, so its failed push is a note.
@@ -695,9 +707,9 @@ mod tests {
 
     #[test]
     fn no_warning_without_prior_actors_or_when_current_is_among_them() {
-        assert_eq!(takeover_warning("1234abcd", &actors(&[]), "urn:a"), "");
+        assert_eq!(takeover_warning("1234abcd", &actors(&[]), "c1/main"), "");
         assert_eq!(
-            takeover_warning("1234abcd", &actors(&["urn:a", "urn:b"]), "urn:a"),
+            takeover_warning("1234abcd", &actors(&["c1/main", "c2/main"]), "c1/main"),
             ""
         );
     }
@@ -705,9 +717,45 @@ mod tests {
     #[test]
     fn warning_names_every_other_actor_sorted_and_comma_joined() {
         assert_eq!(
-            takeover_warning("1234abcd", &actors(&["urn:c", "urn:b"]), "urn:a"),
-            "thread 1234abcd is already associated with other actor(s): urn:b,urn:c"
+            takeover_warning("1234abcd", &actors(&["c3/main", "c2/main"]), "c1/main"),
+            "thread 1234abcd is already associated with other actor(s): c2/main,c3/main"
         );
+    }
+
+    #[test]
+    fn two_clones_main_worktrees_are_two_writers() {
+        assert_ne!(
+            takeover_warning(
+                "1234abcd",
+                &actors(&["tsk-aaaa1111/main"]),
+                "tsk-bbbb2222/main"
+            ),
+            ""
+        );
+    }
+
+    #[test]
+    fn an_old_format_current_actor_never_warns() {
+        assert_eq!(
+            takeover_warning("1234abcd", &actors(&["c1/main"]), "urn:tsk:worktree:.git"),
+            ""
+        );
+    }
+
+    fn stored_by(written_by: &str) -> entry::StoredEntry {
+        let raw = format!("{{\"whats_next\":\"x\",\"written_by\":\"{}\"}}", written_by);
+        entry::parse_store(&raw, "test").unwrap().remove(0)
+    }
+
+    #[test]
+    fn old_format_writers_are_not_prior_actors() {
+        let entries = vec![
+            stored_by("urn:tsk:worktree:.git"),
+            stored_by("urn:tsk:cloudsession:cse_a"),
+        ];
+        assert!(prior_actors(&entries).is_empty());
+        let entries = vec![stored_by("urn:tsk:worktree:.git"), stored_by("c2/main")];
+        assert_eq!(prior_actors(&entries), actors(&["c2/main"]));
     }
 
     #[test]

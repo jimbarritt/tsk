@@ -854,7 +854,7 @@ Fields, in the order written. `git` holds `ledger` then `code`; `ledger` holds `
 | `git.code.ref` | string | command | Full ref of the branch the code worktree's `HEAD` is on at pause time, for example `refs/heads/feature/x`. |
 | `git.code.commit` | string | command | Full SHA of the code worktree's `HEAD` at pause time. |
 | `timestamp` | string | command | UTC time the entry is appended. |
-| `written_by` | string | command | URN of the binding that wrote the entry. |
+| `written_by` | string | command | The actor key of the session or worktree that wrote the entry: the session ID in a cloud session, otherwise `<clone-id>/<worktree-name>` as in the `bindings` table, so two clones' main worktrees are two writers. Entries written by 0.16.0 or earlier hold an actor URN (`urn:tsk:worktree:.git`, `urn:tsk:cloudsession:<id>`) instead. A URN names an unknown writer: `thread resume` leaves it out of the takeover check. |
 
 `git.ledger.commit` cannot be the commit the push creates: that commit holds this entry,
 so its hash is unknown when the entry is written.
@@ -895,6 +895,9 @@ The latest entry is the one with the highest `seq`. A thread with no entries has
 latest entry yet; `thread resume` prints `{}` for it. `thread list` sorts threads by the
 latest entry's `timestamp`, newest first, with threads that have no entry last. The
 `written_by` values across all entries are the set of actors that have touched the thread.
+`thread resume` warns when the resuming actor key is not among the actor keys of that set.
+An old-format value (a `urn:` value) is not an actor key and is left out of the set, so a
+thread paused before the change gives no warning until a pause writes an actor key.
 
 ### Bindings
 
@@ -1018,7 +1021,7 @@ without a thread. Never in the ledger and never pushed.
 | Timestamp | UTC, second precision, `YYYY-MM-DDTHH:MM:SSZ` (`date -u +%Y-%m-%dT%H:%M:%SZ`). |
 | Commit | A git commit is the full 40-character lowercase hexadecimal SHA-1. A Dolt commit is a 32-character hash. |
 | Thread ID | 8 characters, `[0-9a-z]`. Minted as 8 lowercase hexadecimal characters; IDs minted before hex minting are base36 (for example `4onylfsg`) and stay valid. Unique among the threads of the ledger: a new ID that matches an existing thread is discarded and minted again, up to 100 attempts. |
-| Actor URN | `urn:tsk:cloudsession:<CLAUDE_CODE_REMOTE_SESSION_ID>` in a cloud session, otherwise `urn:tsk:worktree:<name>`, where `<name>` is the basename of `git rev-parse --git-dir` (`.git` in a main code worktree). |
+| Actor URN | `urn:tsk:cloudsession:<CLAUDE_CODE_REMOTE_SESSION_ID>` in a cloud session, otherwise `urn:tsk:worktree:<name>`, where `<name>` is the basename of `git rev-parse --git-dir` (`.git` in a main code worktree). It appears in commit messages of bind and detach pushes. A pause entry's `written_by` is the actor key instead. |
 | Text encoding | UTF-8. JSON strings use standard JSON escaping. |
 
 ## Fetching and printing the path
