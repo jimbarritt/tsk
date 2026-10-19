@@ -42,7 +42,7 @@ The ledger holds two kinds of thing.
   from a mission to documents. They are typed rows in the database. Write them only
   through the `tsk mission`, `tsk task`, `tsk decision` and `tsk question` commands.
 - **Documents** are free text: intelligence, research, reports and designs. They are
-  Markdown files on the branch `tsk/docs`. Write them with `tsk ledger doc put`, and link
+  Markdown files on the documents ref, `tsk/docs`. Write them with `tsk ledger doc put`, and link
   each one to a mission with `tsk mission link`.
 
 The principle: state lives in records, and prose lives in documents. Do not write a fact

@@ -818,6 +818,14 @@ impl DoltStore {
                 ));
             }
             let stderr = String::from_utf8_lossy(&pushed.stderr).to_lowercase();
+            if location.refs() == crate::ledger::refs::LedgerRefs::Custom
+                && crate::ledger::refs::is_server_refusal(&stderr)
+            {
+                return Err(crate::ledger::refs::refused_push(
+                    location.ref_name(),
+                    &dolt::failure_message(&args, &pushed),
+                ));
+            }
             let stale = ["rejected", "behind", "non-fast-forward"]
                 .iter()
                 .any(|word| stderr.contains(word));
@@ -1358,6 +1366,7 @@ impl DoltStore {
             None => remote_tip(&self.repo.git, &location)?,
         };
         if ledger_tip.is_none() {
+            crate::ledger::refs::check_origin_has_no_other(&self.repo, &location)?;
             let version = if present {
                 let db = Dolt::new(&path);
                 verify_remote(&db, &url, &location)?;
