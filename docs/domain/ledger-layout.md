@@ -920,6 +920,16 @@ A binding is a row of `bindings`: `actor`, `kind` (`cloud` or `worktree`), `thre
 or replaces the actor's row. Detach deletes that one row. Stop deletes every row whose
 `thread_id` is the stopped thread, of either kind. `thread list` shows the rows as actors.
 
+A cloud session rarely detaches, so its row stays after it ends. `tsk thread prune-bindings
+[--older-than <days>] [--dry-run]` deletes the cloud rows whose `registered_at` is more
+than `<days>` days (30 by default) before the command runs, except the row of the session
+that runs it. It never deletes a `worktree` row, and it keeps a row whose `registered_at`
+is not a timestamp. It prints `removed <actor> <thread-id>` for each row, in the order
+`registered_at` then `actor`, then `<n> bindings removed`. With `--dry-run` it prints
+`would remove <actor> <thread-id>` lines and `<n> bindings would be removed`, and changes
+nothing. The delete is one local write, which `tsk ledger push` publishes. The command
+does not fetch.
+
 ## `external-events/`
 
 The external event queue (M-BOOT-02, T-19) is the `external_events` table: a 1-based
@@ -1293,6 +1303,7 @@ what the harness expects until then.
 | `thread-stop.sh` | `stopped:<thread-id>` | | `tsk thread stop [<thread-id>]` |
 | `thread-list.sh` | one compact JSON object per line: `id`, `mission_id` (`null` for a thread with no mission), `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry), `actors` (an array of `{"actor", "kind"}`, one for each session or worktree bound to the thread, oldest binding first; `kind` is `cloud` or `worktree`; empty when none is bound) | | `tsk thread list` |
 | `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger store |
+| (none) | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; `would remove ...` and `<n> bindings would be removed` with `--dry-run` | | `tsk thread prune-bindings [--older-than <days>] [--dry-run]` |
 | (none) | `mission-set:<thread-id>:<mission-id>`, or `mission-cleared:<thread-id>` with `--none` | exit 1 for an unknown mission or thread, or with no thread ID and no binding | `tsk thread set mission <mission-id> [<thread-id>]`, `tsk thread set mission --none [<thread-id>]` |
 | `thread-binding-guard.sh` | nothing when bound, after `tsk thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | | `tsk thread guard` |
 | `claude-session-start.sh` (the tsk parts) | one JSON object, `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}` | exit 0 in every case, including a failed fetch, which prints a warning context | `tsk thread session-start` (see [Session start command](#session-start-command)) |

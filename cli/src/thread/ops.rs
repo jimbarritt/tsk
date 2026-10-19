@@ -5,12 +5,12 @@ use serde::Serialize;
 
 use crate::ledger::git::Git;
 use crate::ledger::location::mint_token;
-use crate::ledger::store::{LedgerStore, ThreadInfo};
+use crate::ledger::store::{BindingKind, BindingRow, LedgerStore, ThreadInfo};
 use crate::mission::model::Mission;
 use crate::mission::records::resolve_task;
 
 use super::binding::{bind_current, clear_skip, remove_marker, resolve, unbind_current, Binding};
-use super::clock::utc_now;
+use super::clock::{now_secs, parse_utc, utc_now};
 use super::entry::{self, parse_store, CodeState, GitState, LedgerState, NewEntry};
 use super::session::Session;
 
@@ -550,6 +550,73 @@ pub fn sort_rows(mut rows: Vec<ListRow>) -> Vec<ListRow> {
     rows
 }
 
+/// The age, in days, past which `tsk thread prune-bindings` removes a cloud binding.
+pub const DEFAULT_PRUNE_DAYS: u64 = 30;
+
+/// The bindings `tsk thread prune-bindings` removes, in the order given: cloud rows
+/// registered more than `days` days before `now` (seconds since the epoch), except the
+/// row of `current`. A worktree row is never chosen, and neither is a row whose
+/// `registered_at` is not a timestamp: its age is unknown.
+pub fn prunable_bindings(
+    rows: &[BindingRow],
+    now: u64,
+    days: u64,
+    current: Option<&str>,
+) -> Vec<BindingRow> {
+    let limit = days.saturating_mul(86_400);
+    rows.iter()
+        .filter(|row| row.kind == BindingKind::Cloud)
+        .filter(|row| Some(row.actor.as_str()) != current)
+        .filter(|row| {
+            parse_utc(&row.registered_at).is_some_and(|at| now.saturating_sub(at) > limit)
+        })
+        .cloned()
+        .collect()
+}
+
+/// Remove the cloud bindings of sessions that ended: see [`prunable_bindings`]. With
+/// `dry_run` nothing is changed. The removal is a local write, which the next
+/// `tsk ledger push` publishes. Returns the rows removed, or that would be.
+pub fn prune_bindings(
+    session: &Session,
+    days: u64,
+    dry_run: bool,
+) -> Result<Vec<BindingRow>, String> {
+    let store = session.store.as_ref();
+    let current = session.actor_key()?.map(|(actor, _)| actor);
+    let rows = prunable_bindings(
+        &store.bindings_list()?,
+        now_secs(),
+        days,
+        current.as_deref(),
+    );
+    if !dry_run {
+        let actors: Vec<String> = rows.iter().map(|row| row.actor.clone()).collect();
+        store.bindings_remove(&actors)?;
+    }
+    Ok(rows)
+}
+
+/// The lines `tsk thread prune-bindings` prints: one per row, then the count.
+pub fn render_prune(rows: &[BindingRow], dry_run: bool) -> Vec<String> {
+    let verb = if dry_run { "would remove" } else { "removed" };
+    let mut lines: Vec<String> = rows
+        .iter()
+        .map(|row| format!("{} {} {}", verb, row.actor, row.thread_id))
+        .collect();
+    let noun = if rows.len() == 1 {
+        "binding"
+    } else {
+        "bindings"
+    };
+    lines.push(if dry_run {
+        format!("{} {} would be removed", rows.len(), noun)
+    } else {
+        format!("{} {} removed", rows.len(), noun)
+    });
+    lines
+}
+
 pub fn list(session: &Session) -> Result<Vec<ListRow>, String> {
     session.refresh()?;
     list_rows(session.store.as_ref())
@@ -699,6 +766,73 @@ mod tests {
             err,
             "error: no free thread id after 100 attempts; is /s/threads intact?"
         );
+    }
+
+    fn bound(actor: &str, kind: BindingKind, at: &str) -> BindingRow {
+        BindingRow {
+            actor: actor.to_string(),
+            kind,
+            thread_id: "1234abcd".to_string(),
+            registered_at: at.to_string(),
+        }
+    }
+
+    // 2026-10-19T00:00:00Z
+    const NOW: u64 = 1_792_368_000;
+
+    #[test]
+    fn prune_selects_old_cloud_rows_only() {
+        let rows = vec![
+            bound("old", BindingKind::Cloud, "2026-09-01T00:00:00Z"),
+            bound("new", BindingKind::Cloud, "2026-10-10T00:00:00Z"),
+            bound(
+                "old-worktree",
+                BindingKind::Worktree,
+                "2026-01-01T00:00:00Z",
+            ),
+            bound("odd", BindingKind::Cloud, "not a time"),
+        ];
+        let chosen = prunable_bindings(&rows, NOW, 30, None);
+        assert_eq!(
+            chosen.iter().map(|r| r.actor.as_str()).collect::<Vec<_>>(),
+            vec!["old"]
+        );
+    }
+
+    #[test]
+    fn prune_keeps_the_current_session_and_honours_the_age_limit() {
+        let rows = vec![
+            bound("mine", BindingKind::Cloud, "2026-01-01T00:00:00Z"),
+            bound("exactly", BindingKind::Cloud, "2026-09-19T00:00:00Z"),
+            bound("just over", BindingKind::Cloud, "2026-09-18T23:59:59Z"),
+        ];
+        let chosen = prunable_bindings(&rows, NOW, 30, Some("mine"));
+        assert_eq!(
+            chosen.iter().map(|r| r.actor.as_str()).collect::<Vec<_>>(),
+            vec!["just over"]
+        );
+        assert_eq!(prunable_bindings(&rows, NOW, 0, Some("mine")).len(), 2);
+    }
+
+    #[test]
+    fn prune_output_has_a_line_per_row_and_a_count() {
+        let rows = vec![
+            bound("a", BindingKind::Cloud, "2026-01-01T00:00:00Z"),
+            bound("b", BindingKind::Cloud, "2026-01-02T00:00:00Z"),
+        ];
+        assert_eq!(
+            render_prune(&rows, false),
+            vec![
+                "removed a 1234abcd",
+                "removed b 1234abcd",
+                "2 bindings removed"
+            ]
+        );
+        assert_eq!(
+            render_prune(&rows[..1], true),
+            vec!["would remove a 1234abcd", "1 binding would be removed"]
+        );
+        assert_eq!(render_prune(&[], false), vec!["0 bindings removed"]);
     }
 
     fn actors(list: &[&str]) -> BTreeSet<String> {

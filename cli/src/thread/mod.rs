@@ -88,6 +88,21 @@ pub enum ThreadCommands {
     )]
     List,
     #[command(
+        name = "prune-bindings",
+        about = "Remove the bindings of cloud sessions that have ended: cloud rows registered more than --older-than days ago (30 by default), except this session's own. A worktree binding is never removed. Prints removed <actor> <thread-id> per row, then a count. The change is local: tsk ledger push publishes it. With --dry-run it prints would remove ... and changes nothing"
+    )]
+    PruneBindings {
+        #[arg(
+            long,
+            value_name = "DAYS",
+            default_value_t = ops::DEFAULT_PRUNE_DAYS,
+            help = "Remove cloud bindings registered more than this many days ago"
+        )]
+        older_than: u64,
+        #[arg(long, help = "Print what would be removed and change nothing")]
+        dry_run: bool,
+    },
+    #[command(
         about = "Print this session's or worktree's binding as cloud:<thread-id> or worktree:<thread-id>; exit status 1 and no output with no binding. A worktree that still has a tsk-thread-id marker file gets a binding row from it, and the file is removed (not with --no-fetch)"
     )]
     Binding {
@@ -311,6 +326,16 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                     serde_json::to_string(&row)
                         .map_err(|e| format!("error: could not render a thread: {}", e))?
                 );
+            }
+            Ok(0)
+        }
+        ThreadCommands::PruneBindings {
+            older_than,
+            dry_run,
+        } => {
+            let rows = ops::prune_bindings(&session, older_than, dry_run)?;
+            for line in ops::render_prune(&rows, dry_run) {
+                println!("{}", line);
             }
             Ok(0)
         }
