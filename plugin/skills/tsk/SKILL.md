@@ -8,11 +8,14 @@ description: Reference for the tsk command line: the ledger, threads and binding
 tsk tracks missions and the threads that work them. The missions, their tasks, decisions
 and questions, the threads and their continuation state live in a **ledger**. They are
 records, typed rows in a Dolt database, written only through `tsk` commands. Free text
-(intelligence, research, reports) is Markdown documents on a second branch. The ledger is a
-Dolt database synced over a git branch,
-`refs/heads/tsk/ledger` on the managed repo's `origin` by default, cloned to a local
-ledger store (`ledger-db`) outside the repository. For a repo that cannot hold a ledger branch, the ledger is
-`refs/heads/ledgers/<repo-id>` in the nexus repo (see Nexus ledgers below). The `ledger`, `thread` and `events` commands run in the `tsk` binary alone, with no
+(intelligence, research, reports) is Markdown documents on a second ref. The ledger is a
+Dolt database synced over a git ref on the managed repo's `origin` by default, cloned to a
+local ledger store (`ledger-db`) outside the repository. A new ledger uses a custom ref,
+`refs/tsk/ledger`. A repo used from Claude Code cloud sessions uses the branch
+`refs/heads/tsk/ledger`, because the cloud proxy refuses to push a custom ref (see Ledger
+refs below). For a repo that cannot hold a ledger ref, the ledger is
+`refs/tsk/ledgers/<repo-id>` (or `refs/heads/ledgers/<repo-id>`) in the nexus repo (see
+Nexus ledgers below). The `ledger`, `thread` and `events` commands run in the `tsk` binary alone, with no
 daemon, from inside any working tree of the managed repo.
 
 Design references in the tsk repository: every ledger file and format is in
@@ -55,12 +58,25 @@ and is never in the ledger.
 with (Homebrew, Cargo or a release binary). `tsk self-update --check` only reports. When
 the session context says a newer tsk is available, run `tsk self-update`.
 
+## Ledger refs
+
+`tsk config ledger-refs` prints which refs hold the ledger and where the choice came from.
+`tsk config ledger-refs branches` or `custom` writes `.tsk/config.toml` in the repo.
+A custom ref is the default for a new ledger, and GitHub does not list it as a branch.
+Branches are for a repo used from Claude Code cloud sessions, because the cloud proxy
+refuses to push a custom ref. The order is: the nexus entry (`ledger_refs`), then
+`.tsk/config.toml`, then discovery on `origin`. A new ledger made in a cloud session takes
+branches and says so. Set the choice before the first push. tsk does not move an existing
+ledger between the two. When a push stops with `origin refused the push to refs/tsk/...`,
+run `tsk config ledger-refs branches` and push again. Run `git` against these refs only
+with the full name, such as `refs/tsk/ledger`.
+
 ## Nexus ledgers
 
 `tsk nexus add <url>`, or `tsk config attach-nexus <url>`, writes the nexus URL to
 `${XDG_CONFIG_HOME:-~/.config}/tsk/config.toml`. A repo's entry in the nexus's `nexus.json`
-with `"ledger": "nexus"` holds its ledger on `refs/heads/ledgers/<repo-id>` in the nexus,
-where `<repo-id>` is the entry's `id`. With no attached nexus, no matching entry or no
+with `"ledger": "nexus"` holds its ledger on `ledgers/<repo-id>` in the nexus (under
+`refs/tsk/` or `refs/heads/`, see Ledger refs), where `<repo-id>` is the entry's `id`. With no attached nexus, no matching entry or no
 `ledger` field, the ledger is in-repo. tsk finds the entry through the repo ID cached in
 `.git/tsk-repo-id`, otherwise by matching the repo's raw `remote.origin.url` against each
 entry's `url`. An entry with `"local": "<machine name>"` and no `url` is found only through
@@ -127,13 +143,14 @@ stderr. The path and the link are ignored. Do not use them.
 
 The ledger store is a Dolt database at
 `${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db`, synced over git
-on `refs/heads/tsk/ledger`. `$TSK_LEDGER_WT` names it. Do not open files in it and do not
+on `refs/tsk/ledger` or the branch `refs/heads/tsk/ledger` (see Ledger refs).
+`$TSK_LEDGER_WT` names it. Do not open files in it and do not
 run `dolt` against it by hand. The files backend was removed in 0.16.0: `tsk` stops with an
 error when `[ledger] backend = "git"` is set in the user config or `TSK_LEDGER_BACKEND=git`
 is set. Use `tsk` 0.15.1 to read an old file ledger.
 
-Documents are plain Markdown files on a second branch, `refs/heads/tsk/docs` (on a nexus
-ledger, `refs/heads/ledgers/<repo-id>-docs`). They are checked out as a worktree beside the
+Documents are plain Markdown files on a second ref, `refs/tsk/docs` or `refs/heads/tsk/docs`
+(on a nexus ledger, `refs/tsk/ledgers/<repo-id>-docs` or `refs/heads/ledgers/<repo-id>-docs`). They are checked out as a worktree beside the
 database, at `.../tsk/repos/<clone-id>/docs`. Read and change them with `tsk ledger doc`.
 Documents hold intelligence, research and reports. They do not hold state: a mission's
 purpose, tasks, decisions and questions are records, and a document must not repeat them.

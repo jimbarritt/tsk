@@ -3,7 +3,9 @@
 ## Usage
 
 Run `tsk` from inside any working tree of a repository whose `origin` holds a ledger
-branch, `refs/heads/tsk/ledger`. The `ledger`, `thread` and `events` commands run in the `tsk`
+ref: `refs/tsk/ledger` for a new ledger, or the branch
+`refs/heads/tsk/ledger` for one that uses branches (see
+[Which mode a repo uses](../domain/ledger-layout.md#which-mode-a-repo-uses)). The `ledger`, `thread` and `events` commands run in the `tsk`
 client alone, with no daemon. The default ledger backend is Dolt and needs the `dolt` binary, version 2.5.0 or later (see
 [installation.md](installation.md)). The ledger's tables, files and formats are in
 [ledger-layout.md](../domain/ledger-layout.md). Threads, bindings and continuation state
