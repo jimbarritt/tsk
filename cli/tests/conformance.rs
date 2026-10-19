@@ -6844,3 +6844,367 @@ fn thread_list_reads_every_thread_in_a_few_dolt_processes() {
     assert_eq!(rows[1]["latest_whats_next"], "Next steps");
     assert!(rows[2]["latest_whats_next"].is_null());
 }
+
+// --- The query-by-query paths: TSK_NO_BATCH=1 gives the same output as the batched reads ---
+
+/// One command of a scripted flow, run in clone `who` (`a` or `b`). `{tid}` in an argument
+/// stands for the thread the latest `thread start` made.
+struct Run {
+    who: char,
+    args: Vec<String>,
+    stdin: Option<String>,
+}
+
+fn run(who: char, args: &[&str]) -> Run {
+    Run {
+        who,
+        args: args.iter().map(|a| a.to_string()).collect(),
+        stdin: None,
+    }
+}
+
+fn run_with_stdin(who: char, args: &[&str], stdin: &str) -> Run {
+    Run {
+        stdin: Some(stdin.to_string()),
+        ..run(who, args)
+    }
+}
+
+/// What a command printed, how it ended and how many `dolt` processes it started.
+#[derive(Debug, PartialEq)]
+struct Observed {
+    command: String,
+    stdout: String,
+    stderr: String,
+    code: i32,
+    launches: usize,
+}
+
+/// Run the script in a fresh fixture, with the batched reads or without them, and return
+/// what every command did with the ids, hashes, times and paths masked.
+fn observe(no_batch: bool, script: &[Run]) -> Vec<Observed> {
+    let fx = Fixture::fetched();
+    let log = fx.root.path().join("dolt-log.txt");
+    let shim = dolt_log_shim(fx.root.path());
+    let mut thread_ids: Vec<String> = Vec::new();
+    let mut seen = Vec::new();
+    for step in script {
+        let dir = if step.who == 'a' { fx.a() } else { fx.b() };
+        let args: Vec<String> = step
+            .args
+            .iter()
+            .map(|arg| arg.replace("{tid}", thread_ids.last().map_or("", String::as_str)))
+            .collect();
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let _ = std::fs::remove_file(&log);
+        let mut command = fx.command(&dir, &refs);
+        command
+            .env("PATH", path_with_first(&shim))
+            .env("TSK_DOLT_LOG", &log)
+            .env_remove("CLAUDE_ENV_FILE");
+        if no_batch {
+            command.env("TSK_NO_BATCH", "1");
+        }
+        let output = match &step.stdin {
+            Some(input) => {
+                let mut child = command
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .unwrap();
+                child
+                    .stdin
+                    .take()
+                    .unwrap()
+                    .write_all(input.as_bytes())
+                    .unwrap();
+                child.wait_with_output().unwrap()
+            }
+            None => command.output().unwrap(),
+        };
+        if let Some(id) = stdout(&output).trim_end().strip_prefix("started:") {
+            thread_ids.push(id.to_string());
+        }
+        let launches = std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .count();
+        seen.push((format!("{} {}", step.who, args.join(" ")), output, launches));
+    }
+    let mut replacements: Vec<(String, String)> = Vec::new();
+    for (who, dir) in [("a", fx.a()), ("b", fx.b())] {
+        if let Ok(id) = std::fs::read_to_string(dir.join(".git").join("tsk-clone-id")) {
+            replacements.push((id.trim().to_string(), format!("<clone-{}>", who)));
+        }
+    }
+    for (index, id) in thread_ids.iter().enumerate() {
+        replacements.push((id.clone(), format!("<thread-{}>", index + 1)));
+    }
+    let root = fx.root.path().to_string_lossy().into_owned();
+    let mask = |text: &str| mask_run(text, &root, &replacements);
+    seen.into_iter()
+        .map(|(command, output, launches)| Observed {
+            command: mask(&command),
+            stdout: mask(&stdout(&output)),
+            stderr: mask(&stderr(&output)),
+            code: output.status.code().unwrap_or(-1),
+            launches,
+        })
+        .collect()
+}
+
+/// Replace what differs between two runs of the same script: the fixture path, the clone
+/// and thread ids, Dolt and git commit ids and UTC timestamps.
+fn mask_run(text: &str, root: &str, replacements: &[(String, String)]) -> String {
+    let mut out = text.replace(root, "<root>");
+    for (from, to) in replacements {
+        out = out.replace(from.as_str(), to);
+    }
+    let chars: Vec<char> = out.chars().collect();
+    let mut masked = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        if let Some(len) = timestamp_len(&chars[index..]) {
+            masked.push_str("<time>");
+            index += len;
+            continue;
+        }
+        if chars[index].is_ascii_alphanumeric() {
+            let end = (index..chars.len())
+                .find(|&at| !chars[at].is_ascii_alphanumeric())
+                .unwrap_or(chars.len());
+            let word: String = chars[index..end].iter().collect();
+            let dolt_hash = word.len() == 32
+                && word
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || ('a'..='v').contains(&c));
+            let git_hash = word.len() == 40 && word.chars().all(|c| c.is_ascii_hexdigit());
+            masked.push_str(if dolt_hash {
+                "<dolt-hash>"
+            } else if git_hash {
+                "<git-hash>"
+            } else {
+                &word
+            });
+            index = end;
+            continue;
+        }
+        masked.push(chars[index]);
+        index += 1;
+    }
+    masked
+}
+
+/// The length of a `2026-10-19T12:00:00Z` timestamp at the start of `chars`.
+fn timestamp_len(chars: &[char]) -> Option<usize> {
+    const SHAPE: &str = "dddd-dd-ddTdd:dd:ddZ";
+    if chars.len() < SHAPE.len() {
+        return None;
+    }
+    let fits = SHAPE.chars().zip(chars).all(|(shape, c)| match shape {
+        'd' => c.is_ascii_digit(),
+        other => *c == other,
+    });
+    fits.then_some(SHAPE.len())
+}
+
+/// Run the script with the batched reads and with TSK_NO_BATCH=1 and require the same
+/// output, errors and exit codes from every command. The second run must start more
+/// `dolt` processes in total: that is how the case knows the older paths ran.
+fn assert_same_without_batching(script: &[Run]) {
+    let batched = observe(false, script);
+    let one_by_one = observe(true, script);
+    if std::env::var_os("TSK_TEST_SHOW_FLOW").is_some() {
+        for (with, without) in batched.iter().zip(&one_by_one) {
+            eprintln!(
+                "[{} -> {}] {} (exit {})\n  out: {}\n  err: {}",
+                with.launches,
+                without.launches,
+                with.command,
+                with.code,
+                with.stdout
+                    .replace('\n', "\\n")
+                    .chars()
+                    .take(110)
+                    .collect::<String>(),
+                with.stderr
+                    .replace('\n', "\\n")
+                    .chars()
+                    .take(110)
+                    .collect::<String>()
+            );
+        }
+    }
+    assert_eq!(batched.len(), one_by_one.len());
+    for (with, without) in batched.iter().zip(&one_by_one) {
+        assert_eq!(with.command, without.command);
+        assert_eq!(with.stdout, without.stdout, "stdout of {}", with.command);
+        assert_eq!(with.stderr, without.stderr, "stderr of {}", with.command);
+        assert_eq!(with.code, without.code, "exit code of {}", with.command);
+    }
+    let total = |runs: &[Observed]| runs.iter().map(|o| o.launches).sum::<usize>();
+    assert!(
+        total(&one_by_one) > total(&batched),
+        "TSK_NO_BATCH=1 started {} dolt processes against {} batched",
+        total(&one_by_one),
+        total(&batched)
+    );
+}
+
+fn seed_records() -> Vec<Run> {
+    vec![
+        run('a', &["mission", "create", "M-NB", "No batch"]),
+        run(
+            'a',
+            &["mission", "objective", "add", "M-NB", "Read the same"],
+        ),
+        run('a', &["mission", "constraint", "add", "M-NB", "One output"]),
+        run('a', &["task", "add", "M-NB", "First task"]),
+        run('a', &["task", "add", "M-NB", "Second task"]),
+        run('a', &["task", "block", "M-NB", "T-02", "T-01"]),
+        run(
+            'a',
+            &[
+                "decision",
+                "add",
+                "M-NB",
+                "Keep both paths",
+                "--by",
+                "Jim",
+                "--on",
+                "2026-10-19",
+            ],
+        ),
+        run('a', &["question", "add", "M-NB", "Why two paths?"]),
+        run_with_stdin('a', &["ledger", "doc", "put", "m/design.md"], "# Design\n"),
+        run(
+            'a',
+            &["mission", "link", "M-NB", "m/design.md", "--role", "design"],
+        ),
+    ]
+}
+
+#[test]
+fn records_read_the_same_without_batching() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let mut script = seed_records();
+    script.extend([
+        run('a', &["mission", "list"]),
+        run('a', &["mission", "list", "--porcelain"]),
+        run('a', &["mission", "list", "M-NB", "--json"]),
+        run('a', &["task", "list", "M-NB"]),
+        run('a', &["decision", "list", "M-NB"]),
+        run('a', &["question", "list"]),
+        run('a', &["task", "set", "M-NB", "T-01", "status", "done"]),
+        run('a', &["task", "list", "M-NB", "--porcelain"]),
+        run('a', &["mission", "list", "M-MISSING", "--json"]),
+    ]);
+    assert_same_without_batching(&script);
+}
+
+#[test]
+fn fetch_and_status_read_the_same_without_batching() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let mut script = seed_records();
+    script.extend([
+        run('a', &["ledger", "status"]),
+        run('a', &["ledger", "status", "--porcelain"]),
+        run('a', &["ledger", "push", "Seed the records"]),
+        run('b', &["ledger", "fetch"]),
+        run('b', &["ledger", "status"]),
+        run('b', &["ledger", "status", "--local"]),
+        run('b', &["mission", "list"]),
+        run('a', &["task", "add", "M-NB", "Third task"]),
+        run('a', &["ledger", "status"]),
+        run('a', &["ledger", "status", "--local", "--porcelain"]),
+        run('a', &["ledger", "push", "Third task"]),
+        run('b', &["ledger", "status"]),
+        run('b', &["ledger", "status", "--porcelain"]),
+        run('b', &["ledger", "fetch"]),
+        run('b', &["ledger", "status"]),
+        run('b', &["task", "list", "M-NB"]),
+        run('b', &["ledger", "discard"]),
+    ]);
+    assert_same_without_batching(&script);
+}
+
+#[test]
+fn push_and_merge_read_the_same_without_batching() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let mut script = seed_records();
+    script.extend([
+        run('a', &["ledger", "push", "Seed the records"]),
+        run('b', &["ledger", "fetch"]),
+        // Both change different rows and documents, and the second push merges.
+        run('a', &["task", "add", "M-NB", "From A"]),
+        run_with_stdin('a', &["ledger", "doc", "put", "from-a.md"], "a\n"),
+        run('a', &["ledger", "push", "From A"]),
+        run('b', &["task", "add", "M-NB", "From B"]),
+        run_with_stdin('b', &["ledger", "doc", "put", "from-b.md"], "b\n"),
+        run('b', &["ledger", "push", "From B"]),
+        run('b', &["ledger", "push", "Nothing more"]),
+        run('a', &["ledger", "fetch"]),
+        run('a', &["task", "list", "M-NB"]),
+        run('a', &["ledger", "doc", "list"]),
+        // A linked document that is gone stops the push, with the same error.
+        run('a', &["ledger", "doc", "rm", "m/design.md"]),
+        run('a', &["task", "add", "M-NB", "Stopped"]),
+        run('a', &["ledger", "push", "Stopped by a link"]),
+        run('a', &["ledger", "status"]),
+    ]);
+    assert_same_without_batching(&script);
+}
+
+#[test]
+fn thread_commands_read_the_same_without_batching() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let mut script = seed_records();
+    script.extend([
+        run('a', &["ledger", "push", "Seed the records"]),
+        run('a', &["thread", "start", "M-NB"]),
+        run('a', &["thread", "start", "M-NB"]),
+        run('a', &["thread", "pause", "{tid}", "T-01", "First pause"]),
+        run(
+            'a',
+            &[
+                "thread",
+                "pause",
+                "{tid}",
+                "T-09",
+                "A task that is not there",
+            ],
+        ),
+        run('a', &["thread", "pause", "{tid}", "T-02", "Second pause"]),
+        run('a', &["thread", "list"]),
+        run('a', &["thread", "resume", "{tid}"]),
+        run('b', &["ledger", "fetch"]),
+        run('b', &["thread", "resume", "{tid}"]),
+        run('b', &["thread", "list"]),
+        run('a', &["thread", "set", "mission", "--none"]),
+        run('a', &["thread", "list"]),
+        run('a', &["thread", "binding"]),
+        run('a', &["thread", "stop"]),
+        run('a', &["thread", "list"]),
+        run('a', &["thread", "resume", "{tid}"]),
+        run_with_stdin(
+            'a',
+            &["thread", "session-start", "--format", "claude"],
+            "{\"session_id\":\"nb-1\",\"source\":\"startup\"}",
+        ),
+        run_with_stdin('a', &["thread", "guard"], "{\"session_id\":\"x\"}"),
+    ]);
+    assert_same_without_batching(&script);
+}
