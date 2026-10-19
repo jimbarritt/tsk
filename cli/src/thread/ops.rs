@@ -330,6 +330,11 @@ fn current_branch_ref(git: &Git) -> Result<String, String> {
 }
 
 fn ensure_on_an_origin_branch(git: &Git, code_ref: &str, commit: &str) -> Result<(), String> {
+    // The remote-tracking branches the last fetch left say whether a branch on origin
+    // holds the commit. Only when they do not is origin asked.
+    if on_an_origin_branch(git, commit)? {
+        return Ok(());
+    }
     git.run([
         "fetch",
         "--quiet",
@@ -337,14 +342,7 @@ fn ensure_on_an_origin_branch(git: &Git, code_ref: &str, commit: &str) -> Result
         "origin",
         ORIGIN_HEADS_REFSPEC,
     ])?;
-    let listing = git.run([
-        "for-each-ref",
-        "--contains",
-        commit,
-        "--format=%(refname)",
-        ORIGIN_REMOTE_PREFIX,
-    ])?;
-    if origin_branches(&listing).is_empty() {
+    if !on_an_origin_branch(git, commit)? {
         return Err(format!(
             "error: HEAD ({}) is not reachable from any branch on origin.\n       \
              A different actor resuming this thread elsewhere would not be able\n       \
@@ -354,6 +352,18 @@ fn ensure_on_an_origin_branch(git: &Git, code_ref: &str, commit: &str) -> Result
         ));
     }
     Ok(())
+}
+
+/// True when a remote-tracking branch of origin holds `commit`, as the clone last fetched.
+fn on_an_origin_branch(git: &Git, commit: &str) -> Result<bool, String> {
+    let listing = git.run([
+        "for-each-ref",
+        "--contains",
+        commit,
+        "--format=%(refname)",
+        ORIGIN_REMOTE_PREFIX,
+    ])?;
+    Ok(!origin_branches(&listing).is_empty())
 }
 
 fn origin_branches(listing: &str) -> Vec<String> {
@@ -516,9 +526,12 @@ pub fn stop(session: &Session, target: Option<&str>) -> Result<String, String> {
 pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
     let bindings = store.bindings_list()?;
     let mut rows = Vec::new();
-    for name in store.thread_ids()? {
+    let names = store.thread_ids()?;
+    // Every thread's lines are read together, not one process per thread.
+    let lines = store.continuation_lists(&names)?;
+    for (name, lines) in names.into_iter().zip(lines) {
         let info = store.thread_info(&name)?;
-        let entries = entries_of(store, &name)?;
+        let entries = parse_store(&lines.join("\n"), &store.describe_thread(&name))?;
         let latest = entries.last().map(|stored| &stored.entry);
         rows.push(ListRow {
             mission_id: thread_mission(&info),

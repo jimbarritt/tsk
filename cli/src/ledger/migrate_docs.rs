@@ -125,7 +125,15 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
     // The documents go first, so no record names a document the remote lacks.
     let mut on_retry =
         |attempt: usize, status: &PushStatus| eprintln!("{}", retry_note(attempt, status));
-    docs::push(&repo, &location, &docs_path, DOCS_COMMIT, &mut on_retry).map_err(|e| {
+    docs::push(
+        &repo,
+        &location,
+        &docs_path,
+        DOCS_COMMIT,
+        None,
+        &mut on_retry,
+    )
+    .map_err(|e| {
         format!(
             "{}\n       The table is dropped in {} and the documents are committed in {}.\n       \
              Re-run tsk ledger push to publish both",

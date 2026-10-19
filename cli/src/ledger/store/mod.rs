@@ -123,6 +123,11 @@ pub trait LedgerStore {
     /// fetch fails, `fetch_note` says so and the report comes from what is local.
     fn status(&self) -> Result<LedgerStatus, String>;
 
+    /// [`status`](LedgerStatus) without asking origin anything: no network and no fetch.
+    /// The commit counts come from what was last fetched, and
+    /// [`LedgerStatus::origin_checked`] is false.
+    fn status_local(&self) -> Result<LedgerStatus, String>;
+
     /// Drop every local change not yet pushed, in the data and the documents: uncommitted
     /// changes and local commits origin lacks. Fetches first and resets both sides to
     /// origin's state; when the fetch fails nothing is discarded. Leaves thread state
@@ -199,6 +204,13 @@ pub trait LedgerStore {
     /// The stored lines of a thread's continuation log, oldest first, blank lines
     /// skipped. Empty for a thread with no log.
     fn continuation_list(&self, id: &str) -> Result<Vec<String>, String>;
+
+    /// The stored continuation lines of each of `ids`, in the order given, as
+    /// [`continuation_list`](LedgerStore::continuation_list) reads them one by one. A Dolt
+    /// ledger reads them all in one process.
+    fn continuation_lists(&self, ids: &[String]) -> Result<Vec<Vec<String>>, String> {
+        ids.iter().map(|id| self.continuation_list(id)).collect()
+    }
 
     // --- Bindings ---
 

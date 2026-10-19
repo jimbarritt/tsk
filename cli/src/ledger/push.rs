@@ -35,11 +35,18 @@ impl PushStatus {
 /// Commit every change in the worktree at `path` and push `HEAD` to `location`'s ref
 /// with a compare and swap, rebasing onto a newer remote tip. The documents branch of a
 /// ledger uses it; there is no manifest on that branch.
+///
+/// `known_tip` is the tip the caller fetched or checked earlier in this process:
+/// `Some(Some(commit))` for a branch at that commit, `Some(None)` for a branch origin does
+/// not hold, and `None` when the caller has no tip, which fetches one first. A known tip
+/// saves the fetch before the first push. The push carries the tip as its lease, so a
+/// branch that has moved since rejects the push, and the retry fetches.
 pub fn push_worktree(
     repo: &Repo,
     location: &LedgerLocation,
     path: &Path,
     message: &str,
+    known_tip: Option<Option<String>>,
     on_retry: &mut dyn FnMut(usize, &PushStatus),
 ) -> Result<PushOutcome, String> {
     let location = location.clone();
@@ -47,7 +54,10 @@ pub fn push_worktree(
     let wt = Git::new(&path);
     ensure_worktree_of_repo(&wt, &repo.common_dir)?;
 
-    let mut tip = fetch_tip(&wt, &location)?;
+    let mut tip = match known_tip {
+        Some(tip) => tip,
+        None => fetch_tip(&wt, &location)?,
+    };
 
     let committed = commit_changes(&wt, message)?;
 

@@ -14,6 +14,16 @@ pub const BRANCH: &str = "main";
 /// The name of the remote inside the Dolt database.
 pub const REMOTE: &str = "origin";
 
+/// Set to anything but empty or `0` to turn every batched read and write off. Each of them
+/// then takes its older path, one `dolt` process per query, which gives the same result.
+/// The conformance cases run with it set to check that the two paths agree.
+pub const NO_BATCH_VAR: &str = "TSK_NO_BATCH";
+
+/// False when [`NO_BATCH_VAR`] asks for the query-by-query paths.
+pub fn batching() -> bool {
+    std::env::var_os(NO_BATCH_VAR).is_none_or(|value| value.is_empty() || value == "0")
+}
+
 /// The Dolt remote branch name as `dolt_remote_branches` lists it.
 pub const REMOTE_BRANCH_NAME: &str = "remotes/origin/main";
 
@@ -399,6 +409,12 @@ impl Dolt {
         if queries.is_empty() {
             return Ok(Vec::new());
         }
+        if !batching() {
+            return Err(format!(
+                "error: batched reads are off ({} is set)",
+                NO_BATCH_VAR
+            ));
+        }
         let script: String = queries.iter().map(|q| format!("{};\n", q)).collect();
         let args = vec!["sql".to_string(), "-r".to_string(), "json".to_string()];
         let stdout = self.pipe(&args, &script)?;
@@ -483,7 +499,38 @@ pub fn ensure_identity() -> Result<(), String> {
     Ok(())
 }
 
+/// True when Dolt's global configuration file names a user. The file is `config_global.json`
+/// in `.dolt` under `DOLT_ROOT_PATH`, or under the home directory when that is unset. Reading
+/// it saves the `dolt` process that `dolt config --get` would start. A file that is absent
+/// or unreadable says no, and the process answers.
+fn identity_in_global_config() -> bool {
+    let root = ["DOLT_ROOT_PATH", "HOME"]
+        .iter()
+        .find_map(|name| std::env::var_os(name).filter(|value| !value.is_empty()));
+    match root {
+        Some(root) => identity_in_global_config_at(Path::new(&root)),
+        None => false,
+    }
+}
+
+fn identity_in_global_config_at(root: &Path) -> bool {
+    let file = root.join(".dolt").join("config_global.json");
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|config| {
+            config
+                .get("user.name")
+                .and_then(Value::as_str)
+                .map(|name| !name.trim().is_empty())
+        })
+        .unwrap_or(false)
+}
+
 fn ensure_identity_once() -> Result<(), String> {
+    if identity_in_global_config() {
+        return Ok(());
+    }
     let here = Dolt::new(".");
     let (_, output) = here.output(["config", "--global", "--get", "user.name"])?;
     let name = String::from_utf8_lossy(&output.stdout);
@@ -711,6 +758,30 @@ mod tests {
         let at = |needle: &str| upgrade.find(needle).unwrap();
         assert!(at("create table mission_constraints") < at("insert into mission_constraints"));
         assert!(at("insert into mission_constraints") < at("drop column constraints_text"));
+    }
+
+    #[test]
+    fn a_user_in_the_global_config_file_is_found_without_dolt() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join(".dolt");
+        std::fs::create_dir_all(&config).unwrap();
+        let file = config.join("config_global.json");
+        let check = |text: Option<&str>| {
+            match text {
+                Some(text) => std::fs::write(&file, text).unwrap(),
+                None => {
+                    let _ = std::fs::remove_file(&file);
+                }
+            }
+            identity_in_global_config_at(dir.path())
+        };
+        assert!(!check(None));
+        assert!(!check(Some("not json")));
+        assert!(!check(Some("{\"user.email\":\"a@b\"}")));
+        assert!(!check(Some("{\"user.name\":\" \"}")));
+        assert!(check(Some(
+            "{\"user.email\":\"a@b\",\"user.name\":\"tsk\"}"
+        )));
     }
 
     #[test]

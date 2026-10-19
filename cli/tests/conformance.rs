@@ -6343,3 +6343,868 @@ fn a_ledger_held_in_a_nexus_repo_round_trips_between_clones() {
     );
     assert_eq!(git(&nexus, &["rev-parse", NEXUS_REF]), before);
 }
+
+// --- A clone that pushes between another command's refresh and its push ---
+
+/// The path of an installed program, found on `PATH` before it is changed.
+fn installed_program(name: &str) -> PathBuf {
+    std::env::var_os("PATH")
+        .and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|dir| dir.join(name))
+                .find(|candidate| candidate.is_file())
+        })
+        .unwrap_or_else(|| panic!("{} is not on PATH", name))
+}
+
+/// A directory with a `git` stand-in. Before the first `git push` of a command that has
+/// `TSK_RACE` set, it runs that shell command once (`TSK_RACE_DONE` marks that it ran), then
+/// runs the real `git`. The first push of a command is the push of the documents, after its
+/// refresh and before the push of the data, so the shell command acts between the refresh
+/// and the pushes.
+fn race_shim(root: &Path) -> PathBuf {
+    let dir = root.join("race-shim");
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = format!(
+        "#!/bin/sh\n\
+         if [ \"$1\" = push ] && [ -n \"$TSK_RACE\" ] && [ ! -e \"$TSK_RACE_DONE\" ]; then\n\
+         \x20 : > \"$TSK_RACE_DONE\"\n\
+         \x20 sh -c \"$TSK_RACE\" >&2 || exit 97\n\
+         fi\n\
+         exec '{}' \"$@\"\n",
+        installed_program("git").display()
+    );
+    let shim = dir.join("git");
+    std::fs::write(&shim, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    dir
+}
+
+fn path_with_first(dir: &Path) -> std::ffi::OsString {
+    let mut dirs = vec![dir.to_path_buf()];
+    dirs.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    std::env::join_paths(dirs).unwrap()
+}
+
+#[test]
+fn a_clone_that_pushes_between_the_refresh_and_the_push_is_merged_not_overwritten() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let (a, b) = (fx.a(), fx.b());
+    fx.put(&a, "base.md", "base\n");
+    fx.ok(&a, &["ledger", "push", "Base"]);
+    fx.ok(&b, &["ledger", "fetch"]);
+    // A holds a document of its own that its thread command pushes with its data.
+    fx.put(&a, "from-a.md", "a\n");
+
+    // B writes a document and a mission and pushes both, after A's command has refreshed
+    // and before it pushes.
+    let tsk = env!("CARGO_BIN_EXE_tsk");
+    let race = format!(
+        "cd '{b}' && printf 'from b\\n' | '{tsk}' ledger doc put from-b.md && \
+         '{tsk}' mission create M-RACE Race && '{tsk}' ledger push 'B races'",
+        b = b.display(),
+        tsk = tsk
+    );
+    let done = fx.root.path().join("race-done");
+    let output = fx
+        .command(&a, &["thread", "start"])
+        .env("PATH", path_with_first(&race_shim(fx.root.path())))
+        .env("TSK_RACE", race)
+        .env("TSK_RACE_DONE", &done)
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert!(done.exists(), "B did not push in between");
+    assert!(
+        stdout(&output).starts_with("started:"),
+        "{}",
+        stdout(&output)
+    );
+    // Neither push went over the other. Both sides were rejected once, then merged.
+    let notes = stderr(&output);
+    assert!(
+        notes.contains("[rejected] (stale info)"),
+        "documents: {}",
+        notes
+    );
+    assert!(
+        notes.contains("[rejected] (non-fast-forward)"),
+        "data: {}",
+        notes
+    );
+
+    let files = fx.origin_files(DOCS_REF);
+    for expected in ["from-a.md", "from-b.md"] {
+        assert!(files.iter().any(|f| f == expected), "{:?}", files);
+    }
+    // A's local store holds B's mission, and B sees A's thread.
+    assert!(fx
+        .ok(&a, &["mission", "list", "--porcelain"])
+        .contains("M-RACE"));
+    fx.ok(&b, &["ledger", "fetch"]);
+    assert_eq!(fx.ok(&b, &["thread", "list"]).lines().count(), 1);
+    assert!(fx
+        .ok(&b, &["mission", "list", "--porcelain"])
+        .contains("M-RACE"));
+    // Nothing is left unpushed on A.
+    let status = fx.ok(&a, &["ledger", "status"]);
+    assert!(status.contains("nothing to push"), "{}", status);
+    assert!(status.contains("up to date"), "{}", status);
+}
+
+// --- The up-to-date check: one ls-remote, and a fetch only when origin has something new ---
+
+/// A directory with a `git` stand-in that logs its arguments, one line per run, to the file
+/// named by `TSK_GIT_LOG`, then runs the real `git`. The processes that `dolt` starts find
+/// it on `PATH` too.
+fn git_log_shim(root: &Path) -> PathBuf {
+    let dir = root.join("git-log-shim");
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = format!(
+        "#!/bin/sh\necho \"$@\" >> \"$TSK_GIT_LOG\"\nexec '{}' \"$@\"\n",
+        installed_program("git").display()
+    );
+    let shim = dir.join("git");
+    std::fs::write(&shim, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    dir
+}
+
+/// The network operations a command started: the `git` runs whose verb is `ls-remote`,
+/// `fetch` or `push`, counting those that `dolt` started.
+#[derive(Debug, PartialEq, Eq)]
+struct NetOps {
+    /// The runs of `tsk` asking for both ledger refs at once.
+    asks: usize,
+    /// Every `ls-remote`, which includes those `dolt` starts inside a fetch or a push.
+    ls_remote: usize,
+    fetch: usize,
+    push: usize,
+}
+
+fn net_ops(log: &str) -> NetOps {
+    let count = |verb: &str| {
+        log.lines()
+            .filter(|line| line.split_whitespace().any(|word| word == verb))
+            .count()
+    };
+    let asks = log
+        .lines()
+        .filter(|line| {
+            line.split_whitespace().any(|word| word == "ls-remote")
+                && line.contains(LEDGER_REF)
+                && line.contains(DOCS_REF)
+        })
+        .count();
+    NetOps {
+        asks,
+        ls_remote: count("ls-remote"),
+        fetch: count("fetch"),
+        push: count("push"),
+    }
+}
+
+impl Fixture {
+    /// Run `tsk` with the logging `git` stand-in and return its output and the network
+    /// operations it started.
+    fn counted(&self, dir: &Path, args: &[&str]) -> (Output, NetOps, String) {
+        let log = self.root.path().join("git-log.txt");
+        let _ = std::fs::remove_file(&log);
+        let output = self
+            .command(dir, args)
+            .env("PATH", path_with_first(&git_log_shim(self.root.path())))
+            .env("TSK_GIT_LOG", &log)
+            .output()
+            .unwrap();
+        let text = std::fs::read_to_string(&log).unwrap_or_default();
+        (output, net_ops(&text), text)
+    }
+
+    fn counted_ok(&self, dir: &Path, args: &[&str]) -> (String, NetOps) {
+        let (output, ops, log) = self.counted(dir, args);
+        assert_success(&output);
+        if std::env::var_os("TSK_TEST_SHOW_GIT_LOG").is_some() {
+            eprintln!("--- {:?}\n{}", args, log);
+        }
+        (stdout(&output), ops)
+    }
+}
+
+const NOTHING_NEW: NetOps = NetOps {
+    asks: 1,
+    ls_remote: 1,
+    fetch: 0,
+    push: 0,
+};
+
+#[test]
+fn a_refresh_with_nothing_new_asks_origin_once_and_fetches_nothing() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&b, &["ledger", "fetch"]);
+
+    // The first fetch of a clone brings the data. The second finds nothing new.
+    let (output, ops, log) = fx.counted(&b, &["ledger", "fetch"]);
+    assert_success(&output);
+    assert_eq!(ops, NOTHING_NEW);
+    // One question names both refs, so one connection answers for the data and the documents.
+    assert!(
+        log.contains(&format!("ls-remote origin {} {}", LEDGER_REF, DOCS_REF)),
+        "{}",
+        log
+    );
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "status"]);
+    assert_eq!(ops, NOTHING_NEW);
+    let (_, ops) = fx.counted_ok(&b, &["thread", "list"]);
+    assert_eq!(ops, NOTHING_NEW);
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "push", "Nothing"]);
+    assert_eq!(ops, NOTHING_NEW);
+    let (output, ops, _) = fx.counted(&b, &["thread", "session-start", "--format", "claude"]);
+    assert_success(&output);
+    assert_eq!(ops, NOTHING_NEW);
+
+    // The same holds on the clone that pushed: its own push is recorded as fetched.
+    fx.put(&a, "late.md", "late\n");
+    fx.add_binding(&a, "late");
+    let (_, ops) = fx.counted_ok(&a, &["ledger", "push", "A pushes"]);
+    assert_eq!(ops.asks, 1);
+    assert!(ops.push >= 2, "{:?}", ops);
+    let (_, ops) = fx.counted_ok(&a, &["ledger", "fetch"]);
+    assert_eq!(ops, NOTHING_NEW);
+    let (_, ops) = fx.counted_ok(&a, &["ledger", "status"]);
+    assert_eq!(ops, NOTHING_NEW);
+
+    // A command that does not read origin starts no network operation.
+    let (_, ops) = fx.counted_ok(&a, &["mission", "list"]);
+    assert_eq!(
+        ops,
+        NetOps {
+            asks: 0,
+            ls_remote: 0,
+            fetch: 0,
+            push: 0
+        }
+    );
+}
+
+#[test]
+fn a_change_on_origin_is_fetched_once_and_then_the_check_is_quiet_again() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&b, &["ledger", "fetch"]);
+
+    // A changes the data and the documents.
+    fx.put(&a, "late.md", "late\n");
+    fx.add_binding(&a, "late");
+    fx.ok(&a, &["ledger", "push", "A pushes both"]);
+
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "status"]);
+    assert_eq!(ops.asks, 1);
+    assert!(ops.fetch >= 2, "both refs are fetched: {:?}", ops);
+    // The status fetched the remote refs and nothing else: B still has to merge.
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "fetch"]);
+    assert_eq!(ops, NOTHING_NEW);
+    assert_eq!(fx.binding_count(&b), "1");
+    assert_eq!(fx.ok(&b, &["ledger", "doc", "get", "late.md"]), "late\n");
+
+    // Only the documents change: the data is not fetched.
+    fx.put(&a, "later.md", "later\n");
+    fx.ok(&a, &["ledger", "push", "A pushes a document"]);
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "fetch"]);
+    assert_eq!(ops.asks, 1);
+    assert_eq!(ops.fetch, 1, "only the documents moved: {:?}", ops);
+    assert_eq!(fx.ok(&b, &["ledger", "doc", "get", "later.md"]), "later\n");
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "fetch"]);
+    assert_eq!(ops, NOTHING_NEW);
+}
+
+#[test]
+fn status_local_asks_origin_nothing_and_says_it_did_not_check() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&b, &["ledger", "fetch"]);
+
+    // Clean, then with a data change and a document change that are not pushed.
+    let (text, ops) = fx.counted_ok(&b, &["ledger", "status", "--local"]);
+    assert_eq!(
+        ops,
+        NetOps {
+            asks: 0,
+            ls_remote: 0,
+            fetch: 0,
+            push: 0
+        }
+    );
+    assert_eq!(
+        text,
+        "Local   nothing to push\nOrigin  not checked (--local)\n"
+    );
+
+    fx.add_binding(&b, "late");
+    fx.put(&b, "note.md", "n\n");
+    let (text, ops) = fx.counted_ok(&b, &["ledger", "status", "--local"]);
+    assert_eq!(ops.asks + ops.ls_remote + ops.fetch + ops.push, 0);
+    assert!(
+        text.starts_with("Local   2 changes not pushed\n"),
+        "{}",
+        text
+    );
+    assert!(
+        text.ends_with("Origin  not checked (--local)\n"),
+        "{}",
+        text
+    );
+    let (porcelain, _) = fx.counted_ok(&b, &["ledger", "status", "--local", "--porcelain"]);
+    assert!(
+        porcelain.ends_with("data\tremote\tnot checked\ndocs\tremote\tnot checked\n"),
+        "{}",
+        porcelain
+    );
+
+    // Commits not pushed are counted from what was last fetched, and origin moving is
+    // not noticed: that is what the flag means.
+    fx.ok(&b, &["ledger", "push", "B pushes"]);
+    fx.put(&a, "from-a.md", "a\n");
+    fx.ok(&a, &["ledger", "push", "A pushes"]);
+    let text = fx.ok(&b, &["ledger", "status", "--local"]);
+    assert_eq!(
+        text,
+        "Local   nothing to push\nOrigin  not checked (--local)\n"
+    );
+    // The plain status does ask, and sees A's push.
+    let text = fx.ok(&b, &["ledger", "status"]);
+    assert!(text.contains("to fetch"), "{}", text);
+}
+
+// --- The dolt processes of a thread write ---
+
+/// A directory with a `dolt` stand-in that logs its arguments, one line per run, to the file
+/// named by `TSK_DOLT_LOG`, then runs the real `dolt`.
+fn dolt_log_shim(root: &Path) -> PathBuf {
+    let dir = root.join("dolt-log-shim");
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = format!(
+        "#!/bin/sh\necho \"$@\" >> \"$TSK_DOLT_LOG\"\nexec '{}' \"$@\"\n",
+        installed_program("dolt").display()
+    );
+    let shim = dir.join("dolt");
+    std::fs::write(&shim, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    dir
+}
+
+impl Fixture {
+    /// Run `tsk` and count the `dolt` processes it started.
+    fn dolt_launches(&self, dir: &Path, args: &[&str]) -> (Output, usize) {
+        let log = self.root.path().join("dolt-log.txt");
+        let _ = std::fs::remove_file(&log);
+        let output = self
+            .command(dir, args)
+            .env("PATH", path_with_first(&dolt_log_shim(self.root.path())))
+            .env("TSK_DOLT_LOG", &log)
+            .output()
+            .unwrap();
+        let launches = std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .count();
+        (output, launches)
+    }
+}
+
+#[test]
+fn a_thread_write_launches_a_handful_of_dolt_processes() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let a = fx.a();
+    fx.ok(&a, &["mission", "create", "M-LAUNCH", "Launch"]);
+    fx.ok(&a, &["task", "add", "M-LAUNCH", "A task"]);
+    fx.ok(&a, &["ledger", "push", "Mission"]);
+    // The first command of a machine sets the Dolt identity, which costs a process. Run
+    // one before counting.
+    fx.ok(&a, &["ledger", "fetch"]);
+
+    // Each count is the refresh in one process, the writes, the commit and its reads in
+    // one process, the checks before the push in one, and the push. Before the reads were
+    // batched these took 18 or more.
+    let (output, launches) = fx.dolt_launches(&a, &["thread", "start", "M-LAUNCH"]);
+    assert_success(&output);
+    assert!(
+        launches <= 6,
+        "thread start launched {} dolt processes",
+        launches
+    );
+    let id = stdout(&output)
+        .trim_end()
+        .strip_prefix("started:")
+        .unwrap()
+        .to_string();
+
+    let (output, launches) = fx.dolt_launches(&a, &["thread", "pause", &id, "T-01", "Next"]);
+    assert_success(&output);
+    assert!(
+        launches <= 5,
+        "thread pause launched {} dolt processes",
+        launches
+    );
+
+    // A resume of the thread this clone is bound to writes nothing.
+    let (output, launches) = fx.dolt_launches(&a, &["thread", "resume", &id]);
+    assert_success(&output);
+    assert!(
+        launches <= 2,
+        "thread resume launched {} dolt processes",
+        launches
+    );
+}
+
+#[test]
+fn thread_list_reads_every_thread_in_a_few_dolt_processes() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let a = fx.a();
+    fx.ok(&a, &["mission", "create", "M-LIST", "List"]);
+    fx.ok(&a, &["task", "add", "M-LIST", "A task"]);
+    // Four threads, each bound to a cloud session of its own, two of them paused.
+    let mut ids = Vec::new();
+    for session in ["cse_one", "cse_two", "cse_three", "cse_four"] {
+        let started = fx.tsk_cloud(&a, session, &["thread", "start", "M-LIST"]);
+        assert_success(&started);
+        ids.push(
+            stdout(&started)
+                .trim_end()
+                .strip_prefix("started:")
+                .unwrap()
+                .to_string(),
+        );
+    }
+    for (index, session) in ["cse_one", "cse_two"].iter().enumerate() {
+        let paused = fx.tsk_cloud(
+            &a,
+            session,
+            &["thread", "pause", &ids[index], "T-01", "Next steps"],
+        );
+        assert_success(&paused);
+    }
+
+    let (output, launches) = fx.dolt_launches(&a, &["thread", "list"]);
+    assert_success(&output);
+    // The refresh with its reads, and the continuation lines of every thread. It was two
+    // processes for each thread, and more for the refresh.
+    assert!(
+        launches <= 3,
+        "thread list launched {} dolt processes",
+        launches
+    );
+    let rows: Vec<serde_json::Value> = stdout(&output).lines().map(json).collect();
+    assert_eq!(rows.len(), 4);
+    let paused: Vec<&serde_json::Value> = rows
+        .iter()
+        .filter(|row| row["latest_whats_next"] == "Next steps")
+        .collect();
+    assert_eq!(paused.len(), 2);
+    // Newest pause first, then the threads that were never paused.
+    assert_eq!(rows[0]["latest_whats_next"], "Next steps");
+    assert_eq!(rows[1]["latest_whats_next"], "Next steps");
+    assert!(rows[2]["latest_whats_next"].is_null());
+}
+
+// --- The query-by-query paths: TSK_NO_BATCH=1 gives the same output as the batched reads ---
+
+/// One command of a scripted flow, run in clone `who` (`a` or `b`). `{tid}` in an argument
+/// stands for the thread the latest `thread start` made.
+struct Run {
+    who: char,
+    args: Vec<String>,
+    stdin: Option<String>,
+}
+
+fn run(who: char, args: &[&str]) -> Run {
+    Run {
+        who,
+        args: args.iter().map(|a| a.to_string()).collect(),
+        stdin: None,
+    }
+}
+
+fn run_with_stdin(who: char, args: &[&str], stdin: &str) -> Run {
+    Run {
+        stdin: Some(stdin.to_string()),
+        ..run(who, args)
+    }
+}
+
+/// What a command printed, how it ended and how many `dolt` processes it started.
+#[derive(Debug, PartialEq)]
+struct Observed {
+    command: String,
+    stdout: String,
+    stderr: String,
+    code: i32,
+    launches: usize,
+}
+
+/// Run the script in a fresh fixture, with the batched reads or without them, and return
+/// what every command did with the ids, hashes, times and paths masked.
+fn observe(no_batch: bool, script: &[Run]) -> Vec<Observed> {
+    let fx = Fixture::fetched();
+    let log = fx.root.path().join("dolt-log.txt");
+    let shim = dolt_log_shim(fx.root.path());
+    let mut thread_ids: Vec<String> = Vec::new();
+    let mut seen = Vec::new();
+    for step in script {
+        let dir = if step.who == 'a' { fx.a() } else { fx.b() };
+        let args: Vec<String> = step
+            .args
+            .iter()
+            .map(|arg| arg.replace("{tid}", thread_ids.last().map_or("", String::as_str)))
+            .collect();
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let _ = std::fs::remove_file(&log);
+        let mut command = fx.command(&dir, &refs);
+        command
+            .env("PATH", path_with_first(&shim))
+            .env("TSK_DOLT_LOG", &log)
+            .env_remove("CLAUDE_ENV_FILE");
+        if no_batch {
+            command.env("TSK_NO_BATCH", "1");
+        }
+        let output = match &step.stdin {
+            Some(input) => {
+                let mut child = command
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .unwrap();
+                child
+                    .stdin
+                    .take()
+                    .unwrap()
+                    .write_all(input.as_bytes())
+                    .unwrap();
+                child.wait_with_output().unwrap()
+            }
+            None => command.output().unwrap(),
+        };
+        if let Some(id) = stdout(&output).trim_end().strip_prefix("started:") {
+            thread_ids.push(id.to_string());
+        }
+        let launches = std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .count();
+        seen.push((format!("{} {}", step.who, args.join(" ")), output, launches));
+    }
+    let mut replacements: Vec<(String, String)> = Vec::new();
+    for (who, dir) in [("a", fx.a()), ("b", fx.b())] {
+        if let Ok(id) = std::fs::read_to_string(dir.join(".git").join("tsk-clone-id")) {
+            replacements.push((id.trim().to_string(), format!("<clone-{}>", who)));
+        }
+    }
+    for (index, id) in thread_ids.iter().enumerate() {
+        replacements.push((id.clone(), format!("<thread-{}>", index + 1)));
+    }
+    let root = fx.root.path().to_string_lossy().into_owned();
+    let mask = |text: &str| mask_run(text, &root, &replacements);
+    seen.into_iter()
+        .map(|(command, output, launches)| Observed {
+            command: mask(&command),
+            stdout: mask(&stdout(&output)),
+            stderr: mask(&stderr(&output)),
+            code: output.status.code().unwrap_or(-1),
+            launches,
+        })
+        .collect()
+}
+
+/// Replace what differs between two runs of the same script: the fixture path, the clone
+/// and thread ids, Dolt and git commit ids and UTC timestamps.
+fn mask_run(text: &str, root: &str, replacements: &[(String, String)]) -> String {
+    let mut out = text.replace(root, "<root>");
+    for (from, to) in replacements {
+        out = out.replace(from.as_str(), to);
+    }
+    let chars: Vec<char> = out.chars().collect();
+    let mut masked = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        if let Some(len) = timestamp_len(&chars[index..]) {
+            masked.push_str("<time>");
+            index += len;
+            continue;
+        }
+        if chars[index].is_ascii_alphanumeric() {
+            let end = (index..chars.len())
+                .find(|&at| !chars[at].is_ascii_alphanumeric())
+                .unwrap_or(chars.len());
+            let word: String = chars[index..end].iter().collect();
+            let dolt_hash = word.len() == 32
+                && word
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || ('a'..='v').contains(&c));
+            let git_hash = word.len() == 40 && word.chars().all(|c| c.is_ascii_hexdigit());
+            masked.push_str(if dolt_hash {
+                "<dolt-hash>"
+            } else if git_hash {
+                "<git-hash>"
+            } else {
+                &word
+            });
+            index = end;
+            continue;
+        }
+        masked.push(chars[index]);
+        index += 1;
+    }
+    masked
+}
+
+/// The length of a `2026-10-19T12:00:00Z` timestamp at the start of `chars`.
+fn timestamp_len(chars: &[char]) -> Option<usize> {
+    const SHAPE: &str = "dddd-dd-ddTdd:dd:ddZ";
+    if chars.len() < SHAPE.len() {
+        return None;
+    }
+    let fits = SHAPE.chars().zip(chars).all(|(shape, c)| match shape {
+        'd' => c.is_ascii_digit(),
+        other => *c == other,
+    });
+    fits.then_some(SHAPE.len())
+}
+
+/// Run the script with the batched reads and with TSK_NO_BATCH=1 and require the same
+/// output, errors and exit codes from every command. The second run must start more
+/// `dolt` processes in total: that is how the case knows the older paths ran.
+fn assert_same_without_batching(script: &[Run]) {
+    let batched = observe(false, script);
+    let one_by_one = observe(true, script);
+    if std::env::var_os("TSK_TEST_SHOW_FLOW").is_some() {
+        for (with, without) in batched.iter().zip(&one_by_one) {
+            eprintln!(
+                "[{} -> {}] {} (exit {})\n  out: {}\n  err: {}",
+                with.launches,
+                without.launches,
+                with.command,
+                with.code,
+                with.stdout
+                    .replace('\n', "\\n")
+                    .chars()
+                    .take(110)
+                    .collect::<String>(),
+                with.stderr
+                    .replace('\n', "\\n")
+                    .chars()
+                    .take(110)
+                    .collect::<String>()
+            );
+        }
+    }
+    assert_eq!(batched.len(), one_by_one.len());
+    for (with, without) in batched.iter().zip(&one_by_one) {
+        assert_eq!(with.command, without.command);
+        assert_eq!(with.stdout, without.stdout, "stdout of {}", with.command);
+        assert_eq!(with.stderr, without.stderr, "stderr of {}", with.command);
+        assert_eq!(with.code, without.code, "exit code of {}", with.command);
+    }
+    let total = |runs: &[Observed]| runs.iter().map(|o| o.launches).sum::<usize>();
+    assert!(
+        total(&one_by_one) > total(&batched),
+        "TSK_NO_BATCH=1 started {} dolt processes against {} batched",
+        total(&one_by_one),
+        total(&batched)
+    );
+}
+
+fn seed_records() -> Vec<Run> {
+    vec![
+        run('a', &["mission", "create", "M-NB", "No batch"]),
+        run(
+            'a',
+            &["mission", "objective", "add", "M-NB", "Read the same"],
+        ),
+        run('a', &["mission", "constraint", "add", "M-NB", "One output"]),
+        run('a', &["task", "add", "M-NB", "First task"]),
+        run('a', &["task", "add", "M-NB", "Second task"]),
+        run('a', &["task", "block", "M-NB", "T-02", "T-01"]),
+        run(
+            'a',
+            &[
+                "decision",
+                "add",
+                "M-NB",
+                "Keep both paths",
+                "--by",
+                "Jim",
+                "--on",
+                "2026-10-19",
+            ],
+        ),
+        run('a', &["question", "add", "M-NB", "Why two paths?"]),
+        run_with_stdin('a', &["ledger", "doc", "put", "m/design.md"], "# Design\n"),
+        run(
+            'a',
+            &["mission", "link", "M-NB", "m/design.md", "--role", "design"],
+        ),
+    ]
+}
+
+#[test]
+fn records_read_the_same_without_batching() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let mut script = seed_records();
+    script.extend([
+        run('a', &["mission", "list"]),
+        run('a', &["mission", "list", "--porcelain"]),
+        run('a', &["mission", "list", "M-NB", "--json"]),
+        run('a', &["task", "list", "M-NB"]),
+        run('a', &["decision", "list", "M-NB"]),
+        run('a', &["question", "list"]),
+        run('a', &["task", "set", "M-NB", "T-01", "status", "done"]),
+        run('a', &["task", "list", "M-NB", "--porcelain"]),
+        run('a', &["mission", "list", "M-MISSING", "--json"]),
+    ]);
+    assert_same_without_batching(&script);
+}
+
+#[test]
+fn fetch_and_status_read_the_same_without_batching() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let mut script = seed_records();
+    script.extend([
+        run('a', &["ledger", "status"]),
+        run('a', &["ledger", "status", "--porcelain"]),
+        run('a', &["ledger", "push", "Seed the records"]),
+        run('b', &["ledger", "fetch"]),
+        run('b', &["ledger", "status"]),
+        run('b', &["ledger", "status", "--local"]),
+        run('b', &["mission", "list"]),
+        run('a', &["task", "add", "M-NB", "Third task"]),
+        run('a', &["ledger", "status"]),
+        run('a', &["ledger", "status", "--local", "--porcelain"]),
+        run('a', &["ledger", "push", "Third task"]),
+        run('b', &["ledger", "status"]),
+        run('b', &["ledger", "status", "--porcelain"]),
+        run('b', &["ledger", "fetch"]),
+        run('b', &["ledger", "status"]),
+        run('b', &["task", "list", "M-NB"]),
+        run('b', &["ledger", "discard"]),
+    ]);
+    assert_same_without_batching(&script);
+}
+
+#[test]
+fn push_and_merge_read_the_same_without_batching() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let mut script = seed_records();
+    script.extend([
+        run('a', &["ledger", "push", "Seed the records"]),
+        run('b', &["ledger", "fetch"]),
+        // Both change different rows and documents, and the second push merges.
+        run('a', &["task", "add", "M-NB", "From A"]),
+        run_with_stdin('a', &["ledger", "doc", "put", "from-a.md"], "a\n"),
+        run('a', &["ledger", "push", "From A"]),
+        run('b', &["task", "add", "M-NB", "From B"]),
+        run_with_stdin('b', &["ledger", "doc", "put", "from-b.md"], "b\n"),
+        run('b', &["ledger", "push", "From B"]),
+        run('b', &["ledger", "push", "Nothing more"]),
+        run('a', &["ledger", "fetch"]),
+        run('a', &["task", "list", "M-NB"]),
+        run('a', &["ledger", "doc", "list"]),
+        // A linked document that is gone stops the push, with the same error.
+        run('a', &["ledger", "doc", "rm", "m/design.md"]),
+        run('a', &["task", "add", "M-NB", "Stopped"]),
+        run('a', &["ledger", "push", "Stopped by a link"]),
+        run('a', &["ledger", "status"]),
+    ]);
+    assert_same_without_batching(&script);
+}
+
+#[test]
+fn thread_commands_read_the_same_without_batching() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let mut script = seed_records();
+    script.extend([
+        run('a', &["ledger", "push", "Seed the records"]),
+        run('a', &["thread", "start", "M-NB"]),
+        run('a', &["thread", "start", "M-NB"]),
+        run('a', &["thread", "pause", "{tid}", "T-01", "First pause"]),
+        run(
+            'a',
+            &[
+                "thread",
+                "pause",
+                "{tid}",
+                "T-09",
+                "A task that is not there",
+            ],
+        ),
+        run('a', &["thread", "pause", "{tid}", "T-02", "Second pause"]),
+        run('a', &["thread", "list"]),
+        run('a', &["thread", "resume", "{tid}"]),
+        run('b', &["ledger", "fetch"]),
+        run('b', &["thread", "resume", "{tid}"]),
+        run('b', &["thread", "list"]),
+        run('a', &["thread", "set", "mission", "--none"]),
+        run('a', &["thread", "list"]),
+        run('a', &["thread", "binding"]),
+        run('a', &["thread", "stop"]),
+        run('a', &["thread", "list"]),
+        run('a', &["thread", "resume", "{tid}"]),
+        run_with_stdin(
+            'a',
+            &["thread", "session-start", "--format", "claude"],
+            "{\"session_id\":\"nb-1\",\"source\":\"startup\"}",
+        ),
+        run_with_stdin('a', &["thread", "guard"], "{\"session_id\":\"x\"}"),
+    ]);
+    assert_same_without_batching(&script);
+}
