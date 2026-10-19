@@ -14,6 +14,16 @@ pub const BRANCH: &str = "main";
 /// The name of the remote inside the Dolt database.
 pub const REMOTE: &str = "origin";
 
+/// Set to anything but empty or `0` to turn every batched read and write off. Each of them
+/// then takes its older path, one `dolt` process per query, which gives the same result.
+/// The conformance cases run with it set to check that the two paths agree.
+pub const NO_BATCH_VAR: &str = "TSK_NO_BATCH";
+
+/// False when [`NO_BATCH_VAR`] asks for the query-by-query paths.
+pub fn batching() -> bool {
+    std::env::var_os(NO_BATCH_VAR).is_none_or(|value| value.is_empty() || value == "0")
+}
+
 /// The Dolt remote branch name as `dolt_remote_branches` lists it.
 pub const REMOTE_BRANCH_NAME: &str = "remotes/origin/main";
 
@@ -398,6 +408,12 @@ impl Dolt {
     pub fn rows_each(&self, queries: &[String]) -> Result<Vec<Vec<Value>>, String> {
         if queries.is_empty() {
             return Ok(Vec::new());
+        }
+        if !batching() {
+            return Err(format!(
+                "error: batched reads are off ({} is set)",
+                NO_BATCH_VAR
+            ));
         }
         let script: String = queries.iter().map(|q| format!("{};\n", q)).collect();
         let args = vec!["sql".to_string(), "-r".to_string(), "json".to_string()];
