@@ -134,7 +134,7 @@ tsk mission list <id> --json     # one mission in full: purpose, constraints, ou
                                  # objectives, blocks, linked documents, tasks, decisions,
                                  # questions
 tsk task list <id>               # the tasks of a mission
-tsk decision list <id>           # the decisions of a mission
+tsk decision list [<id>]         # the decisions of a mission, of every mission with no id
 tsk question list [<id>]         # the open questions
 ```
 

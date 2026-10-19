@@ -3845,12 +3845,16 @@ mod cases {
             ),
             ""
         );
-        fails(
-            &fx,
-            &a,
-            &["decision", "list", "--porcelain"],
-            "needs a mission",
-        );
+        // With no mission and no --adr, every decision of every mission is listed, led by
+        // the mission, in the six columns of the ADR form.
+        let every = lines(&fx.ok(&a, &["decision", "list", "--porcelain"]));
+        assert!(every.len() >= 3, "{:?}", every);
+        for row in &every {
+            assert_eq!(row.len(), 6, "{:?}", row);
+        }
+        let aligned = fx.ok(&a, &["decision", "list"]);
+        assert_eq!(aligned.lines().count(), every.len());
+        assert!(!aligned.contains('\t'), "{:?}", aligned);
         fails(
             &fx,
             &a,

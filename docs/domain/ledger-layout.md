@@ -518,7 +518,7 @@ tsk task unblock <mission> <task> <by>
 tsk task list <mission> [--porcelain]
 tsk decision add <mission> <text> --by <who> [--task <T-nn>] [--on <YYYY-MM-DD>] [--adr <path>]
 tsk decision list <mission> [--adr <path>] [--porcelain]
-tsk decision list --adr <path> [--porcelain]
+tsk decision list [--adr <path>] [--porcelain]   # no mission: every mission, led by the mission ID
 tsk question add <mission> <text>
 tsk question edit <mission> <question> <text>
 tsk question answer <mission> <question> <text> --by <who>
@@ -557,7 +557,8 @@ Rules:
 - `decision list --adr <path>` takes the path as `--adr` does, without the check that the
   file exists, so a decision of an ADR that was since renamed is still found by its old
   path. With no mission it lists the decisions of every mission that name the ADR. A call
-  with neither a mission nor `--adr` is an error.
+  with neither a mission nor `--adr` lists every decision of every mission, as `question
+  list` does with no mission.
 - `question edit` rewrites the text of an open question and nothing else: the ID and the
   date asked stay. An answered question cannot be edited:
   `error: Q-nn of M-X is answered; it cannot be edited`.
@@ -576,7 +577,7 @@ form of `mission list` is not changed by either. The columns:
 |---|---|
 | `task list <mission>` | `T-nn`, `status`, `blocked-by` (the IDs of the blockers that are not done, comma-separated, or `-`), `description`. Ordered by number. |
 | `decision list <mission>` | `decided_on` (`YYYY-MM-DD`), `decided_by`, `T-nn` or `-`, `text`, `adr` (the ADR path, or `-`). Oldest first. With `--adr`, only the decisions that name that ADR, in the same five columns. |
-| `decision list --adr <path>` | `mission`, then the five columns above. Ordered by mission and then oldest first. |
+| `decision list` with no mission | `mission`, then the five columns above. Every decision of every mission, ordered by mission and then oldest first. With `--adr <path>`, only the decisions that name that ADR. |
 | `question list [<mission>]` | `mission`, `Q-nn`, `asked_on` (`YYYY-MM-DD`), `text`. Open questions only, ordered by mission and number. All missions when none is given. |
 
 `tsk mission list --json` carries the records. Each mission object has three more keys after
