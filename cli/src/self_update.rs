@@ -354,7 +354,7 @@ pub enum Method {
 }
 
 impl Method {
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Method::Homebrew => "Homebrew",
             Method::Cargo => "Cargo",
@@ -539,6 +539,27 @@ pub fn run(args: SelfUpdateArgs) -> Result<(), String> {
     let method = install(latest)?;
     println!("updated tsk {} -> {} ({})", current, latest, method.label());
     Ok(())
+}
+
+/// What an update did: the versions before and after, and the install method.
+pub struct Updated {
+    pub from: Version,
+    pub to: Version,
+    pub method: Method,
+}
+
+/// Installs the latest release when it is newer than the running version, and prints
+/// nothing to stdout. `None` means the running version is the latest. This is the update
+/// that `tsk self-update` makes, for a caller that needs the result.
+pub fn update_to_latest() -> Result<Option<Updated>, String> {
+    let from = running_version()?;
+    let to = latest_release(LOOKUP_TIMEOUT)?
+        .ok_or_else(|| format!("error: {} has no release tag vX.Y.Z", repo_url()))?;
+    if to <= from {
+        return Ok(None);
+    }
+    let method = install(to)?;
+    Ok(Some(Updated { from, to, method }))
 }
 
 pub fn available_sentence(latest: Version, current: Version) -> String {

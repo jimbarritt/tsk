@@ -392,6 +392,29 @@ documents in a `documents` table.
   status` labels the upgrade and does not show the copied rows as changes.
 - A `tsk` binary from before version 8 does not know the version. It stops at its manifest
   check with `unsupported ledger version 8`, before it writes. The binary needs updating.
+- **Automatic update (tsk 0.18.0 and later).** A command refused with `unsupported ledger
+  version N`, where N is above the highest layout this tsk supports, prints `warning: this
+  ledger is at layout N and this tsk (X) supports up to M. Updating tsk now.` to stderr,
+  runs the update that `tsk self-update` runs, then replaces itself with the same command
+  line run by the updated binary. The re-run keeps stdin and stdout, and its exit status
+  is the command's. The update step finds the new binary by the path the command was
+  invoked by, then by the canonical path of the running binary. The re-run sets
+  `TSK_AUTO_UPDATED=1`. If the error still happens, the command stops with the original
+  error and `tsk was updated but still does not support layout N; update it by hand: tsk
+  self-update`. If the update fails, or the version does not rise, the command prints that
+  error, then the original one, and exits 1.
+  - `tsk thread session-start` and `tsk thread guard` never update. They have timeouts,
+    and a Cargo update compiles for about a minute. They behave as before.
+  - `TSK_AUTO_UPDATE=never` or `TSK_NO_UPDATE_CHECK=1` keeps today's behaviour for every
+    command. `TSK_AUTO_UPDATE=always` is the default.
+  - Only the unsupported-layout error starts an update. A network error or a merge
+    conflict never does.
+  - A tsk that is newer than the ledger reads the old layout and upgrades it on its first
+    write. Nothing upgrades on a read, and nothing here runs for that direction.
+  - A binary released before 0.18.0 does not update itself. It stops with the error, and
+    the person runs `tsk self-update`.
+  - Tests set `TSK_TEST_MODE=1` and `TSK_SELF_UPDATE_CMD=<script>`. The update step then
+    runs the script, with the installed tsk path as `$1`, instead of the real update.
 
 ### Migration from the file ledger
 

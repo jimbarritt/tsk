@@ -11,6 +11,8 @@ the work. Documents stay Markdown on `tsk/docs` for intelligence, research and r
 
 - The first `tsk` write on 0.14.0 or later upgrades a ledger to layout 8. A binary older
   than that then stops with `unsupported ledger version`. Update it with `tsk self-update`.
+  From 0.18.0 a `tsk` updates itself and runs the command again (`TSK_AUTO_UPDATE=never`
+  switches that off). A binary released before 0.18.0 cannot, so update it by hand.
 - Read state with `tsk mission list`. Do not look for `index.md` or a briefing.
 - `tsk guide import` describes how to bring a plan into the ledger as records.
 

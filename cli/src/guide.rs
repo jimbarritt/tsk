@@ -156,7 +156,8 @@ except `tsk ledger fetch` stops and names `tsk ledger migrate-docs`. Run that co
 once to move the documents to `tsk/docs`. It rewrites shared data, so tell the person
 first. The first record write on a newer tsk upgrades the ledger to the current layout,
 and a tsk binary older than that layout then stops with `unsupported ledger version`.
-`tsk self-update` brings the binary up to date.
+`tsk self-update` brings the binary up to date. A tsk from 0.18.0 does that itself: it
+warns, updates and runs the command again. `TSK_AUTO_UPDATE=never` switches that off.
 
 ## Steps
 

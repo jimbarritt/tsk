@@ -203,6 +203,29 @@ you up to a day late. `tsk self-update` always asks the network.
 - `always` looks up the release at every session start.
 - `never` skips the lookup. `TSK_NO_UPDATE_CHECK=1` does the same.
 
+### Automatic update for a newer ledger
+
+A ledger that a newer tsk has upgraded stops an older tsk with `unsupported ledger version
+N`. From 0.18.0, tsk handles that itself. It prints `warning: this ledger is at layout N
+and this tsk (X) supports up to M. Updating tsk now.` to stderr, runs the update above,
+and runs the same command again with the updated binary. The command keeps its stdin and
+stdout and its exit status. A Cargo install compiles during this, which takes about a
+minute.
+
+- `TSK_AUTO_UPDATED=1` marks the second run. If that run still meets an unsupported layout,
+  it stops with the original error and `tsk was updated but still does not support layout
+  N; update it by hand: tsk self-update`.
+- When the update fails, or leaves the version unchanged, tsk prints that error and then
+  the original one, and exits 1.
+- `tsk thread session-start` and `tsk thread guard` never update. They keep their timeouts.
+- `TSK_AUTO_UPDATE=never` or `TSK_NO_UPDATE_CHECK=1` switches it off. `always` is the
+  default.
+- Only the unsupported-layout error starts an update. A network error or a merge conflict
+  does not.
+- A tsk newer than the ledger reads an old layout as before and upgrades it on its first
+  write. A read upgrades nothing.
+- A binary released before 0.18.0 cannot do this. Run `tsk self-update` for it.
+
 In a Claude Code cloud session, `tsk thread session-start --install-plugin claude-cli`
 runs the upgrade before it installs the plugin. A failed upgrade adds a warning to the
 context and the session still starts. The session in which tsk upgrades itself carries on
