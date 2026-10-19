@@ -43,6 +43,18 @@ pub struct DoltStore {
     /// layout. Later checks in the same process reuse it, which saves a `dolt` process
     /// each. Anything that can move the database to another state clears it.
     checked: RefCell<Option<(PathBuf, i64)>>,
+    synced: RefCell<Synced>,
+}
+
+/// What this process has found out about origin, so a command fetches each ref at most once.
+#[derive(Default)]
+struct Synced {
+    /// The local Dolt store holds origin's data as this process fetched it. Cleared by a
+    /// push of the data.
+    data: bool,
+    /// The documents tip this process fetched or pushed: `Some(None)` for a branch origin
+    /// does not hold.
+    docs: Option<Option<String>>,
 }
 
 impl DoltStore {
@@ -53,7 +65,34 @@ impl DoltStore {
             repo,
             state_root,
             checked: RefCell::new(None),
+            synced: RefCell::new(Synced::default()),
         })
+    }
+
+    /// Bring the local Dolt store's copy of origin up to date: nothing when this process
+    /// already did, else `dolt fetch`.
+    fn sync_data(&self, db: &Dolt) -> Result<(), String> {
+        if self.synced.borrow().data {
+            return Ok(());
+        }
+        db.run(["fetch", REMOTE])?;
+        self.synced.borrow_mut().data = true;
+        Ok(())
+    }
+
+    /// The documents tip: the one this process already holds, else `git fetch`.
+    fn sync_docs_tip(&self, location: &LedgerLocation) -> Result<Option<String>, String> {
+        if let Some(known) = self.synced.borrow().docs.clone() {
+            return Ok(known);
+        }
+        let tip = fetch_tip(&self.repo.git, &location.docs())?;
+        self.synced.borrow_mut().docs = Some(tip.clone());
+        Ok(tip)
+    }
+
+    /// After a push of the data: the local copy of origin is no longer the one fetched.
+    fn note_data_pushed(&self) {
+        self.synced.borrow_mut().data = false;
     }
 
     fn hint(&self) -> Option<PathBuf> {
@@ -212,7 +251,9 @@ impl DoltStore {
             return Ok(outcome);
         }
         let location = self.repo.location(&self.state_root)?;
-        let fetched = docs::fetch(&self.repo, &self.state_root, &location, keep_local)?;
+        let tip = self.sync_docs_tip(&location)?;
+        let fetched =
+            docs::fetch_with_tip(&self.repo, &self.state_root, &location, keep_local, tip)?;
         let dolt_unpublished = outcome.unpublished;
         for line in &fetched.pending {
             outcome.pending.push(format!("documents: {}", line));
@@ -275,7 +316,14 @@ impl DoltStore {
 
         let remote_ref = format!("{}/{}", REMOTE, BRANCH);
         for attempt in 1..=MAX_ATTEMPTS {
-            db.run(["fetch", REMOTE])?;
+            // The first attempt goes on what the refresh of this command fetched. If origin
+            // moved since, Dolt rejects the push and the next attempt fetches.
+            if attempt == 1 {
+                self.sync_data(db)?;
+            } else {
+                db.run(["fetch", REMOTE])?;
+                self.synced.borrow_mut().data = true;
+            }
             // The branch check, the merge base and the remote tip read in one process.
             // When the batch fails (no remote branch yet, say), they read one by one.
             let flags_query = format!(
@@ -325,6 +373,7 @@ impl DoltStore {
 
             let (args, pushed) = db.output(["push", REMOTE, BRANCH])?;
             if pushed.status.success() {
+                self.note_data_pushed();
                 let head = db.head_hash()?;
                 return Ok(finish(
                     outcome(PushResult::Pushed { attempts: attempt }, head),
@@ -771,7 +820,7 @@ impl DoltStore {
             if dirty && !keep_local {
                 return Err(dirty_error(&path));
             }
-            db.run(["fetch", REMOTE])?;
+            self.sync_data(&db)?;
         } else {
             self.check_remote_kind(&location)?;
             let parent = path
@@ -785,6 +834,7 @@ impl DoltStore {
                 .unwrap_or_default();
             Dolt::new(parent).run(["clone", "--ref", location.ref_name(), url.as_str(), &name])?;
             db = Dolt::new(&path);
+            self.synced.borrow_mut().data = true;
         }
         // One process for the three reads. When the batch fails (the remote branch is
         // missing, say), they read one by one, which gives the same error.
@@ -882,8 +932,8 @@ impl LedgerStore for DoltStore {
         self.check_current(&db, &location)?;
         let docs = Git::new(&self.docs_tree()?.root);
 
-        let data_fetch = db.run(["fetch", REMOTE]).map(|_| ());
-        let docs_fetch = fetch_tip(&self.repo.git, &location.docs());
+        let data_fetch = self.sync_data(&db);
+        let docs_fetch = self.sync_docs_tip(&location);
         let data = self.data_side(&db, data_fetch.is_ok())?;
         let side = status::worktree_side(&docs, &docs_fetch)?;
         let docs_ref = location.docs();
@@ -926,8 +976,8 @@ impl LedgerStore for DoltStore {
                 e
             )
         };
-        db.run(["fetch", REMOTE]).map_err(refused)?;
-        let docs_tip = fetch_tip(&self.repo.git, &location.docs()).map_err(refused)?;
+        self.sync_data(&db).map_err(refused)?;
+        let docs_tip = self.sync_docs_tip(&location).map_err(refused)?;
 
         let remote_ref = format!("{}/{}", REMOTE, BRANCH);
         let target = if remote_branch_exists(&db)? {
@@ -994,7 +1044,19 @@ impl LedgerStore for DoltStore {
             let mut on_retry = |attempt: usize, status: &PushStatus| {
                 notes(&crate::ledger::retry_note(attempt, status))
             };
-            docs::push(&self.repo, &location, &docs_path, message, &mut on_retry)?
+            // The tip the refresh of this command fetched, else one fetched now. The push
+            // carries it as its lease.
+            let known = self.sync_docs_tip(&location)?;
+            let outcome = docs::push(
+                &self.repo,
+                &location,
+                &docs_path,
+                message,
+                Some(known),
+                &mut on_retry,
+            )?;
+            self.synced.borrow_mut().docs = Some(Some(outcome.commit.clone()));
+            outcome
         };
         let docs_changed =
             docs_outcome.committed || matches!(docs_outcome.result, PushResult::Pushed { .. });

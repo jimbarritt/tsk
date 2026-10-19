@@ -55,8 +55,33 @@ pub fn fetch_at(
     path: &Path,
     keep_local: bool,
 ) -> Result<DocsFetch, String> {
+    let tip = fetch_tip(&repo.git, &location.docs())?;
+    fetch_at_tip(repo, location, path, keep_local, tip)
+}
+
+/// [`fetch`] for a caller that already holds the documents tip: the commit origin's branch
+/// is at, with its objects in the repository, or `None` for a branch origin does not hold.
+pub fn fetch_with_tip(
+    repo: &Repo,
+    state_root: &Path,
+    location: &LedgerLocation,
+    keep_local: bool,
+    tip: Option<String>,
+) -> Result<DocsFetch, String> {
+    let clone_id = repo.ensure_clone_id()?;
+    let path = docs_worktree_path(state_root, &clone_id);
+    fetch_at_tip(repo, location, &path, keep_local, tip)
+}
+
+fn fetch_at_tip(
+    repo: &Repo,
+    location: &LedgerLocation,
+    path: &Path,
+    keep_local: bool,
+    tip: Option<String>,
+) -> Result<DocsFetch, String> {
     let docs = location.docs();
-    let Some(commit) = fetch_tip(&repo.git, &docs)? else {
+    let Some(commit) = tip else {
         if path.exists() {
             ensure_worktree_of_repo(&Git::new(path), &repo.common_dir)?;
         } else {
@@ -114,9 +139,10 @@ pub fn push(
     location: &LedgerLocation,
     path: &Path,
     message: &str,
+    known_tip: Option<Option<String>>,
     on_retry: &mut dyn FnMut(usize, &PushStatus),
 ) -> Result<PushOutcome, String> {
-    push::push_worktree(repo, &location.docs(), path, message, on_retry)
+    push::push_worktree(repo, &location.docs(), path, message, known_tip, on_retry)
 }
 
 #[cfg(test)]

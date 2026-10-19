@@ -6343,3 +6343,120 @@ fn a_ledger_held_in_a_nexus_repo_round_trips_between_clones() {
     );
     assert_eq!(git(&nexus, &["rev-parse", NEXUS_REF]), before);
 }
+
+// --- A clone that pushes between another command's refresh and its push ---
+
+/// The path of an installed program, found on `PATH` before it is changed.
+fn installed_program(name: &str) -> PathBuf {
+    std::env::var_os("PATH")
+        .and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|dir| dir.join(name))
+                .find(|candidate| candidate.is_file())
+        })
+        .unwrap_or_else(|| panic!("{} is not on PATH", name))
+}
+
+/// A directory with a `dolt` stand-in. Before the first `dolt commit` of a command that
+/// has `TSK_RACE` set, it runs that shell command once (`TSK_RACE_DONE` marks that it ran),
+/// then runs the real `dolt`. A command's refresh is over by the time it commits, so
+/// the shell command acts between the refresh and the push.
+fn race_shim(root: &Path) -> PathBuf {
+    let dir = root.join("race-shim");
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = format!(
+        "#!/bin/sh\n\
+         if [ \"$1\" = commit ] && [ -n \"$TSK_RACE\" ] && [ ! -e \"$TSK_RACE_DONE\" ]; then\n\
+         \x20 : > \"$TSK_RACE_DONE\"\n\
+         \x20 sh -c \"$TSK_RACE\" >&2 || exit 97\n\
+         fi\n\
+         exec '{}' \"$@\"\n",
+        installed_program("dolt").display()
+    );
+    let shim = dir.join("dolt");
+    std::fs::write(&shim, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    dir
+}
+
+fn path_with_first(dir: &Path) -> std::ffi::OsString {
+    let mut dirs = vec![dir.to_path_buf()];
+    dirs.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    std::env::join_paths(dirs).unwrap()
+}
+
+#[test]
+fn a_clone_that_pushes_between_the_refresh_and_the_push_is_merged_not_overwritten() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let (a, b) = (fx.a(), fx.b());
+    fx.put(&a, "base.md", "base\n");
+    fx.ok(&a, &["ledger", "push", "Base"]);
+    fx.ok(&b, &["ledger", "fetch"]);
+    // A holds a document of its own that its thread command pushes with its data.
+    fx.put(&a, "from-a.md", "a\n");
+
+    // B writes a document and a mission and pushes both, after A's command has refreshed
+    // and before it pushes.
+    let tsk = env!("CARGO_BIN_EXE_tsk");
+    let race = format!(
+        "cd '{b}' && printf 'from b\\n' | '{tsk}' ledger doc put from-b.md && \
+         '{tsk}' mission create M-RACE Race && '{tsk}' ledger push 'B races'",
+        b = b.display(),
+        tsk = tsk
+    );
+    let done = fx.root.path().join("race-done");
+    let output = fx
+        .command(&a, &["thread", "start"])
+        .env("PATH", path_with_first(&race_shim(fx.root.path())))
+        .env("TSK_RACE", race)
+        .env("TSK_RACE_DONE", &done)
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert!(done.exists(), "B did not push in between");
+    assert!(
+        stdout(&output).starts_with("started:"),
+        "{}",
+        stdout(&output)
+    );
+    // Neither push went over the other. Both sides were rejected once, then merged.
+    let notes = stderr(&output);
+    assert!(
+        notes.contains("[rejected] (stale info)"),
+        "documents: {}",
+        notes
+    );
+    assert!(
+        notes.contains("[rejected] (non-fast-forward)"),
+        "data: {}",
+        notes
+    );
+
+    let files = fx.origin_files(DOCS_REF);
+    for expected in ["from-a.md", "from-b.md"] {
+        assert!(files.iter().any(|f| f == expected), "{:?}", files);
+    }
+    // A's local store holds B's mission, and B sees A's thread.
+    assert!(fx
+        .ok(&a, &["mission", "list", "--porcelain"])
+        .contains("M-RACE"));
+    fx.ok(&b, &["ledger", "fetch"]);
+    assert_eq!(fx.ok(&b, &["thread", "list"]).lines().count(), 1);
+    assert!(fx
+        .ok(&b, &["mission", "list", "--porcelain"])
+        .contains("M-RACE"));
+    // Nothing is left unpushed on A.
+    let status = fx.ok(&a, &["ledger", "status"]);
+    assert!(status.contains("nothing to push"), "{}", status);
+    assert!(status.contains("up to date"), "{}", status);
+}
