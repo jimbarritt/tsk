@@ -3627,6 +3627,90 @@ mod cases {
         assert_eq!(record["decisions"][0]["decided_on"], "2026-02-27");
     }
 
+    pub fn a_question_takes_dates_with_on_and_refuses_one_that_is_not_real() {
+        let (fx, a) = mission_with_tasks(0);
+        assert_eq!(
+            fx.ok(
+                &a,
+                &["question", "add", "M-T", "Old one?", "--on", "2026-02-27"]
+            ),
+            "Q-01\n"
+        );
+        assert_eq!(
+            fx.ok(
+                &a,
+                &["question", "add", "M-T", "Leap day?", "--on", "2024-02-29"]
+            ),
+            "Q-02\n"
+        );
+        assert_eq!(fx.ok(&a, &["question", "add", "M-T", "Today?"]), "Q-03\n");
+        let rows = lines(&fx.ok(&a, &["question", "list", "--porcelain"]));
+        assert_eq!(rows[0], ["M-T", "Q-01", "2026-02-27", "Old one?"]);
+        assert_eq!(rows[1], ["M-T", "Q-02", "2024-02-29", "Leap day?"]);
+        assert!(is_date(&rows[2][2]), "{:?}", rows[2]);
+        assert_ne!(rows[2][2], "2026-02-27");
+
+        fx.ok(
+            &a,
+            &[
+                "question",
+                "answer",
+                "M-T",
+                "Q-01",
+                "Done.",
+                "--by",
+                "Jim",
+                "--on",
+                "2026-03-01",
+            ],
+        );
+        fx.ok(
+            &a,
+            &["question", "answer", "M-T", "Q-02", "Done.", "--by", "Jim"],
+        );
+        let record = mission_json(&fx, &a, "M-T");
+        assert_eq!(record["questions"][0]["asked_on"], "2026-02-27");
+        assert_eq!(record["questions"][0]["answered_on"], "2026-03-01");
+        assert_eq!(record["questions"][1]["asked_on"], "2024-02-29");
+        assert!(is_date(
+            record["questions"][1]["answered_on"].as_str().unwrap()
+        ));
+
+        let before = mission_json(&fx, &a, "M-T");
+        for bad in [
+            "2026-02-30",
+            "2026-02-29",
+            "2026-13-01",
+            "27-02-2026",
+            "yesterday",
+            "",
+        ] {
+            fails(
+                &fx,
+                &a,
+                &["question", "add", "M-T", "x?", "--on", bad],
+                "YYYY-MM-DD",
+            );
+            fails(
+                &fx,
+                &a,
+                &[
+                    "question", "answer", "M-T", "Q-03", "x", "--by", "Jim", "--on", bad,
+                ],
+                "YYYY-MM-DD",
+            );
+        }
+        assert_eq!(mission_json(&fx, &a, "M-T"), before);
+
+        // The dates survive a push and a fetch on the other clone.
+        fx.ok(&a, &["ledger", "push", "Question dates"]);
+        let other = fx.b();
+        fx.ok(&other, &["ledger", "fetch"]);
+        let record = mission_json(&fx, &other, "M-T");
+        assert_eq!(record["questions"][0]["asked_on"], "2026-02-27");
+        assert_eq!(record["questions"][0]["answered_on"], "2026-03-01");
+    }
+
     pub fn an_open_question_is_edited_and_an_answered_one_is_not() {
         let (fx, a) = mission_with_tasks(0);
         fx.ok(&a, &["mission", "create", "M-U", "Other"]);
@@ -4315,6 +4399,7 @@ conformance!(
     status_and_discard_need_a_ledger_store,
     status_prints_local_and_origin_in_plain_columns,
     a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
+    a_question_takes_dates_with_on_and_refuses_one_that_is_not_real,
     an_open_question_is_edited_and_an_answered_one_is_not,
     decisions_name_an_adr_and_are_found_from_the_adr,
     constraints_and_out_of_scope_are_numbered_lists_whose_numbers_are_not_reused,

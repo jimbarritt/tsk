@@ -234,9 +234,9 @@ tsk task list <mission> [--porcelain]
 tsk decision add <mission> "<text>" --by <who> [--task T-nn] [--on YYYY-MM-DD] [--adr <path>]
 tsk decision list <mission> [--adr <path>] [--porcelain]
 tsk decision list [--adr <path>]                # no mission: every decision of every mission, or those that name the ADR
-tsk question add <mission> "<text>"           # prints the new ID, Q-01 upward
+tsk question add <mission> "<text>" [--on YYYY-MM-DD]   # prints the new ID, Q-01 upward
 tsk question edit <mission> <q> "<text>"      # rewrites an open question; an answered one is refused
-tsk question answer <mission> <q> "<text>" --by <who>
+tsk question answer <mission> <q> "<text>" --by <who> [--on YYYY-MM-DD]
 tsk question list [<mission>] [--porcelain]   # open questions, all missions when none is given
 ```
 
@@ -254,6 +254,8 @@ repeat it.
 `decision add` dates the decision today (UTC). When the decision was made earlier, give
 its date with `--on`, a real calendar date such as `2026-03-14`, rather than writing the
 date into the text.
+`question add` and `question answer` date the question and the answer today (UTC) in the
+same way. Give `--on` to keep the original date of a question you bring in from elsewhere.
 `question list` prints the mission, `Q-nn`, the date asked and the text. Use `--by` with
 the name of the person who made the decision or gave the answer. `tsk mission list <id>
 --json` prints the mission with its tasks, decisions and questions.

@@ -519,9 +519,9 @@ tsk task list <mission> [--porcelain]
 tsk decision add <mission> <text> --by <who> [--task <T-nn>] [--on <YYYY-MM-DD>] [--adr <path>]
 tsk decision list <mission> [--adr <path>] [--porcelain]
 tsk decision list [--adr <path>] [--porcelain]   # no mission: every mission, led by the mission ID
-tsk question add <mission> <text>
+tsk question add <mission> <text> [--on <YYYY-MM-DD>]
 tsk question edit <mission> <question> <text>
-tsk question answer <mission> <question> <text> --by <who>
+tsk question answer <mission> <question> <text> --by <who> [--on <YYYY-MM-DD>]
 tsk question list [<mission>] [--porcelain]
 ```
 
@@ -562,8 +562,11 @@ Rules:
 - `question edit` rewrites the text of an open question and nothing else: the ID and the
   date asked stay. An answered question cannot be edited:
   `error: Q-nn of M-X is answered; it cannot be edited`.
-- `question answer` records the answer, the name after `--by` and the UTC date, and the
-  question is no longer open. A question is answered once: a second answer is an error.
+- `question add` records the UTC date of the command as `asked_on`, or the date given to
+  `--on`. `question answer` records the answer, the name after `--by` and the UTC date, or
+  the date given to `--on`, as `answered_on`, and the question is no longer open. `--on`
+  is checked as it is for `decision add`: `YYYY-MM-DD`, a real calendar date, else an
+  error and nothing is written. No check compares `answered_on` with `asked_on`. A question is answered once: a second answer is an error.
 - An unknown mission, task or question is an error that names the ID.
 
 Each `list` prints one record per line, with no header. The columns are aligned as in
