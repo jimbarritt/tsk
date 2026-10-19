@@ -89,7 +89,7 @@ tsk ledger doc get <path>                print a document's body
 tsk ledger doc put <path> [<file>]       write a document from <file>, or from stdin; changes the local store only
 tsk ledger doc list [<prefix>]           list document paths, optionally under a prefix
 tsk ledger doc rm <path>                 remove a document; changes the local store only
-tsk ledger status [--porcelain]          print Local (what is not pushed) and Origin (ahead or behind); --porcelain prints tab-separated facts for scripts; read-only
+tsk ledger status [--local] [--porcelain]  print Local (what is not pushed) and Origin (ahead or behind); --local makes no network call and prints Origin as not checked; --porcelain prints tab-separated facts for scripts; read-only
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
 
 tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push
