@@ -562,7 +562,7 @@ fn pause_appends_an_entry_with_the_nested_git_state_and_pushes() {
     assert_eq!(entry["git"]["code"]["commit"], main_head.as_str());
     assert_eq!(entry["git"]["ledger"].as_object().unwrap().len(), 1);
     assert_eq!(entry["git"]["code"].as_object().unwrap().len(), 2);
-    assert_eq!(entry["written_by"], "urn:tsk:worktree:.git");
+    assert_eq!(entry["written_by"], fx.worktree_actor().as_str());
     assert_eq!(entry["timestamp"].as_str().unwrap().len(), 20);
     assert_eq!(fx.origin_subject(), format!("Pause thread {}: T-05", id));
 }
@@ -760,8 +760,8 @@ fn resume_warns_and_still_binds_when_another_actor_wrote_to_the_thread() {
     let fx = Fixture::new();
     fx.seed_thread(
         "2222bbbb",
-        "{\"mission_link\":\"m\",\"task_id\":\"T-01\",\"whats_next\":\"a\",\"git\":{\"ledger\":{\"commit\":\"c\"},\"code\":{\"ref\":\"refs/heads/main\",\"commit\":\"d\"}},\"timestamp\":\"2026-10-01T00:00:00Z\",\"written_by\":\"urn:tsk:cloudsession:cse_other\"}\n\
-         {\"mission_link\":\"m\",\"task_id\":\"T-01\",\"whats_next\":\"b\",\"git\":{\"ledger\":{\"commit\":\"c\"},\"code\":{\"ref\":\"refs/heads/main\",\"commit\":\"d\"}},\"timestamp\":\"2026-10-02T00:00:00Z\",\"written_by\":\"urn:tsk:worktree:feature\"}\n",
+        "{\"mission_link\":\"m\",\"task_id\":\"T-01\",\"whats_next\":\"a\",\"git\":{\"ledger\":{\"commit\":\"c\"},\"code\":{\"ref\":\"refs/heads/main\",\"commit\":\"d\"}},\"timestamp\":\"2026-10-01T00:00:00Z\",\"written_by\":\"cse_other\"}\n\
+         {\"mission_link\":\"m\",\"task_id\":\"T-01\",\"whats_next\":\"b\",\"git\":{\"ledger\":{\"commit\":\"c\"},\"code\":{\"ref\":\"refs/heads/main\",\"commit\":\"d\"}},\"timestamp\":\"2026-10-02T00:00:00Z\",\"written_by\":\"tsk-ffff0000/feature\"}\n",
     );
 
     let output = fx.tsk(&["thread", "resume", "2222bbbb"]);
@@ -770,7 +770,7 @@ fn resume_warns_and_still_binds_when_another_actor_wrote_to_the_thread() {
     let result = json(&stdout(&output));
     assert_eq!(
         result["warning"],
-        "thread 2222bbbb is already associated with other actor(s): urn:tsk:cloudsession:cse_other,urn:tsk:worktree:feature"
+        "thread 2222bbbb is already associated with other actor(s): cse_other,tsk-ffff0000/feature"
     );
     assert_eq!(result["latest"]["whats_next"], "b");
     assert!(!fx.marker().exists());
@@ -780,16 +780,66 @@ fn resume_warns_and_still_binds_when_another_actor_wrote_to_the_thread() {
 #[test]
 fn resume_does_not_warn_when_the_current_actor_wrote_to_the_thread() {
     let fx = Fixture::new();
+    let actor = fx.worktree_actor();
     fx.seed_thread(
         "3333cccc",
-        "{\"whats_next\":\"a\",\"written_by\":\"urn:tsk:cloudsession:cse_other\"}\n\
-         {\"whats_next\":\"b\",\"written_by\":\"urn:tsk:worktree:.git\"}\n",
+        &format!(
+            "{{\"whats_next\":\"a\",\"written_by\":\"cse_other\"}}\n\
+             {{\"whats_next\":\"b\",\"written_by\":\"{}\"}}\n",
+            actor
+        ),
     );
 
     let output = fx.tsk(&["thread", "resume", "3333cccc"]);
 
     assert_success(&output);
     assert_eq!(json(&stdout(&output))["warning"], "");
+}
+
+#[test]
+fn resume_does_not_warn_against_entries_written_in_the_old_format() {
+    let fx = Fixture::new();
+    fx.seed_thread(
+        "3333dddd",
+        "{\"whats_next\":\"a\",\"written_by\":\"urn:tsk:cloudsession:cse_other\"}\n\
+         {\"whats_next\":\"b\",\"written_by\":\"urn:tsk:worktree:.git\"}\n",
+    );
+
+    let output = fx.tsk(&["thread", "resume", "3333dddd"]);
+
+    assert_success(&output);
+    assert_eq!(json(&stdout(&output))["warning"], "");
+}
+
+#[test]
+fn resume_warns_when_a_new_format_entry_follows_old_format_ones_from_another_clone() {
+    let fx = Fixture::new();
+    fx.seed_thread(
+        "3333eeee",
+        "{\"whats_next\":\"a\",\"written_by\":\"urn:tsk:worktree:.git\"}\n\
+         {\"whats_next\":\"b\",\"written_by\":\"tsk-ffff0000/main\"}\n",
+    );
+
+    let output = fx.tsk(&["thread", "resume", "3333eeee"]);
+
+    assert_success(&output);
+    assert_eq!(
+        json(&stdout(&output))["warning"],
+        "thread 3333eeee is already associated with other actor(s): tsk-ffff0000/main"
+    );
+}
+
+#[test]
+fn a_cloud_session_pause_writes_the_session_id_as_written_by() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    let output = fx.tsk_cloud(
+        "cse_writer",
+        &["thread", "pause", &id, "T-05", "Cloud pause"],
+    );
+    assert_success(&output);
+    let stored = fx.origin_entries(&id);
+    assert_eq!(json(stored.last().unwrap())["written_by"], "cse_writer");
 }
 
 #[test]
