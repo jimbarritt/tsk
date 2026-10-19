@@ -120,6 +120,8 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
 
 mod config;
 
+mod gitenv;
+
 mod ledger;
 
 mod mission;

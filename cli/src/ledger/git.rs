@@ -26,9 +26,10 @@ impl Git {
             .into_iter()
             .map(|a| a.as_ref().to_string_lossy().into_owned())
             .collect();
-        let output = Command::new("git")
-            .args(&args)
-            .current_dir(&self.dir)
+        let mut command = Command::new("git");
+        command.args(&args).current_dir(&self.dir);
+        crate::gitenv::apply(&mut command);
+        let output = command
             .output()
             .map_err(|e| format!("error: could not run git: {}", e))?;
         Ok((args, output))
@@ -60,9 +61,10 @@ impl Git {
             .into_iter()
             .map(|a| a.as_ref().to_string_lossy().into_owned())
             .collect();
-        let mut child = Command::new("git")
-            .args(&args)
-            .current_dir(&self.dir)
+        let mut command = Command::new("git");
+        command.args(&args).current_dir(&self.dir);
+        crate::gitenv::apply(&mut command);
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
