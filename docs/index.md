@@ -37,6 +37,9 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 Technical design documents describing how tsk's systems fit together.
 
 - [2026-10-17-architecture-and-performance-review.md](arch/2026-10-17-architecture-and-performance-review.md): review at 0.15.1 of the storage seam, the record model, the sync design and the daemon-era remains, with measurements of every command path and a ranked list of proposals.
+- [2026-10-18-remote-growth-design.md](arch/2026-10-18-remote-growth-design.md): why a fetch costs what it does, measured on the live origin, with the options (fewer round trips, Dolt 2.5.0, protocol version 0, compaction) and what beads does about the same problem.
+- [2026-10-18-documents-in-dolt-comment.md](arch/2026-10-18-documents-in-dolt-comment.md): a comment on putting documents back into Dolt.
+- [2026-10-19-m-perf-results.md](arch/2026-10-19-m-perf-results.md): the measured effect of the round-trip and process-launch work, command by command.
 
 The three documents below describe the client-daemon design, which ADR 0012 retired. They are kept as history.
 

@@ -251,6 +251,8 @@ Origin  2 data commits and 1 document commit to fetch (tsk ledger fetch)
 - When the fetch fails, one line on stderr says so (`note: could not fetch ...; reporting
   from what is local`), and `Origin` says `unknown`.
 
+`tsk ledger status --local` makes no network call. It prints the `Local` block and `Origin  not checked (--local)`, and with `--porcelain` the two remote lines read `not checked`. A refresh, `status`, `thread list` and `thread session-start` first run one `git ls-remote` of both ledger refs and skip the fetch when both tips match the tips last fetched, which are recorded in `<state>/repos/<clone-id>/remote-tips` after each successful fetch. When `ls-remote` fails, they fetch as before.
+
 `tsk ledger status --porcelain` prints one fact per line, tab-separated where a line has
 columns, with no header. This is the stable form for scripts and agents:
 
