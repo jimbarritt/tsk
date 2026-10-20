@@ -42,6 +42,7 @@ Technical design documents describing how tsk's systems fit together.
 - [2026-10-19-m-perf-results.md](arch/2026-10-19-m-perf-results.md): the measured effect of the round-trip and process-launch work, command by command.
 - [2026-10-19-is-dolt-the-right-store.md](arch/2026-10-19-is-dolt-the-right-store.md): a review of whether Dolt is still the right store, with beads under several actors, why table files accumulate, and the transport options.
 - [2026-10-20-option-5-spikes.md](arch/2026-10-20-option-5-spikes.md): two spikes on the git-carried Dolt file remote: the lease push on the cloud proxy, and git rewriting the remote directory under Dolt.
+- [2026-10-20-conformance-suite-speed.md](arch/2026-10-20-conformance-suite-speed.md): where the conformance suite spends its time, measured, with a ranked list of changes and the cause of the Text file busy flake.
 
 The three documents below describe the client-daemon design, which ADR 0012 retired. They are kept as history.
 
