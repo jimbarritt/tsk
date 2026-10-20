@@ -440,8 +440,10 @@ fn a_stale_writer_is_rejected_by_a_plain_push_then_merges_and_pushes_again() {
         .output()
         .unwrap();
     assert_success(&output);
+    // The push went on the record of the last fetch, so the first rejection only shows the
+    // record was old. It is not said aloud, and the retry merges.
     let notes = stderr(&output);
-    assert!(notes.contains("push rejected (attempt 1/10)"), "{}", notes);
+    assert!(!notes.contains("push rejected"), "{}", notes);
 
     // Both writers' rows are on origin and in `a`, and the history is linear.
     let list = fx.ok("a", &["mission", "list", "--porcelain"]);

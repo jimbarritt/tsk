@@ -6734,10 +6734,32 @@ fn a_clone_that_pushes_between_the_refresh_and_the_push_is_merged_not_overwritte
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
+    // A detach asks origin first, so the rejections are said aloud.
+    a_race_between_the_refresh_and_the_push(&["thread", "detach"], true, true);
+}
+
+#[test]
+fn a_start_that_went_on_the_record_of_the_last_fetch_is_merged_and_says_nothing() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    // A start does not ask origin first, so its first rejection only shows the record was old.
+    a_race_between_the_refresh_and_the_push(&["thread", "start"], false, false);
+}
+
+/// A thread command of A runs while B writes a document and a mission and pushes both, after
+/// A's command has refreshed and before it pushes. `bound` starts a thread on A first, for a
+/// command that needs one. `says_so` is whether the command asked origin before it wrote, so
+/// that the rejections of its first push are said aloud.
+fn a_race_between_the_refresh_and_the_push(args: &[&str], bound: bool, says_so: bool) {
     let fx = Fixture::fetched();
     let (a, b) = (fx.a(), fx.b());
     fx.put(&a, "base.md", "base\n");
     fx.ok(&a, &["ledger", "push", "Base"]);
+    if bound {
+        fx.ok(&a, &["thread", "start"]);
+    }
     fx.ok(&b, &["ledger", "fetch"]);
     // A holds a document of its own that its thread command pushes with its data.
     fx.put(&a, "from-a.md", "a\n");
@@ -6753,7 +6775,7 @@ fn a_clone_that_pushes_between_the_refresh_and_the_push_is_merged_not_overwritte
     );
     let done = fx.root.path().join("race-done");
     let output = fx
-        .command(&a, &["thread", "start"])
+        .command(&a, args)
         .env("PATH", path_with_first(&race_shim(fx.root.path())))
         .env("TSK_RACE", race)
         .env("TSK_RACE_DONE", &done)
@@ -6761,24 +6783,24 @@ fn a_clone_that_pushes_between_the_refresh_and_the_push_is_merged_not_overwritte
         .unwrap();
     assert_success(&output);
     assert!(done.exists(), "B did not push in between");
-    assert!(
-        stdout(&output).starts_with("started:"),
-        "{}",
-        stdout(&output)
-    );
-    // Neither push went over the other. Both sides were rejected once, then merged.
+    // Neither push went over the other. Both sides were rejected once, then merged. A command
+    // that went on the record of the last fetch found its record old, and does not say so.
     let notes = stderr(&output);
-    assert!(
-        notes.contains("[rejected] (stale info)"),
-        "documents: {}",
-        notes
-    );
-    assert!(
-        notes.contains("[rejected] (fetch first)")
-            || notes.contains("[rejected] (non-fast-forward)"),
-        "data: {}",
-        notes
-    );
+    if says_so {
+        assert!(
+            notes.contains("[rejected] (stale info)"),
+            "documents: {}",
+            notes
+        );
+        assert!(
+            notes.contains("[rejected] (fetch first)")
+                || notes.contains("[rejected] (non-fast-forward)"),
+            "data: {}",
+            notes
+        );
+    } else {
+        assert!(!notes.contains("[rejected]"), "{}", notes);
+    }
 
     let files = fx.origin_files(DOCS_REF);
     for expected in ["from-a.md", "from-b.md"] {
@@ -6881,6 +6903,13 @@ impl Fixture {
     }
 }
 
+const NO_NET: NetOps = NetOps {
+    asks: 0,
+    ls_remote: 0,
+    fetch: 0,
+    push: 0,
+};
+
 const NOTHING_NEW: NetOps = NetOps {
     asks: 1,
     ls_remote: 1,
@@ -6912,8 +6941,9 @@ fn a_refresh_with_nothing_new_asks_origin_once_and_fetches_nothing() {
     assert_eq!(ops, NOTHING_NEW);
     let (_, ops) = fx.counted_ok(&b, &["thread", "list"]);
     assert_eq!(ops, NOTHING_NEW);
+    // A push does not ask origin first: the record of the last fetch stands in for it.
     let (_, ops) = fx.counted_ok(&b, &["ledger", "push", "Nothing"]);
-    assert_eq!(ops, NOTHING_NEW);
+    assert_eq!(ops, NO_NET);
     let (output, ops, _) = fx.counted(&b, &["thread", "session-start", "--format", "claude"]);
     assert_success(&output);
     assert_eq!(ops, NOTHING_NEW);
@@ -6922,7 +6952,8 @@ fn a_refresh_with_nothing_new_asks_origin_once_and_fetches_nothing() {
     fx.put(&a, "late.md", "late\n");
     fx.add_binding(&a, "late");
     let (_, ops) = fx.counted_ok(&a, &["ledger", "push", "A pushes"]);
-    assert_eq!(ops.asks, 1);
+    assert_eq!(ops.asks, 0);
+    assert_eq!(ops.ls_remote, 0);
     assert!(ops.push >= 2, "{:?}", ops);
     let (_, ops) = fx.counted_ok(&a, &["ledger", "fetch"]);
     assert_eq!(ops, NOTHING_NEW);
@@ -7544,4 +7575,300 @@ fn thread_commands_read_the_same_without_batching() {
         run_with_stdin('a', &["thread", "guard"], "{\"session_id\":\"x\"}"),
     ]);
     assert_same_without_batching(&script);
+}
+
+// --- A pause, a start and a push do not ask origin first; a fresh clone fetches once ---
+
+impl Fixture {
+    /// A fetched ledger with mission M-PAUSE and its task T-01, and a thread started on it
+    /// from clone A. Returns the fixture and the thread ID.
+    fn paused_thread() -> (Fixture, String) {
+        let fx = Fixture::fetched();
+        let a = fx.a();
+        fx.ok(&a, &["mission", "create", "M-PAUSE", "Pause"]);
+        fx.ok(&a, &["task", "add", "M-PAUSE", "First"]);
+        fx.ok(&a, &["ledger", "push", "Mission"]);
+        let started = fx.ok(&a, &["thread", "start", "M-PAUSE"]);
+        let id = started
+            .trim_end()
+            .strip_prefix("started:")
+            .unwrap()
+            .to_string();
+        (fx, id)
+    }
+
+    /// Clone B adds a task to M-PAUSE and publishes it, so that clone A's record of the
+    /// last fetch is out of date.
+    fn b_moves_origin(&self, task: &str) {
+        let b = self.b();
+        self.ok(&b, &["ledger", "fetch"]);
+        self.ok(&b, &["task", "add", "M-PAUSE", task]);
+        self.ok(&b, &["ledger", "push", "B adds a task"]);
+    }
+}
+
+#[test]
+fn a_pause_does_not_ask_origin_and_pushes_once() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let (fx, id) = Fixture::paused_thread();
+    let (a, b) = (fx.a(), fx.b());
+
+    let (output, ops, log) = fx.counted(&a, &["thread", "pause", &id, "T-01", "Next step"]);
+    assert_success(&output);
+    assert_eq!(stdout(&output), format!("paused:{}\n", id));
+    // The record of the last fetch stands in for the question to origin, so the one
+    // network operation is the push of the data. The documents did not change.
+    assert_eq!(
+        ops,
+        NetOps {
+            asks: 0,
+            ls_remote: 0,
+            fetch: 0,
+            push: 1
+        },
+        "{}",
+        log
+    );
+
+    // The entry reached origin.
+    fx.ok(&b, &["ledger", "fetch"]);
+    let list = fx.ok(&b, &["thread", "list"]);
+    assert!(
+        list.contains("\"latest_whats_next\":\"Next step\""),
+        "{}",
+        list
+    );
+    // Nothing is left to push on A.
+    let status = fx.ok(&a, &["ledger", "status"]);
+    assert!(status.contains("nothing to push"), "{}", status);
+}
+
+#[test]
+fn a_pause_after_origin_moved_is_rejected_quietly_once_and_keeps_both_changes() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let (fx, id) = Fixture::paused_thread();
+    let (a, b) = (fx.a(), fx.b());
+    fx.b_moves_origin("From B");
+
+    let output = fx.tsk(&a, &["thread", "pause", &id, "T-01", "After the move"]);
+    assert_success(&output);
+    assert_eq!(stdout(&output), format!("paused:{}\n", id));
+    // The first rejection only shows that the record was out of date, which an ask to
+    // origin first would have shown without a note. It is not said.
+    assert_eq!(stderr(&output), "");
+
+    fx.ok(&b, &["ledger", "fetch"]);
+    let tasks = fx.ok(&b, &["task", "list", "M-PAUSE", "--porcelain"]);
+    assert!(tasks.contains("From B"), "{}", tasks);
+    let list = fx.ok(&b, &["thread", "list"]);
+    assert!(list.contains("After the move"), "{}", list);
+}
+
+#[test]
+fn a_pause_checks_what_it_does_not_know_against_a_fresh_fetch() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let (fx, _) = Fixture::paused_thread();
+    let (a, b) = (fx.a(), fx.b());
+
+    // B starts a thread and adds a task after A's last fetch. A's record knows neither.
+    fx.ok(&b, &["ledger", "fetch"]);
+    let started = fx.tsk_cloud(&b, "cse_pause_b", &["thread", "start", "M-PAUSE"]);
+    assert_success(&started);
+    let other = stdout(&started)
+        .trim_end()
+        .strip_prefix("started:")
+        .unwrap()
+        .to_string();
+    fx.b_moves_origin("Second");
+
+    let output = fx.tsk(&a, &["thread", "pause", &other, "T-02", "From A"]);
+    assert_success(&output);
+    assert_eq!(stdout(&output), format!("paused:{}\n", other));
+    fx.ok(&a, &["ledger", "fetch"]);
+    let list = fx.ok(&a, &["thread", "list"]);
+    assert!(list.contains("From A"), "{}", list);
+
+    // A thread nobody has made, and a task the mission lacks, are named as before.
+    let unknown = fx.tsk(&a, &["thread", "pause", "zzzzzzzz", "", "Next"]);
+    assert_exit(&unknown, 1);
+    assert!(
+        stderr(&unknown).starts_with("error: no such thread: zzzzzzzz (expected "),
+        "{}",
+        stderr(&unknown)
+    );
+    let missing = fx.tsk(&a, &["thread", "pause", &other, "T-09", "Next"]);
+    assert_exit(&missing, 1);
+    assert!(stderr(&missing).contains("T-09"), "{}", stderr(&missing));
+}
+
+#[test]
+fn a_thread_start_checks_the_mission_against_a_fresh_fetch_when_the_record_lacks_it() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let (fx, _) = Fixture::paused_thread();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&b, &["ledger", "fetch"]);
+    fx.ok(&b, &["mission", "create", "M-LATE", "Late"]);
+    fx.ok(&b, &["ledger", "push", "B adds a mission"]);
+
+    // A's record does not hold M-LATE yet; the start finds it on a fresh fetch.
+    let started = fx.tsk_cloud(&a, "cse_late", &["thread", "start", "M-LATE"]);
+    assert_success(&started);
+    assert!(
+        stdout(&started).starts_with("started:"),
+        "{}",
+        stdout(&started)
+    );
+    let unknown = fx.tsk_cloud(&a, "cse_unknown", &["thread", "start", "M-NOPE"]);
+    assert_exit(&unknown, 1);
+    assert!(
+        stderr(&unknown).starts_with("error: no such mission: M-NOPE"),
+        "{}",
+        stderr(&unknown)
+    );
+}
+
+#[test]
+fn a_push_and_a_pause_launch_few_dolt_processes() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let (fx, id) = Fixture::paused_thread();
+    let a = fx.a();
+    fx.ok(&a, &["ledger", "fetch"]);
+
+    // The refresh, the write with the commit and the reads of the push, and the push.
+    let (output, launches) = fx.dolt_launches(&a, &["thread", "pause", &id, "T-01", "Next"]);
+    assert_success(&output);
+    assert!(
+        launches <= 3,
+        "a pause launched {} dolt processes",
+        launches
+    );
+
+    fx.ok(&a, &["task", "add", "M-PAUSE", "Another"]);
+    let (output, launches) = fx.dolt_launches(&a, &["ledger", "push", "A change"]);
+    assert_success(&output);
+    assert!(
+        launches <= 3,
+        "a push with a change launched {} dolt processes",
+        launches
+    );
+    let (output, launches) = fx.dolt_launches(&a, &["ledger", "push", "Nothing"]);
+    assert_success(&output);
+    assert!(
+        launches <= 2,
+        "a push with nothing to send launched {} dolt processes",
+        launches
+    );
+}
+
+#[test]
+fn a_fresh_clone_fetches_both_refs_in_one_network_operation() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::with_briefing();
+    let b = fx.b();
+
+    // B has no ledger store and no record: one fetch brings both refs, with no question to
+    // origin and no second fetch.
+    let (output, ops, log) = fx.counted(&b, &["ledger", "fetch"]);
+    assert_success(&output);
+    assert_eq!(
+        ops,
+        NetOps {
+            asks: 0,
+            ls_remote: 0,
+            fetch: 1,
+            push: 0
+        },
+        "{}",
+        log
+    );
+    assert!(log.contains(&format!("fetch --quiet --no-tags origin +{}:", LEDGER_REF)));
+    assert_eq!(
+        fx.ok(&b, &["ledger", "doc", "get", BRIEFING]),
+        "# Mission: conformance\n"
+    );
+    // The next fetch finds nothing new and asks once, as before.
+    let (_, ops) = fx.counted_ok(&b, &["ledger", "fetch"]);
+    assert_eq!(ops, NOTHING_NEW);
+}
+
+#[test]
+fn a_fresh_clone_of_a_new_ledger_asks_when_origin_lacks_the_refs() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new();
+    let a = fx.a();
+    // Origin holds neither ref: the combined fetch fails and the question says so.
+    let (output, ops, _) = fx.counted(&a, &["ledger", "fetch"]);
+    assert_success(&output);
+    assert_eq!(ops.fetch, 1);
+    // The question for both refs, as before the combined fetch existed.
+    assert_eq!(ops.asks, 1);
+    assert!(
+        stderr(&output).contains("does not exist yet"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn a_refresh_that_finds_origin_moved_reads_the_database_in_few_processes() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let (fx, _) = Fixture::paused_thread();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&a, &["ledger", "fetch"]);
+    fx.b_moves_origin("Moved");
+
+    // The reads that ride with the question, the fetch, the reads after it, and the reset
+    // with the reads that follow it. It was five.
+    let (output, launches) = fx.dolt_launches(&a, &["ledger", "fetch"]);
+    assert_success(&output);
+    assert!(
+        launches <= 4,
+        "a refresh launched {} dolt processes",
+        launches
+    );
+    let tasks = fx.ok(&a, &["task", "list", "M-PAUSE", "--porcelain"]);
+    assert!(tasks.contains("Moved"), "{}", tasks);
+
+    // A clone with a change of its own refuses to reset over it, as before, when origin moved.
+    fx.ok(&b, &["task", "add", "M-PAUSE", "Local to B"]);
+    fx.ok(&a, &["task", "add", "M-PAUSE", "From A"]);
+    fx.ok(&a, &["ledger", "push", "A adds a task"]);
+    let refused = fx.tsk(&b, &["ledger", "fetch"]);
+    assert_exit(&refused, 1);
+    assert!(
+        stderr(&refused).contains("holds uncommitted changes"),
+        "{}",
+        stderr(&refused)
+    );
+    fx.ok(&b, &["ledger", "push", "B pushes its task"]);
+    let tasks = fx.ok(&b, &["task", "list", "M-PAUSE", "--porcelain"]);
+    assert!(
+        tasks.contains("From A") && tasks.contains("Local to B"),
+        "{}",
+        tasks
+    );
 }

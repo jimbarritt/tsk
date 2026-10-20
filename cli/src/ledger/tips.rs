@@ -45,6 +45,65 @@ pub fn remote_heads(git: &Git, location: &LedgerLocation) -> Result<RemoteHeads,
     ))
 }
 
+/// The local refs a combined fetch writes. They keep the fetched commits reachable, and
+/// the next combined fetch overwrites them.
+pub const FETCHED_LEDGER_REF: &str = "refs/tsk-fetch/ledger";
+pub const FETCHED_DOCS_REF: &str = "refs/tsk-fetch/docs";
+
+/// What the refusal of a fetch says when origin lacks one of the refs asked for.
+const MISSING_REF_TEXT: &str = "couldn't find remote ref";
+
+/// Why a combined fetch did not bring the commits.
+#[derive(Debug, PartialEq, Eq)]
+pub enum FetchFailure {
+    /// Origin lacks the ledger ref or the documents ref. Asking with `ls-remote` tells which.
+    RefMissing,
+    /// Origin could not be reached, or the fetch failed for another reason.
+    Failed(String),
+}
+
+/// Fetch the ledger ref and the documents ref in one `git fetch`, and name the commits
+/// they are at. For a caller that would have to fetch both anyway: the commits are then in
+/// the repository, and one connection did the work of the `ls-remote` and two fetches.
+pub fn fetch_heads(git: &Git, location: &LedgerLocation) -> Result<RemoteHeads, FetchFailure> {
+    let docs = location.docs();
+    let ledger_spec = format!("+{}:{}", location.ref_name(), FETCHED_LEDGER_REF);
+    let docs_spec = format!("+{}:{}", docs.ref_name(), FETCHED_DOCS_REF);
+    let (args, output) = git
+        .output([
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            location.remote(),
+            ledger_spec.as_str(),
+            docs_spec.as_str(),
+        ])
+        .map_err(FetchFailure::Failed)?;
+    if !output.status.success() {
+        let failure = super::git::failure_message(&args, &output);
+        return Err(if failure.contains(MISSING_REF_TEXT) {
+            FetchFailure::RefMissing
+        } else {
+            FetchFailure::Failed(failure)
+        });
+    }
+    let ledger_commit = format!("{}^{{commit}}", FETCHED_LEDGER_REF);
+    let docs_commit = format!("{}^{{commit}}", FETCHED_DOCS_REF);
+    let listing = git
+        .run(["rev-parse", ledger_commit.as_str(), docs_commit.as_str()])
+        .map_err(FetchFailure::Failed)?;
+    let mut commits = listing.lines().map(str::to_string);
+    match (commits.next(), commits.next()) {
+        (Some(ledger), Some(docs)) => Ok(RemoteHeads {
+            ledger: Some(ledger),
+            docs: Some(docs),
+        }),
+        _ => Err(FetchFailure::Failed(
+            "error: git rev-parse did not name the two fetched refs".to_string(),
+        )),
+    }
+}
+
 /// Read the `ls-remote` listing. A line counts only when its ref name is exactly the one
 /// asked for: `ls-remote` also lists refs that end in the pattern.
 pub fn parse_heads(listing: &str, ledger_ref: &str, docs_ref: &str) -> RemoteHeads {
@@ -174,6 +233,87 @@ mod tests {
                 docs: None
             }
         );
+    }
+
+    fn run_git(dir: &Path, args: &[&str]) -> String {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?}: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    #[test]
+    fn a_combined_fetch_names_both_commits_and_says_why_it_failed() {
+        let root = tempfile::tempdir().unwrap();
+        let origin = root.path().join("origin.git");
+        let work = root.path().join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        run_git(root.path(), &["init", "-q", "--bare", "origin.git"]);
+        run_git(&work, &["init", "-q", "-b", "main"]);
+        run_git(
+            &work,
+            &["remote", "add", "origin", origin.to_str().unwrap()],
+        );
+        run_git(&work, &["commit", "-q", "--allow-empty", "-m", "ledger"]);
+        let ledger = run_git(&work, &["rev-parse", "HEAD"]);
+        run_git(
+            &work,
+            &["push", "-q", "origin", "HEAD:refs/heads/tsk/ledger"],
+        );
+        run_git(&work, &["commit", "-q", "--allow-empty", "-m", "docs"]);
+        let docs = run_git(&work, &["rev-parse", "HEAD"]);
+        run_git(&work, &["push", "-q", "origin", "HEAD:refs/heads/tsk/docs"]);
+
+        // A clone that has neither commit gets both, and they are in its repository.
+        let clone = root.path().join("clone");
+        std::fs::create_dir_all(&clone).unwrap();
+        run_git(&clone, &["init", "-q", "-b", "main"]);
+        run_git(
+            &clone,
+            &["remote", "add", "origin", origin.to_str().unwrap()],
+        );
+        let git = Git::new(&clone);
+        let location = LedgerLocation::in_repo();
+        let heads = fetch_heads(&git, &location).unwrap();
+        assert_eq!(heads.ledger.as_deref(), Some(ledger.as_str()));
+        assert_eq!(heads.docs.as_deref(), Some(docs.as_str()));
+        assert!(commit_is_local(&git, &ledger));
+        assert!(commit_is_local(&git, &docs));
+        // The refs hold the commits, and no tag came with them.
+        assert_eq!(run_git(&clone, &["rev-parse", FETCHED_DOCS_REF]), docs);
+        assert_eq!(run_git(&clone, &["tag", "--list"]), "");
+
+        // A second fetch with nothing new names the same commits.
+        assert_eq!(fetch_heads(&git, &location).unwrap(), heads);
+
+        // Origin without the documents ref: the failure says a ref is missing.
+        run_git(&work, &["push", "-q", "origin", ":refs/heads/tsk/docs"]);
+        assert_eq!(
+            fetch_heads(&git, &location).unwrap_err(),
+            FetchFailure::RefMissing
+        );
+
+        // An origin that cannot be reached is another failure.
+        run_git(
+            &clone,
+            &["remote", "set-url", "origin", "/no/such/origin.git"],
+        );
+        assert!(matches!(
+            fetch_heads(&git, &location),
+            Err(FetchFailure::Failed(_))
+        ));
     }
 
     #[test]

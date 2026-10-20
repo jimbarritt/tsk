@@ -54,6 +54,19 @@ pub struct DoltStore {
     read_ahead: Cell<bool>,
     /// A snapshot could not be loaded, so the reads go one by one until the next write.
     no_snapshot: Cell<bool>,
+    /// Set by a command that asked not to question origin first: the record of the last
+    /// fetch stands in for what origin holds. See [`LedgerStore::trust_last_fetch`].
+    trust_tips: Cell<bool>,
+    /// Writes held back for the next commit, which makes them in its own process. See
+    /// [`LedgerStore::continuation_append_deferred`].
+    queued: RefCell<Vec<QueuedWrite>>,
+}
+
+/// A write held back for the next commit: the statement, and a query whose first count is
+/// above 0 once the statement has applied, so a retry after a failed batch never writes it twice.
+struct QueuedWrite {
+    sql: String,
+    applied_query: String,
 }
 
 /// What a push of the Dolt data needs to know from `commit_and_push`: whether it committed
@@ -64,6 +77,9 @@ struct PushRequest<'a> {
     committed: bool,
     docs_changed: bool,
     message: &'a str,
+    /// The four reads that open an attempt of the push (see [`push_reads`]), when the
+    /// batch of the commit made them already.
+    prefetched: Option<&'a [Vec<serde_json::Value>]>,
 }
 
 /// A thread of the `threads` table.
@@ -91,6 +107,8 @@ struct DataState {
     remote_head: String,
     pending: Vec<String>,
     version: i64,
+    /// Whether the working set held changes when it was read.
+    dirty: bool,
 }
 
 const DIRTY_QUERY: &str = "select count(*) as c from dolt_status";
@@ -112,6 +130,12 @@ struct Synced {
     docs: Option<Option<String>>,
     /// This process ran a fetch of the data.
     fetched_here: bool,
+    /// The commits a combined fetch brought in place of the question to origin: the ledger
+    /// ref's, then the documents ref's. The sync that would have fetched a ref takes its
+    /// commit once. A retry after a rejected push fetches again, so it clears them.
+    brought: Option<(Option<String>, Option<String>)>,
+    /// The heads are those of the record of the last fetch, not an answer from origin.
+    trusted: bool,
 }
 
 impl DoltStore {
@@ -126,6 +150,8 @@ impl DoltStore {
             snapshot: RefCell::new(None),
             read_ahead: Cell::new(false),
             no_snapshot: Cell::new(false),
+            trust_tips: Cell::new(false),
+            queued: RefCell::new(Vec::new()),
         })
     }
 
@@ -142,9 +168,116 @@ impl DoltStore {
         if let Some(known) = &self.synced.borrow().heads {
             return known.clone();
         }
-        let asked = tips::remote_heads(&self.repo.git, location).ok();
+        let from_tips = if self.trust_tips.get() {
+            self.heads_from_tips(location)
+        } else {
+            None
+        };
+        let trusted = from_tips.is_some();
+        let asked = from_tips.or_else(|| {
+            // A clone with no record of a fetch has to fetch both refs. One fetch of both
+            // does that, and names their commits, in place of a question and two fetches.
+            if self.has_no_record(location) {
+                match tips::fetch_heads(&self.repo.git, location) {
+                    Ok(heads) => {
+                        self.synced.borrow_mut().brought =
+                            Some((heads.ledger.clone(), heads.docs.clone()));
+                        return Some(heads);
+                    }
+                    // Origin is out of reach: the question fails the same way, so skip it.
+                    Err(tips::FetchFailure::Failed(_)) => return None,
+                    // A ref is missing: the question says which.
+                    Err(tips::FetchFailure::RefMissing) => {}
+                }
+            }
+            tips::remote_heads(&self.repo.git, location).ok()
+        });
         self.synced.borrow_mut().heads = Some(asked.clone());
+        self.synced.borrow_mut().trusted = trusted;
         asked
+    }
+
+    /// True for the first rejection of a push that went on the record of the last fetch.
+    /// It says only that the record was out of date, which the rejected push has found
+    /// out, and the retry fetches. Said aloud it would be a note that an ask to origin
+    /// first would not have printed.
+    fn rejection_is_expected(&self, attempt: usize) -> bool {
+        attempt == 1 && self.synced.borrow().trusted
+    }
+
+    /// True when this clone has no ledger database or no record of a fetch of the ledger
+    /// ref, so the data has to be fetched whatever origin holds.
+    fn has_no_record(&self, location: &LedgerLocation) -> bool {
+        let Some(path) = self.hint() else {
+            return true;
+        };
+        if !is_database(&path) {
+            return true;
+        }
+        self.tips()
+            .and_then(|tips| tips.get(location.remote(), location.ref_name()))
+            .is_none()
+    }
+
+    /// The commit of the ledger ref in the repository: the one a combined fetch brought,
+    /// else the one `git fetch` brings now. `None` when origin lacks the ref.
+    fn ledger_tip_fetched(&self, location: &LedgerLocation) -> Result<Option<String>, String> {
+        match self.take_brought_ledger() {
+            Some(commit) => Ok(Some(commit)),
+            None => fetch_tip(&self.repo.git, location),
+        }
+    }
+
+    /// [`Self::ledger_tip_fetched`] for the documents ref, whose location is `docs`.
+    fn docs_tip_fetched(&self, docs: &LedgerLocation) -> Result<Option<String>, String> {
+        match self.take_brought_docs() {
+            Some(commit) => Ok(Some(commit)),
+            None => fetch_tip(&self.repo.git, docs),
+        }
+    }
+
+    /// The commit the combined fetch brought for the ledger ref, once.
+    fn take_brought_ledger(&self) -> Option<String> {
+        self.synced
+            .borrow_mut()
+            .brought
+            .as_mut()
+            .and_then(|(ledger, _)| ledger.take())
+    }
+
+    /// The commit the combined fetch brought for the documents ref, once.
+    fn take_brought_docs(&self) -> Option<String> {
+        self.synced
+            .borrow_mut()
+            .brought
+            .as_mut()
+            .and_then(|(_, docs)| docs.take())
+    }
+
+    /// The heads the record of the last fetch names, as if origin held them still. `None`
+    /// when the record lacks either ref, or the store's file remote directory is not a
+    /// checkout: origin is asked then. A push of a clone whose record is out of date is
+    /// rejected, and the retry fetches.
+    fn heads_from_tips(&self, location: &LedgerLocation) -> Option<RemoteHeads> {
+        // Only a store on a file remote trusts its record. A store on the older git remote
+        // layout meets a ledger ref that another clone has migrated, and only a question to
+        // origin shows that.
+        let path = self.hint()?;
+        let url = transport::store_url(&path)?;
+        if Transport::of_url(&url) != Transport::FileRemote {
+            return None;
+        }
+        let tips = self.tips()?;
+        let docs = location.docs();
+        let ledger = tips.get(location.remote(), location.ref_name())?;
+        let documents = tips.get(docs.remote(), docs.ref_name())?;
+        if !self.file_checkout_present() {
+            return None;
+        }
+        Some(RemoteHeads {
+            ledger: Some(ledger),
+            docs: Some(documents),
+        })
     }
 
     /// Bring the local Dolt store's copy of origin up to date: nothing when this process
@@ -214,7 +347,7 @@ impl DoltStore {
     /// `git fetch` of the ledger ref, the directory reset to it, then `dolt fetch` from the
     /// directory.
     fn fetch_file_remote(&self, db: &Dolt, location: &LedgerLocation) -> Result<(), String> {
-        let tip = fetch_tip(&self.repo.git, location)?;
+        let tip = self.ledger_tip_fetched(location)?;
         if let Some(commit) = &tip {
             if transport::of_commit(&self.repo.git, commit)? != Transport::FileRemote {
                 return Err(format!(
@@ -239,7 +372,7 @@ impl DoltStore {
         if transport::forced()? == Some(Transport::GitRemote) {
             return Ok(false);
         }
-        let Some(commit) = fetch_tip(&self.repo.git, location)? else {
+        let Some(commit) = self.ledger_tip_fetched(location)? else {
             return Ok(false);
         };
         if transport::of_commit(&self.repo.git, &commit)? != Transport::FileRemote {
@@ -299,7 +432,7 @@ impl DoltStore {
                 _ => {}
             }
         }
-        let tip = fetch_tip(&self.repo.git, &docs)?;
+        let tip = self.docs_tip_fetched(&docs)?;
         self.note_docs_tip(location, tip.as_deref());
         Ok(tip)
     }
@@ -454,7 +587,30 @@ impl DoltStore {
     /// A write in one transaction. The snapshot no longer holds.
     fn write(&self, db: &Dolt, sql: &str) -> Result<(), String> {
         self.forget_snapshot();
+        self.flush_queued(db)?;
         db.exec(sql)
+    }
+
+    /// Make the writes held back for a commit, in the order they were held. A write that
+    /// the database already holds is not made again.
+    fn flush_queued(&self, db: &Dolt) -> Result<(), String> {
+        let queued = std::mem::take(&mut *self.queued.borrow_mut());
+        for write in queued {
+            if db.count(&write.applied_query)? == 0 {
+                db.exec(&write.sql)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// True when the database is known to be at the current layout, from the last check
+    /// of this process.
+    fn layout_is_current(&self, db: &Dolt) -> Result<bool, String> {
+        Ok(self
+            .checked
+            .borrow()
+            .as_ref()
+            .is_some_and(|(dir, version)| dir == db.dir() && *version == dolt::LAYOUT_VERSION))
     }
 
     /// The queries of a snapshot, and how many of them read missions.
@@ -674,8 +830,7 @@ impl DoltStore {
             behind = pending.is_empty() && !dirty && local.as_deref() != Some(remote_head.as_str());
         }
         let version = if behind {
-            db.run(["reset", "--hard", remote_ref.as_str()])?;
-            self.read_tail(db, location, thread_command)?
+            self.reset_and_read_tail(db, location, thread_command, &remote_ref)?
         } else {
             let tail = sets.split_off(tail_at);
             self.finish_tail(db, location, thread_command, tail)?
@@ -684,7 +839,36 @@ impl DoltStore {
             remote_head,
             pending,
             version,
+            dirty,
         }))
+    }
+
+    /// Reset the database to `remote_ref`, then read the tail of the refresh. One process
+    /// does both. When the batch fails, the reset and the reads run one by one, which gives
+    /// the same result or the same error.
+    fn reset_and_read_tail(
+        &self,
+        db: &Dolt,
+        location: &LedgerLocation,
+        thread_command: bool,
+        remote_ref: &str,
+    ) -> Result<i64, String> {
+        let mut queries = vec![format!("call dolt_reset('--hard', {})", lit(remote_ref))];
+        if thread_command {
+            queries.extend(Self::snapshot_queries()?.0);
+        } else {
+            queries.push(MANIFEST_QUERY.to_string());
+        }
+        match db.rows_each(&queries) {
+            Ok(mut sets) => {
+                let tail = sets.split_off(1);
+                self.finish_tail(db, location, thread_command, tail)
+            }
+            Err(_) => {
+                db.run(["reset", "--hard", remote_ref])?;
+                self.read_tail(db, location, thread_command)
+            }
+        }
     }
 
     /// [`Self::read_state`] one query at a time.
@@ -726,6 +910,7 @@ impl DoltStore {
             remote_head,
             pending,
             version,
+            dirty,
         })
     }
 
@@ -852,6 +1037,7 @@ impl DoltStore {
             committed,
             docs_changed,
             message,
+            prefetched,
         } = request;
         self.forget_checked();
         self.forget_snapshot();
@@ -885,10 +1071,21 @@ impl DoltStore {
             // the record of the last fetch says is current. If origin moved since, the push
             // is rejected and the next attempt fetches, after a short random wait so two
             // writers that collided do not collide again.
+            let mut reads_hold = false;
             if attempt == 1 {
+                let fetches = self.synced.borrow().fetched_here;
                 self.sync_data(db, location)?;
+                // The reads the commit's batch made hold when the sync fetched nothing.
+                reads_hold = prefetched.is_some() && self.synced.borrow().fetched_here == fetches;
             } else {
-                std::thread::sleep(transport::retry_wait());
+                // The wait keeps two writers that collided from colliding again. A push
+                // that went on the record of the last fetch and was rejected found the
+                // record out of date, which no other writer is doing at that moment.
+                if !self.rejection_is_expected(attempt - 1) {
+                    std::thread::sleep(transport::retry_wait());
+                }
+                // Origin moved since: what an earlier fetch brought is out of date.
+                self.synced.borrow_mut().brought = None;
                 if self.store_transport(db) == Transport::FileRemote {
                     self.fetch_file_remote(db, location)?;
                 } else {
@@ -901,20 +1098,19 @@ impl DoltStore {
             let file_remote = self.store_transport(db) == Transport::FileRemote;
             // The branch check, the merge base and the remote tip read in one process.
             // When the batch fails (no remote branch yet, say), they read one by one.
-            let flags_query = format!(
-                "select dolt_merge_base('HEAD', {r}) = hashof('HEAD') as head_in_remote, \
-                 dolt_merge_base('HEAD', {r}) = hashof({r}) as remote_in_head",
-                r = lit(&remote_ref)
-            );
-            let batched = db
-                .rows_each(&[
-                    remote_branch_query(),
-                    flags_query.clone(),
-                    hash_query(&remote_ref),
-                    hash_query("HEAD"),
-                ])
-                .ok()
-                .filter(|sets| dolt::first_count(&sets[0]) > 0);
+            let flags_query = flags_query(&remote_ref);
+            let batched = match prefetched.filter(|_| reads_hold) {
+                Some(sets) => Some(sets.to_vec()),
+                None => db
+                    .rows_each(&[
+                        remote_branch_query(),
+                        flags_query.clone(),
+                        hash_query(&remote_ref),
+                        hash_query("HEAD"),
+                    ])
+                    .ok(),
+            }
+            .filter(|sets| dolt::first_count(&sets[0]) > 0);
             // The commit `HEAD` is at, while nothing has moved it.
             let mut head_before = batched
                 .as_ref()
@@ -932,8 +1128,7 @@ impl DoltStore {
                     return Ok(finish(outcome(PushResult::AlreadyOnRemote, tip), notes));
                 }
                 if !remote_in_head {
-                    merge_renumbering(db, &remote_ref, renumbered)?;
-                    head_before = None;
+                    head_before = merge_renumbering(db, &remote_ref, renumbered)?;
                 }
             } else if remote_branch_exists(db)? {
                 let rows = db.rows(&flags_query);
@@ -949,8 +1144,7 @@ impl DoltStore {
                     return Ok(finish(outcome(PushResult::AlreadyOnRemote, tip), notes));
                 }
                 if !remote_in_head {
-                    merge_renumbering(db, &remote_ref, renumbered)?;
-                    head_before = None;
+                    head_before = merge_renumbering(db, &remote_ref, renumbered)?;
                 }
             }
 
@@ -983,7 +1177,7 @@ impl DoltStore {
                         ));
                     }
                     Published::Rejected(summary) => {
-                        if attempt < MAX_ATTEMPTS {
+                        if attempt < MAX_ATTEMPTS && !self.rejection_is_expected(attempt) {
                             notes(&crate::ledger::retry_note(
                                 attempt,
                                 &PushStatus { flag: '!', summary },
@@ -1019,7 +1213,7 @@ impl DoltStore {
             if !stale {
                 return Err(dolt::failure_message(&args, &pushed));
             }
-            if attempt < MAX_ATTEMPTS {
+            if attempt < MAX_ATTEMPTS && !self.rejection_is_expected(attempt) {
                 notes(&crate::ledger::retry_note(
                     attempt,
                     &PushStatus {
@@ -1038,6 +1232,19 @@ impl DoltStore {
             path.display()
         ))
     }
+}
+
+/// The statement that appends a line to a thread's continuation log. The next number is
+/// worked out inside the write, so the read and the write cannot be separated by another
+/// writer.
+fn continuation_insert(id: &str, line: &str) -> String {
+    format!(
+        "insert into continuation_entries (thread_id, seq, entry) \
+         select {t}, coalesce(max(seq), 0) + 1, {e} \
+         from continuation_entries where thread_id = {t};",
+        t = lit(id),
+        e = lit(line)
+    )
 }
 
 /// The bare repository Dolt keeps for the database's `origin` remote: the one under
@@ -1325,6 +1532,33 @@ fn pending_from_rows(rows: &[serde_json::Value]) -> Vec<String> {
         .collect()
 }
 
+/// Whether `HEAD` is in the remote branch and the remote branch is in `HEAD`.
+fn flags_query(remote_ref: &str) -> String {
+    format!(
+        "select dolt_merge_base('HEAD', {r}) = hashof('HEAD') as head_in_remote, \
+         dolt_merge_base('HEAD', {r}) = hashof({r}) as remote_in_head",
+        r = lit(remote_ref)
+    )
+}
+
+/// The four reads that open an attempt of the push: whether the remote branch exists, how
+/// it stands against `HEAD`, the commit it is at and the commit `HEAD` is at. The two about
+/// the remote branch name it in a `where` clause on `dolt_remote_branches`, so a database
+/// with no remote branch answers them with no rows instead of failing.
+fn push_reads() -> [String; 4] {
+    let remote_ref = format!("{}/{}", REMOTE, BRANCH);
+    let guard = format!(
+        " from dolt_remote_branches where name = {}",
+        lit(REMOTE_BRANCH_NAME)
+    );
+    [
+        remote_branch_query(),
+        format!("{}{}", flags_query(&remote_ref), guard),
+        format!("select hash as h{}", guard),
+        hash_query("HEAD"),
+    ]
+}
+
 fn remote_branch_query() -> String {
     format!(
         "select count(*) as c from dolt_remote_branches where name = {}",
@@ -1550,6 +1784,35 @@ impl DoltStore {
             ));
         }
 
+        // A clone with a record of the last fetch asks origin, and reads its database in
+        // the same breath: the question waits for the network, and the reads wait for
+        // nothing, so they run meanwhile. The reads hold when origin has nothing new. When
+        // it has, they still say whether the working set holds changes.
+        let mut speculated: Option<DataState> = None;
+        let speculate = present
+            && !self.trust_tips.get()
+            && self.synced.borrow().heads.is_none()
+            && !self.has_no_record(&location)
+            && self.file_checkout_present();
+        if speculate {
+            let git = self.repo.git.clone();
+            let asking = location.clone();
+            let (asked, read) = std::thread::scope(|scope| {
+                let ask = scope.spawn(|| tips::remote_heads(&git, &asking).ok());
+                let read = self.read_state(
+                    &Dolt::new(&path),
+                    &location,
+                    true,
+                    Some((url.as_str(), path.as_path())),
+                    false,
+                    keep_local,
+                );
+                (ask.join().ok().flatten(), read)
+            });
+            self.synced.borrow_mut().heads = Some(asked);
+            speculated = read.ok().flatten();
+        }
+
         // One question to origin names the ledger ref and the documents ref. When it cannot
         // be asked, the ledger ref is asked alone, which reports the failure as before.
         let ledger_tip = match self.heads(&location) {
@@ -1594,26 +1857,33 @@ impl DoltStore {
             // then the reads. When a batch fails, the reads go one by one, which gives the
             // same result or error.
             let mut found = None;
+            let speculated_dirty = speculated.as_ref().map(|state| state.dirty);
             if self.data_is_current(&location) {
-                found = self.read_state(
-                    &db,
-                    &location,
-                    true,
-                    Some((url.as_str(), path.as_path())),
-                    false,
-                    keep_local,
-                )?;
+                found = match speculated.take() {
+                    Some(state) => Some(state),
+                    None => self.read_state(
+                        &db,
+                        &location,
+                        true,
+                        Some((url.as_str(), path.as_path())),
+                        false,
+                        keep_local,
+                    )?,
+                };
             }
             if found.is_none() {
-                let dirty = match db.rows_each(&[remote_query(), DIRTY_QUERY.to_string()]) {
-                    Ok(sets) => {
-                        verify_remote_rows(&db, &sets[0], &url, &location)?;
-                        dolt::first_count(&sets[1]) > 0
-                    }
-                    Err(_) => {
-                        verify_remote(&db, &url, &location)?;
-                        db.count(DIRTY_QUERY)? > 0
-                    }
+                let dirty = match speculated_dirty {
+                    Some(dirty) => dirty,
+                    None => match db.rows_each(&[remote_query(), DIRTY_QUERY.to_string()]) {
+                        Ok(sets) => {
+                            verify_remote_rows(&db, &sets[0], &url, &location)?;
+                            dolt::first_count(&sets[1]) > 0
+                        }
+                        Err(_) => {
+                            verify_remote(&db, &url, &location)?;
+                            db.count(DIRTY_QUERY)? > 0
+                        }
+                    },
                 };
                 if dirty && !keep_local {
                     return Err(dirty_error(&path));
@@ -1667,6 +1937,7 @@ impl DoltStore {
             remote_head,
             pending,
             version,
+            ..
         } = state;
         let pending_note = (!pending.is_empty()).then(|| {
             let mut note = format!(
@@ -1872,26 +2143,49 @@ impl LedgerStore for DoltStore {
         // what is staged, in one process. When that fails (a ledger below the layout that
         // has the link table, say), the steps run in two processes, and when that fails
         // they run one by one. Each gives the same result or the same error.
+        //
+        // Writes a command held back (see `continuation_append_deferred`) go first in the
+        // same process. When the push would not fetch first, the reads that open its first
+        // attempt follow the commit, so the push does not start a process for them.
         self.forget_snapshot();
+        let queued = std::mem::take(&mut *self.queued.borrow_mut());
+        let writes: Vec<String> = queued.iter().map(|write| write.sql.clone()).collect();
         let staged_query = "select count(*) as c from dolt_status where staged = 1";
         let links_query = "select path from mission_documents";
-        let all_in_one = db.rows_each(&[
+        let mut queries = vec![
             "call dolt_add('-A')".to_string(),
             staged_query.to_string(),
             links_query.to_string(),
             format!("call dolt_commit('--skip-empty', '-m', {})", lit(message)),
-        ]);
+        ];
+        let reads_ride = self.data_is_current(&location);
+        if reads_ride {
+            queries.extend(push_reads());
+        }
+        let all_in_one = db.rows_each_after(&writes, &queries);
+        let mut prefetched = None;
         let (committed, links) = match all_in_one {
-            Ok(sets) => (
-                dolt::first_count(&sets[1]) > 0,
-                Some(
-                    sets[2]
-                        .iter()
-                        .filter_map(|row| text(row, "path"))
-                        .collect::<Vec<_>>(),
-                ),
-            ),
+            Ok(mut sets) => {
+                if reads_ride {
+                    prefetched = Some(sets.split_off(4));
+                }
+                (
+                    dolt::first_count(&sets[1]) > 0,
+                    Some(
+                        sets[2]
+                            .iter()
+                            .filter_map(|row| text(row, "path"))
+                            .collect::<Vec<_>>(),
+                    ),
+                )
+            }
             Err(_) => {
+                // The batch stopped somewhere. The held back writes may have been made.
+                for write in &queued {
+                    if db.count(&write.applied_query)? == 0 {
+                        db.exec(&write.sql)?;
+                    }
+                }
                 let staged = match db
                     .rows_each(&["call dolt_add('-A')".to_string(), staged_query.to_string()])
                 {
@@ -1919,7 +2213,9 @@ impl LedgerStore for DoltStore {
         // on the remote sends nothing.
         let docs_outcome = {
             let mut on_retry = |attempt: usize, status: &PushStatus| {
-                notes(&crate::ledger::retry_note(attempt, status))
+                if !self.rejection_is_expected(attempt) {
+                    notes(&crate::ledger::retry_note(attempt, status))
+                }
             };
             // The tip the refresh of this command fetched, else the one the record of the
             // last fetch names. The push carries it as its lease.
@@ -1959,6 +2255,7 @@ impl LedgerStore for DoltStore {
             committed,
             docs_changed,
             message,
+            prefetched: prefetched.as_deref(),
         };
         let mut report = self.push_data(&location, &db, request, notes)?;
         if docs_changed {
@@ -2157,18 +2454,42 @@ impl LedgerStore for DoltStore {
                 self.describe_thread(id)
             ));
         }
-        // The next number is worked out inside the write, so the read and the write cannot
-        // be separated by another writer.
-        self.write(
-            &db,
-            &format!(
-                "insert into continuation_entries (thread_id, seq, entry) \
-                 select {t}, coalesce(max(seq), 0) + 1, {e} \
-                 from continuation_entries where thread_id = {t};",
-                t = lit(id),
-                e = lit(line)
-            ),
-        )
+        self.write(&db, &continuation_insert(id, line))
+    }
+
+    fn continuation_append_deferred(&self, id: &str, line: &str) -> Result<(), String> {
+        let db = self.db()?;
+        if !self.thread_exists(id)? {
+            return Err(format!(
+                "error: no such thread: {} (expected {})",
+                id,
+                self.describe_thread(id)
+            ));
+        }
+        // Held back only where the batch of the commit can carry it: a ledger at the
+        // current layout, whose tables the batch reads. Any other ledger writes now.
+        if self.layout_is_current(&db)? {
+            self.forget_snapshot();
+            self.queued.borrow_mut().push(QueuedWrite {
+                sql: continuation_insert(id, line),
+                applied_query: format!(
+                    "select count(*) as c from continuation_entries where thread_id = {} and entry = {}",
+                    lit(id),
+                    lit(line)
+                ),
+            });
+            return Ok(());
+        }
+        self.write(&db, &continuation_insert(id, line))
+    }
+
+    fn trust_last_fetch(&self) {
+        self.trust_tips.set(true);
+    }
+
+    fn distrust_last_fetch(&self) {
+        self.trust_tips.set(false);
+        *self.synced.borrow_mut() = Synced::default();
     }
 
     fn continuation_list(&self, id: &str) -> Result<Vec<String>, String> {
@@ -2507,7 +2828,7 @@ impl DoltStore {
     /// A fresh clone meets the ledger ref: which transport it holds, and its commit. A ref
     /// that holds a file ledger stops with the way out.
     fn remote_kind(&self, location: &LedgerLocation) -> Result<(Transport, String), String> {
-        let Some(commit) = fetch_tip(&self.repo.git, location)? else {
+        let Some(commit) = self.ledger_tip_fetched(location)? else {
             return Err(format!(
                 "error: {} on {} has no commit",
                 location.ref_name(),
@@ -3089,11 +3410,14 @@ fn edited_rows(db: &Dolt, base: &str, table: &str) -> Result<i64, String> {
 /// Merge the remote branch into the local one, after the local rows that collide with
 /// rows the remote added have taken new numbers (see [`renumber`]). When the merge fails,
 /// the renumbering commit is dropped too, so the local branch stays as it was.
+///
+/// Returns the commit `HEAD` is at after a merge with no renumbering, which the check for
+/// conflicts read in the same process; `None` when a renumbering followed the merge.
 fn merge_renumbering(
     db: &Dolt,
     remote_ref: &str,
     renumbered: &mut Vec<Renumbered>,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let kept = renumbered.len();
     let Some(prepared) = renumber::prepare(db, remote_ref, renumbered)? else {
         return merge_remote(db, remote_ref, None);
@@ -3106,25 +3430,42 @@ fn merge_renumbering(
             Err(undo) => format!("{}\n{}", error, undo),
         });
     }
-    Ok(())
+    Ok(None)
 }
 
 /// Merge the remote branch into the local one. A conflict aborts the merge and fails;
 /// the local commit stays. `dolt pull` exits 0 on a conflict, so the tables are read.
 /// `fixup` is SQL to run on the merged rows before the merge commit, which is then made
 /// with that SQL in it.
-fn merge_remote(db: &Dolt, remote_ref: &str, fixup: Option<&str>) -> Result<(), String> {
+///
+/// The tables are read, and `HEAD`, in one process. A merge with no `fixup` returns the
+/// commit `HEAD` is at.
+fn merge_remote(
+    db: &Dolt,
+    remote_ref: &str,
+    fixup: Option<&str>,
+) -> Result<Option<String>, String> {
     let (args, output) = if fixup.is_some() {
         db.output(["merge", "--no-commit", remote_ref])?
     } else {
         db.output(["merge", remote_ref])?
     };
+    let queries = [
+        "select `table` as t from dolt_conflicts".to_string(),
+        "select `table` as t from dolt_constraint_violations".to_string(),
+        hash_query("HEAD"),
+    ];
+    let mut head = None;
+    let sets = match db.rows_each(&queries) {
+        Ok(mut sets) => {
+            head = sets.remove(2).first().and_then(|row| text(row, "h"));
+            sets
+        }
+        Err(_) => vec![db.rows(&queries[0])?, db.rows(&queries[1])?],
+    };
     let mut tables = Vec::new();
-    for query in [
-        "select `table` as t from dolt_conflicts",
-        "select `table` as t from dolt_constraint_violations",
-    ] {
-        for row in db.rows(query)? {
+    for rows in sets {
+        for row in rows {
             if let Some(table) = text(&row, "t") {
                 if !tables.contains(&table) {
                     tables.push(table);
@@ -3162,8 +3503,9 @@ fn merge_remote(db: &Dolt, remote_ref: &str, fixup: Option<&str>) -> Result<(), 
             let _ = db.output(["merge", "--abort"])?;
             return Err(error);
         }
+        return Ok(None);
     }
-    Ok(())
+    Ok(head)
 }
 
 #[cfg(test)]

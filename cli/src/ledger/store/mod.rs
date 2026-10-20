@@ -154,6 +154,16 @@ pub trait LedgerStore {
         notes: &mut dyn FnMut(&str),
     ) -> Result<PushReport, String>;
 
+    /// Ask the store not to question origin first. A refresh or a push that would begin by
+    /// asking origin what it holds takes the record of the last fetch for the answer, when
+    /// the clone has one. A push of a clone whose record is out of date is rejected, and
+    /// its retry fetches. A store that keeps no such record ignores this. Meant for a
+    /// command that writes a row of its own and does not depend on the latest rows of others.
+    fn trust_last_fetch(&self) {}
+
+    /// Undo [`trust_last_fetch`](LedgerStore::trust_last_fetch): the next refresh asks origin.
+    fn distrust_last_fetch(&self) {}
+
     /// The identifier of the local state, written into continuation entries as
     /// `git.ledger.commit`.
     fn head_id(&self) -> Result<String, String>;
@@ -205,6 +215,13 @@ pub trait LedgerStore {
 
     /// Append one JSON line (no trailing newline) to a thread's continuation log.
     fn continuation_append(&self, id: &str, line: &str) -> Result<(), String>;
+    /// [`continuation_append`](LedgerStore::continuation_append), except that the write may
+    /// be held back and made by the next [`commit_and_push`](LedgerStore::commit_and_push),
+    /// in the same process as its commit. A read in between does not see the line. A store
+    /// that holds nothing back writes it now.
+    fn continuation_append_deferred(&self, id: &str, line: &str) -> Result<(), String> {
+        self.continuation_append(id, line)
+    }
     /// The stored lines of a thread's continuation log, oldest first, blank lines
     /// skipped. Empty for a thread with no log.
     fn continuation_list(&self, id: &str) -> Result<Vec<String>, String>;
