@@ -14,10 +14,11 @@ suggest an automated trigger for it.
 1. **Resolve the current thread ID.** Run:
 
    ```bash
-   tsk thread binding
+   tsk thread binding --no-fetch
    ```
 
-   This prints `cloud:<thread-id>` or `worktree:<thread-id>`. If it exits 1
+   This prints `cloud:<thread-id>` or `worktree:<thread-id>`, read from the ledger store
+   with no network call. The pause that follows checks the thread. If it exits 1
    (no binding), there is no thread to pause. Say so and stop. Do not start
    one implicitly.
 
@@ -56,8 +57,8 @@ suggest an automated trigger for it.
    git status --porcelain
    git branch -r --contains HEAD
 
-   # ledger: shows records and documents not pushed, then pushes them
-   tsk ledger status
+   # ledger: shows records and documents not pushed (no network call), then pushes them
+   tsk ledger status --local
    tsk ledger push "Flush ledger before clear"
    ```
 

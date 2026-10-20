@@ -9,12 +9,36 @@ set -uo pipefail
 
 DOLT_VERSION="2.5.0"
 
+# Starting dolt costs 60 to 300 ms, and a session start would start it three times (the
+# version, the user name, the user email), in each of two hooks. So a check that passed is
+# recorded in a stamp file, and later runs trust it while the dolt binary is no newer than
+# the stamp. Replacing the binary makes it newer, which checks again.
+STAMP="${XDG_STATE_HOME:-${HOME:-/nonexistent}/.local/state}/tsk/dolt-version-ok"
+
 installed_is_current() {
-  local installed
-  command -v dolt >/dev/null 2>&1 || return 1
+  local installed bin
+  bin="$(command -v dolt 2>/dev/null)" || return 1
+  if [ -f "$STAMP" ] && [ ! "$bin" -nt "$STAMP" ] &&
+    [ "$(cat "$STAMP" 2>/dev/null)" = "$DOLT_VERSION $bin" ]; then
+    return 0
+  fi
   installed="$(dolt version 2>/dev/null | sed -n 's/^dolt version \([0-9][0-9.]*\).*/\1/p' | head -n 1)"
-  [ -n "$installed" ] &&
-    [ "$(printf '%s\n%s\n' "$DOLT_VERSION" "$installed" | sort -V | head -n 1)" = "$DOLT_VERSION" ]
+  if [ -n "$installed" ] &&
+    [ "$(printf '%s\n%s\n' "$DOLT_VERSION" "$installed" | sort -V | head -n 1)" = "$DOLT_VERSION" ]; then
+    mkdir -p "$(dirname "$STAMP")" 2>/dev/null &&
+      printf '%s %s\n' "$DOLT_VERSION" "$bin" >"$STAMP" 2>/dev/null
+    return 0
+  fi
+  return 1
+}
+
+# True when dolt's global configuration file names a non-empty value for the key $1
+# (user.name, user.email). The file is .dolt/config_global.json under DOLT_ROOT_PATH, or
+# under HOME when that is unset. Reading it saves a dolt process. A file that is absent
+# says no, and dolt answers.
+identity_in_file() {
+  local file="${DOLT_ROOT_PATH:-${HOME:-/nonexistent}}/.dolt/config_global.json"
+  [ -f "$file" ] && grep -Eq "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"[:space:]][^\"]*\"" "$file"
 }
 
 warn() {
@@ -77,11 +101,13 @@ if ! installed_is_current; then
 fi
 
 if command -v dolt >/dev/null 2>&1; then
-  if [ -z "$(dolt config --global --get user.name 2>/dev/null)" ]; then
+  if ! identity_in_file user.name &&
+    [ -z "$(dolt config --global --get user.name 2>/dev/null)" ]; then
     dolt config --global --add user.name tsk >/dev/null 2>&1 ||
       warn "setting the dolt user.name failed. Run \`dolt config --global --add user.name tsk\`."
   fi
-  if [ -z "$(dolt config --global --get user.email 2>/dev/null)" ]; then
+  if ! identity_in_file user.email &&
+    [ -z "$(dolt config --global --get user.email 2>/dev/null)" ]; then
     dolt config --global --add user.email tsk@localhost >/dev/null 2>&1 ||
       warn "setting the dolt user.email failed. Run \`dolt config --global --add user.email tsk@localhost\`."
   fi

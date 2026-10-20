@@ -813,8 +813,10 @@ fn push_retries_when_a_concurrent_writer_lands_between_fetch_and_push() {
     let output = fx.push("Local change");
 
     assert_success(&output);
+    // A push goes on the record of the last fetch, so the first rejection only shows the
+    // record was old. It is not said aloud, and the retry merges.
     assert!(
-        stderr(&output).contains("push rejected (attempt 1/10)"),
+        !stderr(&output).contains("push rejected"),
         "{}",
         stderr(&output)
     );

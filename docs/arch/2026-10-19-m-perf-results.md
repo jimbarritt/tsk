@@ -115,6 +115,13 @@ local origin, then 330 ms per operation.
 | Stop hook, every turn | 0.15 s | 0.13 s. Met. |
 | List threads | 0.3 s as a local read | 0.29 s local, 0.65 s at 330 ms. It still asks origin. |
 
+Update for 0.22.0 (`2026-10-20-session-start-and-pause.md`), at 330 ms per operation on a
+machine with a load average of 9 to 10: a pause 0.88 s (1.42 s with the 0.21.0 binary in
+the same run), a push with a change 0.82 s (1.24 s), a push with nothing 0.27 s (0.70 s),
+a resume 0.46 s (0.61 s), a session start 0.39 s with nothing new, 1.16 s when origin moved
+and 0.88 s in a new clone (1.55 s). The pause and publish budgets are met. A pause after
+another clone pushed is 2.4 s and is not.
+
 ## Output comparison
 
 `compare.py` ran one script of 90 commands against the old and the new binary,

@@ -153,6 +153,10 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             Ok(())
         }
         LedgerCommands::Push { message } => {
+            // A push does not ask origin first. The record of the last fetch stands in for
+            // what origin holds, and a push that finds origin moved is rejected and
+            // retried after a fetch.
+            store.trust_last_fetch();
             let report = push_reporting(store.as_ref(), &message)?;
             println!("{}", report.head);
             Ok(())
