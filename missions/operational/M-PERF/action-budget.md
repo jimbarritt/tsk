@@ -27,3 +27,14 @@ Current times: 0.15.1, wall time. "Local" means a scratch copy of the real ledge
 - The local write is already about 0.2 s. A task marked done costs 2 s or more only when the agent publishes straight after, because a push fetches twice and pushes twice.
 - Every command in the "needs origin" column pays the network. Two of them, `status` and `thread list`, need it only to compare with origin, and can read local state.
 - The write-then-push rows are where the budget fails today. The task M-PERF T-08 (push less often, off the critical path) and T-01 to T-03 (fewer fetches) are what close it.
+
+## Priority: the two latency-critical actions
+
+Decided by Jim on 2026-10-20. Starting a new session and pausing a thread are the two most latency-sensitive actions. Both run at the edge of the agent's work, where the delay is felt. Jim's existing plan skills are slow at session start and he wants it faster.
+
+| Action | Budget | Why it comes first |
+|---|---|---|
+| Start a session | 1.5 s, hook to first prompt, with the skills in place | Paid every session, before any work starts. |
+| Pause a thread | 1 s | Paid at every stop. Only the first publish of work in progress pays the network. |
+
+Every design choice in M-PERF is judged first by what it does to these two rows. M-PERF T-15 measures them on the live origin and cuts what is slow.
