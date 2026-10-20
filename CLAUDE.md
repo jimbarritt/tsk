@@ -69,6 +69,11 @@ the same command. The binary claims each event by session ID and source, so the 
 run exits with no output. The command fetches the ledger, refreshes the ledger store,
 exports its path as `$TSK_LEDGER_WT`, and prints the thread binding prompt.
 
+The plugin steps take about 4 s for each plugin, so the script runs them in the
+background while `tsk` starts, and skips them for 60 minutes after a run with no warning
+(`TSK_PLUGIN_ENSURE_MINUTES=0` runs them at every start). A new plugin version is picked up
+within that time. See `docs/arch/2026-10-20-session-start-and-pause.md`.
+
 The repo script runs the command itself because Claude Code reads plugin hooks and
 skills once, when its process starts. A plugin installed during startup has no hooks in
 that process, and `/clear` starts a new session in the same process without reading them

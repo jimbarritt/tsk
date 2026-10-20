@@ -141,16 +141,22 @@ fn checked_mission(store: &dyn LedgerStore, mission_id: &str) -> Result<Option<S
 /// Mint a thread and bind this session or worktree to it. With a mission ID the thread
 /// works that mission (an unknown ID is refused). With none the thread has no mission.
 pub fn start(session: &Session, mission_id: Option<&str>) -> Result<StartOutcome, String> {
-    session.refresh()?;
     let store = session.store.as_ref();
-    if let Some(binding) = resolve(session)? {
-        return Ok(StartOutcome::ResumeRequired(
-            binding.thread_id().to_string(),
-        ));
-    }
-    let briefing = match mission_id {
-        Some(mission_id) => checked_mission(store, mission_id)?,
-        None => None,
+    // A start mints a thread of its own. It does not ask origin first: the record of the
+    // last fetch stands in for what origin holds, and a push that finds origin moved is
+    // rejected and retried after a fetch. When the checks fail on that older view, they
+    // run again on a fresh one, so an error is always about what origin holds.
+    store.trust_last_fetch();
+    let checked = match checked_start(session, mission_id) {
+        Ok(checked) => checked,
+        Err(_) => {
+            store.distrust_last_fetch();
+            checked_start(session, mission_id)?
+        }
+    };
+    let briefing = match checked {
+        Started::Bound(id) => return Ok(StartOutcome::ResumeRequired(id)),
+        Started::Free(briefing) => briefing,
     };
     let id = mint_id(
         &store.describe_threads(),
@@ -165,6 +171,28 @@ pub fn start(session: &Session, mission_id: Option<&str>) -> Result<StartOutcome
         None => format!("Start thread {} with no mission", id),
     })?;
     Ok(StartOutcome::Started(id))
+}
+
+/// What the checks of a start found.
+enum Started {
+    /// This session or worktree is bound to the thread already.
+    Bound(String),
+    /// Free to start, with the briefing path of a mission that has no record.
+    Free(Option<String>),
+}
+
+/// The refresh of a start, then its checks: no binding yet, and a mission that exists.
+fn checked_start(session: &Session, mission_id: Option<&str>) -> Result<Started, String> {
+    session.refresh()?;
+    let store = session.store.as_ref();
+    if let Some(binding) = resolve(session)? {
+        return Ok(Started::Bound(binding.thread_id().to_string()));
+    }
+    let briefing = match mission_id {
+        Some(mission_id) => checked_mission(store, mission_id)?,
+        None => None,
+    };
+    Ok(Started::Free(briefing))
 }
 
 /// What `tsk thread set mission` did: the thread, and the mission it now works.
@@ -249,18 +277,20 @@ fn checked_task(
 
 pub fn pause(session: &Session, id: &str, task_id: &str, whats_next: &str) -> Result<(), String> {
     check_thread_id(id)?;
-    session.refresh()?;
     let store = session.store.as_ref();
-    if !store.thread_exists(id)? {
-        return Err(format!(
-            "error: no such thread: {} (expected {})",
-            id,
-            store.describe_thread(id)
-        ));
-    }
-    let info = store.thread_info(id)?;
+    // A pause writes a row of its own. It does not ask origin first: the record of the last
+    // fetch stands in for what origin holds, and a push that finds origin moved is rejected
+    // and retried after a fetch. When the checks below fail on that older view, they run
+    // again on a fresh one, so an error is always about what origin holds.
+    store.trust_last_fetch();
+    let (info, task_id) = match checked_pause(session, id, task_id) {
+        Ok(checked) => checked,
+        Err(_) => {
+            store.distrust_last_fetch();
+            checked_pause(session, id, task_id)?
+        }
+    };
     let mission_id = thread_mission(&info);
-    let task_id = checked_task(&store.missions_load()?, id, mission_id.as_deref(), task_id)?;
     let ledger_commit = store.head_id()?;
     let code_git = &session.repo.git;
     let code_ref = current_branch_ref(code_git)?;
@@ -268,7 +298,8 @@ pub fn pause(session: &Session, id: &str, task_id: &str, whats_next: &str) -> Re
     ensure_on_an_origin_branch(code_git, &code_ref, &code_commit)?;
     let timestamp = utc_now();
     let written_by = session.written_by()?;
-    store.continuation_append(
+    // The write is made with the commit of the push, in one process.
+    store.continuation_append_deferred(
         id,
         &NewEntry {
             mission_id: mission_id.as_deref(),
@@ -290,6 +321,28 @@ pub fn pause(session: &Session, id: &str, task_id: &str, whats_next: &str) -> Re
         .to_json(),
     )?;
     session.push(&format!("Pause thread {}: {}", id, task_id))
+}
+
+/// The refresh of a pause, then the checks of the thread and the task against it: what the
+/// thread stores, and the task to record.
+fn checked_pause(
+    session: &Session,
+    id: &str,
+    task_id: &str,
+) -> Result<(ThreadInfo, String), String> {
+    session.refresh()?;
+    let store = session.store.as_ref();
+    if !store.thread_exists(id)? {
+        return Err(format!(
+            "error: no such thread: {} (expected {})",
+            id,
+            store.describe_thread(id)
+        ));
+    }
+    let info = store.thread_info(id)?;
+    let mission_id = thread_mission(&info);
+    let task_id = checked_task(&store.missions_load()?, id, mission_id.as_deref(), task_id)?;
+    Ok((info, task_id))
 }
 
 const BRANCH_PREFIX: &str = "refs/heads/";
