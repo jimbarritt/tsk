@@ -5,7 +5,8 @@ use super::git::{failure_message, split_nul, Git};
 use super::location::{LedgerLocation, Repo};
 use super::refs::{is_server_refusal, refused_push, LedgerRefs};
 
-pub const MAX_ATTEMPTS: usize = 5;
+/// How often a push tries again after origin moved between its fetch and its push.
+pub const MAX_ATTEMPTS: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PushResult {
@@ -64,6 +65,7 @@ pub fn push_worktree(
 
     for attempt in 1..=MAX_ATTEMPTS {
         if attempt > 1 {
+            std::thread::sleep(super::transport::retry_wait());
             tip = fetch_tip(&wt, &location)?;
         }
 

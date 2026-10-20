@@ -23,6 +23,7 @@ use crate::ledger::manifest::{self, ManifestInfo, DOLT_SUPPORTED_VERSIONS};
 use crate::ledger::push::{PushOutcome, PushResult, PushStatus, MAX_ATTEMPTS};
 use crate::ledger::status::{self, Change, ChangeKind, LedgerStatus, RemoteState, SideStatus};
 use crate::ledger::tips::{self, RemoteHeads, Tips};
+use crate::ledger::transport::{self, Published, Transport};
 use crate::mission::model::{
     self, Category, Decision, Document, Item, Mission, Outcome, Question, QuestionStatus, Role,
     Status, Task,
@@ -53,6 +54,16 @@ pub struct DoltStore {
     read_ahead: Cell<bool>,
     /// A snapshot could not be loaded, so the reads go one by one until the next write.
     no_snapshot: Cell<bool>,
+}
+
+/// What a push of the Dolt data needs to know from `commit_and_push`: whether it committed
+/// local changes first, whether the documents already moved in this push, and the message
+/// for the commit of a file remote directory.
+#[derive(Clone, Copy)]
+struct PushRequest<'a> {
+    committed: bool,
+    docs_changed: bool,
+    message: &'a str,
 }
 
 /// A thread of the `threads` table.
@@ -152,6 +163,9 @@ impl DoltStore {
         if self.synced.borrow().data {
             return true;
         }
+        if !self.file_checkout_present() {
+            return false;
+        }
         let Some(wanted) = self.heads(location).and_then(|heads| heads.ledger) else {
             return false;
         };
@@ -161,12 +175,87 @@ impl DoltStore {
             == Some(wanted.as_str())
     }
 
-    /// `dolt fetch`, and the record of what it brought.
+    /// Bring the store's copy of origin up to date, and record what that brought. A store
+    /// on a file remote runs `git fetch` and resets the directory first, then `dolt
+    /// fetch` reads the directory. A store on a git remote runs `dolt fetch`, which starts
+    /// git itself, unless origin now holds a file remote: the store then moves to it.
     fn fetch_data(&self, db: &Dolt, location: &LedgerLocation) -> Result<(), String> {
+        if self.store_transport(db) == Transport::FileRemote {
+            return self.fetch_file_remote(db, location);
+        }
+        if self.reroot(db, location)? {
+            return Ok(());
+        }
         let wanted = self.heads(location).and_then(|heads| heads.ledger);
         db.run(["fetch", REMOTE])?;
         self.note_data_fetched(location, wanted.as_deref());
         Ok(())
+    }
+
+    /// The transport this clone's store uses, from the URL of its `origin` remote.
+    fn store_transport(&self, db: &Dolt) -> Transport {
+        transport::store_url(db.dir()).map_or(Transport::GitRemote, |url| Transport::of_url(&url))
+    }
+
+    /// False when the store uses a file remote and its directory is not a checkout. The
+    /// record of the last fetch cannot be trusted then.
+    fn file_checkout_present(&self) -> bool {
+        let Some(path) = self.hint() else {
+            return true;
+        };
+        match transport::store_url(&path) {
+            Some(url) if Transport::of_url(&url) == Transport::FileRemote => {
+                transport::remote_dir_beside(&path).join(".git").exists()
+            }
+            _ => true,
+        }
+    }
+
+    /// `git fetch` of the ledger ref, the directory reset to it, then `dolt fetch` from the
+    /// directory.
+    fn fetch_file_remote(&self, db: &Dolt, location: &LedgerLocation) -> Result<(), String> {
+        let tip = fetch_tip(&self.repo.git, location)?;
+        if let Some(commit) = &tip {
+            if transport::of_commit(&self.repo.git, commit)? != Transport::FileRemote {
+                return Err(format!(
+                    "error: {} on {} holds the git-remote layout, and this ledger store uses a file remote.\n       \
+                     Move the store aside and run tsk ledger fetch again",
+                    location.ref_name(),
+                    location.label()
+                ));
+            }
+            transport::sync_checkout(&self.repo, &transport::remote_dir_beside(db.dir()), commit)?;
+            db.run(["fetch", REMOTE])?;
+        }
+        self.note_data_fetched(location, tip.as_deref());
+        Ok(())
+    }
+
+    /// A store on a git remote meets a ledger ref that now holds a file remote (another
+    /// clone ran `tsk ledger migrate-transport`). The store keeps its commits, local ones
+    /// included, and points its `origin` at the directory. Returns whether it did, and
+    /// then the data is fetched. `TSK_LEDGER_TRANSPORT=git-remote` turns the check off.
+    fn reroot(&self, db: &Dolt, location: &LedgerLocation) -> Result<bool, String> {
+        if transport::forced()? == Some(Transport::GitRemote) {
+            return Ok(false);
+        }
+        let Some(commit) = fetch_tip(&self.repo.git, location)? else {
+            return Ok(false);
+        };
+        if transport::of_commit(&self.repo.git, &commit)? != Transport::FileRemote {
+            return Ok(false);
+        }
+        let dir = transport::remote_dir_beside(db.dir());
+        transport::sync_checkout(&self.repo, &dir, &commit)?;
+        transport::point_store_at_file_remote(db, &dir, location.ref_name())?;
+        db.run(["fetch", REMOTE])?;
+        self.note_data_fetched(location, Some(&commit));
+        eprintln!(
+            "note: {} on {} holds a Dolt file remote now; this ledger store moved to it",
+            location.ref_name(),
+            location.label()
+        );
+        Ok(true)
     }
 
     /// Record that the local Dolt store holds origin's data as of `head`, the commit the
@@ -233,6 +322,23 @@ impl DoltStore {
         let pushed = pushed_commit(db, location);
         if let Some(tips) = self.tips() {
             tips.set(location.remote(), location.ref_name(), pushed.as_deref());
+        }
+    }
+
+    /// After a publish of the file remote: origin holds `commit`, which the directory and
+    /// the store both have.
+    fn note_file_published(&self, location: &LedgerLocation, commit: &str) {
+        self.synced.borrow_mut().data = false;
+        if let Some(tips) = self.tips() {
+            tips.set(location.remote(), location.ref_name(), Some(commit));
+        }
+    }
+
+    /// Forget the commit the last fetch recorded, before a push changes the directory.
+    fn forget_data_tip(&self, location: &LedgerLocation) {
+        self.synced.borrow_mut().data = false;
+        if let Some(tips) = self.tips() {
+            tips.set(location.remote(), location.ref_name(), None);
         }
     }
 
@@ -711,19 +817,11 @@ impl DoltStore {
         &self,
         location: &LedgerLocation,
         db: &Dolt,
-        committed: bool,
-        docs_changed: bool,
+        request: PushRequest<'_>,
         notes: &mut dyn FnMut(&str),
     ) -> Result<PushReport, String> {
         let mut renumbered = Vec::new();
-        let result = self.push_data_renumbering(
-            location,
-            db,
-            committed,
-            docs_changed,
-            notes,
-            &mut renumbered,
-        );
+        let result = self.push_data_renumbering(location, db, request, notes, &mut renumbered);
         let lines: Vec<String> = renumbered.iter().map(Renumbered::line).collect();
         match result {
             Ok(mut report) => {
@@ -746,11 +844,15 @@ impl DoltStore {
         &self,
         location: &LedgerLocation,
         db: &Dolt,
-        committed: bool,
-        docs_changed: bool,
+        request: PushRequest<'_>,
         notes: &mut dyn FnMut(&str),
         renumbered: &mut Vec<Renumbered>,
     ) -> Result<PushReport, String> {
+        let PushRequest {
+            committed,
+            docs_changed,
+            message,
+        } = request;
         self.forget_checked();
         self.forget_snapshot();
         let path = db.dir().to_path_buf();
@@ -780,14 +882,23 @@ impl DoltStore {
         let remote_ref = format!("{}/{}", REMOTE, BRANCH);
         for attempt in 1..=MAX_ATTEMPTS {
             // The first attempt goes on what the refresh of this command fetched, or what
-            // the record of the last fetch says is current. If origin moved since, Dolt
-            // rejects the push and the next attempt fetches.
+            // the record of the last fetch says is current. If origin moved since, the push
+            // is rejected and the next attempt fetches, after a short random wait so two
+            // writers that collided do not collide again.
             if attempt == 1 {
                 self.sync_data(db, location)?;
             } else {
-                db.run(["fetch", REMOTE])?;
-                self.note_data_fetched(location, None);
+                std::thread::sleep(transport::retry_wait());
+                if self.store_transport(db) == Transport::FileRemote {
+                    self.fetch_file_remote(db, location)?;
+                } else {
+                    db.run(["fetch", REMOTE])?;
+                    self.note_data_fetched(location, None);
+                }
             }
+            // After the sync: a store on a git remote moves to a file remote there when
+            // origin holds one now.
+            let file_remote = self.store_transport(db) == Transport::FileRemote;
             // The branch check, the merge base and the remote tip read in one process.
             // When the batch fails (no remote branch yet, say), they read one by one.
             let flags_query = format!(
@@ -843,7 +954,45 @@ impl DoltStore {
                 }
             }
 
+            // The commit origin is known to hold. A file remote forgets it now: from the `dolt
+            // push` until the `git push` has gone through, the directory and the store are
+            // ahead of origin, and a process that dies in between must fetch next time.
+            let known_tip = self
+                .tips()
+                .and_then(|tips| tips.get(location.remote(), location.ref_name()));
+            if file_remote {
+                self.forget_data_tip(location);
+            }
             let (args, pushed) = db.output(["push", REMOTE, BRANCH])?;
+            if pushed.status.success() && file_remote {
+                match transport::publish(
+                    location,
+                    &transport::remote_dir_beside(db.dir()),
+                    message,
+                    known_tip.as_deref(),
+                )? {
+                    Published::Unchanged(commit) | Published::Pushed(commit) => {
+                        self.note_file_published(location, &commit);
+                        let head = match head_before {
+                            Some(head) => head,
+                            None => db.head_hash()?,
+                        };
+                        return Ok(finish(
+                            outcome(PushResult::Pushed { attempts: attempt }, head),
+                            notes,
+                        ));
+                    }
+                    Published::Rejected(summary) => {
+                        if attempt < MAX_ATTEMPTS {
+                            notes(&crate::ledger::retry_note(
+                                attempt,
+                                &PushStatus { flag: '!', summary },
+                            ));
+                        }
+                        continue;
+                    }
+                }
+            }
             if pushed.status.success() {
                 self.note_data_pushed(db, location);
                 let head = match head_before {
@@ -1085,7 +1234,7 @@ pub(crate) fn remote_tip(git: &Git, location: &LedgerLocation) -> Result<Option<
 pub fn create_database(
     path: &Path,
     url: &str,
-    ref_name: &str,
+    ref_name: Option<&str>,
     repo_id: Option<&str>,
 ) -> Result<(), String> {
     std::fs::create_dir_all(path)
@@ -1096,7 +1245,10 @@ pub fn create_database(
         db.exec(&dolt::init_sql(repo_id))?;
         db.run(["add", "-A"])?;
         db.run(["commit", "-m", "Create the ledger"])?;
-        db.run(["remote", "add", "--ref", ref_name, REMOTE, url])?;
+        match ref_name {
+            Some(ref_name) => db.run(["remote", "add", "--ref", ref_name, REMOTE, url])?,
+            None => db.run(["remote", "add", REMOTE, url])?,
+        };
         Ok(())
     };
     build().inspect_err(|_| {
@@ -1134,7 +1286,8 @@ fn verify_remote_rows(
         .and_then(|p| p.get("git_ref"))
         .and_then(|r| r.as_str())
         .unwrap_or("");
-    if found_url != url || found_ref != location.ref_name() {
+    let file_remote = Transport::of_url(url) == Transport::FileRemote;
+    if found_url != url || (!file_remote && found_ref != location.ref_name()) {
         return Err(format!(
             "error: {} points at {} ({}), not {} ({}); move it aside and re-run",
             db.dir().display(),
@@ -1387,7 +1540,7 @@ impl DoltStore {
         let location = self.repo.location(&self.state_root)?;
         let clone_id = self.repo.ensure_clone_id()?;
         let path = dolt_db_path(&self.state_root, &clone_id);
-        let url = remote_url(&self.repo, &location)?;
+        let url = self.expected_url(&path, &location)?;
         let remote_label = format!("{}'s {}", location.label(), location.ref_name());
         let present = is_database(&path);
         if path.exists() && !present {
@@ -1410,7 +1563,7 @@ impl DoltStore {
                 verify_remote(&db, &url, &location)?;
                 self.check_manifest_of(&db, &location)?
             } else {
-                create_database(&path, &url, location.ref_name(), location.repo_id())?;
+                self.create_new_database(&path, &location)?;
                 dolt::LAYOUT_VERSION
             };
             let head = Dolt::new(&path).head_hash()?;
@@ -1474,7 +1627,7 @@ impl DoltStore {
             }
             state = found.expect("the state was read");
         } else {
-            self.check_remote_kind(&location)?;
+            let (kind, commit) = self.remote_kind(&location)?;
             let parent = path
                 .parent()
                 .ok_or_else(|| format!("error: {} has no parent directory", path.display()))?;
@@ -1484,9 +1637,26 @@ impl DoltStore {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            Dolt::new(parent).run(["clone", "--ref", location.ref_name(), url.as_str(), &name])?;
+            match kind {
+                Transport::FileRemote => {
+                    let dir = transport::remote_dir_beside(&path);
+                    transport::sync_checkout(&self.repo, &dir, &commit)?;
+                    Dolt::new(parent).run(["clone", transport::file_url(&dir).as_str(), &name])?;
+                    transport::write_ref_file(parent, location.ref_name())?;
+                    self.note_data_fetched(&location, Some(&commit));
+                }
+                Transport::GitRemote => {
+                    Dolt::new(parent).run([
+                        "clone",
+                        "--ref",
+                        location.ref_name(),
+                        url.as_str(),
+                        &name,
+                    ])?;
+                    self.note_data_fetched(&location, ledger_tip.as_deref());
+                }
+            }
             db = Dolt::new(&path);
-            self.note_data_fetched(&location, ledger_tip.as_deref());
             let mut found = self.read_state(&db, &location, false, None, false, keep_local)?;
             if found.is_none() {
                 found = Some(self.read_state_one_by_one(&db, &location, false, false, keep_local)?);
@@ -1785,7 +1955,12 @@ impl LedgerStore for DoltStore {
             )?;
         }
 
-        let mut report = self.push_data(&location, &db, committed, docs_changed, notes)?;
+        let request = PushRequest {
+            committed,
+            docs_changed,
+            message,
+        };
+        let mut report = self.push_data(&location, &db, request, notes)?;
         if docs_changed {
             report.committed = report.committed || docs_outcome.committed;
             if report.already_on_remote {
@@ -2294,10 +2469,50 @@ impl DoltStore {
         Ok(Some(missions))
     }
 
-    /// A fresh clone meets a ref that holds a file ledger: stop with the way out.
-    fn check_remote_kind(&self, location: &LedgerLocation) -> Result<(), String> {
+    /// The URL the store's `origin` remote should have: the directory of the file remote
+    /// for a store that uses one, else the git URL of the ledger ref.
+    fn expected_url(&self, path: &Path, location: &LedgerLocation) -> Result<String, String> {
+        if is_database(path) {
+            if let Some(url) = transport::store_url(path) {
+                if Transport::of_url(&url) == Transport::FileRemote {
+                    return Ok(transport::file_url(&transport::remote_dir_beside(path)));
+                }
+            }
+        }
+        remote_url(&self.repo, location)
+    }
+
+    /// Make the database of a ledger origin does not hold yet. A file remote starts as a
+    /// directory holding the marker and the ignore file, a linked worktree of this
+    /// repository; the first push fills it and publishes it.
+    fn create_new_database(&self, path: &Path, location: &LedgerLocation) -> Result<(), String> {
+        match transport::for_new_ledger()? {
+            Transport::GitRemote => {
+                let url = remote_url(&self.repo, location)?;
+                create_database(path, &url, Some(location.ref_name()), location.repo_id())
+            }
+            Transport::FileRemote => {
+                let dir = transport::remote_dir_beside(path);
+                let initial = transport::initial_commit(&self.repo.git)?;
+                transport::sync_checkout(&self.repo, &dir, &initial)?;
+                create_database(path, &transport::file_url(&dir), None, location.repo_id())?;
+                if let Some(parent) = path.parent() {
+                    transport::write_ref_file(parent, location.ref_name())?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// A fresh clone meets the ledger ref: which transport it holds, and its commit. A ref
+    /// that holds a file ledger stops with the way out.
+    fn remote_kind(&self, location: &LedgerLocation) -> Result<(Transport, String), String> {
         let Some(commit) = fetch_tip(&self.repo.git, location)? else {
-            return Ok(());
+            return Err(format!(
+                "error: {} on {} has no commit",
+                location.ref_name(),
+                location.label()
+            ));
         };
         match ref_kind(&self.repo.git, &commit)? {
             RefKind::Files => Err(format!(
@@ -2306,7 +2521,7 @@ impl DoltStore {
                 location.ref_name(),
                 location.label()
             )),
-            RefKind::Dolt => Ok(()),
+            RefKind::Dolt => Ok((transport::of_commit(&self.repo.git, &commit)?, commit)),
             RefKind::Unknown => Err(format!(
                 "error: {} on {} has no Dolt manifest and no .tsk-ledger.toml; it is not a tsk ledger",
                 location.ref_name(),

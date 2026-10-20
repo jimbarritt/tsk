@@ -814,7 +814,7 @@ fn push_retries_when_a_concurrent_writer_lands_between_fetch_and_push() {
 
     assert_success(&output);
     assert!(
-        stderr(&output).contains("push rejected (attempt 1/5)"),
+        stderr(&output).contains("push rejected (attempt 1/10)"),
         "{}",
         stderr(&output)
     );
@@ -837,17 +837,17 @@ fn push_stops_after_the_retry_bound_without_overwriting_the_concurrent_writer() 
     assert!(!output.status.success());
     assert!(stdout(&output).is_empty());
     assert!(
-        stderr(&output).contains("rejected the push 5 times"),
+        stderr(&output).contains("rejected the push 10 times"),
         "{}",
         stderr(&output)
     );
     assert!(
-        stderr(&output).contains("push rejected (attempt 4/5)"),
+        stderr(&output).contains("push rejected (attempt 9/10)"),
         "{}",
         stderr(&output)
     );
     assert_eq!(fx.origin_docs_sha(), head(&fx.racer()));
-    assert_eq!(origin_docs_subject(&fx), "Race 5");
+    assert_eq!(origin_docs_subject(&fx), "Race 10");
     assert!(fx.origin_file(DOCS_REF, "local.md").is_none());
     assert_eq!(
         std::fs::read_to_string(docs.join("local.md")).unwrap(),

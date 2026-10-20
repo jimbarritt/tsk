@@ -5,6 +5,7 @@ pub mod git;
 pub mod location;
 pub mod manifest;
 pub mod migrate_docs;
+pub mod migrate_transport;
 pub mod nexus;
 pub mod push;
 pub mod refs;
@@ -13,6 +14,7 @@ pub mod register;
 pub mod status;
 pub mod store;
 pub mod tips;
+pub mod transport;
 
 use clap::Subcommand;
 use std::io::{Read, Write};
@@ -77,6 +79,11 @@ pub enum LedgerCommands {
         dry_run: bool,
     },
     #[command(
+        name = "migrate-transport",
+        about = "Convert a ledger whose ref holds Dolt's blobstore to a Dolt file remote carried by plain git; prints migrated-transport:file-remote and the commit the ref now holds"
+    )]
+    MigrateTransport,
+    #[command(
         about = "Read, write, list and remove ledger documents in the local store; none of them fetches or pushes"
     )]
     Doc {
@@ -131,6 +138,9 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
     if let LedgerCommands::MigrateDocs { dry_run } = action {
         return migrate_docs::run(&cwd, dry_run);
     }
+    if let LedgerCommands::MigrateTransport = action {
+        return migrate_transport::run(&cwd);
+    }
     let store = store::open(&cwd)?;
     match action {
         LedgerCommands::Fetch => {
@@ -168,7 +178,7 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
         }
         LedgerCommands::Discard { yes, porcelain } => run_discard(store.as_ref(), yes, porcelain),
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
-        LedgerCommands::MigrateDocs { .. } => {
+        LedgerCommands::MigrateDocs { .. } | LedgerCommands::MigrateTransport => {
             unreachable!("handled before the store opens")
         }
     }
@@ -425,7 +435,7 @@ mod tests {
         };
         assert_eq!(
             retry_note(2, &status),
-            "note: push rejected (attempt 2/5): [rejected] (stale info); fetching again and retrying"
+            "note: push rejected (attempt 2/10): [rejected] (stale info); fetching again and retrying"
         );
     }
 }

@@ -243,6 +243,19 @@ impl Fixture {
                 .unwrap();
             assert!(out.status.success(), "{:?}: {}", args, stderr(&out));
         }
+        // The ledger is a Dolt file remote carried by plain git: publish the directory.
+        let remote_dir = path.parent().unwrap().join("ledger-remote");
+        git(&remote_dir, &["add", "-A"]);
+        git(&remote_dir, &["commit", "--quiet", "-m", "Another repo"]);
+        git(
+            &remote_dir,
+            &[
+                "push",
+                "--quiet",
+                self.nexus().to_str().unwrap(),
+                &format!("HEAD:{}", NEXUS_REF),
+            ],
+        );
         self.forget_local_ledger();
     }
 }

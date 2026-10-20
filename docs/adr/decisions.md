@@ -16,3 +16,4 @@
 - [14. Dolt is the ledger store, behind a storage seam](0014-dolt-is-the-ledger-store-behind-a-storage-seam.md)
 - [15. The files backend is removed](0015-the-files-backend-is-removed.md)
 - [16. A custom ref is the default for a new ledger](0016-a-custom-ref-is-the-default-for-a-new-ledger.md)
+- [17. The ledger is a Dolt file remote carried by plain git](0017-the-ledger-is-a-dolt-file-remote-carried-by-plain-git.md)
