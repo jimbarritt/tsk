@@ -15,35 +15,6 @@ if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
   git fetch --unshallow origin >/dev/null 2>&1 || true
 fi
 
-# `.claude/settings.json`'s `extraKnownMarketplaces` and `enabledPlugins` only
-# declare intent; neither registers the marketplace with the CLI, installs the
-# plugin, nor upgrades an already-installed one. All steps below are needed,
-# in order, so a fresh clone (a cloud session included) gets a working,
-# current plugin with no manual step. Each is idempotent: running it again
-# when already done is a no-op that exits 0. `install` on an already-installed
-# plugin does not upgrade it even when the marketplace offers a newer
-# version, so a separate `update` step is required, after a marketplace
-# refresh so it sees a version newer than the cached one.
-PLUGIN_MSG=""
-PLUGIN_LOG="$(mktemp)"
-
-ensure_plugin() {
-  local marketplace_source="$1" marketplace="$2" plugin="$3"
-  if ! claude plugin marketplace add "$marketplace_source" >"$PLUGIN_LOG" 2>&1; then
-    PLUGIN_MSG="$PLUGIN_MSG WARNING: adding the $marketplace marketplace failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
-  elif ! claude plugin install "$plugin@$marketplace" --scope project -y >"$PLUGIN_LOG" 2>&1; then
-    PLUGIN_MSG="$PLUGIN_MSG WARNING: installing the $plugin plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
-  elif ! claude plugin marketplace update "$marketplace" >"$PLUGIN_LOG" 2>&1; then
-    PLUGIN_MSG="$PLUGIN_MSG WARNING: refreshing the $marketplace marketplace cache failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
-  elif ! claude plugin update "$plugin@$marketplace" --scope project >"$PLUGIN_LOG" 2>&1; then
-    PLUGIN_MSG="$PLUGIN_MSG WARNING: updating the $plugin plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
-  fi
-}
-
-ensure_plugin jimbarritt/claude-plugins jimbarritt-claude-plugins swe
-ensure_plugin jimbarritt/claude-plugins jimbarritt-claude-plugins tsk
-rm -f "$PLUGIN_LOG"
-
 INPUT="$(cat)"
 SOURCE="$(printf '%s' "$INPUT" | jq -r '.source // empty')"
 
@@ -54,6 +25,88 @@ if [ "$SOURCE" = "startup" ]; then
   if git stash list 2>/dev/null | grep -q "session-start-autostash"; then
     git stash apply >/dev/null 2>&1 || true
   fi
+fi
+
+# `.claude/settings.json`'s `extraKnownMarketplaces` and `enabledPlugins` only
+# declare intent; neither registers the marketplace with the CLI, installs the
+# plugin, nor upgrades an already-installed one. All steps below are needed,
+# in order, so a fresh clone (a cloud session included) gets a working,
+# current plugin with no manual step. Each is idempotent: running it again
+# when already done is a no-op that exits 0. `install` on an already-installed
+# plugin does not upgrade it even when the marketplace offers a newer
+# version, so a separate `update` step is required, after a marketplace
+# refresh so it sees a version newer than the cached one.
+#
+# The steps cost about 4 seconds for each plugin, which is most of a session
+# start, and their effect is for the next Claude Code process: this process
+# has read its plugins already. So:
+#
+# - Both plugins come from one marketplace, which is added once and refreshed
+#   once, not once for each plugin. A failure still gives each plugin the
+#   warning it gave before.
+# - The steps run in the background, while the dolt check and the tsk session
+#   start below run. The script waits for them before it prints, so a warning
+#   reaches the context as before.
+# - After a run with no warning, the steps are skipped for the next
+#   TSK_PLUGIN_ENSURE_MINUTES minutes (60 when unset; 0 never skips). A newer
+#   plugin version is then picked up within that time.
+PLUGIN_LOG="$(mktemp)"
+PLUGIN_MSG_FILE="$(mktemp)"
+PLUGIN_STAMP="${XDG_STATE_HOME:-${HOME:-/nonexistent}/.local/state}/tsk/plugin-ensure-ok"
+
+plugin_steps_are_due() {
+  local minutes="${TSK_PLUGIN_ENSURE_MINUTES:-60}"
+  [ "$minutes" -gt 0 ] 2>/dev/null || return 0
+  [ -f "$PLUGIN_STAMP" ] || return 0
+  [ -z "$(find "$PLUGIN_STAMP" -mmin "-$minutes" 2>/dev/null)" ]
+}
+
+# Prints one line per warning, in the shape the context carries.
+ensure_plugins() {
+  local marketplace_source="$1" marketplace="$2"
+  shift 2
+  local plugins=("$@") plugin failed="" warned=0
+  warn() {
+    printf ' WARNING: %s\n' "$1"
+    warned=1
+  }
+  if ! claude plugin marketplace add "$marketplace_source" >"$PLUGIN_LOG" 2>&1; then
+    for plugin in "${plugins[@]}"; do
+      warn "adding the $marketplace marketplace failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+    done
+    return
+  fi
+  for plugin in "${plugins[@]}"; do
+    if ! claude plugin install "$plugin@$marketplace" --scope project -y >"$PLUGIN_LOG" 2>&1; then
+      warn "installing the $plugin plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+      failed="$failed $plugin"
+    fi
+  done
+  local refreshed=1
+  if ! claude plugin marketplace update "$marketplace" >"$PLUGIN_LOG" 2>&1; then
+    refreshed=0
+    for plugin in "${plugins[@]}"; do
+      case " $failed " in *" $plugin "*) continue ;; esac
+      warn "refreshing the $marketplace marketplace cache failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+    done
+  fi
+  if [ "$refreshed" = 1 ]; then
+    for plugin in "${plugins[@]}"; do
+      case " $failed " in *" $plugin "*) continue ;; esac
+      if ! claude plugin update "$plugin@$marketplace" --scope project >"$PLUGIN_LOG" 2>&1; then
+        warn "updating the $plugin plugin failed: $(tr '\n' ' ' <"$PLUGIN_LOG")"
+      fi
+    done
+  fi
+  if [ "$warned" = 0 ]; then
+    mkdir -p "$(dirname "$PLUGIN_STAMP")" 2>/dev/null && : >"$PLUGIN_STAMP" 2>/dev/null
+  fi
+}
+
+PLUGIN_JOB=""
+if plugin_steps_are_due; then
+  ensure_plugins jimbarritt/claude-plugins jimbarritt-claude-plugins swe tsk >"$PLUGIN_MSG_FILE" &
+  PLUGIN_JOB=$!
 fi
 
 # Claude Code reads plugin hooks once, when its process starts. A plugin
@@ -79,6 +132,13 @@ if command -v tsk >/dev/null 2>&1; then
 else
   TSK_MSG="WARNING: tsk is not installed and \`cargo install --path cli --locked\` failed. Run it, then run \`tsk thread session-start </dev/null\`."
 fi
+
+# The plugin steps end before the context is printed, so a warning reaches it.
+if [ -n "$PLUGIN_JOB" ]; then
+  wait "$PLUGIN_JOB" 2>/dev/null || true
+fi
+PLUGIN_MSG="$(tr '\n' ' ' <"$PLUGIN_MSG_FILE" | sed 's/ *$//')"
+rm -f "$PLUGIN_LOG" "$PLUGIN_MSG_FILE"
 
 CONTEXT="$(printf '%s %s' "$TSK_MSG" "$PLUGIN_MSG $DOLT_MSG" | sed 's/^ *//; s/ *$//')"
 if [ -n "$CONTEXT" ]; then

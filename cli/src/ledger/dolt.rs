@@ -429,6 +429,46 @@ impl Dolt {
         Ok(results)
     }
 
+    /// [`Self::rows_each`] after some write statements, in the same process. The writes
+    /// run first, each as one statement, and print nothing that the result counts: the
+    /// call returns the rows of the last `queries.len()` result sets. A statement that
+    /// fails stops the script, so the writes before it have applied and the queries after
+    /// it have not run.
+    pub fn rows_each_after(
+        &self,
+        writes: &[String],
+        queries: &[String],
+    ) -> Result<Vec<Vec<Value>>, String> {
+        if writes.is_empty() {
+            return self.rows_each(queries);
+        }
+        if queries.is_empty() {
+            return Ok(Vec::new());
+        }
+        if !batching() {
+            return Err(format!(
+                "error: batched reads are off ({} is set)",
+                NO_BATCH_VAR
+            ));
+        }
+        let script: String = writes
+            .iter()
+            .chain(queries.iter())
+            .map(|q| format!("{};\n", q.trim_end().trim_end_matches(';')))
+            .collect();
+        let args = vec!["sql".to_string(), "-r".to_string(), "json".to_string()];
+        let stdout = self.pipe(&args, &script)?;
+        let mut results = parse_result_sets(&stdout)?;
+        if results.len() < queries.len() {
+            return Err(format!(
+                "error: dolt printed {} result sets for {} queries",
+                results.len(),
+                queries.len()
+            ));
+        }
+        Ok(results.split_off(results.len() - queries.len()))
+    }
+
     /// Run write statements in one transaction: all of them apply, or none.
     pub fn exec(&self, sql: &str) -> Result<(), String> {
         let script = format!("start transaction;\n{}\ncommit;\n", sql);
@@ -629,6 +669,47 @@ mod tests {
         let hostile = lit("x'); drop table threads; --");
         assert!(!hostile.contains("drop"));
         assert!(hostile.starts_with("CONVERT(X'"));
+    }
+
+    #[test]
+    fn writes_run_before_the_queries_in_one_process_and_are_not_counted() {
+        if !available() {
+            eprintln!("note: dolt is not installed; skipping");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let db = Dolt::new(dir.path());
+        db.run(["init", "--name", "t", "--email", "t@t"]).unwrap();
+        db.exec("create table t (a int primary key);").unwrap();
+
+        // The write has a trailing semicolon, as the statements of the store do. It prints
+        // nothing, and the result sets are those of the queries.
+        let sets = db
+            .rows_each_after(
+                &["insert into t values (1);".to_string()],
+                &[
+                    "select count(*) as c from t".to_string(),
+                    "select a from t".to_string(),
+                ],
+            )
+            .unwrap();
+        assert_eq!(sets.len(), 2);
+        assert_eq!(first_count(&sets[0]), 1);
+        assert_eq!(integer(&sets[1][0], "a"), Some(1));
+
+        // No writes is the plain batch.
+        let sets = db
+            .rows_each_after(&[], &["select count(*) as c from t".to_string()])
+            .unwrap();
+        assert_eq!(first_count(&sets[0]), 1);
+
+        // A write that fails stops the script and fails the call.
+        assert!(db
+            .rows_each_after(
+                &["insert into t values (1)".to_string()],
+                &["select 1".to_string()],
+            )
+            .is_err());
     }
 
     #[test]
