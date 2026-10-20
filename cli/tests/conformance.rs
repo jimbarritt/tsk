@@ -6774,7 +6774,8 @@ fn a_clone_that_pushes_between_the_refresh_and_the_push_is_merged_not_overwritte
         notes
     );
     assert!(
-        notes.contains("[rejected] (non-fast-forward)"),
+        notes.contains("[rejected] (fetch first)")
+            || notes.contains("[rejected] (non-fast-forward)"),
         "data: {}",
         notes
     );

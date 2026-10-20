@@ -290,13 +290,16 @@ pub fn store_ref(repo: &Repo, state_root: &Path) -> Option<String> {
         .join("repo_state.json");
     let state: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(state).ok()?).ok()?;
-    state
-        .get("remotes")?
-        .get(super::dolt::REMOTE)?
-        .get("params")?
-        .get("git_ref")?
-        .as_str()
-        .map(str::to_string)
+    let remote = state.get("remotes")?.get(super::dolt::REMOTE)?;
+    if let Some(held) = remote
+        .get("params")
+        .and_then(|params| params.get("git_ref"))
+        .and_then(|held| held.as_str())
+    {
+        return Some(held.to_string());
+    }
+    // A file remote records no ref in Dolt; tsk keeps it in a file beside the database.
+    super::transport::read_ref_file(&clone_dir(repo, state_root)?)
 }
 
 fn clone_dir(repo: &Repo, state_root: &Path) -> Option<PathBuf> {
@@ -624,8 +627,17 @@ pub fn repoint_store(
     if store_ref(repo, state_root).as_deref() == Some(location.ref_name()) {
         return Ok(false);
     }
-    let url = crate::ledger::store::dolt::remote_url(repo, location)?;
     let db = super::dolt::Dolt::new(&path);
+    if super::transport::store_url(&path).is_some_and(|url| {
+        super::transport::Transport::of_url(&url) == super::transport::Transport::FileRemote
+    }) {
+        // The store talks to a directory, not to the ref: only the record of the ref moves.
+        if let Some(dir) = path.parent() {
+            super::transport::write_ref_file(dir, location.ref_name())?;
+        }
+        return Ok(true);
+    }
+    let url = crate::ledger::store::dolt::remote_url(repo, location)?;
     db.run(["remote", "remove", super::dolt::REMOTE])?;
     db.run([
         "remote",

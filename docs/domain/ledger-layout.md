@@ -64,16 +64,47 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 ```
 
 - `tsk ledger path` prints this path. `$TSK_LEDGER_WT` names it.
-- The clone has one remote, added with `--ref refs/tsk/ledger` for an in-repo ledger, or
-  `--ref refs/tsk/ledgers/<repo-id>` for a nexus ledger, or the `refs/heads/...` form of
-  either on a ledger that uses branches (see [Location and ref](#location-and-ref)). Its URL is
-  `git+<remote url>`, with the remote URL resolved as in
-  [Location and ref](#location-and-ref).
+- The clone has one remote, `origin`. On the `file-remote` transport (the default from
+  0.21.0) its URL is `file://<state>/tsk/repos/<clone-id>/ledger-remote`, a directory that
+  `tsk` keeps as a linked worktree of the code repository (see [Transport](#transport)).
+  On the older `git-remote` transport it is added with `--ref refs/tsk/ledger` for an
+  in-repo ledger, or `--ref refs/tsk/ledgers/<repo-id>` for a nexus ledger, or the
+  `refs/heads/...` form of either on a ledger that uses branches (see
+  [Location and ref](#location-and-ref)). Its URL is `git+<remote url>`, with the remote
+  URL resolved as in [Location and ref](#location-and-ref).
 - The database needs the external `dolt` binary, version 2.5.0 or later. The `SessionStart` hook
   installs it.
 - No file in `ledger-db` is edited by hand. The `tsk ledger` commands are the interface.
 - The documents have their own worktree, `docs`, beside `ledger-db` (see
   [Documents](#documents)).
+
+### Transport
+
+The Dolt data reaches origin in one of two ways. The ledger ref says which, and so does the
+clone's own store. [ADR 0017](../adr/0017-the-ledger-is-a-dolt-file-remote-carried-by-plain-git.md)
+gives the reasons.
+
+| Transport | What the ledger ref holds | The store's `origin` | Who talks to origin |
+|---|---|---|---|
+| `file-remote` (default from 0.21.0) | A Dolt `file://` remote directory: `manifest`, table files, `.tsk-transport`, `.gitignore`. Zero-byte `LOCK` and `oldgen/LOCK` files are ignored by git | `file://<state>/tsk/repos/<clone-id>/ledger-remote` | `tsk`, with `git fetch` and `git push`. Dolt reads and writes a local directory |
+| `git-remote` (before 0.21.0, a fallback) | Dolt's own git blobstore | `git+<remote url>` with `--ref` | Dolt, through git processes it starts |
+
+- `.tsk-transport` holds the text `file-remote`. A ref without it holds the `git-remote`
+  layout. The store's transport is the URL scheme of its `origin` remote. For a
+  `file-remote` store the ledger ref is recorded in `ledger-ref` beside `ledger-db`, because
+  Dolt records no ref for a file remote.
+- A new ledger uses `file-remote`. `TSK_LEDGER_TRANSPORT=git-remote` makes a new ledger use
+  `git-remote`; any other value but `file-remote` is an error. The variable has no effect
+  on a clone of a ledger that exists: the ref decides.
+- The directory `ledger-remote` is a detached linked worktree, as `docs` is. A fetch resets
+  it to origin's commit, so anything in it that origin lacks is dropped. A new ledger
+  starts it from an orphan commit that holds `.tsk-transport` and `.gitignore`.
+- The manifest version stays at 8. No table changed. A `tsk` older than 0.21.0 cannot read
+  a `file-remote` ref and is expected to stop with a Dolt error, not with `unsupported ledger version`.
+- `tsk ledger migrate-transport` converts a `git-remote` ledger once (see below). A store
+  on `git-remote` whose origin now holds a `file-remote` ref moves to it on its next fetch
+  that finds the ref changed: it points `origin` at the directory and keeps its commits,
+  including those not pushed.
 
 ### Tables
 
@@ -175,19 +206,27 @@ the remote. It still prints the path of the Dolt database.
    staged. With nothing staged it prints a note and continues.
 2. Pushes the documents. It commits the changes in the documents worktree, then pushes
    `HEAD` to the documents ref with a compare and swap, and rebases onto a newer remote
-   tip, up to 5 attempts. A rebase conflict exits 1 and names the files both sides
+   tip, up to 10 attempts. A rebase conflict exits 1 and names the files both sides
    changed. A side that has no change and no unpushed commit sends nothing.
-3. Makes up to 5 attempts at the Dolt data:
-   1. `dolt fetch origin`. If `HEAD` already equals `origin/main` or is its ancestor,
-      the remote holds this state: exit 0.
+3. Makes up to 10 attempts at the Dolt data, with a random wait of 50 to 250 ms before each
+   retry:
+   1. Fetches. On `file-remote`: `git fetch` of the ledger ref (skipped when the up-to-date
+      check finds origin unchanged and the directory at that commit), `git reset --hard` of
+      the `ledger-remote` directory to it, then `dolt fetch origin`, which reads the
+      directory. On `git-remote`: `dolt fetch origin`. If `HEAD` already equals
+      `origin/main` or is its ancestor, the remote holds this state: exit 0.
    2. When both sides hold commits the other lacks, renumbers the local rows that took
       a number the remote also took (see [Numbers and collisions](#numbers-and-collisions)),
       in one local commit. Then `dolt merge origin/main`, then reads `dolt_conflicts` and
       `dolt_constraint_violations`. Any row aborts the merge with `dolt merge --abort`,
       drops the renumbering commit, and the command exits 1 and names the conflicting
       tables.
-   3. `dolt push origin main`. A rejected push prints a note and goes to the next
-      attempt. Any other failure stops with exit 1.
+   3. `dolt push origin main`. On `file-remote` that writes into the directory; `tsk`
+      then commits the directory and runs a plain `git push` of the commit to the ledger
+      ref: no force and no lease. Git rejects it when origin moved. A rejected push prints
+      a note and goes to the next attempt, from the fetch. Any other failure stops with
+      exit 1. Before the `dolt push`, `tsk` clears the record of the commit it last fetched, so a process
+      that dies before the `git push` fetches next time.
 
 The documents go first, and the Dolt data only after them. A record must never name a
 document the remote lacks. A document that no record names is harmless. So when the
@@ -485,6 +524,28 @@ command pushed the file ledger's commit to `refs/heads/archive/tsk-ledger-files`
 `refs/heads/archive/ledgers/<repo-id>-files` for a nexus ledger) before Dolt's first push
 replaced the branch. A `tsk` that finds a file ledger on the ledger ref stops with an
 error that says so.
+
+### Moving the transport
+
+`tsk ledger migrate-transport` converts a ledger whose ref holds the `git-remote` layout.
+It runs in one clone, once.
+
+1. It refreshes the store. A store whose origin already holds a `file-remote` ref moves to
+   it and the command prints `migrated-transport:already`.
+2. It stops with exit 1 for a version 1 ledger (run `tsk ledger migrate-docs` first) and
+   for a store that holds commits origin lacks (run `tsk ledger push` first).
+3. It resets `ledger-remote` to the ref's tip, removes the old tree, and pushes the
+   store's history into it through a temporary Dolt remote. It adds `.tsk-transport` and
+   `.gitignore` and commits.
+4. It pushes that commit to the ledger ref with a plain `git push`. The commit's parent is
+   the old tip, so the old content is replaced by a normal commit. A rejected push means
+   origin moved: nothing changed, run the command again.
+5. It points the store's `origin` at the directory, fetches, and checks that `origin/main`
+   equals the store's `HEAD`.
+
+It prints `migrated-transport:file-remote` and the commit the ref now holds. Notes go to
+stderr. Update every `tsk` first: a binary older than 0.21.0 cannot read the result.
+`tsk ledger migrate-docs` works on a store that uses `git-remote` only.
 
 ### Moving the documents out of Dolt
 
@@ -1284,7 +1345,9 @@ which mints it.
    create a new local ledger instead (see
    [A ledger that does not exist yet](#a-ledger-that-does-not-exist-yet)). If the ref
    holds a file ledger, stop with the error that says the files backend was removed.
-4. Clone the database from the remote when it does not exist locally. Otherwise fetch it
+4. Clone the database from the remote when it does not exist locally: from the
+   `ledger-remote` directory, reset to the ref's commit, when the ref holds `file-remote`
+   (see [Transport](#transport)). Otherwise fetch it
    and merge a newer remote tip, unless local changes are not committed, in which case
    stop with exit 1 and leave the store as it is. Check the manifest version and, for a
    nexus ledger, its `repo_id`. A version this `tsk` does not know or a mismatched

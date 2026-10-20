@@ -10,7 +10,9 @@ and questions, the threads and their continuation state live in a **ledger**. Th
 records, typed rows in a Dolt database, written only through `tsk` commands. Free text
 (intelligence, research, reports) is Markdown documents on a second ref. The ledger is a
 Dolt database synced over a git ref on the managed repo's `origin` by default, cloned to a
-local ledger store (`ledger-db`) outside the repository. A new ledger uses a custom ref,
+local ledger store (`ledger-db`) outside the repository. The ref holds a Dolt file remote (a
+directory of table files) that `tsk` moves with plain `git fetch` and `git push`; a ledger
+made before 0.21.0 converts once with `tsk ledger migrate-transport`. A new ledger uses a custom ref,
 `refs/tsk/ledger`. A repo used from Claude Code cloud sessions uses the branch
 `refs/heads/tsk/ledger`, because the cloud proxy refuses to push a custom ref (see Ledger
 refs below). For a repo that cannot hold a ledger ref, the ledger is
@@ -101,6 +103,7 @@ tsk nexus register-repo [--id <id>] [--territory <id>] [--territory-name <name>]
 tsk ledger fetch                         fetch the ledger branch (creating a new ledger when it does not exist), refresh the local ledger store, print the path
 tsk ledger path                          print the ledger store path (the Dolt database); no fetch, no writes
 tsk ledger push "<message>"              commit every local ledger change, pull and push; prints the ledger commit
+tsk ledger migrate-transport             convert a ledger that holds Dolt's older git blobstore to a Dolt file remote carried by plain git; run once, other clones follow on their next fetch
 tsk ledger doc get <path>                print a document's body
 tsk ledger doc put <path> [<file>]       write a document from <file>, or from stdin; changes the local store only
 tsk ledger doc list [<prefix>]           list document paths, optionally under a prefix
@@ -206,7 +209,7 @@ read the tsk source code to learn the format.
 
 `tsk ledger fetch` and `path` print a bare path on stdout, so
 `WT="$(tsk ledger fetch)"` works. `tsk ledger push` runs `dolt add -A` and `dolt commit`,
-then up to 5 attempts of `dolt fetch`, `dolt merge` and `dolt push`. A merge conflict, such as
+then up to 10 attempts of fetch, `dolt merge`, `dolt push` and (on a file remote) a plain `git push`. A merge conflict, such as
 two clones editing one field, stops it with exit 1 and names the conflicting tables. The local
 commit stays. `git.ledger.commit` in a
 continuation state entry holds the Dolt commit hash. An older `tsk` finds no

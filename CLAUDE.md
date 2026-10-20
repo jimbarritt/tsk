@@ -43,7 +43,12 @@ the tip of the earlier `tsk/bootstrap` branch. Its file-era history is on
 Claude Code cloud sandbox proxy refuses to push or update anything outside
 `refs/heads/*`). It comes down with a plain clone, and `git branch -a` lists it, but it
 is never checked out in the code worktree. The branch holds Dolt table files, not
-Markdown.
+Markdown. From 0.21.0 a new ledger's ref holds a Dolt file remote: a directory of
+`manifest`, table files and `.tsk-transport`, which `tsk` keeps as a linked worktree beside
+the ledger store and moves with plain `git fetch` and `git push` (ADR 0017). Dolt never
+starts git. A ledger made before 0.21.0 holds Dolt's git blobstore (transport `git-remote`)
+until someone runs `tsk ledger migrate-transport` once. This repo's ref is in that older
+layout until then. Every clone moves to the new layout on its next fetch.
 
 This repo keeps its ledger on branches because it is used from Claude Code cloud
 sessions, and the cloud proxy refuses to push a custom ref. `.tsk/config.toml` in the
@@ -167,7 +172,7 @@ Every write changes the local ledger store only. Then:
 - `tsk ledger status` shows what is not pushed, and whether origin is ahead.
 - `tsk ledger push "<describe the update>"` (or `just ledger-push "<describe the update>"`
   from the repo root) commits it in Dolt, pulls the latest ledger, and pushes back, up to
-  5 attempts. A merge conflict stops the push with exit 1 and names the conflicting
+  10 attempts. A merge conflict stops the push with exit 1 and names the conflicting
   tables. The local commit stays.
 - `tsk ledger discard` lists what it would drop, and `tsk ledger discard --yes` drops
   every local change before the push. Never use `dolt reset`.
