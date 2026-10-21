@@ -90,6 +90,13 @@ pub enum LedgerCommands {
         #[command(subcommand)]
         action: DocCommands,
     },
+    #[command(
+        about = "Inspect and control the local Dolt server of this clone's ledger store (the switch TSK_DOLT_SERVER or [ledger] server turns its use on; see ADR 0018)"
+    )]
+    Server {
+        #[command(subcommand)]
+        action: store::server::ServerCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -141,6 +148,9 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
     if let LedgerCommands::MigrateTransport = action {
         return migrate_transport::run(&cwd);
     }
+    if let LedgerCommands::Server { action } = action {
+        return store::server::run_command(action, &cwd);
+    }
     let store = store::open(&cwd)?;
     match action {
         LedgerCommands::Fetch => {
@@ -182,7 +192,9 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
         }
         LedgerCommands::Discard { yes, porcelain } => run_discard(store.as_ref(), yes, porcelain),
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
-        LedgerCommands::MigrateDocs { .. } | LedgerCommands::MigrateTransport => {
+        LedgerCommands::MigrateDocs { .. }
+        | LedgerCommands::MigrateTransport
+        | LedgerCommands::Server { .. } => {
             unreachable!("handled before the store opens")
         }
     }

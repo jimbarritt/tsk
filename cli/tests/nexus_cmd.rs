@@ -101,6 +101,7 @@ impl Fixture {
             .envs(git_env())
             .env("HOME", self.root.path().join("home"))
             .env("XDG_STATE_HOME", self.root.path().join("state"))
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.root.path().join("config"))
             .env("TSK_MACHINE_NAME", "laptop")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())

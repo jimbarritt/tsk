@@ -474,6 +474,21 @@ fn install_plugin_warning() -> Option<String> {
     }
 }
 
+/// Start the Dolt server of this clone's ledger store when the switch is on and there is
+/// a store. Nothing here can fail the hook: a server that does not start is started by
+/// the first command that needs it, or the command falls back to the `dolt` command line.
+fn start_server_in_background() {
+    if !crate::ledger::store::server::enabled() {
+        return;
+    }
+    let Ok(cwd) = std::env::current_dir() else {
+        return;
+    };
+    if let Ok(store) = crate::ledger::store::server::store_of(&cwd) {
+        let _ = crate::ledger::store::server::ensure_background(&store);
+    }
+}
+
 pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str>) -> i32 {
     let mut bytes = Vec::new();
     let _ = std::io::stdin().read_to_end(&mut bytes);
@@ -483,6 +498,10 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
             return 0;
         }
     }
+    // With the server switch on, a dead or stale server (a container that woke from
+    // hibernation, say) is replaced now, in the background, so the first command finds a
+    // live one. A live server costs one connection.
+    start_server_in_background();
     let cloud_install = install_plugin && is_remote();
     let mut warnings = Vec::new();
     if cloud_install {

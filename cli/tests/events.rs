@@ -8,6 +8,8 @@ use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
+mod common;
+
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 
 struct Fixture {
@@ -90,6 +92,7 @@ impl Fixture {
             .envs(git_env())
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
@@ -128,6 +131,8 @@ impl Fixture {
 
     fn exec(&self, dir: &Path, sql: &str) {
         let path = stdout(&self.tsk_in(dir, &["ledger", "path"]));
+        // A Dolt server that an earlier command started holds the store for writing.
+        common::stop_servers(self.root.path(), true);
         let out = Command::new("dolt")
             .args(["sql", "-q", sql])
             .current_dir(path.trim_end())

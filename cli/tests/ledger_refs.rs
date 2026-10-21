@@ -81,6 +81,7 @@ impl Fx {
             .env("GIT_COMMITTER_EMAIL", "test@example.com")
             .env("HOME", self.root.path().join("home"))
             .env("XDG_STATE_HOME", self.root.path().join("state"))
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.root.path().join("config"))
             .env("TSK_HOME", self.root.path().join("home/.tsk"))
             .env("TSK_NO_UPDATE_CHECK", "1")

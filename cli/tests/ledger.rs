@@ -9,10 +9,19 @@ use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
+mod common;
+
 const DOCS_REF: &str = "refs/heads/tsk/docs";
 
 struct Fixture {
     root: TempDir,
+}
+
+impl Drop for Fixture {
+    /// Stop the Dolt servers that the commands started (ADR 0018) before the files go.
+    fn drop(&mut self) {
+        common::stop_servers(self.root.path(), false);
+    }
 }
 
 impl Fixture {
@@ -129,6 +138,7 @@ impl Fixture {
             .envs(git_env())
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
@@ -144,6 +154,7 @@ impl Fixture {
             .envs(git_env())
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
@@ -603,6 +614,7 @@ fn path_falls_back_to_home_when_xdg_state_home_is_empty() {
         .envs(git_env())
         .env("HOME", fx.home())
         .env("XDG_STATE_HOME", "")
+        .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
         .env("XDG_CONFIG_HOME", fx.home().join("config"))
         .output()
         .unwrap();
@@ -702,6 +714,7 @@ fn the_removed_files_backend_is_refused_and_any_other_value_is_ignored() {
         .envs(git_env())
         .env("HOME", fx.home())
         .env("XDG_STATE_HOME", fx.state())
+        .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
         .env("XDG_CONFIG_HOME", fx.home().join("config"))
         .env("TSK_LEDGER_BACKEND", "git")
         .output()
@@ -727,6 +740,7 @@ fn the_removed_files_backend_is_refused_and_any_other_value_is_ignored() {
             .envs(git_env())
             .env("HOME", fx.home())
             .env("XDG_STATE_HOME", fx.state())
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", fx.home().join("config"))
             .env("TSK_LEDGER_BACKEND", value)
             .output()

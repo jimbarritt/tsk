@@ -125,6 +125,7 @@ impl Machine {
             .current_dir(self.repo())
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.home().join("state"))
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env_remove("DOLT_ROOT_PATH")
             .env_remove("TSK_PLUGIN_ENSURE_MINUTES")
             .env_remove("CLAUDE_ENV_FILE")

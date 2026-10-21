@@ -67,7 +67,13 @@ The repo's `SessionStart` script (`ops/local/claude-session-start.sh`) installs 
 is not at the workspace version, then runs `tsk thread session-start`. The plugin's own `SessionStart` hook runs
 the same command. The binary claims each event by session ID and source, so the second
 run exits with no output. The command fetches the ledger, refreshes the ledger store,
-exports its path as `$TSK_LEDGER_WT`, and prints the thread binding prompt.
+exports its path as `$TSK_LEDGER_WT`, and prints the thread binding prompt. With the
+local Dolt server switch on (`TSK_DOLT_SERVER=on` or `[ledger] server = "on"`; off by
+default in 0.23.0), the command first checks the server of the ledger store and starts a
+dead or stale one in the background, which is how a cloud session that woke from
+hibernation gets a live server. While a server runs, `dolt` opens the ledger store read
+only: stop it with `tsk ledger server stop` before a write by hand. See
+`docs/adr/0018-a-local-dolt-server-per-ledger-store-behind-a-switch.md`.
 
 The plugin steps take about 4 s for each plugin, so the script runs them in the
 background while `tsk` starts, and skips them for 60 minutes after a run with no warning

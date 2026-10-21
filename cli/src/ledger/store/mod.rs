@@ -10,7 +10,9 @@
 
 pub mod doc_tree;
 pub mod dolt;
+pub mod mysql;
 mod renumber;
+pub mod server;
 
 use std::path::{Component, Path, PathBuf};
 

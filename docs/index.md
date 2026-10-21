@@ -45,6 +45,7 @@ Technical design documents describing how tsk's systems fit together.
 - [2026-10-20-conformance-suite-speed.md](arch/2026-10-20-conformance-suite-speed.md): where the conformance suite spends its time, measured, with a ranked list of changes and the cause of the Text file busy flake.
 - [2026-10-20-session-start-and-pause.md](arch/2026-10-20-session-start-and-pause.md): the profile of a thread pause and a session start through a 330 ms network shim, and the cuts: no question to origin before a pause or a push, fewer `dolt` processes, a refresh that reads while it asks, one fetch for a new clone, and the SessionStart hooks. Release [v0.22.0](releases/v0.22.0.md).
 - [2026-10-21-local-dolt-server-spike.md](arch/2026-10-21-local-dolt-server-spike.md): measures a local Dolt server on a socket against one `dolt` launch per call.
+- [2026-10-21-local-dolt-server-results.md](arch/2026-10-21-local-dolt-server-results.md): the 0.23.0 server measured with the switch off and on: wall time and `dolt` launches for each command, the conformance and workspace suites, memory, and what the server did to older `tsk` binaries. Release [v0.23.0](releases/v0.23.0.md).
 
 The three documents below describe the client-daemon design, which ADR 0012 retired. They are kept as history.
 
@@ -74,6 +75,7 @@ Architecture Decision Records capture why significant technical choices were mad
 - [0015-the-files-backend-is-removed.md](adr/0015-the-files-backend-is-removed.md): the files backend is removed in 0.16.0. Tsk is committed to Dolt, v0.15.1 is the last release with the backend, and the `LedgerStore` trait stays with one implementation.
 - [0016-a-custom-ref-is-the-default-for-a-new-ledger.md](adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md): a new ledger uses a custom ref (`refs/tsk/*`), and branches under `refs/heads/*` are an override for a repo used from Claude Code cloud sessions. The setting is read from the nexus, then `.tsk/config.toml`, then discovery. Supersedes the "a branch, not a custom ref" part of ADR 0008 for a new ledger.
 - [0017-the-ledger-is-a-dolt-file-remote-carried-by-plain-git.md](adr/0017-the-ledger-is-a-dolt-file-remote-carried-by-plain-git.md): the ledger ref holds a Dolt file remote directory that `tsk` moves with plain `git fetch` and `git push`, so Dolt never starts git. Plain pushes only, a retry loop of 10, growth of about 5 KB per publish, and `tsk ledger migrate-transport` for an existing ledger. Releases: [v0.21.0](releases/v0.21.0.md).
+- [0018-a-local-dolt-server-per-ledger-store-behind-a-switch.md](adr/0018-a-local-dolt-server-per-ledger-store-behind-a-switch.md): the SQL of a ledger store goes to a `dolt sql-server` on a Unix socket, one for each store, behind `TSK_DOLT_SERVER` or `[ledger] server` (off by default in 0.23.0). Own MySQL client with no new crate, replacement of a dead or hung server, idle stop, and why the `dolt` command line sees the store read only while a server runs. Releases: [v0.23.0](releases/v0.23.0.md).
 
 ## Knowledge base
 

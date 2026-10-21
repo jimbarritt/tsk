@@ -3,6 +3,8 @@ use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
+mod common;
+
 const IN_REPO_REF: &str = "refs/heads/tsk/ledger";
 const NEXUS_REF: &str = "refs/heads/ledgers/work-api";
 const NEXUS_DOCS_REF: &str = "refs/heads/ledgers/work-api-docs";
@@ -13,6 +15,13 @@ const WORK_API_ENTRY: &str =
 
 struct Fixture {
     root: TempDir,
+}
+
+impl Drop for Fixture {
+    /// Stop the Dolt servers that the commands started (ADR 0018) before the files go.
+    fn drop(&mut self) {
+        common::stop_servers(self.root.path(), false);
+    }
 }
 
 impl Fixture {
@@ -149,6 +158,7 @@ impl Fixture {
             .envs(git_env())
             .env("HOME", self.root.path().join("home"))
             .env("XDG_STATE_HOME", self.root.path().join("state"))
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.root.path().join("config"))
             .env("TSK_MACHINE_NAME", machine)
             .env("TSK_HOME", self.root.path().join("home/.tsk"))
@@ -188,6 +198,8 @@ impl Fixture {
     /// Run SQL against the Dolt database of the work clone and return the CSV it prints.
     fn sql(&self, sql: &str) -> String {
         let path = stdout(&self.tsk(&["ledger", "path"]));
+        // A Dolt server that an earlier command started holds the store for writing.
+        common::stop_servers(self.root.path(), true);
         let out = Command::new("dolt")
             .args(["sql", "-r", "csv", "-q", sql])
             .current_dir(path.trim_end())

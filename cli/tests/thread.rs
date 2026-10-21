@@ -4,12 +4,21 @@ use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
+mod common;
+
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 const BRIEFING: &str = "missions/operational/M-TEST-01-example.md";
 const SESSION_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 
 struct Fixture {
     root: TempDir,
+}
+
+impl Drop for Fixture {
+    /// Stop the Dolt servers that the commands started (ADR 0018) before the files go.
+    fn drop(&mut self) {
+        common::stop_servers(self.root.path(), false);
+    }
 }
 
 impl Fixture {
@@ -133,6 +142,8 @@ impl Fixture {
                 .output()
                 .unwrap(),
         );
+        // A Dolt server that an earlier command started holds the store for writing.
+        common::stop_servers(self.root.path(), true);
         let out = Command::new("dolt")
             .args(["sql", "-q", sql])
             .current_dir(path.trim_end())
@@ -281,6 +292,7 @@ impl Fixture {
             .envs(git_env())
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("TSK_NO_UPDATE_CHECK", "1")
@@ -1630,6 +1642,7 @@ fn session_start_warns_about_a_ledger_commit_that_is_not_on_origin() {
         &fx.work(),
         "insert into bindings (actor, kind, thread_id, registered_at) values ('cse_local', 'cloud', 'zzzzzzzz', '2026-01-01T00:00:00Z')",
     );
+    common::stop_servers(fx.root.path(), true);
     for args in [
         vec!["add", "-A"],
         vec!["commit", "-m", "Unpushed ledger commit"],

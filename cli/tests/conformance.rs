@@ -9,6 +9,8 @@ use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
+mod common;
+
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 const DOCS_REF: &str = "refs/heads/tsk/docs";
 const BRIEFING: &str = "missions/operational/M-CONF-01-conformance.md";
@@ -33,6 +35,11 @@ fn listing(extra: &[&str]) -> String {
     paths.iter().map(|p| format!("{}\n", p)).collect()
 }
 
+/// True when the whole run has the Dolt server switch on (`TSK_DOLT_SERVER=on`).
+fn server_on() -> bool {
+    std::env::var("TSK_DOLT_SERVER").is_ok_and(|v| v.trim().eq_ignore_ascii_case("on"))
+}
+
 fn dolt_installed() -> bool {
     Command::new("dolt")
         .arg("version")
@@ -45,6 +52,13 @@ fn dolt_installed() -> bool {
 
 struct Fixture {
     root: TempDir,
+}
+
+impl Drop for Fixture {
+    /// Stop the Dolt servers that the commands started (ADR 0018) before the files go.
+    fn drop(&mut self) {
+        common::stop_servers(self.root.path(), false);
+    }
 }
 
 impl Fixture {
@@ -97,6 +111,9 @@ impl Fixture {
             if !templates.contains_key(key) {
                 let (built, note) = build();
                 let dir = template_store().join(key);
+                // A running Dolt server would leave its files and a store that is still
+                // changing in the copy. Stop them first, and let them clean up.
+                common::stop_servers(built.root.path(), true);
                 run_cp(&built.root.path().join("."), &dir);
                 let built_at = built.root.path().to_string_lossy().into_owned();
                 templates.insert(key.to_string(), (dir, built_at, note));
@@ -148,6 +165,7 @@ impl Fixture {
             .env("GIT_COMMITTER_EMAIL", "test@example.com")
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("TSK_NO_UPDATE_CHECK", "1")
@@ -223,6 +241,9 @@ impl Fixture {
     /// Run SQL against the clone's Dolt database. The change stays in the working set
     /// until a `tsk ledger push` commits it.
     fn dolt_sql(&self, dir: &Path, sql: &str) -> String {
+        // A Dolt server that an earlier command started holds the store for writing, and
+        // `dolt` would open it read only. Stop it; the next command starts it again.
+        common::stop_servers(self.root.path(), true);
         let out = Command::new("dolt")
             .args(["sql", "-r", "csv", "-q", sql])
             .current_dir(self.ledger_path(dir))
@@ -4849,6 +4870,7 @@ fn dolt_session_start_exports_the_database_path_and_warns_about_pending_commits(
 
     // A commit that never reached the remote.
     let db = |args: &[&str]| {
+        common::stop_servers(fx.root.path(), true);
         let out = Command::new("dolt")
             .args(args)
             .current_dir(&path)
@@ -7251,6 +7273,16 @@ struct Observed {
 /// Run the script in a fresh fixture, with the batched reads or without them, and return
 /// what every command did with the ids, hashes, times and paths masked.
 fn observe(no_batch: bool, script: &[Run]) -> Vec<Observed> {
+    let extra: &[(&str, &str)] = if no_batch {
+        &[("TSK_NO_BATCH", "1")]
+    } else {
+        &[]
+    };
+    observe_with(extra, script)
+}
+
+/// [`observe`] with `extra` set in the environment of every command.
+fn observe_with(extra: &[(&str, &str)], script: &[Run]) -> Vec<Observed> {
     let fx = Fixture::fetched();
     let log = fx.root.path().join("dolt-log.txt");
     let shim = dolt_log_shim(fx.root.path());
@@ -7270,8 +7302,8 @@ fn observe(no_batch: bool, script: &[Run]) -> Vec<Observed> {
             .env("PATH", path_with_first(&shim))
             .env("TSK_DOLT_LOG", &log)
             .env_remove("CLAUDE_ENV_FILE");
-        if no_batch {
-            command.env("TSK_NO_BATCH", "1");
+        for (name, value) in extra {
+            command.env(name, value);
         }
         let output = match &step.stdin {
             Some(input) => {
@@ -7412,11 +7444,38 @@ fn assert_same_without_batching(script: &[Run]) {
         assert_eq!(with.code, without.code, "exit code of {}", with.command);
     }
     let total = |runs: &[Observed]| runs.iter().map(|o| o.launches).sum::<usize>();
+    // With the Dolt server on, neither run starts a `dolt` process for its SQL, so the
+    // counts cannot tell the paths apart. The comparison of the output above stands.
+    if server_on() {
+        return;
+    }
     assert!(
         total(&one_by_one) > total(&batched),
         "TSK_NO_BATCH=1 started {} dolt processes against {} batched",
         total(&one_by_one),
         total(&batched)
+    );
+}
+
+/// Run the script with the Dolt server off and on and require the same output, errors and
+/// exit codes from every command. With the server on, a command starts no `dolt` process
+/// for its SQL, so the second run starts fewer in total.
+fn assert_same_with_the_server(script: &[Run]) {
+    let off = observe_with(&[("TSK_DOLT_SERVER", "off")], script);
+    let on = observe_with(&[("TSK_DOLT_SERVER", "on")], script);
+    assert_eq!(off.len(), on.len());
+    for (without, with) in off.iter().zip(&on) {
+        assert_eq!(without.command, with.command);
+        assert_eq!(without.stdout, with.stdout, "stdout of {}", without.command);
+        assert_eq!(without.stderr, with.stderr, "stderr of {}", without.command);
+        assert_eq!(without.code, with.code, "exit code of {}", without.command);
+    }
+    let total = |runs: &[Observed]| runs.iter().map(|o| o.launches).sum::<usize>();
+    assert!(
+        total(&on) * 2 < total(&off),
+        "the server run started {} dolt processes against {} without it",
+        total(&on),
+        total(&off)
     );
 }
 
@@ -7453,12 +7512,7 @@ fn seed_records() -> Vec<Run> {
     ]
 }
 
-#[test]
-fn records_read_the_same_without_batching() {
-    if !dolt_installed() {
-        eprintln!("note: dolt is not installed; skipping");
-        return;
-    }
+fn records_script() -> Vec<Run> {
     let mut script = seed_records();
     script.extend([
         run('a', &["mission", "list"]),
@@ -7471,15 +7525,20 @@ fn records_read_the_same_without_batching() {
         run('a', &["task", "list", "M-NB", "--porcelain"]),
         run('a', &["mission", "list", "M-MISSING", "--json"]),
     ]);
-    assert_same_without_batching(&script);
+    script
 }
 
 #[test]
-fn fetch_and_status_read_the_same_without_batching() {
+fn records_read_the_same_without_batching() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
+    let script = records_script();
+    assert_same_without_batching(&script);
+}
+
+fn fetch_status_script() -> Vec<Run> {
     let mut script = seed_records();
     script.extend([
         run('a', &["ledger", "status"]),
@@ -7500,15 +7559,20 @@ fn fetch_and_status_read_the_same_without_batching() {
         run('b', &["task", "list", "M-NB"]),
         run('b', &["ledger", "discard"]),
     ]);
-    assert_same_without_batching(&script);
+    script
 }
 
 #[test]
-fn push_and_merge_read_the_same_without_batching() {
+fn fetch_and_status_read_the_same_without_batching() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
+    let script = fetch_status_script();
+    assert_same_without_batching(&script);
+}
+
+fn push_merge_script() -> Vec<Run> {
     let mut script = seed_records();
     script.extend([
         run('a', &["ledger", "push", "Seed the records"]),
@@ -7530,15 +7594,20 @@ fn push_and_merge_read_the_same_without_batching() {
         run('a', &["ledger", "push", "Stopped by a link"]),
         run('a', &["ledger", "status"]),
     ]);
-    assert_same_without_batching(&script);
+    script
 }
 
 #[test]
-fn thread_commands_read_the_same_without_batching() {
+fn push_and_merge_read_the_same_without_batching() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
+    let script = push_merge_script();
+    assert_same_without_batching(&script);
+}
+
+fn thread_script() -> Vec<Run> {
     let mut script = seed_records();
     script.extend([
         run('a', &["ledger", "push", "Seed the records"]),
@@ -7574,7 +7643,53 @@ fn thread_commands_read_the_same_without_batching() {
         ),
         run_with_stdin('a', &["thread", "guard"], "{\"session_id\":\"x\"}"),
     ]);
+    script
+}
+
+#[test]
+fn thread_commands_read_the_same_without_batching() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let script = thread_script();
     assert_same_without_batching(&script);
+}
+
+#[test]
+fn records_read_the_same_with_the_server() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    assert_same_with_the_server(&records_script());
+}
+
+#[test]
+fn fetch_and_status_read_the_same_with_the_server() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    assert_same_with_the_server(&fetch_status_script());
+}
+
+#[test]
+fn push_and_merge_read_the_same_with_the_server() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    assert_same_with_the_server(&push_merge_script());
+}
+
+#[test]
+fn thread_commands_read_the_same_with_the_server() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    assert_same_with_the_server(&thread_script());
 }
 
 // --- A pause, a start and a push do not ask origin first; a fresh clone fetches once ---
