@@ -8,6 +8,8 @@ use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
+mod common;
+
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 const DOCS_REF: &str = "refs/heads/tsk/docs";
 
@@ -32,6 +34,13 @@ macro_rules! need_dolt {
 
 struct Fixture {
     root: TempDir,
+}
+
+impl Drop for Fixture {
+    /// Stop the Dolt servers that the commands started (ADR 0018) before the files go.
+    fn drop(&mut self) {
+        common::stop_servers(self.root.path(), false);
+    }
 }
 
 impl Fixture {
@@ -93,6 +102,7 @@ impl Fixture {
             .envs(git_env())
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("TSK_AUTO_UPDATE", "never")

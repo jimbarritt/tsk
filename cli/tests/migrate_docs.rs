@@ -112,6 +112,7 @@ impl Fixture {
             .env("GIT_COMMITTER_EMAIL", "test@example.com")
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("TSK_LEDGER_REFS", "branches")

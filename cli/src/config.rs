@@ -105,6 +105,16 @@ fn read_ledger_backend(file: &Path) -> Option<String> {
     }
 }
 
+/// The `[ledger] server` value in the config file: `on` or `off`. `None` when the file,
+/// the table, the key or its string value is absent.
+pub fn read_ledger_server(file: &Path) -> Option<String> {
+    let table = read_table(file).ok()?;
+    match table.get("ledger")?.as_table()?.get("server")? {
+        toml::Value::String(value) => Some(value.clone()),
+        _ => None,
+    }
+}
+
 /// Refuse the removed files backend. The environment value wins over the config file,
 /// and an empty value counts as unset. Any value other than `git` is ignored.
 pub fn refuse_files_backend(env: Option<String>, file: Option<&Path>) -> Result<(), String> {

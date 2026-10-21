@@ -154,6 +154,7 @@ impl Fixture {
             .env("GIT_COMMITTER_EMAIL", "test@example.com")
             .env("HOME", self.root.path().join("home"))
             .env("XDG_STATE_HOME", self.root.path().join("state"))
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env(
                 "XDG_CONFIG_HOME",
                 self.root.path().join("home").join("config"),

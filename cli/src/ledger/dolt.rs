@@ -9,6 +9,10 @@ use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
 
+use crate::ledger::store::mysql::{Conn, Error as SqlError};
+use crate::ledger::store::server::{self, Failure};
+use crate::ledger::transport::{self, Transport};
+
 /// The branch every Dolt ledger database uses locally and on its remote.
 pub const BRANCH: &str = "main";
 /// The name of the remote inside the Dolt database.
@@ -332,11 +336,122 @@ pub fn lit(text: &str) -> String {
 #[derive(Clone)]
 pub struct Dolt {
     dir: PathBuf,
+    /// The SQL of this handle goes to the local Dolt server (see
+    /// [`crate::ledger::store::server`]). Everything else still starts `dolt`.
+    served: bool,
+}
+
+/// What a call through the server gave: its result, or the news that no server could be
+/// used, which sends the call down the `dolt` command line path.
+enum Served<T> {
+    Done(Result<T, String>),
+    Fallback,
+}
+
+/// What the server runs in place of a `dolt` command: the stored procedure, and the
+/// session settings around it.
+struct Procedure {
+    before: Vec<String>,
+    call: String,
+    after: Vec<String>,
+}
+
+impl Procedure {
+    fn call(call: String) -> Option<Procedure> {
+        Some(Procedure {
+            before: Vec::new(),
+            call,
+            after: Vec::new(),
+        })
+    }
+
+    /// A merge that leaves a conflict in the working set, as `dolt merge` does. Over SQL
+    /// a transaction that holds a conflict or a constraint violation is rolled back unless
+    /// the session allows it. `merge_remote` reads both tables and aborts, so it must
+    /// find them.
+    fn merge(call: String) -> Option<Procedure> {
+        Some(Procedure {
+            before: vec![
+                "set @@session.dolt_allow_commit_conflicts = 1, @@session.dolt_force_transaction_commit = 1"
+                    .to_string(),
+            ],
+            call,
+            after: vec![
+                "set @@session.dolt_allow_commit_conflicts = 0, @@session.dolt_force_transaction_commit = 0"
+                    .to_string(),
+            ],
+        })
+    }
+}
+
+/// The stored procedure that does what a `dolt` command does, for the commands that the
+/// server runs in place of a process. The others (`remote`, `clone`, `init`, `gc`,
+/// `config`) stay on the command line. Every argument is a literal that the server's
+/// parser takes as it is.
+fn procedure_call(args: &[String]) -> Option<Procedure> {
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    match args.as_slice() {
+        ["fetch", remote] => Procedure::call(format!("call dolt_fetch({})", lit(remote))),
+        ["push", remote, branch] => {
+            Procedure::call(format!("call dolt_push({}, {})", lit(remote), lit(branch)))
+        }
+        ["reset", "--hard", target] => {
+            Procedure::call(format!("call dolt_reset('--hard', {})", lit(target)))
+        }
+        ["clean"] => Procedure::call("call dolt_clean()".to_string()),
+        ["add", "-A"] => Procedure::call("call dolt_add('-A')".to_string()),
+        ["commit", "-m", message] => {
+            Procedure::call(format!("call dolt_commit('-m', {})", lit(message)))
+        }
+        ["merge", "--abort"] => Procedure::call("call dolt_merge('--abort')".to_string()),
+        ["merge", "--no-commit", target] => {
+            Procedure::merge(format!("call dolt_merge('--no-commit', {})", lit(target)))
+        }
+        ["merge", target] => Procedure::merge(format!("call dolt_merge({})", lit(target))),
+        _ => None,
+    }
+}
+
+/// True when `dolt` says it could not write because another process holds the store.
+fn is_read_only_refusal(stderr: &str) -> bool {
+    stderr.to_lowercase().contains("read only")
+}
+
+/// True for a Dolt database whose `origin` is a file remote.
+fn is_file_remote_store(dir: &Path) -> bool {
+    dir.join(".dolt").is_dir()
+        && transport::store_url(dir)
+            .is_some_and(|url| Transport::of_url(&url) == Transport::FileRemote)
 }
 
 impl Dolt {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Dolt { dir: dir.into() }
+        Dolt {
+            dir: dir.into(),
+            served: false,
+        }
+    }
+
+    /// A handle on a ledger store. With the server switch on, and a store that uses a file
+    /// remote, its SQL goes through the local server. A store on Dolt's blobstore remote
+    /// stays on the command line: its `fetch` and `push` start git, and the environment
+    /// of the command that asked is the one that must reach it.
+    pub fn store(dir: impl Into<PathBuf>) -> Self {
+        let dir = dir.into();
+        let served = server::enabled() && is_file_remote_store(&dir);
+        Dolt { dir, served }
+    }
+
+    fn serve<T>(
+        &self,
+        read_only: bool,
+        run: impl FnMut(&mut Conn) -> Result<T, SqlError>,
+    ) -> Served<T> {
+        match server::with_connection(&self.dir, read_only, run) {
+            Ok(value) => Served::Done(Ok(value)),
+            Err(Failure::Unavailable) => Served::Fallback,
+            Err(Failure::Failed(e)) => Served::Done(Err(server::failure_text(&e))),
+        }
     }
 
     pub fn dir(&self) -> &Path {
@@ -372,12 +487,63 @@ impl Dolt {
             .into_iter()
             .map(|a| a.as_ref().to_string_lossy().into_owned())
             .collect();
-        let output = self
+        if self.served {
+            if let Some(procedure) = procedure_call(&args) {
+                if let Some(output) = self.serve_procedure(&procedure) {
+                    return Ok((args, output));
+                }
+            }
+        }
+        let mut output = self
             .command()
             .args(&args)
             .output()
             .map_err(Self::spawn_error)?;
+        // A running server holds the store for writing, and a `dolt` that finds it open
+        // reads the store and refuses to write it. A write from a handle that does not use
+        // the server (the switch is off now, say) stops the server that an earlier command
+        // left running, then runs again. Nothing was written the first time.
+        if !output.status.success()
+            && is_read_only_refusal(&String::from_utf8_lossy(&output.stderr))
+            && server::stop_if_running(&self.dir)
+        {
+            output = self
+                .command()
+                .args(&args)
+                .output()
+                .map_err(Self::spawn_error)?;
+        }
         Ok((args, output))
+    }
+
+    /// Run a Dolt stored procedure through the server and give its result the shape of
+    /// the command's: the exit status, and the server's message as the standard error.
+    /// `None` when no server could be used, which sends the call to the command line. The
+    /// procedures that cross the network get a long time limit.
+    fn serve_procedure(&self, procedure: &Procedure) -> Option<Output> {
+        let outcome = server::with_connection(&self.dir, false, |conn| {
+            for statement in &procedure.before {
+                conn.query(statement)?;
+            }
+            conn.set_timeout(Some(server::network_timeout()))?;
+            let result = conn.query(&procedure.call);
+            conn.set_timeout(Some(server::query_timeout()))?;
+            for statement in &procedure.after {
+                conn.query(statement)?;
+            }
+            result
+        });
+        let (code, stderr) = match outcome {
+            Ok(_) => (0, String::new()),
+            Err(Failure::Unavailable) => return None,
+            Err(Failure::Failed(SqlError::Server { message, .. })) => (1, message),
+            Err(Failure::Failed(other)) => (1, other.to_string()),
+        };
+        Some(Output {
+            status: std::os::unix::process::ExitStatusExt::from_raw(code << 8),
+            stdout: Vec::new(),
+            stderr: stderr.into_bytes(),
+        })
     }
 
     pub fn run<I, S>(&self, args: I) -> Result<String, String>
@@ -396,6 +562,13 @@ impl Dolt {
     /// The query is not passed on the command line, so its length is not limited by the
     /// operating system.
     pub fn rows(&self, sql: &str) -> Result<Vec<Value>, String> {
+        if self.served {
+            if let Served::Done(result) =
+                self.serve(server::is_read_only(sql), |conn| conn.query(sql))
+            {
+                return result.map(server::flatten);
+            }
+        }
         let args = vec!["sql".to_string(), "-r".to_string(), "json".to_string()];
         let stdout = self.pipe(&args, sql)?;
         parse_rows(&stdout)
@@ -414,6 +587,19 @@ impl Dolt {
                 "error: batched reads are off ({} is set)",
                 NO_BATCH_VAR
             ));
+        }
+        if self.served {
+            let read_only = queries.iter().all(|q| server::is_read_only(q));
+            let served = self.serve(read_only, |conn| {
+                let mut results = Vec::with_capacity(queries.len());
+                for query in queries {
+                    results.push(server::flatten(conn.query(query)?));
+                }
+                Ok(results)
+            });
+            if let Served::Done(result) = served {
+                return result;
+            }
         }
         let script: String = queries.iter().map(|q| format!("{};\n", q)).collect();
         let args = vec!["sql".to_string(), "-r".to_string(), "json".to_string()];
@@ -451,6 +637,21 @@ impl Dolt {
                 NO_BATCH_VAR
             ));
         }
+        if self.served {
+            let served = self.serve(false, |conn| {
+                for write in writes {
+                    conn.query(write.trim_end().trim_end_matches(';'))?;
+                }
+                let mut results = Vec::with_capacity(queries.len());
+                for query in queries {
+                    results.push(server::flatten(conn.query(query)?));
+                }
+                Ok(results)
+            });
+            if let Served::Done(result) = served {
+                return result;
+            }
+        }
         let script: String = writes
             .iter()
             .chain(queries.iter())
@@ -471,6 +672,13 @@ impl Dolt {
 
     /// Run write statements in one transaction: all of them apply, or none.
     pub fn exec(&self, sql: &str) -> Result<(), String> {
+        if self.served {
+            let script = format!("start transaction;\n{}\ncommit;\n", sql);
+            if let Served::Done(result) = self.serve(false, |conn| conn.query(&script).map(|_| ()))
+            {
+                return result;
+            }
+        }
         let script = format!("start transaction;\n{}\ncommit;\n", sql);
         let args = vec!["sql".to_string()];
         self.pipe(&args, &script).map(|_| ())
@@ -494,6 +702,13 @@ impl Dolt {
             .wait_with_output()
             .map_err(|e| format!("error: could not run dolt: {}", e))?;
         if !output.status.success() {
+            // See `output`: a write that a running server's lock refused runs again once
+            // the server is stopped.
+            if is_read_only_refusal(&String::from_utf8_lossy(&output.stderr))
+                && server::stop_if_running(&self.dir)
+            {
+                return self.pipe(args, input);
+            }
             return Err(failure_message(args, &output));
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
@@ -523,8 +738,19 @@ pub fn first_count(rows: &[Value]) -> i64 {
     rows.first()
         .and_then(|row| row.as_object())
         .and_then(|map| map.values().next())
-        .and_then(Value::as_i64)
+        .and_then(number)
         .unwrap_or(0)
+}
+
+/// An integer, whether Dolt printed it as a JSON number or as a string. `dolt sql -r json`
+/// prints numbers when it opens the store itself and strings when a running Dolt server
+/// answers it (see ADR 0018), so a reader takes both.
+fn number(value: &Value) -> Option<i64> {
+    match value {
+        Value::Number(n) => n.as_i64(),
+        Value::String(text) => text.trim().parse().ok(),
+        _ => None,
+    }
 }
 
 /// Make sure Dolt has a commit identity. A machine with none gets `tsk <tsk@localhost>`
@@ -588,7 +814,7 @@ pub fn text(row: &Value, column: &str) -> Option<String> {
 }
 
 pub fn integer(row: &Value, column: &str) -> Option<i64> {
-    row.get(column).and_then(Value::as_i64)
+    row.get(column).and_then(number)
 }
 
 /// A boolean column, whether Dolt rendered it as `true` or as `1`.
@@ -596,6 +822,7 @@ pub fn flag(row: &Value, column: &str) -> bool {
     match row.get(column) {
         Some(Value::Bool(b)) => *b,
         Some(Value::Number(n)) => n.as_i64() == Some(1),
+        Some(Value::String(text)) => matches!(text.trim(), "1" | "true"),
         _ => false,
     }
 }

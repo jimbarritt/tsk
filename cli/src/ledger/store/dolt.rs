@@ -501,7 +501,7 @@ impl DoltStore {
         if !is_database(&path) {
             return Err(missing(format!("{} does not exist", path.display())));
         }
-        Ok(Dolt::new(path))
+        Ok(Dolt::store(path))
     }
 
     fn describe(&self, what: &str) -> String {
@@ -1800,7 +1800,7 @@ impl DoltStore {
             let (asked, read) = std::thread::scope(|scope| {
                 let ask = scope.spawn(|| tips::remote_heads(&git, &asking).ok());
                 let read = self.read_state(
-                    &Dolt::new(&path),
+                    &Dolt::store(&path),
                     &location,
                     true,
                     Some((url.as_str(), path.as_path())),
@@ -1822,14 +1822,14 @@ impl DoltStore {
         if ledger_tip.is_none() {
             crate::ledger::refs::check_origin_has_no_other(&self.repo, &location)?;
             let version = if present {
-                let db = Dolt::new(&path);
+                let db = Dolt::store(&path);
                 verify_remote(&db, &url, &location)?;
                 self.check_manifest_of(&db, &location)?
             } else {
                 self.create_new_database(&path, &location)?;
                 dolt::LAYOUT_VERSION
             };
-            let head = Dolt::new(&path).head_hash()?;
+            let head = Dolt::store(&path).head_hash()?;
             return Ok((
                 RefreshOutcome {
                     unpublished_note: Some(crate::ledger::unpublished_text(
@@ -1851,7 +1851,7 @@ impl DoltStore {
         let db;
         let state;
         if present {
-            db = Dolt::new(&path);
+            db = Dolt::store(&path);
             // When origin has nothing new, one process reads everything the refresh needs.
             // Otherwise the remote check and the dirty check come first, then the fetch,
             // then the reads. When a batch fails, the reads go one by one, which gives the
@@ -1926,7 +1926,7 @@ impl DoltStore {
                     self.note_data_fetched(&location, ledger_tip.as_deref());
                 }
             }
-            db = Dolt::new(&path);
+            db = Dolt::store(&path);
             let mut found = self.read_state(&db, &location, false, None, false, keep_local)?;
             if found.is_none() {
                 found = Some(self.read_state_one_by_one(&db, &location, false, false, keep_local)?);

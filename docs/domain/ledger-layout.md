@@ -156,6 +156,42 @@ version 0 (median of 6 interleaved runs). Two things leave the setting out:
 `git.ledger.commit` in a continuation entry holds the Dolt commit hash with the Dolt
 backend.
 
+### The local Dolt server
+
+Everything above describes the default: every SQL batch is a `dolt sql` process.
+[ADR 0018](../adr/0018-a-local-dolt-server-per-ledger-store-behind-a-switch.md) adds a
+second way to reach the same store, which 0.23.0 uses only when the switch is on
+(`TSK_DOLT_SERVER=on`, or `[ledger] server = "on"` in the user config; the environment
+wins; the default is off).
+
+- **What it is.** One `dolt sql-server` for each ledger store whose `origin` is a file
+  remote. The first command that needs it starts it, under a file lock, through a detached
+  supervisor (`tsk ledger server run`). `tsk` talks to it over `<store>/.tsk-dolt.sock`
+  (`/tmp/tsk-dolt-<uid>-<hash>.sock` when that path is over 100 bytes), with an own MySQL
+  client that returns the rows in the JSON shape of `dolt sql -r json`. Dolt also binds a
+  free port on `127.0.0.1`, because it does not start without one.
+- **Files**, in the state directory of the clone, beside `ledger-db`: `dolt-server.pid`
+  (`pid=`, `supervisor=`, `state=starting|ready`, `socket=`, `port=`, `store_id=`,
+  `started=`, `idle=`), `dolt-server.lock`, `dolt-server.log`, `dolt-server.yaml`,
+  `dolt-server.seen` (touched by each connection) and `dolt-server-cfg/` (Dolt's
+  privileges). The store gets one file, the socket.
+- **What it runs.** All SQL, and the procedures for `fetch`, `push`, `reset --hard`,
+  `clean`, `add -A`, `commit -m`, `merge`, `merge --no-commit` and `merge --abort`. The
+  commit identity of a connection comes from `DOLT_AUTHOR_NAME` and its siblings, then from
+  the global Dolt configuration. `init`, `clone`, `remote` and `config` stay on the
+  command line, and so does everything for a store on Dolt's git blobstore.
+- **When it is replaced.** A command probes the socket with `select 1` (5 s). Refused or
+  stale: the files are cleared and a server starts. Silent: the processes are killed with
+  `SIGKILL` and a server starts. `tsk thread session-start` does this check first, in the
+  background, so a cloud session that woke from hibernation finds a live server.
+- **When it stops.** After `TSK_DOLT_SERVER_IDLE_SECS` (120) with no connection, or when
+  the store directory goes, or on `tsk ledger server stop`.
+- **The command line beside it.** While the server runs, `dolt` opens the store read only:
+  reads work and print typed JSON, and a write fails with `database is read only`. A
+  `tsk` with the switch off stops the server of a store when its first write is refused.
+  A person who wants to write with `dolt` runs `tsk ledger server stop` first.
+- **Commands.** `tsk ledger server status|start|stop`.
+
 ### Documents
 
 Documents are plain Markdown files on a second branch, `tsk/docs`. The rule: structured

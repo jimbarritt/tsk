@@ -10,6 +10,8 @@ use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
+mod common;
+
 const RUNNING: &str = env!("CARGO_PKG_VERSION");
 
 fn dolt_installed() -> bool {
@@ -83,6 +85,8 @@ impl Fixture {
         let fetch = fx.tsk(&["ledger", "fetch"], "", &[]);
         assert!(fetch.status.success(), "{}", err(&fetch));
         let path = fx.tsk(&["ledger", "path"], "", &[]);
+        // A Dolt server that the fetch started holds the store; stop it before a write.
+        common::stop_servers(root, true);
         let sql = Command::new("dolt")
             .args([
                 "sql",
