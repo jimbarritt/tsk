@@ -37,6 +37,19 @@ Backs the `/tsk:start-thread` command. This skill is the agent-facing wrapper ar
    tsk thread start
    ```
 
+   Starting a thread is a claim, so the command publishes at once: the thread and the
+   binding go to origin, with any record you wrote earlier. This is one of the four points
+   where records are published (thread start, thread pause, the end of the session, and
+   when asked). Every other write, such as `tsk task set`, stays local until one of them.
+
+   If you take a task, set it to `in-progress` and publish it straight away, so that no
+   other actor takes the same task:
+
+   ```bash
+   tsk task set "<mission-id>" "<task-id>" status in-progress
+   tsk ledger push "Claim <mission-id> <task-id>"
+   ```
+
 3. **Handle the result.**
    - Exit 0, output `started:<thread-id>`: a new thread was minted and bound.
      Tell me the new thread ID and confirm the mission it is working, or that it has

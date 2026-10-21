@@ -19,8 +19,11 @@ refuse.
    tsk thread resume "<thread-id>"
    ```
 
-   This binds the current session or code worktree to the thread (additive), and
-   prints one JSON object: `{"thread_id", "latest", "warning"}`, where `latest`
+   This binds the current session or code worktree to the thread (additive). The
+   binding is a local write: it does not push, and it prints `note: saved in the local
+   ledger store; it goes out with the next push ...` on stderr. The binding goes out
+   with the next thread start, pause or stop, at the end of the session, or with
+   `tsk ledger push`. The command prints one JSON object: `{"thread_id", "latest", "warning"}`, where `latest`
    is the most recent continuation state entry (or `{}` if the thread has never been
    paused) and `warning` is non-empty if the thread was already associated
    with a different actor.

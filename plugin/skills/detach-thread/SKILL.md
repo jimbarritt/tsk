@@ -18,6 +18,10 @@ untouched. To delete the thread as well, use the `tsk:stop-thread` skill instead
    tsk thread detach
    ```
 
+   Detaching is a local write. It does not push, and it prints `note: saved in the local
+   ledger store; it goes out with the next push ...` on stderr. Records are published at
+   thread start, thread pause, the end of the session and when asked.
+
 2. **Handle the result.**
    - Exit 0, output `detached:<thread-id>`: tell me the thread this session or
      code worktree was detached from.

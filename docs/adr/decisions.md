@@ -18,3 +18,4 @@
 - [16. A custom ref is the default for a new ledger](0016-a-custom-ref-is-the-default-for-a-new-ledger.md)
 - [17. The ledger is a Dolt file remote carried by plain git](0017-the-ledger-is-a-dolt-file-remote-carried-by-plain-git.md)
 - [18. A local Dolt server per ledger store, behind a switch](0018-a-local-dolt-server-per-ledger-store-behind-a-switch.md)
+- [19. Publish less often, by rule](0019-publish-less-often-by-rule.md)

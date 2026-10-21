@@ -531,7 +531,10 @@ impl Fixture {
 
     /// The latest continuation state entry of a thread, read by resuming it.
     fn latest_entry(&self, dir: &Path, id: &str) -> serde_json::Value {
-        json(&self.ok(dir, &["thread", "resume", id]))["latest"].clone()
+        let latest = json(&self.ok(dir, &["thread", "resume", id]))["latest"].clone();
+        // A resume binds in the local store only (ADR 0019). The old resume pushed.
+        self.ok(dir, &["ledger", "push", "Bind for the test"]);
+        latest
     }
 }
 
@@ -717,6 +720,8 @@ mod cases {
         );
         assert_exit(&fx.tsk(&a, &["thread", "binding", "--no-fetch"]), 1);
         assert_exit(&fx.tsk(&a, &["thread", "start", "M-NONE"]), 1);
+        // A detach is local. A read with local changes does not fetch, so publish it.
+        fx.ok(&a, &["ledger", "push", "Publish the detach"]);
 
         let resumed = json(&fx.ok(&other, &["thread", "resume", &id]));
         assert_eq!(resumed["thread_id"], id.as_str());
@@ -765,6 +770,8 @@ mod cases {
 
         let stop = fx.tsk_cloud(&other, "cse_two", &["thread", "stop"]);
         assert_eq!(stdout(&stop), format!("stopped:{}\n", id));
+        // The detach was local. The push merges it with the stop and publishes it.
+        fx.ok(&a, &["ledger", "push", "Publish the detach"]);
         fx.ok(&a, &["ledger", "fetch"]);
         assert_exit(&fx.tsk_cloud(&a, "cse_two", &["thread", "binding"]), 1);
     }
@@ -854,6 +861,7 @@ mod cases {
         let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
         fx.ok(&a, &["thread", "detach"]);
         assert_exit(&fx.tsk(&a, &["thread", "binding"]), 1);
+        fx.ok(&a, &["ledger", "push", "Publish the detach"]);
 
         // A clone with no ledger store reads the marker as it is, and fails on nothing.
         write(&fx.marker(&other), &format!("{}\n", id));
@@ -885,6 +893,8 @@ mod cases {
             fx.ok(&a, &["thread", "binding", "--no-fetch"]),
             format!("worktree:{}\n", id)
         );
+        // The row the marker became is a local write: the check asks for a push, once.
+        fx.ok(&a, &["ledger", "push", "Publish the row"]);
         assert_eq!(fx.guard_reason(&a, None), None);
         fx.ok(&a, &["thread", "detach"]);
         fx.ok(&a, &["thread", "resume", &id]);
@@ -918,6 +928,7 @@ mod cases {
             .unwrap()
             .to_string();
         assert_success(&fx.tsk_cloud(&other, "cse_two", &["thread", "resume", &id]));
+        fx.ok(&other, &["ledger", "push", "Bind the cloud session"]);
         fx.ok(&a, &["thread", "resume", &id]);
         fx.ok(&a, &["ledger", "push", "Bind the worktree"]);
 
@@ -1016,28 +1027,43 @@ mod cases {
         assert_eq!(fx.actors_of(&other, &id), expected);
     }
 
-    pub fn a_worktree_resume_and_detach_push_and_leave_the_store_clean() {
+    pub fn a_worktree_resume_and_detach_write_locally_and_the_next_push_leaves_the_store_clean() {
         let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
         let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
-        fx.ok(&a, &["thread", "detach"]);
-        let after_detach = fx.remote_ledger();
+        let after_start = fx.remote_ledger();
+        let detach = fx.tsk(&a, &["thread", "detach"]);
+        assert_success(&detach);
+        assert!(stderr(&detach).contains("goes out with the next push"));
+        let status = fx.ok(&a, &["ledger", "status", "--local", "--porcelain"]);
+        assert!(status.contains("data\tlocal changes"), "{}", status);
         fx.ok(&a, &["thread", "resume", &id]);
-        assert_ne!(fx.remote_ledger(), after_detach);
+        // Neither command pushed. (A resume in the second of the start can leave the row
+        // as origin holds it, so the store may be clean again here.)
+        assert_eq!(fx.remote_ledger(), after_start);
 
-        // Nothing is left to push: a plain fetch works and the status is clean.
+        // The next push publishes them and leaves nothing to push.
+        fx.ok(&a, &["ledger", "push", "Publish the binding"]);
         fx.ok(&a, &["ledger", "fetch"]);
         let status = fx.ok(&a, &["ledger", "status", "--porcelain"]);
         assert!(status.contains("data\tclean"), "{}", status);
         assert!(!status.contains("local changes"), "{}", status);
+        let after_push = fx.remote_ledger();
         fx.ok(&a, &["thread", "detach"]);
+        assert_eq!(fx.remote_ledger(), after_push);
+        fx.ok(&a, &["ledger", "push", "Publish the detach"]);
         fx.ok(&a, &["ledger", "fetch"]);
         let status = fx.ok(&a, &["ledger", "status", "--porcelain"]);
         assert!(status.contains("data\tclean"), "{}", status);
 
-        // Pending records go out with the bind.
+        // Pending records and the bind go out together with the next push.
         fx.ok(&a, &["mission", "create", "M-PEND", "Pending"]);
         fx.ok(&a, &["thread", "resume", &id]);
+        fx.ok(&other, &["ledger", "fetch"]);
+        assert!(!fx
+            .ok(&other, &["mission", "list", "--porcelain"])
+            .contains("M-PEND"));
+        fx.ok(&a, &["ledger", "push", "Publish the record and the bind"]);
         fx.ok(&other, &["ledger", "fetch"]);
         assert!(fx
             .ok(&other, &["mission", "list", "--porcelain"])
@@ -1060,9 +1086,7 @@ mod cases {
         assert_success(&resume);
         assert_eq!(json(&stdout(&resume))["thread_id"], id.as_str());
         assert!(
-            stderr(&resume).contains(
-                "note: the binding is saved locally; run tsk ledger push when origin is reachable"
-            ),
+            stderr(&resume).contains("note: saved in the local ledger store"),
             "{}",
             stderr(&resume)
         );
@@ -1070,11 +1094,17 @@ mod cases {
             fx.ok(&a, &["thread", "binding", "--no-fetch"]),
             format!("worktree:{}\n", id)
         );
-        assert_eq!(fx.guard_reason(&a, None), None);
+        // The check answers from the local store with origin away. It is bound, so it never
+        // asks for a thread. It asks for a push when the store holds the bind, which a
+        // resume within the second of the start leaves identical to what origin holds.
+        if let Some(reason) = fx.guard_reason(&a, None) {
+            assert!(reason.contains("tsk ledger push"), "{}", reason);
+            assert!(!reason.contains("No thread binding"), "{}", reason);
+        }
 
         let detach = fx.tsk(&a, &["thread", "detach"]);
         assert_success(&detach);
-        assert!(stderr(&detach).contains("the binding is saved locally"));
+        assert!(stderr(&detach).contains("note: saved in the local ledger store"));
         assert_exit(&fx.tsk(&a, &["thread", "binding", "--no-fetch"]), 1);
 
         // Origin returns and the next push carries the change.
@@ -2684,14 +2714,17 @@ mod cases {
         assert_eq!(fx.guard_reason(&a, None), None);
         fx.ok(&a, &["thread", "detach"]);
         assert!(fx.guard_reason(&a, None).is_some());
+        fx.ok(&a, &["ledger", "push", "Publish the detach"]);
 
         // So does resume.
         fx.ok(&a, &["thread", "skip"]);
         assert_eq!(fx.guard_reason(&a, None), None);
         fx.ok(&a, &["thread", "resume", &id]);
+        fx.ok(&a, &["ledger", "push", "Publish the binding"]);
         assert_eq!(fx.guard_reason(&a, None), None);
         fx.ok(&a, &["thread", "detach"]);
         assert!(fx.guard_reason(&a, None).is_some());
+        fx.ok(&a, &["ledger", "push", "Publish the detach"]);
 
         // A cloud session skips for itself only.
         let skipped = fx.tsk_cloud(&a, "cse_skip", &["thread", "skip"]);
@@ -3049,7 +3082,8 @@ mod cases {
             fx.ok(&a, &["thread", "set", "mission", "M-ONE"]),
             format!("mission-set:{}:M-ONE\n", id)
         );
-        assert_ne!(fx.remote_ledger(), before);
+        // A set is a local write (ADR 0019): origin is unchanged until the next push.
+        assert_eq!(fx.remote_ledger(), before);
         let row = fx.thread_row(&a, &id);
         assert_eq!(row["mission_id"], "M-ONE");
         assert_eq!(row["mission_link"], "");
@@ -3089,7 +3123,8 @@ mod cases {
         assert_eq!(row["mission_id"], "M-CONF-01");
         assert_eq!(row["mission_link"], BRIEFING);
 
-        // Another clone sees the change.
+        // Another clone sees the change after the push.
+        fx.ok(&a, &["ledger", "push", "Publish the mission"]);
         let b_clone = fx.b();
         assert_eq!(fx.thread_row(&b_clone, &id)["mission_id"], "M-CONF-01");
 
@@ -4713,7 +4748,7 @@ conformance!(
     two_actors_bind_one_thread_and_stop_clears_every_kind,
     rebinding_replaces_the_old_binding_of_an_actor,
     two_clones_bind_their_worktrees_at_once_and_both_pushes_succeed,
-    a_worktree_resume_and_detach_push_and_leave_the_store_clean,
+    a_worktree_resume_and_detach_write_locally_and_the_next_push_leaves_the_store_clean,
     a_worktree_resume_with_origin_away_keeps_the_binding_locally,
     events_append_read_new_and_advance_the_watermark,
     a_stale_push_is_merged_when_different_rows_changed,
@@ -6400,9 +6435,11 @@ fn a_version_seven_ledger_reads_its_bindings_from_the_old_table_and_the_first_wr
     assert!(!fx.tables(&other).lines().any(|t| t == "bindings"));
 
     // A write upgrades: this bind creates the table, copies the rows as cloud rows, drops
-    // the old table and records version 8, and the push carries it.
+    // the old table and records version 8, and the push after it carries it.
     assert_success(&fx.tsk_cloud(&other, "cse_new", &["thread", "resume", &id]));
     assert_eq!(fx.manifest_version(&other), "8");
+    // The bind is local. The next push carries the upgrade.
+    fx.ok(&other, &["ledger", "push", "Upgrade to version 8"]);
     let tables = fx.tables(&other);
     assert!(tables.lines().any(|t| t == "bindings"), "{}", tables);
     assert!(
@@ -6512,6 +6549,8 @@ fn the_stop_hook_check_reads_the_local_ledger_store_and_works_offline() {
     assert!(!fx.marker(&a).exists());
     let start = fx.tsk_cloud(&a, "cse_off", &["thread", "resume", &id]);
     assert_success(&start);
+    // The bind is local. The check would ask for a push, so publish it first.
+    fx.ok(&a, &["ledger", "push", "Publish the binding"]);
 
     // The origin is gone: the check never fetches, so it answers from the local store.
     let moved = fx.root.path().join("origin-away.git");
@@ -6672,6 +6711,8 @@ fn a_ledger_held_in_a_nexus_repo_round_trips_between_clones() {
     let resumed = json(&fx.ok(&other, &["thread", "resume", &id]));
     assert_eq!(resumed["latest"]["task_id"], "T-01");
     assert_eq!(resumed["latest"]["whats_next"], "Carry on");
+    // The bind is local, and a read of the event queue refuses local changes.
+    fx.ok(&other, &["ledger", "push", "Bind B"]);
     assert_eq!(fx.ok(&other, &["events", "read-new"]).lines().count(), 1);
 
     // A write in B reaches A through the nexus too, and a stale push merges.
@@ -6761,8 +6802,8 @@ fn a_clone_that_pushes_between_the_refresh_and_the_push_is_merged_not_overwritte
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    // A detach asks origin first, so the rejections are said aloud.
-    a_race_between_the_refresh_and_the_push(&["thread", "detach"], true, true);
+    // A stop asks origin first, so the rejections are said aloud.
+    a_race_between_the_refresh_and_the_push(&["thread", "stop"], true, true);
 }
 
 #[test]
@@ -6838,7 +6879,9 @@ fn a_race_between_the_refresh_and_the_push(args: &[&str], bound: bool, says_so: 
         .ok(&a, &["mission", "list", "--porcelain"])
         .contains("M-RACE"));
     fx.ok(&b, &["ledger", "fetch"]);
-    assert_eq!(fx.ok(&b, &["thread", "list"]).lines().count(), 1);
+    // A stop deleted the thread. A start made one.
+    let threads = if args[1] == "stop" { 0 } else { 1 };
+    assert_eq!(fx.ok(&b, &["thread", "list"]).lines().count(), threads);
     assert!(fx
         .ok(&b, &["mission", "list", "--porcelain"])
         .contains("M-RACE"));

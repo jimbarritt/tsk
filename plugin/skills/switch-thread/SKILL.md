@@ -47,3 +47,8 @@ each of those as described below, and do not inline their work here.
      to. Offer `tsk:start-thread` instead.
 
 5. **Resume.** Run the `tsk:resume-thread` skill's steps for the chosen thread ID.
+
+Detach and resume write locally and do not push. Stop pushes. The binding change goes
+out with the next thread start, pause or stop, at the end of the session, or with
+`tsk ledger push`. Run `tsk ledger push` after the switch if another actor must see the
+new binding now.

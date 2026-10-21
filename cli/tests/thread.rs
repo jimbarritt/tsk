@@ -8,6 +8,8 @@ mod common;
 
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 const BRIEFING: &str = "missions/operational/M-TEST-01-example.md";
+/// What resume, detach and set mission print on stderr after a write that does not push.
+const NOT_PUBLISHED: &str = "goes out with the next push";
 const SESSION_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 
 struct Fixture {
@@ -184,6 +186,19 @@ impl Fixture {
 
     fn origin_binding_threads(&self) -> std::collections::BTreeMap<String, String> {
         self.origin_rows("select actor, thread_id from bindings")
+            .iter()
+            .map(|row| {
+                (
+                    row["actor"].as_str().unwrap().to_string(),
+                    row["thread_id"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    }
+
+    /// The bindings the work clone's ledger store holds, as it is, with no fetch.
+    fn local_binding_threads(&self) -> std::collections::BTreeMap<String, String> {
+        self.rows("select actor, thread_id from bindings")
             .iter()
             .map(|row| {
                 (
@@ -878,8 +893,17 @@ fn resume_prints_the_latest_entry_and_binds_the_worktree() {
     assert_eq!(result["warning"], "");
     assert!(!fx.marker().exists());
     assert_eq!(fx.binding(), format!("worktree:{}\n", id));
-    // The binding is pushed, as a cloud session's is.
-    assert_ne!(fx.origin_ledger_sha(), before);
+    // The binding is a local write (ADR 0019): origin is unchanged, the store holds the
+    // row, and the next push publishes it.
+    assert_eq!(fx.origin_ledger_sha(), before);
+    assert!(stderr(&output).contains(NOT_PUBLISHED));
+    // (The status is not asserted here: a detach and a resume within one second leave the
+    // row as origin holds it. The detach and cloud cases below check it.)
+    assert_eq!(
+        fx.local_binding_threads().get(&fx.worktree_actor()),
+        Some(&id)
+    );
+    assert_success(&fx.tsk(&["ledger", "push", "Publish the binding"]));
     assert_eq!(
         fx.origin_binding_threads().get(&fx.worktree_actor()),
         Some(&id)
@@ -1027,31 +1051,43 @@ fn resume_refuses_an_unknown_thread() {
 }
 
 #[test]
-fn resume_in_a_cloud_session_binds_once_and_pushes() {
+fn resume_in_a_cloud_session_binds_locally_and_the_next_push_publishes_it() {
     let fx = Fixture::new();
     fx.seed_thread("5555eeee", "");
+    let before = fx.origin_ledger_sha();
 
     let first = fx.tsk_cloud("cse_two", &["thread", "resume", "5555eeee"]);
     assert_success(&first);
+    assert!(stderr(&first).contains(NOT_PUBLISHED));
+    assert_eq!(fx.origin_ledger_sha(), before);
+    assert!(!fx.origin_binding_threads().contains_key("cse_two"));
+    assert_eq!(
+        fx.local_binding_threads()
+            .get("cse_two")
+            .map(String::as_str),
+        Some("5555eeee")
+    );
+    assert!(stdout(&fx.tsk(&["ledger", "status", "--local"])).contains("not pushed"));
+
+    assert_success(&fx.tsk_cloud("cse_two", &["ledger", "push", "Publish the binding"]));
     assert_eq!(
         fx.origin_binding_threads()
             .get("cse_two")
             .map(String::as_str),
         Some("5555eeee")
     );
-    assert_eq!(
-        fx.origin_subject(),
-        "Bind urn:tsk:cloudsession:cse_two to thread 5555eeee"
-    );
-    let after_first = fx.origin_ledger_sha();
+    assert_eq!(fx.origin_subject(), "Publish the binding");
+    let after_push = fx.origin_ledger_sha();
 
+    // A second resume of the same thread changes nothing, locally or on origin.
     let second = fx.tsk_cloud("cse_two", &["thread", "resume", "5555eeee"]);
     assert_success(&second);
-    assert_eq!(fx.origin_ledger_sha(), after_first);
+    assert!(!stderr(&second).contains(NOT_PUBLISHED));
+    assert_eq!(fx.origin_ledger_sha(), after_push);
 }
 
 #[test]
-fn detach_removes_the_worktree_binding_and_pushes_it() {
+fn detach_removes_the_worktree_binding_locally_and_the_next_push_publishes_it() {
     let fx = Fixture::new();
     let id = fx.start();
     let before = fx.origin_ledger_sha();
@@ -1060,14 +1096,20 @@ fn detach_removes_the_worktree_binding_and_pushes_it() {
 
     assert_success(&output);
     assert_eq!(stdout(&output), format!("detached:{}\n", id));
+    assert!(stderr(&output).contains(NOT_PUBLISHED));
     assert!(!fx.marker().exists());
     assert_exit(&fx.tsk(&["thread", "binding"]), 1);
-    assert_ne!(fx.origin_ledger_sha(), before);
+    // Origin still holds the binding that start published.
+    assert_eq!(fx.origin_ledger_sha(), before);
+    assert!(fx
+        .origin_binding_threads()
+        .contains_key(&fx.worktree_actor()));
+    assert!(fx.local_binding_threads().is_empty());
+    assert!(stdout(&fx.tsk(&["ledger", "status", "--local"])).contains("not pushed"));
+
+    assert_success(&fx.tsk(&["ledger", "push", "Publish the detach"]));
     assert!(fx.origin_binding_threads().is_empty());
-    assert_eq!(
-        fx.origin_subject(),
-        format!("Detach urn:tsk:worktree:.git from thread {}", id)
-    );
+    assert_eq!(fx.origin_subject(), "Publish the detach");
     assert_eq!(fx.origin_thread_ids(), vec![id]);
 }
 
@@ -1215,18 +1257,22 @@ fn detach_in_a_cloud_session_removes_only_its_own_binding() {
         ("cse_a", "6666ffff", "2026-10-01T00:00:00Z"),
         ("cse_b", "6666ffff", "2026-10-02T00:00:00Z"),
     ]);
+    let before = fx.origin_ledger_sha();
 
     let output = fx.tsk_cloud("cse_a", &["thread", "detach"]);
 
     assert_success(&output);
     assert_eq!(stdout(&output), "detached:6666ffff\n");
+    assert_eq!(fx.origin_ledger_sha(), before);
+    let local = fx.local_binding_threads();
+    assert_eq!(local.len(), 1);
+    assert_eq!(local.get("cse_b").map(String::as_str), Some("6666ffff"));
+
+    assert_success(&fx.tsk_cloud("cse_a", &["ledger", "push", "Publish the detach"]));
     let remaining = fx.origin_binding_threads();
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining.get("cse_b").map(String::as_str), Some("6666ffff"));
-    assert_eq!(
-        fx.origin_subject(),
-        "Detach urn:tsk:cloudsession:cse_a from thread 6666ffff"
-    );
+    assert_eq!(fx.origin_subject(), "Publish the detach");
 }
 
 #[test]
@@ -1398,6 +1444,144 @@ fn guard_blocks_when_unbound_and_passes_when_bound() {
     let bound = fx.tsk_stdin(&["thread", "guard"], "{\"session_id\":\"x\"}");
     assert_success(&bound);
     assert_eq!(stdout(&bound), "");
+}
+
+#[test]
+fn guard_mentions_unpublished_work_only_when_the_store_holds_some() {
+    let fx = Fixture::new();
+    fx.start();
+    let hook = "{\"session_id\":\"x\"}";
+
+    // Bound, and start published everything: nothing to say.
+    assert_eq!(stdout(&fx.tsk_stdin(&["thread", "guard"], hook)), "");
+
+    // A local write that no push has carried out.
+    assert_success(&fx.tsk_stdin(&["ledger", "doc", "put", "notes/a.md"], "# a\n"));
+    let blocked = fx.tsk_stdin(&["thread", "guard"], hook);
+    assert_success(&blocked);
+    let decision = json(&stdout(&blocked));
+    assert_eq!(decision["decision"], "block");
+    assert!(decision["reason"]
+        .as_str()
+        .unwrap()
+        .contains("tsk ledger push"));
+
+    // The hook that already blocked once does not block again.
+    let again = fx.tsk_stdin(&["thread", "guard"], "{\"stop_hook_active\":true}");
+    assert_eq!(stdout(&again), "");
+
+    // After the push the check is quiet.
+    assert_success(&fx.tsk(&["ledger", "push", "Publish the note"]));
+    assert_eq!(stdout(&fx.tsk_stdin(&["thread", "guard"], hook)), "");
+}
+
+#[test]
+fn guard_asks_nothing_of_origin_for_unpublished_work() {
+    let fx = Fixture::new();
+    fx.start();
+    assert_success(&fx.tsk_stdin(&["ledger", "doc", "put", "notes/a.md"], "# a\n"));
+    let moved = fx.root.path().join("origin-moved.git");
+    std::fs::rename(fx.origin(), &moved).unwrap();
+    let blocked = fx.tsk_stdin(&["thread", "guard"], "{}");
+    std::fs::rename(&moved, fx.origin()).unwrap();
+    assert_success(&blocked);
+    assert!(stdout(&blocked).contains("tsk ledger push"));
+}
+
+#[test]
+fn set_mission_writes_locally_and_the_next_push_publishes_it() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    let before = fx.origin_ledger_sha();
+
+    let cleared = fx.tsk(&["thread", "set", "mission", "--none"]);
+
+    assert_success(&cleared);
+    assert_eq!(stdout(&cleared), format!("mission-cleared:{}\n", id));
+    assert!(stderr(&cleared).contains(NOT_PUBLISHED));
+    assert_eq!(fx.origin_ledger_sha(), before);
+    let local = fx.rows(&format!(
+        "select mission_id from threads where thread_id = '{}'",
+        id
+    ));
+    assert!(local[0]["mission_id"].is_null());
+    assert!(stdout(&fx.tsk(&["ledger", "status", "--local"])).contains("not pushed"));
+    let remote = fx.origin_rows(&format!(
+        "select mission_id from threads where thread_id = '{}'",
+        id
+    ));
+    assert_eq!(remote[0]["mission_id"], "M-TEST-01");
+
+    assert_success(&fx.tsk(&["ledger", "push", "Publish the cleared mission"]));
+    let published = fx.origin_rows(&format!(
+        "select mission_id from threads where thread_id = '{}'",
+        id
+    ));
+    assert!(published[0]["mission_id"].is_null());
+    assert_eq!(fx.origin_subject(), "Publish the cleared mission");
+    let pushed = fx.origin_ledger_sha();
+
+    let set = fx.tsk(&["thread", "set", "mission", "M-TEST-01"]);
+    assert_success(&set);
+    assert_eq!(stdout(&set), format!("mission-set:{}:M-TEST-01\n", id));
+    assert_eq!(fx.origin_ledger_sha(), pushed);
+    assert_success(&fx.tsk(&["ledger", "push", "Publish the mission"]));
+    let published = fx.origin_rows(&format!(
+        "select mission_id from threads where thread_id = '{}'",
+        id
+    ));
+    assert_eq!(published[0]["mission_id"], "M-TEST-01");
+    assert_eq!(fx.origin_subject(), "Publish the mission");
+}
+
+#[test]
+fn start_publishes_the_claim_at_once_for_another_clone() {
+    let fx = Fixture::new();
+    let before = fx.origin_ledger_sha();
+
+    let id = fx.start();
+
+    // Origin moved, and the other clone sees the thread and its binding after its fetch.
+    assert_ne!(fx.origin_ledger_sha(), before);
+    let threads = fx.origin_rows(&format!(
+        "select mission_id from threads where thread_id = '{}'",
+        id
+    ));
+    assert_eq!(threads[0]["mission_id"], "M-TEST-01");
+    let listed = fx
+        .command_in(&fx.other(), &["thread", "list"], None)
+        .output()
+        .unwrap();
+    assert_success(&listed);
+    let row = json(stdout(&listed).lines().next().unwrap());
+    assert_eq!(row["id"], id.as_str());
+    assert_eq!(row["actors"][0]["actor"], fx.worktree_actor().as_str());
+}
+
+#[test]
+fn pause_and_stop_publish_with_the_records_written_before_them() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    // A local write made earlier goes out with the pause.
+    assert_success(&fx.tsk_stdin(&["ledger", "doc", "put", "notes/a.md"], "# a\n"));
+    assert_success(&fx.tsk(&["thread", "detach"]));
+    assert_success(&fx.tsk(&["thread", "resume", &id]));
+
+    let output = fx.tsk(&["thread", "pause", &id, "", "next"]);
+    assert_success(&output);
+    assert_eq!(fx.origin_entries(&id).len(), 1);
+    assert_eq!(
+        fx.origin_binding_threads().get(&fx.worktree_actor()),
+        Some(&id)
+    );
+    assert!(stdout(&fx.tsk(&["ledger", "status", "--local"])).contains("nothing to push"));
+
+    assert_success(&fx.tsk(&["thread", "detach"]));
+    let stopped = fx.tsk(&["thread", "stop", &id]);
+    assert_success(&stopped);
+    assert!(fx.origin_thread_ids().is_empty());
+    assert!(fx.origin_binding_threads().is_empty());
+    assert_eq!(fx.origin_subject(), format!("Stop thread {}", id));
 }
 
 #[test]
@@ -1620,6 +1804,7 @@ fn session_start_names_a_cloud_binding() {
     let fx = Fixture::new();
     fx.seed_thread("5555eeee", "");
     assert_success(&fx.tsk_cloud("cse_two", &["thread", "resume", "5555eeee"]));
+    assert_success(&fx.tsk_cloud("cse_two", &["ledger", "push", "Publish the binding"]));
 
     let mut command = fx.command(&["thread", "session-start"], Some("cse_two"));
     let output = command

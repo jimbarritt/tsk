@@ -11,6 +11,10 @@ are gone from the ledger's working state (recoverable from the branch's git
 history, not from anything the ledger itself presents). Only run this for a
 thread you mean to end, not merely pause. `tsk:pause-thread` is for that.
 
+Stopping a thread publishes at once, with every record written since the last push. It
+is one of the four publish points (thread start, thread pause or stop, the end of the
+session, and when asked).
+
 ## Steps
 
 1. **Resolve the target.** With no argument, the command targets whatever thread

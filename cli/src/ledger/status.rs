@@ -310,6 +310,13 @@ impl LedgerStatus {
         self.data.is_clean() && self.docs.is_clean()
     }
 
+    /// True when the ledger store holds anything origin lacks: changes not committed, or
+    /// commits not pushed. Asks nothing of origin.
+    pub fn has_unpushed(&self) -> bool {
+        let (data, docs) = self.ahead();
+        !self.is_clean() || data + docs > 0
+    }
+
     /// The `--porcelain` change lines: `data` or `docs`, then `clean` or `local changes`,
     /// then one line per change.
     pub fn changes_lines(&self) -> Vec<String> {

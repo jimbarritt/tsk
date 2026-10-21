@@ -197,7 +197,7 @@ fn push_part(context: &mut String, part: &str) {
 }
 
 /// Said when the session start leaves uncommitted changes of the ledger store in place.
-pub const LOCAL_CHANGES_NOTE: &str = "The ledger store holds local changes that are not pushed (records or documents written since the last push). The refresh left them as they are. A thread command pushes them with its own change, or run `tsk ledger push`.";
+pub const LOCAL_CHANGES_NOTE: &str = "The ledger store holds local changes that are not pushed (records or documents written since the last push). The refresh left them as they are. The next thread start, pause or stop pushes them with its own change, or run `tsk ledger push`.";
 
 /// Said when the ledger holds mission records and the thread is not bound to one.
 pub const MISSION_LIST_HINT: &str = "Run `tsk mission list` to see the missions.";
@@ -412,7 +412,7 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.13";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.14";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {

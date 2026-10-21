@@ -228,11 +228,9 @@ pub fn set_mission(
         Some(mission_id) => checked_mission(store, mission_id)?,
         None => None,
     };
+    // A local write. It goes out with the next push (ADR 0019).
     store.thread_set_mission(&id, mission_id, briefing.as_deref())?;
-    session.push(&match mission_id {
-        Some(mission_id) => format!("Set mission of thread {} to {}", id, mission_id),
-        None => format!("Detach thread {} from its mission", id),
-    })?;
+    eprintln!("{}", NOT_PUBLISHED_NOTE);
     Ok(MissionSet {
         thread_id: id,
         mission_id: mission_id.map(str::to_string),
@@ -472,18 +470,16 @@ pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
         return Err(format!("error: no such thread: {}", id));
     }
     let entries = entries_of(store, id)?;
-    let current = session.actor_urn();
     let warning = takeover_warning(id, &prior_actors(&entries), &session.written_by()?);
 
-    // The binding is pushed, with any pending local records and documents. A cloud push
-    // must succeed. A worktree binding is valid locally, so its failed push is a note.
+    // The binding is a local write. It goes out with the next push (ADR 0019).
     let bound = match &session.cloud_session {
         Some(_) => Binding::Cloud(id.to_string()),
         None => Binding::Worktree(id.to_string()),
     };
     if resolve(session)? != Some(bound) {
         bind_current(session, id)?;
-        push_binding(session, &format!("Bind {} to thread {}", current, id))?;
+        eprintln!("{}", NOT_PUBLISHED_NOTE);
     }
     clear_skip(session)?;
 
@@ -511,21 +507,16 @@ pub fn detach(session: &Session) -> Result<String, String> {
     let binding = resolve(session)?.ok_or_else(|| {
         "error: no thread binding found for this session or worktree; nothing to detach".to_string()
     })?;
+    // A local write. It goes out with the next push (ADR 0019).
     unbind_current(session)?;
-    push_binding(
-        session,
-        &format!(
-            "Detach {} from thread {}",
-            session.actor_urn(),
-            binding.thread_id()
-        ),
-    )?;
+    eprintln!("{}", NOT_PUBLISHED_NOTE);
     Ok(binding.thread_id().to_string())
 }
 
-/// The note a worktree command prints when its push failed.
-pub const SAVED_LOCALLY_NOTE: &str =
-    "note: the binding is saved locally; run tsk ledger push when origin is reachable";
+/// The note a thread command prints on stderr after a local write that does not push:
+/// resume, detach and set mission. The publish rule is ADR 0019.
+pub const NOT_PUBLISHED_NOTE: &str =
+    "note: saved in the local ledger store; it goes out with the next push (tsk thread start, pause or stop, or tsk ledger push)";
 
 /// Refresh before a bind or a detach. A worktree command with a local ledger store goes on
 /// when the refresh fails (origin away): its binding is valid locally.
@@ -534,18 +525,6 @@ fn refresh_for_binding(session: &Session) -> Result<(), String> {
         Ok(_) => Ok(()),
         Err(_) if session.cloud_session.is_none() && session.store.exists_locally()? => Ok(()),
         Err(e) => Err(e),
-    }
-}
-
-/// Push a bind or a detach. A cloud push that fails fails the command. A worktree push
-/// that fails prints [`SAVED_LOCALLY_NOTE`] and succeeds.
-fn push_binding(session: &Session, message: &str) -> Result<(), String> {
-    match session.push(message) {
-        Err(_) if session.cloud_session.is_none() => {
-            eprintln!("{}", SAVED_LOCALLY_NOTE);
-            Ok(())
-        }
-        other => other,
     }
 }
 

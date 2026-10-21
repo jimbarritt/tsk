@@ -23,6 +23,15 @@ this repository. They hold the minimum logic: see
 | `stop-thread` | `tsk thread stop` |
 | `register-repo` | `tsk nexus register-repo` |
 
+| Hook | Runs |
+|---|---|
+| `SessionStart` | `hooks/session-start.sh`: `tsk thread session-start` |
+| `Stop` | `hooks/stop.sh`: `tsk thread guard`. Asks for a thread when none is bound, and for `tsk ledger push` when the ledger store holds unpushed changes |
+| `SessionEnd` | `hooks/session-end.sh`: `tsk ledger push "End of session"` under a timeout when `tsk ledger status --local` shows unpushed work. Best effort, always exits 0 |
+
+Records are published at thread start, thread pause or stop, the end of the session and
+when asked ([ADR 0019](../docs/adr/0019-publish-less-often-by-rule.md)).
+
 The `SessionStart` hook passes the plugin's own version to `tsk thread session-start
 --plugin-version`. When that version is lower than the plugin version the binary expects,
 the session context asks for a plugin update (`/plugin update tsk`). The expected version
@@ -43,6 +52,7 @@ plugin root, in Copilot's format (`version` 1, the events `sessionStart` and
   output shape, `{"additionalContext": "..."}`.
 - `agentStop` runs `hooks/stop.sh`. `tsk thread guard` prints `decision` and `reason`,
   the fields Copilot's `agentStop` reads.
+- `sessionEnd` runs `hooks/session-end.sh`.
 - The hook commands find the plugin directory from `PLUGIN_ROOT`, `COPILOT_PLUGIN_ROOT`
   or `CLAUDE_PLUGIN_ROOT`, and otherwise from Copilot's `installed-plugins` directory.
   The scripts find their own directory, so they read no harness variable.

@@ -46,6 +46,11 @@ suggest an automated trigger for it.
    itself. Do not pass those, and do not compute them yourself. It exits 1 when
    `HEAD` is not on any branch on origin: push the code first, then run it again.
 
+   The pause is a publish point. It pushes the handover entry together with every record
+   you wrote since the last push. Records are written freely and published at thread
+   start, thread pause, the end of the session and when asked, so this is the call that
+   carries a session's progress to origin.
+
 4. **Verify clean and pushed, in the code worktree and the ledger, before saying
    anything is safe.** A successful `paused:<thread-id>` above only confirms the
    handover entry itself was pushed. It says nothing about other work from the
