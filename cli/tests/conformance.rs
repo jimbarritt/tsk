@@ -153,7 +153,12 @@ impl Fixture {
     }
 
     fn command(&self, dir: &Path, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        self.command_with(Path::new(env!("CARGO_BIN_EXE_tsk")), dir, args)
+    }
+
+    /// [`Self::command`] for another binary, such as an earlier release.
+    fn command_with(&self, program: &Path, dir: &Path, args: &[&str]) -> Command {
+        let mut command = Command::new(program);
         command
             .args(args)
             .current_dir(dir)
@@ -7283,6 +7288,15 @@ fn observe(no_batch: bool, script: &[Run]) -> Vec<Observed> {
 
 /// [`observe`] with `extra` set in the environment of every command.
 fn observe_with(extra: &[(&str, &str)], script: &[Run]) -> Vec<Observed> {
+    observe_program(None, extra, script)
+}
+
+/// [`observe_with`] for another binary than the one under test, such as an earlier release.
+fn observe_program(
+    program: Option<&Path>,
+    extra: &[(&str, &str)],
+    script: &[Run],
+) -> Vec<Observed> {
     let fx = Fixture::fetched();
     let log = fx.root.path().join("dolt-log.txt");
     let shim = dolt_log_shim(fx.root.path());
@@ -7297,7 +7311,10 @@ fn observe_with(extra: &[(&str, &str)], script: &[Run]) -> Vec<Observed> {
             .collect();
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         let _ = std::fs::remove_file(&log);
-        let mut command = fx.command(&dir, &refs);
+        let mut command = match program {
+            Some(program) => fx.command_with(program, &dir, &refs),
+            None => fx.command(&dir, &refs),
+        };
         command
             .env("PATH", path_with_first(&shim))
             .env("TSK_DOLT_LOG", &log)
@@ -7654,6 +7671,47 @@ fn thread_commands_read_the_same_without_batching() {
     }
     let script = thread_script();
     assert_same_without_batching(&script);
+}
+
+/// With the switch off, `tsk` is the release before the server: the same output, errors and
+/// exit codes from every command, and the same number of `dolt` processes. The case runs
+/// when `TSK_BASELINE_BIN` names that release's binary (a 0.22.0 build), and skips
+/// otherwise, because the test run does not have one.
+#[test]
+fn with_the_switch_off_every_command_is_that_of_the_baseline_release() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let Some(baseline) = std::env::var_os("TSK_BASELINE_BIN") else {
+        eprintln!("note: TSK_BASELINE_BIN is not set; skipping");
+        return;
+    };
+    let baseline = PathBuf::from(baseline);
+    let mut commands = 0;
+    for script in [
+        records_script(),
+        fetch_status_script(),
+        push_merge_script(),
+        thread_script(),
+    ] {
+        let old = observe_program(Some(&baseline), &[("TSK_DOLT_SERVER", "off")], &script);
+        let new = observe_program(None, &[("TSK_DOLT_SERVER", "off")], &script);
+        assert_eq!(old.len(), new.len());
+        for (before, after) in old.iter().zip(&new) {
+            assert_eq!(before.command, after.command);
+            assert_eq!(before.stdout, after.stdout, "stdout of {}", before.command);
+            assert_eq!(before.stderr, after.stderr, "stderr of {}", before.command);
+            assert_eq!(before.code, after.code, "exit code of {}", before.command);
+            assert_eq!(
+                before.launches, after.launches,
+                "dolt processes of {}",
+                before.command
+            );
+            commands += 1;
+        }
+    }
+    eprintln!("note: {} commands matched the baseline", commands);
 }
 
 #[test]

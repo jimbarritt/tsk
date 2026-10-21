@@ -48,13 +48,13 @@ local process.
    who can reach the loopback port can open the store. The socket inherits the permissions
    of the store directory. A shared machine is not the target of `tsk`, and the port exists
    only while the server runs.
-4. **An own MySQL client, with no new crate.** `cli/src/ledger/store/mysql.rs` is about 300
+4. **An own MySQL client, with no new crate.** `cli/src/ledger/store/mysql.rs` is about 470
    lines: the handshake of the empty `root` password, `COM_QUERY`, text result sets, and
    multi statements. It turns each value into the JSON that `dolt sql -r json` prints
    (numbers for integers and floats, strings for decimals and everything else, no key for
    NULL), so the code that reads rows does not know which path made them. The `mysql` crate
    was tried first. With default features off it does not build (`flate2` needs a backend),
-   and with its defaults the lock file gains about 150 crates, among them the ICU tables of
+   and with its defaults the lock file gains 119 crates, among them the ICU tables of
    `url` and `regex`, for a client that needs one Unix socket and no TLS. The cost of the
    own client is code to keep; its tests run against the real server.
 5. **What goes through the server.** Every SQL batch: `rows`, `rows_each`,
@@ -87,8 +87,9 @@ local process.
    (`TSK_DOLT_SERVER_QUERY_SECS`) and a fetch or push 600 s
    (`TSK_DOLT_SERVER_NETWORK_SECS`). A read that loses its connection runs again on a new
    one. A write that loses its connection fails with an error, because it may have
-   applied. A pid file whose store was deleted and made again is not trusted: the
-   `.dolt` directory's device and inode are in the file. If no server can be started for
+   applied. A pid file whose store was deleted and made again is not used: the
+   device and inode of the `.dolt` directory are in the file, and a store with other
+   numbers is a different store. If no server can be started for
    any reason (`dolt` is missing, something else holds the store), the process falls back
    to the command line for the rest of its run, with no message.
 8. **Hibernation.** A Claude Code cloud session that hibernates loses every process and
@@ -98,9 +99,10 @@ local process.
    background, so the refresh that follows, and the first command after the hook, find it
    running or starting. A hook never fails because of the server.
 9. **Idle stop, in `tsk`.** Dolt has no option to stop an idle server. The supervisor
-   watches a file that every `tsk` connection touches (`dolt-server.seen`). After 120 s
-   with no touch (`TSK_DOLT_SERVER_IDLE_SECS`) it asks the server for its process list,
-   and stops the server with `SIGTERM` when no connection but its own is open. It also
+   reads the modification time of a file that every `tsk` connection touches
+   (`dolt-server.seen`). After 120 s with no touch (`TSK_DOLT_SERVER_IDLE_SECS`) it reads
+   the server's process list, and stops the server with `SIGTERM` when no connection but
+   its own is open. It also
    stops the server when the store directory is gone, so a deleted store does not keep a
    process or its files alive, and when asked to stop. Each server is about 90 MB resident
    when idle, so the idle time is the cost to size.
@@ -125,16 +127,20 @@ local process.
 
 ## Consequences
 
-- With the switch on, a command makes no `dolt` process for its SQL: a read takes
-  about 20 ms of wall time where it took 100 ms, a write about 50 ms where it took 220 ms.
-  The first command after a stop adds the start of the server, about 110 ms. The numbers
-  and the conformance suite are in the results document.
+- With the switch on, a command makes no `dolt` process for its SQL: `mission list` takes
+  15 ms where it took 99 ms, and `task add` 23 ms where it took 225 ms. The first command
+  after a stop adds the start of the server, about 110 ms (125 ms for a `mission list`). A
+  command that crosses the network gains the `dolt` starts and no more: a thread pause
+  takes 0.50 s where it took 0.82 s through a 330 ms shim. The conformance suite takes 91
+  s where it took 271 s, and the workspace suite 275 s where it took 509 s. The numbers
+  are in the results document.
 - Each server holds about 90 MB. The suite starts one for each ledger store, so the test
   fixtures set a 3 s idle time and stop their servers when they are dropped.
 - The git steps are unchanged: a publish still costs its two `git push` calls and the
   `git fetch` for the network.
-- `tsk` gains an unsafe-free but unix-only part: `setsid`, `flock` and `kill` come from
-  `libc`, which the crate already used. The client uses `std::os::unix`.
+- The server code is for Unix only (Linux and macOS, the targets of the release builds):
+  `setsid`, `flock`, `kill` and `send` come from `libc`, which the crate already used, and
+  the client uses `std::os::unix`.
 - A downgrade needs `tsk ledger server stop` first, or a wait of the idle time. The
   release notes say so.
 - The default can change to on in a later release, when the measurements across sessions
@@ -146,7 +152,7 @@ local process.
 - **A server without a loopback port.** Dolt does not offer one.
 - **Leaving Dolt's `sql-server.info` in place.** It keeps `dolt status` and `dolt sql`
   working for a person, at the cost of the typed JSON that every older `tsk` relies on.
-  A person who wants the command line stops the server first.
+  A person who needs the command line to write stops the server first.
 - **A stop timer inside Dolt.** None exists.
 - **One server for all clones.** A server serves a directory of databases, and a clone's
   store is reached from the clone. One server for each store keeps a deleted store from

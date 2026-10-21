@@ -189,7 +189,7 @@ wins; the default is off).
 - **The command line beside it.** While the server runs, `dolt` opens the store read only:
   reads work and print typed JSON, and a write fails with `database is read only`. A
   `tsk` with the switch off stops the server of a store when its first write is refused.
-  A person who wants to write with `dolt` runs `tsk ledger server stop` first.
+  A person who writes with `dolt` runs `tsk ledger server stop` first.
 - **Commands.** `tsk ledger server status|start|stop`.
 
 ### Documents

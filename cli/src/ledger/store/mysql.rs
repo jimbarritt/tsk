@@ -9,7 +9,7 @@
 //! Every value is converted to the JSON shape that `dolt sql -r json` prints, so the code
 //! that reads rows does not know which path produced them.
 
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
@@ -107,6 +107,7 @@ impl Conn {
         timeout: Option<Duration>,
     ) -> Result<Conn, Error> {
         let stream = UnixStream::connect(socket)?;
+        no_sigpipe(&stream)?;
         stream.set_read_timeout(timeout)?;
         stream.set_write_timeout(timeout)?;
         let mut conn = Conn { stream, seq: 0 };
@@ -242,7 +243,7 @@ impl Conn {
             frame.push(self.seq);
             self.seq = self.seq.wrapping_add(1);
             frame.extend_from_slice(&rest[..take]);
-            self.stream.write_all(&frame)?;
+            send_all(&self.stream, &frame)?;
             rest = &rest[take..];
             if take < MAX_PACKET {
                 return Ok(());
@@ -266,6 +267,62 @@ impl Conn {
             }
         }
     }
+}
+
+/// `tsk` restores the default action of SIGPIPE, so a write to a socket whose server is gone
+/// would end the process. These two make the write fail with an error instead.
+#[cfg(target_vendor = "apple")]
+fn no_sigpipe(stream: &UnixStream) -> Result<(), Error> {
+    use std::os::unix::io::AsRawFd;
+    let on: libc::c_int = 1;
+    let result = unsafe {
+        libc::setsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_NOSIGPIPE,
+            &on as *const libc::c_int as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(Error::Io(std::io::Error::last_os_error()))
+    }
+}
+
+#[cfg(not(target_vendor = "apple"))]
+fn no_sigpipe(_: &UnixStream) -> Result<(), Error> {
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+const SEND_FLAGS: libc::c_int = libc::MSG_NOSIGNAL;
+#[cfg(not(target_os = "linux"))]
+const SEND_FLAGS: libc::c_int = 0;
+
+/// Write all of `buf`, without raising SIGPIPE when the peer has closed the socket.
+fn send_all(stream: &UnixStream, mut buf: &[u8]) -> Result<(), Error> {
+    use std::os::unix::io::AsRawFd;
+    while !buf.is_empty() {
+        let sent = unsafe {
+            libc::send(
+                stream.as_raw_fd(),
+                buf.as_ptr() as *const libc::c_void,
+                buf.len(),
+                SEND_FLAGS,
+            )
+        };
+        if sent < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(Error::Io(error));
+        }
+        buf = &buf[sent as usize..];
+    }
+    Ok(())
 }
 
 impl Drop for Conn {
@@ -412,6 +469,50 @@ fn to_json(column: &Column, bytes: &[u8]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A packet with the sequence number `seq`.
+    fn frame(seq: u8, payload: &[u8]) -> Vec<u8> {
+        let mut out = (payload.len() as u32).to_le_bytes()[..3].to_vec();
+        out.push(seq);
+        out.extend_from_slice(payload);
+        out
+    }
+
+    #[test]
+    fn a_server_that_goes_silent_ends_a_query_with_a_timeout() {
+        use std::io::{Read, Write};
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("fake.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            // A greeting, the login, an OK, then silence for the query.
+            stream.write_all(&frame(0, &[10, b'x', 0])).unwrap();
+            let mut header = [0u8; 4];
+            stream.read_exact(&mut header).unwrap();
+            let length = header[0] as usize | (header[1] as usize) << 8;
+            let mut login = vec![0u8; length];
+            stream.read_exact(&mut login).unwrap();
+            stream.write_all(&frame(2, &[0, 0, 0, 2, 0, 0, 0])).unwrap();
+            std::thread::sleep(Duration::from_millis(1500));
+        });
+        let mut conn = Conn::connect(&socket, "db", Some(Duration::from_millis(500))).unwrap();
+        let started = std::time::Instant::now();
+        let error = conn.query("select 1").unwrap_err();
+        assert!(error.is_connection(), "{}", error);
+        assert!(started.elapsed() < Duration::from_millis(1400));
+        drop(conn);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_write_to_a_closed_socket_is_an_error() {
+        // The test runtime ignores SIGPIPE. `tsk` restores its default action, and the send
+        // flag is what keeps a write here from ending the process.
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        drop(theirs);
+        assert!(matches!(send_all(&ours, b"hello"), Err(Error::Io(_))));
+    }
 
     #[test]
     fn length_encoded_integers_read_every_width() {
