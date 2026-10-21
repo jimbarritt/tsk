@@ -91,9 +91,10 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk ledger doc rm <path>` | Removes a document | Local store only |
 | `tsk ledger push "<message>"` | Commits everything in the ledger store, pulls the latest ledger and pushes to `tsk/ledger` | Commits and pushes |
 | `tsk thread start [<mission-id>]` | Mints and binds a thread, for a mission or with none | Writes and pushes |
-| `tsk thread set mission <mission-id> [<thread-id>]` | Attaches a mission to a thread, or changes it; `--none` removes it | Writes and pushes |
+| `tsk thread set mission <mission-id> [<thread-id>]` | Attaches a mission to a thread, or changes it; `--none` removes it | Local store only (0.24.0) |
 | `tsk thread pause` | Appends a continuation state entry | Writes and pushes |
-| `tsk thread resume` | Loads a thread's latest continuation state entry | Binds, and pushes if the binding changed |
+| `tsk thread resume` | Loads a thread's latest continuation state entry | Binds in the local store only (0.24.0) |
+| `tsk thread detach` | Removes this session's binding | Local store only (0.24.0) |
 | `tsk thread binding` | Prints the current binding, if any | None beyond a fetch |
 | `tsk thread guard` | Stop hook check for a binding | None. Never fetches |
 | `tsk thread session-start` | SessionStart hook: fetches the ledger, exports `$TSK_LEDGER_WT` | Updates the ledger store |

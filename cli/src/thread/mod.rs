@@ -57,7 +57,7 @@ pub enum ThreadCommands {
         legacy_whats_next: Option<String>,
     },
     #[command(
-        about = "Bind this session or worktree to a thread, replacing its earlier binding, and print its latest continuation state entry as JSON with a warning when another actor wrote to it, and push. When origin is away a worktree binding prints a note and succeeds, and goes out with the next push"
+        about = "Bind this session or worktree to a thread, replacing its earlier binding, and print its latest continuation state entry as JSON with a warning when another actor wrote to it. The binding is a local write: it prints a note on stderr and goes out with the next push (thread start, pause or stop, or tsk ledger push)"
     )]
     Resume {
         #[arg(help = "Thread ID")]
@@ -69,7 +69,7 @@ pub enum ThreadCommands {
         field: SetCommands,
     },
     #[command(
-        about = "Remove this session's or worktree's binding without deleting the thread, and push; prints detached:<thread-id>. Every binding is a row in the ledger. When origin is away a worktree detach prints a note and succeeds, and the change goes out with the next push"
+        about = "Remove this session's or worktree's binding without deleting the thread; prints detached:<thread-id>. Every binding is a row in the ledger. The change is a local write: it prints a note on stderr and goes out with the next push (thread start, pause or stop, or tsk ledger push)"
     )]
     Detach,
     #[command(
@@ -110,7 +110,7 @@ pub enum ThreadCommands {
         no_fetch: bool,
     },
     #[command(
-        about = "Stop hook check: exit 0 with no output when bound, when this session or worktree skipped a thread, or when the ledger holds no missions; otherwise print a block decision as JSON; reads and discards stdin; never fetches"
+        about = "Stop hook check: when this session or worktree is unbound, has not skipped a thread and the ledger holds missions, print a block decision as JSON that asks for a thread. Otherwise, when the ledger store holds changes that are not pushed (tsk ledger status --local, no network) and the hook input does not say stop_hook_active, print a block decision that asks for tsk ledger push. Otherwise exit 0 with no output. Reads stdin; never fetches"
     )]
     Guard,
     #[command(
@@ -143,7 +143,7 @@ pub enum ThreadCommands {
 #[derive(Subcommand)]
 pub enum SetCommands {
     #[command(
-        about = "Attach a mission to a thread, or change or remove its mission, and push; prints mission-set:<thread-id>:<mission-id>, or mission-cleared:<thread-id> with --none. The mission must have a record, or a briefing document at missions/<category>/<ID>-<slug>.md; an unknown ID is refused. Earlier continuation entries keep the mission they were written with"
+        about = "Attach a mission to a thread, or change or remove its mission; prints mission-set:<thread-id>:<mission-id>, or mission-cleared:<thread-id> with --none. The mission must have a record, or a briefing document at missions/<category>/<ID>-<slug>.md; an unknown ID is refused. Earlier continuation entries keep the mission they were written with. The change is a local write: it prints a note on stderr and goes out with the next push (thread start, pause or stop, or tsk ledger push)"
     )]
     Mission {
         #[arg(
@@ -178,7 +178,12 @@ pub fn block_decision(reason: &str) -> String {
 /// The reason the Stop hook blocks, or `None` when it lets the session end: this session
 /// or worktree skipped a thread, it is bound, or the ledger holds no missions. Reads the
 /// ledger store as it is and never fetches.
-fn guard_reason() -> Option<String> {
+fn guard_reason(stop_hook_active: bool) -> Option<String> {
+    unbound_reason().or_else(|| unpublished_reason(stop_hook_active))
+}
+
+/// The reason to block because nothing binds this session or worktree to a thread.
+fn unbound_reason() -> Option<String> {
     let Ok(session) = Session::discover() else {
         return Some(UNBOUND_PROMPT.to_string());
     };
@@ -202,10 +207,40 @@ fn guard_reason() -> Option<String> {
     }
 }
 
+/// What the Stop hook says when the ledger store holds changes that are not pushed. The
+/// publish rule (ADR 0019) makes the end of the session a point where records go out.
+pub const UNPUBLISHED_PROMPT: &str = "The ledger store holds changes that are not pushed (records or documents written since the last push). Run `tsk ledger push \"<describe the update>\"` so another actor or a later session can see them. Nothing else is needed: records are published at thread start, thread pause, the end of the session and when asked.";
+
+/// The reason to block because the ledger store holds changes that are not pushed. Reads
+/// the store as it is, with no network call. `None` when the store is clean, does not
+/// exist, cannot be read, or the hook already blocked once (`stop_hook_active`).
+fn unpublished_reason(stop_hook_active: bool) -> Option<String> {
+    if stop_hook_active {
+        return None;
+    }
+    let session = Session::discover().ok()?;
+    if !session.store.exists_locally().unwrap_or(false) {
+        return None;
+    }
+    match session.store.status_local() {
+        Ok(status) if status.has_unpushed() => Some(UNPUBLISHED_PROMPT.to_string()),
+        _ => None,
+    }
+}
+
+/// Whether the hook input from Claude Code says the Stop hook already blocked this turn.
+fn stop_hook_active(input: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(input)
+        .ok()
+        .and_then(|value| value.get("stop_hook_active").and_then(|v| v.as_bool()))
+        .unwrap_or(false)
+}
+
 pub fn run(action: ThreadCommands) -> Result<i32, String> {
     if let ThreadCommands::Guard = action {
-        let _ = std::io::stdin().read_to_end(&mut Vec::new());
-        if let Some(reason) = guard_reason() {
+        let mut input = String::new();
+        let _ = std::io::stdin().read_to_string(&mut input);
+        if let Some(reason) = guard_reason(stop_hook_active(&input)) {
             println!("{}", block_decision(&reason));
         }
         return Ok(0);
@@ -361,6 +396,15 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hook_input_says_whether_the_stop_hook_already_blocked() {
+        assert!(stop_hook_active("{\"stop_hook_active\":true}"));
+        assert!(!stop_hook_active("{\"stop_hook_active\":false}"));
+        assert!(!stop_hook_active("{}"));
+        assert!(!stop_hook_active(""));
+        assert!(!stop_hook_active("not json"));
+    }
 
     #[test]
     fn block_decision_is_compact_json_with_the_unbound_prompt() {

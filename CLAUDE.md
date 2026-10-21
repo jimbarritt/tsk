@@ -178,7 +178,14 @@ the second argument), and link it to its mission with `tsk mission link <id> <pa
 intelligence|report|design`. Read one with `tsk ledger doc get <path>`, and list them with
 `tsk ledger doc list [<prefix>]`.
 
-Every write changes the local ledger store only. Then:
+Every write changes the local ledger store only. Write freely: records are published at
+four points and nowhere else (ADR 0019): `tsk thread start` (the claim and the binding),
+`tsk thread pause` and `tsk thread stop` (the hand-off), the end of the session (the
+`SessionEnd` hook, and the `Stop` hook when the store holds unpushed changes), and
+`tsk ledger push` when asked. `thread resume`, `detach`, `set mission`, `skip` and
+`prune-bindings` do not push. Taking a task is a claim, so after setting a task to
+`in-progress`, run `tsk ledger push "Claim <mission> <task>"` straight away. Progress can
+wait for the next point. Then:
 
 - `tsk ledger status` shows what is not pushed, and whether origin is ahead.
 - `tsk ledger push "<describe the update>"` (or `just ledger-push "<describe the update>"`

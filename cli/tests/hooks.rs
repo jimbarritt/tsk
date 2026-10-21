@@ -361,3 +361,150 @@ fn a_failed_plugin_step_is_a_warning_in_the_context_and_leaves_no_stamp() {
         2
     );
 }
+
+/// The SessionEnd script with a stand-in `tsk`. `STATUS` is what `tsk ledger status
+/// --local` prints, `STATUS_FAIL` makes it exit 1, and `PUSH_SLEEP` makes
+/// `tsk ledger push` run that many seconds. Every call is logged, one line each.
+struct EndRun {
+    exit_ok: bool,
+    calls: Vec<String>,
+    seconds: u64,
+}
+
+fn session_end(status: &str, status_fails: bool, push_sleep: u32, push_fails: bool) -> EndRun {
+    let root = tempfile::tempdir().unwrap();
+    let bin = root.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    write_script(
+        &bin.join("tsk"),
+        "#!/bin/sh\necho \"$@\" >> \"$TSK_LOG\"\n\
+         case \"$2\" in\n\
+           status) [ -n \"$STATUS_FAIL\" ] && exit 1; printf '%b' \"$STATUS\"; exit 0 ;;\n\
+           push) sleep \"$PUSH_SLEEP\"; [ -n \"$PUSH_FAIL\" ] && exit 1; exit 0 ;;\n\
+         esac\nexit 0\n",
+    );
+    let log = root.path().join("tsk.log");
+    let script = workspace()
+        .join("plugin")
+        .join("hooks")
+        .join("session-end.sh");
+    let started = std::time::Instant::now();
+    let mut child = Command::new("bash")
+        .arg(script)
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                bin.display(),
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        )
+        .env("TSK_LOG", &log)
+        .env("STATUS", status)
+        .env("STATUS_FAIL", if status_fails { "1" } else { "" })
+        .env("PUSH_SLEEP", push_sleep.to_string())
+        .env("PUSH_FAIL", if push_fails { "1" } else { "" })
+        .env("TSK_SESSION_END_TIMEOUT_SECS", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"{\"session_id\":\"s1\",\"reason\":\"other\"}")
+            .unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.stdout.is_empty(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    EndRun {
+        exit_ok: output.status.success(),
+        calls: std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect(),
+        seconds: started.elapsed().as_secs(),
+    }
+}
+
+const DIRTY: &str =
+    "Local   2 changes not pushed\\n  data  missions  1 added\\nOrigin  not checked (--local)\\n";
+const CLEAN: &str = "Local   nothing to push\\nOrigin  not checked (--local)\\n";
+const AHEAD: &str = "Local   1 commit not pushed\\nOrigin  not checked (--local)\\n";
+
+#[test]
+fn the_session_end_script_pushes_when_the_store_holds_unpushed_work() {
+    if !(have("bash") && cfg!(unix)) {
+        return;
+    }
+    for status in [DIRTY, AHEAD] {
+        let run = session_end(status, false, 0, false);
+        assert!(run.exit_ok);
+        assert_eq!(
+            run.calls,
+            vec![
+                "ledger status --local".to_string(),
+                "ledger push End of session".to_string()
+            ]
+        );
+    }
+}
+
+#[test]
+fn the_session_end_script_does_not_push_a_clean_store() {
+    if !(have("bash") && cfg!(unix)) {
+        return;
+    }
+    let run = session_end(CLEAN, false, 0, false);
+    assert!(run.exit_ok);
+    assert_eq!(run.calls, vec!["ledger status --local".to_string()]);
+}
+
+#[test]
+fn the_session_end_script_exits_0_whatever_tsk_does() {
+    if !(have("bash") && cfg!(unix)) {
+        return;
+    }
+    // No ledger store: the status fails, nothing is pushed.
+    let run = session_end("", true, 0, false);
+    assert!(run.exit_ok);
+    assert_eq!(run.calls, vec!["ledger status --local".to_string()]);
+    // A push that fails.
+    let run = session_end(DIRTY, false, 0, true);
+    assert!(run.exit_ok);
+    assert_eq!(run.calls.len(), 2);
+    // A push that hangs is cut off by the timeout.
+    if have("timeout") {
+        let run = session_end(DIRTY, false, 30, false);
+        assert!(run.exit_ok);
+        assert_eq!(run.calls.len(), 2);
+        assert!(run.seconds < 10, "took {} s", run.seconds);
+    }
+}
+
+#[test]
+fn the_plugin_registers_the_session_end_hook_for_both_harnesses() {
+    let claude: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace().join("plugin/hooks/hooks.json")).unwrap(),
+    )
+    .unwrap();
+    let hook = &claude["hooks"]["SessionEnd"][0]["hooks"][0];
+    let command = hook["command"].as_str().unwrap();
+    assert!(command.ends_with("hooks/session-end.sh\""), "{}", command);
+    assert!(hook["timeout"].is_number());
+    let copilot: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace().join("plugin/hooks.json")).unwrap(),
+    )
+    .unwrap();
+    let bash = copilot["hooks"]["sessionEnd"][0]["bash"].as_str().unwrap();
+    assert!(bash.contains("hooks/session-end.sh"), "{}", bash);
+}

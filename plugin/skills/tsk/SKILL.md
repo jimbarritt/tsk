@@ -112,12 +112,12 @@ tsk ledger doc rm <path>                 remove a document; changes the local st
 tsk ledger status [--local] [--porcelain]  print Local (what is not pushed) and Origin (ahead or behind); --local makes no network call and prints Origin as not checked; --porcelain prints tab-separated facts for scripts; read-only
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
 
-tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push
+tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push (the claim)
 tsk thread pause <thread-id> <task-id> <whats-next>                   append a continuation state entry, push
-tsk thread set mission <mission-id> [<thread-id>]                     attach or change a thread's mission, push
-tsk thread set mission --none [<thread-id>]                           remove a thread's mission, push
-tsk thread resume <thread-id>                                         bind to a thread, print its latest entry
-tsk thread detach                                                     remove this session's or code worktree's binding
+tsk thread set mission <mission-id> [<thread-id>]                     attach or change a thread's mission; local, tsk ledger push publishes
+tsk thread set mission --none [<thread-id>]                           remove a thread's mission; local, tsk ledger push publishes
+tsk thread resume <thread-id>                                         bind to a thread, print its latest entry; local, tsk ledger push publishes
+tsk thread detach                                                     remove this session's or code worktree's binding; local, tsk ledger push publishes
 tsk thread skip                                                       work without a thread; local to this clone, never pushed
 tsk thread stop [<thread-id>]                                         delete a thread and every cloud binding to it, push
 tsk thread list                                                       list threads, most recently paused first
@@ -257,11 +257,36 @@ paragraph: `tsk mission constraint add M-X "No new crates"`. `constraint list` a
 and `mission set out-of-scope` are refused. In `list <id> --json` both are arrays of
 `{"n": 1, "text": "..."}`.
 
+### When records are published
+
+Write freely, publish at four points. A record write (`tsk mission`, `tsk task`,
+`tsk decision`, `tsk question`, `tsk ledger doc put`) changes the local ledger store only
+and never pushes. Records go out at:
+
+1. thread start: the claim and the binding,
+2. thread pause: the hand-off,
+3. the end of the session: the SessionEnd hook, and the Stop hook when the store holds
+   unpushed changes,
+4. when asked: `tsk ledger push "<message>"`.
+
+`tsk thread resume`, `detach`, `set mission`, `skip` and `prune-bindings` write locally and
+do not push. `tsk thread stop` pushes. Progress can wait: marking a task done, adding a
+task, recording a decision or answering a question goes out with the next of the four
+points. A stale read is acceptable.
+
+A claim must not wait, so that two actors do not take the same task. Two things are claims:
+`tsk thread start`, which publishes by itself, and setting a task or a mission to
+`in-progress` to take it. The second is a record write and does not push, so run
+`tsk ledger push "Claim <mission> <task>"` straight after it. A container that is
+reclaimed before the pause loses the records that were never published.
+
 ### Tasks, decisions and questions
 
 A mission's tasks, decisions and open questions are data too. Record and change them only
 with these commands, and never write them as Markdown in a briefing or any other document.
-Every command changes the local store only. `tsk ledger push` publishes.
+Every command changes the local store only and never pushes (see "When records are
+published"). Setting a task to `in-progress` to take it is a claim: run `tsk ledger push
+"Claim <mission> <task>"` straight after.
 
 ```
 tsk task add <mission> <description>          # prints the new ID, T-01 upward
@@ -300,9 +325,12 @@ the name of the person who made the decision or gave the answer. `tsk mission li
 ### Threads
 
 Every `thread` command that reads the ledger fetches it first, except `binding
---no-fetch` and `guard`. Every command that writes to the ledger pushes once,
-after all its file changes, through the same code as `tsk ledger push`. Diagnostics go to
-stderr.
+--no-fetch` and `guard`. Only `thread start`, `thread pause` and `thread stop` push, once,
+after all their changes, through the same code as `tsk ledger push`. `thread resume`,
+`detach`, `set mission`, `skip` and `prune-bindings` write to the local ledger store and
+print `note: saved in the local ledger store; it goes out with the next push ...` on
+stderr (`resume`, `detach` and `set mission`). Their stdout is unchanged. Diagnostics go
+to stderr.
 
 | Command | Stdout on success | Other exits |
 |---|---|---|
@@ -316,7 +344,7 @@ stderr.
 | `thread list` | one compact JSON object per line: `id`, `mission_id` (null for a thread with no mission), `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp` | |
 | `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding |
 | `thread prune-bindings` | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; with `--dry-run`, `would remove <actor> <thread-id>` lines and `<n> bindings would be removed`, and nothing changes | |
-| `thread guard` | nothing when bound, after `thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | |
+| `thread guard` | nothing when bound, after `thread skip`, or when the ledger holds no missions, and the store holds nothing unpushed; `{"decision":"block","reason":"..."}` otherwise, asking for a thread, or for `tsk ledger push` when `tsk ledger status --local` shows unpushed changes (not when the hook input has `"stop_hook_active": true`) | |
 
 `thread prune-bindings` removes the bindings of cloud sessions that ended, which collect in
 the ledger because a cloud session rarely detaches. It removes a cloud row registered more

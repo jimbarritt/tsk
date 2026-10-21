@@ -1,6 +1,6 @@
 {
   "name": "tsk",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "description": "Missions, threads and the ledger for Claude Code sessions, backed by the tsk binary",
   "author": {
     "name": "Jim Barritt"
