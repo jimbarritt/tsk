@@ -8,7 +8,7 @@ dynamic workflows were added on 2026-10-05 as a related mechanism, not a system 
 Antithesis was added on 2026-10-05 as a related tool, not a system assessed, compared
 with Jepsen and Jev. A strategy section on adopting Dolt rather than beads was added on
 2026-10-09, with ADR 0014. Rex was added on 2026-10-09 as a related runtime beside Herdr. A closing section on interaction surfaces, with tmux, was added on
-2026-10-10. Pi Durable was added on 2026-10-16 as a case of independent convergence. Herdr was added on 2026-10-06 as a related runtime, not a system
+2026-10-10. Pi Durable was added on 2026-10-16 as a case of independent convergence. Claude Code dynamic workflows and ultracode were added on 2026-10-22. Herdr was added on 2026-10-06 as a related runtime, not a system
 assessed, compared with tmux. OpenSpec was added on 2026-10-06 as a related
 system, not a system assessed. It is the first read that models parts of Product and Delta,
 and it models no Navigation or Scale.
@@ -540,6 +540,19 @@ fits it only stage by stage. Treat it as the executor of a task's fan-out, and a
 model for enforcing Execution constraints. See
 [copilot-dynamic-workflows.md](copilot-dynamic-workflows.md).
 
+**Claude Code dynamic workflows and ultracode: the executor of a task, and a way to check
+objectives.** Read in full on 2026-10-22. Ultracode (`/effort ultracode`, or the keyword in
+a prompt) makes Claude write a workflow script for each substantive task. The runtime runs
+it with up to 16 agents at a time, resumes it from saved results, and waits out a usage
+limit. tsk supplies what a workflow lacks: the mission, the objective, the report and the
+continuation entry that a later actor on another machine reads. The combination is
+concrete: a workflow executes one tsk task, a saved workflow in the tsk plugin's
+`workflows/` directory checks a mission's objectives with independent verifying agents
+(tsk checks none today), and a continuation entry records the stage a paused workflow
+reached. One cost: ultracode removes the size warning and the concurrent subagent limit,
+so a briefing's Budget has no enforcement. None of it was tested. See
+[claude-code-dynamic-workflows.md](claude-code-dynamic-workflows.md).
+
 tsk's thesis is the unification of all four dimensions, not any single one, so it does
 not collapse if any of these systems later absorbs another dimension.
 
@@ -997,6 +1010,46 @@ Position: no change to the three-part verdict below. Dynamic workflows occupy th
 below a task: how one task's agents run. They describe no mission, objective, handover
 record or continuation entry.
 
+## Claude Code dynamic workflows and ultracode: the executor under a tsk task
+
+Research: [claude-code-dynamic-workflows.md](claude-code-dynamic-workflows.md). Raised by
+Jim, 2026-10-22, who saw in ultracode a combination with tsk. A shipped feature, on all
+paid plans, read in full on 2026-10-22.
+
+A dynamic workflow is a JavaScript script that a runtime executes in the background. It
+starts many subagents, holds the loop and the intermediate results in script variables,
+and returns one answer to Claude's context. Ultracode is the setting that makes Claude
+write one for each substantive task in a session. It models no mission, thread or ledger,
+so it is listed beside Copilot dynamic workflows, not among the systems assessed. Five
+items intersect tsk:
+
+- **Resume with limits.** A run resumes in the session, from a session's saved history,
+  and in a cloud session after the VM is reclaimed. The script is a file on one machine.
+  tsk's continuation entry is in the ledger and any later actor reads it.
+- **A checker that tsk lacks.** The page's own pattern is independent agents that review
+  each other's findings. tsk holds objectives as records with a `met` flag and checks
+  none. A saved workflow could set `met` only when two agents confirm.
+- **Delivery through the plugin.** A plugin ships workflows in a `workflows/` directory
+  at its root, run as `/<plugin>:<name>`. The tsk plugin can carry them with no change to
+  the binary.
+- **Stage boundaries.** There is no mid-run input. The page advises one workflow per
+  stage with the sign-off between them, which is the boundary tsk's thread pause and
+  resume use.
+- **Event-driven starts.** The `ultracode` keyword does not work from a scheduled task, a
+  webhook payload or a pull request comment. A session that a tsk external event starts
+  needs a permission rule for the named workflow.
+
+The cost: ultracode switches off the `Large workflow` warning and the concurrent subagent
+limit for the session, so a briefing's Budget has no enforcement while it is on. The page
+says each request uses more tokens, and that on a subscription plan these draw on usage
+limits.
+
+Position: no change to the three-part verdict below. This supports the position Jim
+recorded on 2026-10-16: the orchestration mechanics move into the harness, and tsk keeps
+the semantic layer. Claude Code supplies the script, the runtime and the resume. tsk
+supplies the mission, the objective and the continuation across actors. Nothing here was
+run.
+
 ## Antithesis: a testing platform, compared with Jepsen and Jev
 
 Research: [antithesis.md](antithesis.md). Commercial product, read 2026-10-05, raised by
@@ -1317,6 +1370,9 @@ collision above).
   comparison against tsk.
 - [orca.md](orca.md): the full reference for the Orca section above, with a comparison
   against tsk and against the Mission Control task.
+- [claude-code-dynamic-workflows.md](claude-code-dynamic-workflows.md): the full reference
+  for the Claude Code dynamic workflows and ultracode section above, with a comparison
+  against tsk and four combinations.
 - [copilot-dynamic-workflows.md](copilot-dynamic-workflows.md): the full reference for the
   Copilot dynamic workflows section above, with a comparison against Claude Code's feature
   of the same name and against tsk.
