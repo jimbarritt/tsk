@@ -48,7 +48,7 @@ pub const QUERY_VAR: &str = "TSK_DOLT_SERVER_QUERY_SECS";
 /// Seconds a fetch or a push through the server may take.
 pub const NETWORK_VAR: &str = "TSK_DOLT_SERVER_NETWORK_SECS";
 
-pub const DEFAULT_IDLE_SECS: u64 = 120;
+pub const DEFAULT_IDLE_SECS: u64 = 1800;
 const DEFAULT_NETWORK_SECS: u64 = 600;
 const DEFAULT_PROBE_SECS: u64 = 5;
 const DEFAULT_QUERY_SECS: u64 = 120;

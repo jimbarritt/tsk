@@ -57,7 +57,9 @@ the last one.
    (`TSK_SESSION_END_TIMEOUT_SECS`) only when the store holds changes or unpushed commits.
    It exits 0 whatever happens. GitHub Copilot CLI gets the same script under its
    `sessionEnd` event.
-8. **The `Stop` hook asks for a publish when there is something to publish.**
+8. **The `Stop` hook asks for a publish when there is something to publish.** (Replaced in
+   0.25.0 by [ADR 0020](0020-publish-in-the-background-with-a-detached-one-shot.md): the
+   hook now publishes in the background and does not ask the agent.)
    `tsk thread guard` blocks with a request for `tsk ledger push` when `tsk ledger status
    --local` shows unpushed changes, and says nothing otherwise. It does not block again
    when the hook input has `stop_hook_active` set, so an offline origin cannot hold a

@@ -142,6 +142,10 @@ impl DoltStore {
     pub fn open(dir: &Path) -> Result<DoltStore, String> {
         let repo = Repo::discover(dir)?;
         let state_root = state_root_from_env()?;
+        // A failed background publish shows once, on the next command that opens the store.
+        if let Some(id) = repo.read_clone_id().ok().flatten() {
+            crate::ledger::background::warn_once(&dolt_db_path(&state_root, &id));
+        }
         Ok(DoltStore {
             repo,
             state_root,
@@ -2134,6 +2138,11 @@ impl LedgerStore for DoltStore {
         notes: &mut dyn FnMut(&str),
     ) -> Result<PushReport, String> {
         dolt::ensure_identity()?;
+        // One push at a time for this clone: a background publish may be running.
+        let _push_lock = match self.path() {
+            Ok(path) => Some(crate::ledger::background::lock_for_push(&path)?),
+            Err(_) => None,
+        };
         let location = self.repo.location(&self.state_root)?;
         let db = self.db()?;
         self.check_current(&db, &location)?;

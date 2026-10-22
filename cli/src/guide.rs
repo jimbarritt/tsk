@@ -94,7 +94,9 @@ that summary in the ledger.
 
 Each write command changes the local ledger store only. Nothing reaches the remote until
 `tsk ledger push`. Write freely and publish at four points: thread start, thread pause
-(and stop), the end of the session, and when asked. Taking a task is a claim: set it to
+(and stop), the end of the session, and when asked. The Stop hook publishes in the
+background after a turn, so you do not push for it; a failure shows as a warning on the
+next `tsk` command. Taking a task is a claim: set it to
 `in-progress` and run `tsk ledger push "Claim <mission> <task>"` straight away, so that no
 other actor takes it. Progress can wait for the next point. You can write a whole import as a list of commands, in a shell script
 or one after another, and check the result before you push.

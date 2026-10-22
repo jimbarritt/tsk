@@ -96,7 +96,7 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk thread resume` | Loads a thread's latest continuation state entry | Binds in the local store only (0.24.0) |
 | `tsk thread detach` | Removes this session's binding | Local store only (0.24.0) |
 | `tsk thread binding` | Prints the current binding, if any | None beyond a fetch |
-| `tsk thread guard` | Stop hook check for a binding | None. Never fetches |
+| `tsk thread guard` | Stop hook check for a binding; starts a background publish when the store holds unpushed changes | None. Never fetches |
 | `tsk thread session-start` | SessionStart hook: fetches the ledger, exports `$TSK_LEDGER_WT` | Updates the ledger store |
 
 To read the path, use `tsk ledger path`. `tsk ledger fetch` also refreshes, so calling

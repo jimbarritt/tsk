@@ -265,8 +265,10 @@ and never pushes. Records go out at:
 
 1. thread start: the claim and the binding,
 2. thread pause: the hand-off,
-3. the end of the session: the SessionEnd hook, and the Stop hook when the store holds
-   unpushed changes,
+3. the end of the session: the SessionEnd hook, and the Stop hook, which publishes in the
+   background after a turn when the store holds unpushed changes. It does not ask you to
+   push. A failed background publish shows as `warning: the last background publish
+   failed ...` on the next `tsk` command: run `tsk ledger push`,
 4. when asked: `tsk ledger push "<message>"`.
 
 `tsk thread resume`, `detach`, `set mission`, `skip` and `prune-bindings` write locally and
@@ -344,7 +346,7 @@ to stderr.
 | `thread list` | one compact JSON object per line: `id`, `mission_id` (null for a thread with no mission), `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp` | |
 | `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding |
 | `thread prune-bindings` | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; with `--dry-run`, `would remove <actor> <thread-id>` lines and `<n> bindings would be removed`, and nothing changes | |
-| `thread guard` | nothing when bound, after `thread skip`, or when the ledger holds no missions, and the store holds nothing unpushed; `{"decision":"block","reason":"..."}` otherwise, asking for a thread, or for `tsk ledger push` when `tsk ledger status --local` shows unpushed changes (not when the hook input has `"stop_hook_active": true`) | |
+| `thread guard` | nothing when bound, after `thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise, asking for a thread. With unpushed changes it also starts `tsk ledger push --background` and prints nothing | |
 
 `thread prune-bindings` removes the bindings of cloud sessions that ended, which collect in
 the ledger because a cloud session rarely detaches. It removes a cloud row registered more

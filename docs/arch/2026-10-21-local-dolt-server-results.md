@@ -189,7 +189,7 @@ and hands the query to the server. That answer prints every column as a string, 
 replaces `"c":1`, and 0.22.0 reads counts and sequence numbers with `as_i64`. Without the
 file the command line opens the store itself, and a store that a server holds for writing
 opens read only. Reads print numbers, and a write fails with an error that stops the older
-`tsk`. The older `tsk` works again as soon as the server stops, which happens at most 120 s
+`tsk`. The older `tsk` works again as soon as the server stops, which happens at most 1800 s (30 minutes; 120 s in 0.23.0)
 after the last command of 0.23.0, or at once with `tsk ledger server stop`.
 
 The 0.23.0 `tsk` reads numbers from strings as well (`integer`, `flag` and `first_count`),
