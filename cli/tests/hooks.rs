@@ -508,3 +508,53 @@ fn the_plugin_registers_the_session_end_hook_for_both_harnesses() {
     let bash = copilot["hooks"]["sessionEnd"][0]["bash"].as_str().unwrap();
     assert!(bash.contains("hooks/session-end.sh"), "{}", bash);
 }
+
+/// The Stop script with a stand-in `tsk` that logs its arguments and its input.
+fn stop_hook(with_tsk: bool, input: &str) -> (bool, String, String) {
+    let root = tempfile::tempdir().unwrap();
+    let bin = root.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let log = root.path().join("tsk.log");
+    if with_tsk {
+        write_script(
+            &bin.join("tsk"),
+            "#!/bin/sh\necho \"$@\" >> \"$TSK_LOG\"\n/bin/cat >> \"$TSK_LOG\"\necho '{\"decision\":\"block\"}'\nexit 0\n",
+        );
+    }
+    let script = workspace().join("plugin").join("hooks").join("stop.sh");
+    let mut child = Command::new("/bin/bash")
+        .arg(script)
+        .env("PATH", bin.display().to_string())
+        .env("TSK_LOG", &log)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        child.stdin.take().unwrap().write_all(input.as_bytes()).ok(); // the script may exit without reading its input
+    }
+    let output = child.wait_with_output().unwrap();
+    (
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        std::fs::read_to_string(&log).unwrap_or_default(),
+    )
+}
+
+#[test]
+fn the_stop_script_runs_the_guard_with_the_hook_input_and_adds_nothing() {
+    let (ok, out, log) = stop_hook(true, "{\"stop_hook_active\":true}");
+    assert!(ok);
+    assert_eq!(out, "{\"decision\":\"block\"}\n");
+    assert_eq!(log, "thread guard\n{\"stop_hook_active\":true}");
+}
+
+#[test]
+fn the_stop_script_exits_0_without_tsk() {
+    let (ok, out, log) = stop_hook(false, "{}");
+    assert!(ok);
+    assert_eq!(out, "");
+    assert_eq!(log, "");
+}

@@ -100,7 +100,7 @@ local process.
    running or starting. A hook never fails because of the server.
 9. **Idle stop, in `tsk`.** Dolt has no option to stop an idle server. The supervisor
    reads the modification time of a file that every `tsk` connection touches
-   (`dolt-server.seen`). After 120 s with no touch (`TSK_DOLT_SERVER_IDLE_SECS`) it reads
+   (`dolt-server.seen`). After 1800 s with no touch (`TSK_DOLT_SERVER_IDLE_SECS`) it reads
    the server's process list, and stops the server with `SIGTERM` when no connection but
    its own is open. It also
    stops the server when the store directory is gone, so a deleted store does not keep a
@@ -124,6 +124,14 @@ local process.
 11. **Commands.** `tsk ledger server status|start|stop`. `status` prints the state,
     the pids, the socket, the port, the idle time, the log and the switch. `start` also
     works with the switch off, for inspection. `run` is the supervisor and is hidden.
+
+### Amendment, 0.25.0: the default idle time is 1800 s
+
+Jim raised the default idle stop from 120 s to 1800 s (30 minutes) on 2026-10-22. A
+working session should never see a restart of the server between two turns. A server that
+nobody uses still ends after 30 minutes. `TSK_DOLT_SERVER_IDLE_SECS` overrides the default,
+and the test fixtures set about 3 s so that servers do not pile up. The choice is to be
+revisited (an M-TIDY task). Nothing else about the idle mechanism changed.
 
 ## Consequences
 

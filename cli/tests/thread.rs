@@ -308,6 +308,7 @@ impl Fixture {
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
             .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
+            .env("TSK_BACKGROUND_PUBLISH", "off")
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("TSK_NO_UPDATE_CHECK", "1")
@@ -1447,32 +1448,22 @@ fn guard_blocks_when_unbound_and_passes_when_bound() {
 }
 
 #[test]
-fn guard_mentions_unpublished_work_only_when_the_store_holds_some() {
+fn guard_does_not_ask_the_agent_to_push_unpublished_work() {
+    // The Stop hook publishes in the background (ADR 0020); this fixture switches that off.
     let fx = Fixture::new();
     fx.start();
     let hook = "{\"session_id\":\"x\"}";
-
-    // Bound, and start published everything: nothing to say.
     assert_eq!(stdout(&fx.tsk_stdin(&["thread", "guard"], hook)), "");
 
-    // A local write that no push has carried out.
+    // A local write that no push has carried out: no block, whatever the hook input says.
     assert_success(&fx.tsk_stdin(&["ledger", "doc", "put", "notes/a.md"], "# a\n"));
-    let blocked = fx.tsk_stdin(&["thread", "guard"], hook);
-    assert_success(&blocked);
-    let decision = json(&stdout(&blocked));
-    assert_eq!(decision["decision"], "block");
-    assert!(decision["reason"]
-        .as_str()
-        .unwrap()
-        .contains("tsk ledger push"));
-
-    // The hook that already blocked once does not block again.
-    let again = fx.tsk_stdin(&["thread", "guard"], "{\"stop_hook_active\":true}");
-    assert_eq!(stdout(&again), "");
-
-    // After the push the check is quiet.
-    assert_success(&fx.tsk(&["ledger", "push", "Publish the note"]));
-    assert_eq!(stdout(&fx.tsk_stdin(&["thread", "guard"], hook)), "");
+    for input in [hook, "{\"stop_hook_active\":true}", "{}"] {
+        let out = fx.tsk_stdin(&["thread", "guard"], input);
+        assert_success(&out);
+        assert_eq!(stdout(&out), "");
+        assert_eq!(stderr(&out), "");
+    }
+    assert!(stdout(&fx.tsk(&["ledger", "status", "--local"])).contains("not pushed"));
 }
 
 #[test]
@@ -1482,10 +1473,10 @@ fn guard_asks_nothing_of_origin_for_unpublished_work() {
     assert_success(&fx.tsk_stdin(&["ledger", "doc", "put", "notes/a.md"], "# a\n"));
     let moved = fx.root.path().join("origin-moved.git");
     std::fs::rename(fx.origin(), &moved).unwrap();
-    let blocked = fx.tsk_stdin(&["thread", "guard"], "{}");
+    let out = fx.tsk_stdin(&["thread", "guard"], "{}");
     std::fs::rename(&moved, fx.origin()).unwrap();
-    assert_success(&blocked);
-    assert!(stdout(&blocked).contains("tsk ledger push"));
+    assert_success(&out);
+    assert_eq!(stdout(&out), "");
 }
 
 #[test]

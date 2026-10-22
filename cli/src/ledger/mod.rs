@@ -1,3 +1,4 @@
+pub mod background;
 pub mod docs;
 pub mod dolt;
 pub mod fetch;
@@ -34,7 +35,25 @@ pub enum LedgerCommands {
         about = "Commit every change in the ledger worktree, rebase onto the latest ledger branch, and push it with a bounded compare and swap retry; prints the commit the branch holds"
     )]
     Push {
-        #[arg(help = "Commit message for the worktree changes")]
+        #[arg(
+            help = "Commit message for the worktree changes; with --background it defaults to \"Background publish\"",
+            required_unless_present = "background"
+        )]
+        message: Option<String>,
+        #[arg(
+            long,
+            help = "Publish in the background: exit 0 at once with no output when nothing is unpushed or a push already runs, else start a detached one-shot child that runs this push and writes background-push.result. A failure shows as a warning on the next tsk command"
+        )]
+        background: bool,
+    },
+    #[command(
+        name = "background-push-run",
+        hide = true,
+        about = "The child of tsk ledger push --background. Not for direct use"
+    )]
+    BackgroundPushRun {
+        #[arg(long, help = "The inherited descriptor that holds the push lock")]
+        lock_fd: i32,
         message: String,
     },
     #[command(
@@ -151,6 +170,13 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
     if let LedgerCommands::Server { action } = action {
         return store::server::run_command(action, &cwd);
     }
+    if let LedgerCommands::BackgroundPushRun { lock_fd, message } = action {
+        return background::run_child(&cwd, lock_fd, &message);
+    }
+    if matches!(action, LedgerCommands::Push { .. }) {
+        // A push reports its own outcome; an earlier failure is not news to it.
+        background::be_quiet();
+    }
     let store = store::open(&cwd)?;
     match action {
         LedgerCommands::Fetch => {
@@ -162,7 +188,19 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             println!("{}", store.path()?.display());
             Ok(())
         }
-        LedgerCommands::Push { message } => {
+        LedgerCommands::Push {
+            message,
+            background: true,
+        } => {
+            let message = message.unwrap_or_else(|| background::DEFAULT_MESSAGE.to_string());
+            background::start(store.as_ref(), &message)?;
+            Ok(())
+        }
+        LedgerCommands::Push {
+            message,
+            background: false,
+        } => {
+            let message = message.unwrap_or_default();
             // A push does not ask origin first. The record of the last fetch stands in for
             // what origin holds, and a push that finds origin moved is rejected and
             // retried after a fetch.
@@ -188,16 +226,43 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             for line in lines {
                 println!("{}", line);
             }
+            if !porcelain {
+                if let Ok(path) = store.path() {
+                    println!("{}", server_line(&path));
+                    if let Some(line) = background::status_line(&path) {
+                        println!("{}", line);
+                    }
+                }
+            }
             Ok(())
         }
         LedgerCommands::Discard { yes, porcelain } => run_discard(store.as_ref(), yes, porcelain),
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
         LedgerCommands::MigrateDocs { .. }
         | LedgerCommands::MigrateTransport
+        | LedgerCommands::BackgroundPushRun { .. }
         | LedgerCommands::Server { .. } => {
             unreachable!("handled before the store opens")
         }
     }
+}
+
+/// The `Server` line of `tsk ledger status`: whether the local Dolt server runs, and the
+/// switch. Asks origin nothing.
+fn server_line(db: &std::path::Path) -> String {
+    let status = store::server::status(db);
+    let text = match (status.state, &status.info) {
+        ("running", Some(info)) => format!(
+            "running (pid {}, idle stop {} s)",
+            info.dolt.unwrap_or(info.supervisor),
+            info.idle
+        ),
+        (state, _) => {
+            let (on, _) = store::server::switch();
+            format!("{} (switch {})", state, if on { "on" } else { "off" })
+        }
+    };
+    format!("{:<8}{}", "Server", text)
 }
 
 /// `tsk ledger discard`. Without `yes` it prints the local changes and refuses.
@@ -306,6 +371,9 @@ pub(crate) fn report_refresh(outcome: RefreshOutcome) -> RefreshOutcome {
 
 pub fn push_reporting(store: &dyn LedgerStore, message: &str) -> Result<PushReport, String> {
     let report = store.commit_and_push(message, &mut |note| eprintln!("{}", note))?;
+    if let Ok(path) = store.path() {
+        background::clear_failure(&path);
+    }
     for line in &report.renumbered {
         println!("{}", line);
     }

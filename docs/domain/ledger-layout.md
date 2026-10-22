@@ -184,7 +184,7 @@ wins; the default is off).
   stale: the files are cleared and a server starts. Silent: the processes are killed with
   `SIGKILL` and a server starts. `tsk thread session-start` does this check first, in the
   background, so a cloud session that woke from hibernation finds a live server.
-- **When it stops.** After `TSK_DOLT_SERVER_IDLE_SECS` (120) with no connection, or when
+- **When it stops.** After `TSK_DOLT_SERVER_IDLE_SECS` (1800 since 0.25.0; 120 before) with no connection, or when
   the store directory goes, or on `tsk ledger server stop`.
 - **The command line beside it.** While the server runs, `dolt` opens the store read only:
   reads work and print typed JSON, and a write fails with `database is read only`. A

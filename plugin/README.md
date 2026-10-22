@@ -26,7 +26,7 @@ this repository. They hold the minimum logic: see
 | Hook | Runs |
 |---|---|
 | `SessionStart` | `hooks/session-start.sh`: `tsk thread session-start` |
-| `Stop` | `hooks/stop.sh`: `tsk thread guard`. Asks for a thread when none is bound, and for `tsk ledger push` when the ledger store holds unpushed changes |
+| `Stop` | `hooks/stop.sh`: `tsk thread guard`. Asks for a thread when none is bound. When the ledger store holds unpushed changes it publishes them in the background (`tsk ledger push --background`) and prints nothing; a failure shows as a warning on the next `tsk` command |
 | `SessionEnd` | `hooks/session-end.sh`: `tsk ledger push "End of session"` under a timeout when `tsk ledger status --local` shows unpushed work. Best effort, always exits 0 |
 
 Records are published at thread start, thread pause or stop, the end of the session and

@@ -171,6 +171,7 @@ impl Fixture {
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
             .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
+            .env("TSK_BACKGROUND_PUBLISH", "off")
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("TSK_NO_UPDATE_CHECK", "1")
@@ -417,6 +418,13 @@ fn write(path: &Path, content: &str) {
 
 fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// `tsk ledger status` output without its `Server` line, which depends on the switch.
+fn no_server_line(text: String) -> String {
+    text.split_inclusive('\n')
+        .filter(|line| !line.starts_with("Server "))
+        .collect()
 }
 
 fn stderr(output: &Output) -> String {
@@ -3476,7 +3484,7 @@ mod cases {
     }
 
     fn human(fx: &Fixture, dir: &Path) -> Vec<String> {
-        let out = fx.ok(dir, &["ledger", "status"]);
+        let out = no_server_line(fx.ok(dir, &["ledger", "status"]));
         assert!(!out.contains('\t'), "{:?}", out);
         for line in out.lines() {
             assert_eq!(line, line.trim_end(), "{:?}", line);
@@ -3591,7 +3599,7 @@ mod cases {
         let out = fx.tsk(&a, &["ledger", "status"]);
         assert_success(&out);
         assert_eq!(
-            stdout(&out),
+            no_server_line(stdout(&out)),
             "Local   nothing to push\nOrigin  unknown (could not reach origin)\n"
         );
         assert_eq!(stderr(&out).lines().count(), 1, "{}", stderr(&out));
@@ -5891,7 +5899,7 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
          docs\tremote\tup to date\n"
     );
     assert_eq!(
-        fx.ok(&other, &["ledger", "status"]),
+        no_server_line(fx.ok(&other, &["ledger", "status"])),
         "Local   2 changes not pushed\n\
          \x20         data  upgrade   schema upgraded to version 8 (origin has 2)\n\
          \x20         data  missions  1 added\n\
@@ -5919,7 +5927,7 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
          docs\tremote\tup to date\n"
     );
     assert_eq!(
-        fx.ok(&a, &["ledger", "status"]),
+        no_server_line(fx.ok(&a, &["ledger", "status"])),
         "Local   1 change not pushed\n\
          \x20         data  missions  1 added\n\
          Origin  up to date\n"
@@ -7100,13 +7108,14 @@ fn status_local_asks_origin_nothing_and_says_it_did_not_check() {
         }
     );
     assert_eq!(
-        text,
+        no_server_line(text),
         "Local   nothing to push\nOrigin  not checked (--local)\n"
     );
 
     fx.add_binding(&b, "late");
     fx.put(&b, "note.md", "n\n");
     let (text, ops) = fx.counted_ok(&b, &["ledger", "status", "--local"]);
+    let text = no_server_line(text);
     assert_eq!(ops.asks + ops.ls_remote + ops.fetch + ops.push, 0);
     assert!(
         text.starts_with("Local   2 changes not pushed\n"),
@@ -7130,7 +7139,7 @@ fn status_local_asks_origin_nothing_and_says_it_did_not_check() {
     fx.ok(&b, &["ledger", "push", "B pushes"]);
     fx.put(&a, "from-a.md", "a\n");
     fx.ok(&a, &["ledger", "push", "A pushes"]);
-    let text = fx.ok(&b, &["ledger", "status", "--local"]);
+    let text = no_server_line(fx.ok(&b, &["ledger", "status", "--local"]));
     assert_eq!(
         text,
         "Local   nothing to push\nOrigin  not checked (--local)\n"
@@ -7499,7 +7508,12 @@ fn assert_same_without_batching(script: &[Run]) {
     assert_eq!(batched.len(), one_by_one.len());
     for (with, without) in batched.iter().zip(&one_by_one) {
         assert_eq!(with.command, without.command);
-        assert_eq!(with.stdout, without.stdout, "stdout of {}", with.command);
+        assert_eq!(
+            no_server_line(with.stdout.clone()),
+            no_server_line(without.stdout.clone()),
+            "stdout of {}",
+            with.command
+        );
         assert_eq!(with.stderr, without.stderr, "stderr of {}", with.command);
         assert_eq!(with.code, without.code, "exit code of {}", with.command);
     }
@@ -7526,7 +7540,12 @@ fn assert_same_with_the_server(script: &[Run]) {
     assert_eq!(off.len(), on.len());
     for (without, with) in off.iter().zip(&on) {
         assert_eq!(without.command, with.command);
-        assert_eq!(without.stdout, with.stdout, "stdout of {}", without.command);
+        assert_eq!(
+            no_server_line(without.stdout.clone()),
+            no_server_line(with.stdout.clone()),
+            "stdout of {}",
+            without.command
+        );
         assert_eq!(without.stderr, with.stderr, "stderr of {}", without.command);
         assert_eq!(without.code, with.code, "exit code of {}", without.command);
     }

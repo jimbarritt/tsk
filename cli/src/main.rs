@@ -130,6 +130,12 @@ fn is_hook_command(cli: &Cli) -> bool {
         cli.command,
         Some(Commands::Thread {
             action: thread::ThreadCommands::SessionStart { .. } | thread::ThreadCommands::Guard
+        }) | Some(Commands::Ledger {
+            action: ledger::LedgerCommands::BackgroundPushRun { .. }
+                | ledger::LedgerCommands::Push {
+                    background: true,
+                    ..
+                }
         })
     )
 }
@@ -318,7 +324,7 @@ mod tests {
         ));
         assert!(matches!(
             Cli::try_parse_from(["tsk", "ledger", "push", "Record a change"]).unwrap().command,
-            Some(Commands::Ledger { action: ledger::LedgerCommands::Push { message } }) if message == "Record a change"
+            Some(Commands::Ledger { action: ledger::LedgerCommands::Push { message, background: false } }) if message.as_deref() == Some("Record a change")
         ));
         assert!(Cli::try_parse_from(["tsk", "ledger", "push"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "ledger"]).is_err());

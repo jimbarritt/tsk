@@ -72,7 +72,8 @@ local Dolt server switch on (`TSK_DOLT_SERVER=on` or `[ledger] server = "on"`; o
 default in 0.23.0), the command first checks the server of the ledger store and starts a
 dead or stale one in the background, which is how a cloud session that woke from
 hibernation gets a live server. While a server runs, `dolt` opens the ledger store read
-only: stop it with `tsk ledger server stop` before a write by hand. See
+only: stop it with `tsk ledger server stop` before a write by hand. An idle server stops
+after 1800 s (since 0.25.0; `TSK_DOLT_SERVER_IDLE_SECS` overrides it). See
 `docs/adr/0018-a-local-dolt-server-per-ledger-store-behind-a-switch.md`.
 
 The plugin steps take about 4 s for each plugin, so the script runs them in the
@@ -181,11 +182,14 @@ intelligence|report|design`. Read one with `tsk ledger doc get <path>`, and list
 Every write changes the local ledger store only. Write freely: records are published at
 four points and nowhere else (ADR 0019): `tsk thread start` (the claim and the binding),
 `tsk thread pause` and `tsk thread stop` (the hand-off), the end of the session (the
-`SessionEnd` hook, and the `Stop` hook when the store holds unpushed changes), and
-`tsk ledger push` when asked. `thread resume`, `detach`, `set mission`, `skip` and
+`SessionEnd` hook, and the `Stop` hook, which publishes in the background after a turn when
+the store holds unpushed changes, ADR 0020), and `tsk ledger push` when asked. `thread resume`, `detach`, `set mission`, `skip` and
 `prune-bindings` do not push. Taking a task is a claim, so after setting a task to
 `in-progress`, run `tsk ledger push "Claim <mission> <task>"` straight away. Progress can
-wait for the next point. Then:
+wait for the next point. The `Stop` hook does not ask you to push: it runs
+`tsk ledger push --background`, a detached one-shot child. If that push fails, the next
+`tsk` command prints `warning: the last background publish failed at <time>: <error>; run
+tsk ledger push` once, and `tsk ledger status` shows a `Background publish:` line. Then:
 
 - `tsk ledger status` shows what is not pushed, and whether origin is ahead.
 - `tsk ledger push "<describe the update>"` (or `just ledger-push "<describe the update>"`
