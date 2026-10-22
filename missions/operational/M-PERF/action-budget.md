@@ -16,7 +16,7 @@ Current times: 0.15.1, wall time. "Local" means a scratch copy of the real ledge
 | Publish changes | `tsk ledger push` | yes | 1.9 s with a change, 0.9 s with none, local | 1 s, or in the background | Fetch and push of both branches. |
 | See what is unpublished | `tsk ledger status` | yes, it fetches | 1.75 s live | 0.3 s with a local-only mode | One fetch of each branch. |
 | Start a thread | `tsk thread start` | yes | 3.2 s local | 1 s | Fetches, 13 dolt processes, a push. |
-| Pause a thread | `tsk thread pause` | yes | 3.2 s local | 1 s, or in the background | The same. |
+| Pause a thread | `tsk thread pause` | yes | 1.7 to 1.9 s live | 2 s, synchronous (decided 2026-10-22) | The same. |
 | Resume a thread | `tsk thread resume` | yes | 0.85 s local | 1 s | A fetch and a push. |
 | Start a session | `tsk thread session-start` | yes | 3.5 s live | 1.5 s | A fetch of each branch and the mission list. |
 | Stop hook, every turn | `tsk thread guard` | no | 0.09 s | 0.15 s | One dolt process. Met. |
@@ -35,6 +35,6 @@ Decided by Jim on 2026-10-20. Starting a new session and pausing a thread are th
 | Action | Budget | Why it comes first |
 |---|---|---|
 | Start a session | 1.5 s, hook to first prompt, with the skills in place | Paid every session, before any work starts. |
-| Pause a thread | 1 s | Paid at every stop. Only the first publish of work in progress pays the network. |
+| Pause a thread | 2 s, synchronous | Decided by Jim on 2026-10-22. A live push costs 1.2 to 1.4 s whatever its size. Pause runs at the end of an automated run, where nobody waits and the hand-off must be on origin, or before /clear in a supervised session, where the store is local and safe. |
 
 Every design choice in M-PERF is judged first by what it does to these two rows. M-PERF T-15 measures them on the live origin and cuts what is slow.
