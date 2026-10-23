@@ -1,4 +1,4 @@
-//! Helpers that the test files share. A file that uses them declares `mod common;`.
+//! Helpers that the test files share. `tests/main.rs` declares this module, and a file uses it with `use crate::common;`.
 //!
 //! The local Dolt server (ADR 0018) is a process that outlives the `tsk` command that
 //! started it. A fixture that ran commands with the server switch on stops the servers of

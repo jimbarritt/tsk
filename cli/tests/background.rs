@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 
-mod common;
+use crate::common;
 
 use common::templates::{self, Seed, Step};
 
