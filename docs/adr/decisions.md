@@ -20,3 +20,7 @@
 - [18. A local Dolt server per ledger store, behind a switch](0018-a-local-dolt-server-per-ledger-store-behind-a-switch.md)
 - [19. Publish less often, by rule](0019-publish-less-often-by-rule.md)
 - [20. Publish in the background with a detached one-shot, not a daemon](0020-publish-in-the-background-with-a-detached-one-shot.md)
+- [21. State is typed records; free text is Markdown documents](0021-state-is-typed-records-free-text-is-documents.md)
+- [22. Numbers are per mission and renumbered at push](0022-numbers-are-per-mission-and-renumbered-at-push.md)
+- [23. A tsk older than the ledger updates itself](0023-a-tsk-older-than-the-ledger-updates-itself.md)
+- [24. A thread is the unit of continuation; there is no current mission](0024-a-thread-is-the-unit-of-continuation.md)

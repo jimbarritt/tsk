@@ -94,3 +94,24 @@ open too.
   which merges. This is the stale read that Jim accepted.
 - An older plugin that tells an agent to push after every write still works. It spends
   publishes that the rule would save.
+
+## Amendment, 2026-10-22: thread pause stays synchronous
+
+Decided by Jim on 2026-10-22 (M-PERF T-15). Recorded here by M-TIDY T-11.
+
+`tsk thread pause` pushes before it returns. Its budget is 2 s, not 1 s. A `git push`
+through the cloud proxy costs 1.2 to 1.4 s whatever its size, so 1 s cannot be met while
+pause pushes. Pause runs in two cases:
+
+1. **At the end of an automated run that has used its context.** Nobody waits, so 1.7 s
+   costs nothing. The container may be reclaimed right after the run, so a push in the
+   background could be killed. The hand-off is the whole purpose of pause, so it must be
+   on origin when pause returns.
+2. **Before `/clear` in a supervised session.** A person waits. `/clear` keeps the same
+   container, so the ledger store holds the hand-off on disk, and a resume in that
+   session reads it locally. Only other actors, or a later container, wait for the push.
+   The cost is one wait of about 1.7 s for each `/clear`.
+
+A `--background` option for supervised use is a possible later addition. The `Stop` hook
+publishes in the background ([ADR 0020](0020-publish-in-the-background-with-a-detached-one-shot.md));
+pause does not.
