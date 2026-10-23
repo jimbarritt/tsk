@@ -12,17 +12,11 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::dolt_installed;
+
 use common::templates;
 
 const RUNNING: &str = env!("CARGO_PKG_VERSION");
-
-fn dolt_installed() -> bool {
-    Command::new("dolt")
-        .arg("version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
 
 /// Puts the built binary at `target`. A hard link leaves no write handle open, so a fork on
 /// another test thread cannot hold one and make a later spawn fail with ETXTBSY. A copy is

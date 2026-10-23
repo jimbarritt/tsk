@@ -9,7 +9,46 @@
 pub mod templates;
 
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
+
+/// True when the `dolt` binary is installed. The answer is one `dolt version` launch for
+/// the whole test process.
+pub fn dolt_installed() -> bool {
+    static INSTALLED: OnceLock<bool> = OnceLock::new();
+    *INSTALLED.get_or_init(|| {
+        Command::new("dolt")
+            .arg("version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    })
+}
+
+/// Give a home directory the Dolt commit identity that `tsk` would set on its first run,
+/// `tsk <tsk@localhost>`. `tsk` finds it in `.dolt/config_global.json` and starts no
+/// `dolt config` process. A test that checks the identity step uses a home without it.
+pub fn seed_dolt_home(home: &Path) {
+    write_dolt_identity(home, "tsk", "tsk@localhost");
+}
+
+/// [`seed_dolt_home`] for another identity. The file is the one `dolt config --global`
+/// writes.
+pub fn write_dolt_identity(home: &Path, name: &str, email: &str) {
+    let dir = home.join(".dolt");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("config_global.json"),
+        format!(
+            "{{\"user.email\":\"{}\",\"user.name\":\"{}\"}}",
+            email, name
+        ),
+    )
+    .unwrap();
+}
 
 /// The processes a `dolt-server.pid` file names: the supervisor, then the server.
 fn pids_of(pid_file: &Path) -> Vec<i32> {

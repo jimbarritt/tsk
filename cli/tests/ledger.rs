@@ -44,6 +44,7 @@ impl Fixture {
             root: tempfile::tempdir().unwrap(),
         };
         std::fs::create_dir_all(fixture.home()).unwrap();
+        common::seed_dolt_home(&fixture.home());
         std::fs::create_dir_all(fixture.state()).unwrap();
         git(
             fixture.root.path(),

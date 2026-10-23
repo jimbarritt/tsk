@@ -41,6 +41,7 @@ impl Fixture {
         for dir in ["home", "state", "config"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
+        common::seed_dolt_home(&root.join("home"));
         git(
             root,
             &["init", "--quiet", "--bare", "-b", "main", "managed.git"],
@@ -879,12 +880,7 @@ fn a_nexus_ledger_is_created_when_the_first_command_is_a_thread_start() {
 
 #[test]
 fn a_dolt_nexus_ledger_keeps_its_documents_on_the_id_docs_branch() {
-    let dolt = Command::new("dolt")
-        .arg("version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !dolt {
+    if !common::dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }

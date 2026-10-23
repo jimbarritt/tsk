@@ -10,6 +10,8 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::dolt_installed;
+
 use common::templates::{self, Seed, Step};
 
 /// `work` has fetched and pushed a new ledger. The harness leaves `TSK_LEDGER_REFS` out, so
@@ -36,16 +38,6 @@ const BRANCHES_PUBLISHED: Seed = Seed {
 };
 
 const CLOUD_NOTE: &str = "This is a Claude Code cloud session, which cannot push a custom ref, so the ledger uses branches. To choose, run tsk config ledger-refs custom or branches before the first push.";
-
-fn dolt_installed() -> bool {
-    Command::new("dolt")
-        .arg("version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
 
 macro_rules! need_dolt {
     () => {
@@ -76,6 +68,7 @@ impl Fx {
         for dir in ["home", "state", "config", "shim"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
+        common::seed_dolt_home(&root.join("home"));
         bare_with_main(root, "origin");
         for name in ["work", "work2"] {
             git(

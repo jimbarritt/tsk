@@ -11,6 +11,8 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::dolt_installed;
+
 use common::templates::{self, Seed, Step};
 
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
@@ -42,16 +44,6 @@ fn server_on() -> bool {
     std::env::var("TSK_DOLT_SERVER").is_ok_and(|v| v.trim().eq_ignore_ascii_case("on"))
 }
 
-fn dolt_installed() -> bool {
-    Command::new("dolt")
-        .arg("version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
 struct Fixture {
     root: TempDir,
 }
@@ -69,6 +61,7 @@ impl Fixture {
             root: tempfile::tempdir().unwrap(),
         };
         std::fs::create_dir_all(fixture.home()).unwrap();
+        common::seed_dolt_home(&fixture.home());
         std::fs::create_dir_all(fixture.state()).unwrap();
         let root = fixture.root.path();
         git(

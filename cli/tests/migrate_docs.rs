@@ -8,22 +8,16 @@ use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
+mod common;
+
+use common::dolt_installed;
+
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 const DOCS_REF: &str = "refs/heads/tsk/docs";
 const VERSION_1_MESSAGE: &str = "error: this ledger stores its documents in Dolt (version 1). Run tsk ledger migrate-docs to move them to the tsk/docs branch.";
 const BRIEFING: &str = "missions/operational/M-MIG-01.md";
 const CLOUD_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 const AWKWARD: &str = "no newline at end \"quoted\" 'single' \\ back\\n literal\n\ttab; drop table documents; -- \u{e9} \u{65e5}\u{672c} \u{1f600}\r\nlast";
-
-fn dolt_installed() -> bool {
-    Command::new("dolt")
-        .arg("version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
 
 macro_rules! need_dolt {
     () => {
@@ -44,6 +38,7 @@ impl Fixture {
             root: tempfile::tempdir().unwrap(),
         };
         std::fs::create_dir_all(fixture.home()).unwrap();
+        common::seed_dolt_home(&fixture.home());
         std::fs::create_dir_all(fixture.state()).unwrap();
         let root = fixture.root.path();
         git(
@@ -194,8 +189,7 @@ impl Fixture {
                 String::from_utf8_lossy(&out.stderr)
             );
         };
-        run(&["config", "--global", "--add", "user.name", "old tsk"]);
-        run(&["config", "--global", "--add", "user.email", "old@localhost"]);
+        common::write_dolt_identity(&self.home(), "old tsk", "old@localhost");
         run(&["init", "--initial-branch", "main"]);
         let mut sql = String::from(
             "create table manifest (k varchar(64) primary key, v text);\n\

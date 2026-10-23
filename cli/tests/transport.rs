@@ -10,6 +10,8 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::dolt_installed;
+
 use common::templates::{self, Seed, Step};
 
 const PUBLISHED: Seed = Seed {
@@ -25,16 +27,6 @@ const PUBLISHED: Seed = Seed {
 
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 const DOCS_REF: &str = "refs/heads/tsk/docs";
-
-fn dolt_installed() -> bool {
-    Command::new("dolt")
-        .arg("version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
 
 macro_rules! need_dolt {
     () => {
@@ -63,6 +55,7 @@ impl Fixture {
             root: tempfile::tempdir().unwrap(),
         };
         std::fs::create_dir_all(fx.home()).unwrap();
+        common::seed_dolt_home(&fx.home());
         std::fs::create_dir_all(fx.state()).unwrap();
         let root = fx.root.path();
         git(
