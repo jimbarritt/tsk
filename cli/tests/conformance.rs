@@ -4333,8 +4333,13 @@ mod cases {
     // --- Numbers and collisions ---
 
     /// Two missions, M-X with one record of every kind and M-Y with none, pushed from clone
-    /// A and fetched into clone B.
+    /// A and fetched into clone B. It is built once per test process, and each test gets a
+    /// copy.
     fn numbered_fixture() -> Fixture {
+        Fixture::cached("numbered", || (build_numbered_fixture(), String::new())).0
+    }
+
+    fn build_numbered_fixture() -> Fixture {
         let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         fx.ok(&a, &["mission", "create", "M-X", "X"]);
@@ -7224,6 +7229,7 @@ fn thread_list_reads_every_thread_in_a_few_dolt_processes() {
 
 /// One command of a scripted flow, run in clone `who` (`a` or `b`). `{tid}` in an argument
 /// stands for the thread the latest `thread start` made.
+#[derive(Clone)]
 struct Run {
     who: char,
     args: Vec<String>,
@@ -7246,7 +7252,7 @@ fn run_with_stdin(who: char, args: &[&str], stdin: &str) -> Run {
 }
 
 /// What a command printed, how it ended and how many `dolt` processes it started.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Observed {
     command: String,
     stdout: String,
@@ -7415,20 +7421,38 @@ fn timestamp_len(chars: &[char]) -> Option<usize> {
     fits.then_some(SHAPE.len())
 }
 
-/// Run the script with the batched reads and with TSK_NO_BATCH=1 and require the same
-/// output, errors and exit codes from every command. The second run must start more
-/// `dolt` processes in total: that is how the case knows the older paths ran.
-fn assert_same_without_batching(script: &[Run]) {
-    let batched = observe(false, script);
-    let one_by_one = observe(true, script);
-    assert_same_observed(batched, one_by_one);
+/// The `TSK_DOLT_SERVER` value that the run does not use: the third run of a script sets it.
+fn other_server_setting() -> &'static str {
+    if server_on() {
+        "off"
+    } else {
+        "on"
+    }
 }
 
-/// [`assert_same_without_batching`] for a script that follows [`seed_records`]. The seed
-/// runs once per test process, batched, into a cached template. Each of the two runs
-/// starts from its own copy of the seeded fixture and runs only `tail`. The seed commands
-/// themselves are compared by `records_read_the_same_without_batching`.
-fn assert_same_without_batching_after_seed(tail: &[Run]) {
+/// Run the script three times, each in a fresh fixture: with the batched reads, with
+/// `TSK_NO_BATCH=1`, and with the Dolt server switch the other way round. Require the same
+/// output, errors and exit codes from every command in the batched and the one by one
+/// runs, and in the runs with the server off and on. The one by one run must start more
+/// `dolt` processes than the batched run (when the server is off), and the run with the
+/// server must start fewer than half of those of the run without it.
+fn assert_same_three_ways(script: &[Run]) {
+    let batched = observe(false, script);
+    let one_by_one = observe(true, script);
+    let flipped = observe_with(&[("TSK_DOLT_SERVER", other_server_setting())], script);
+    assert_same_observed("batched against one by one", &batched, &one_by_one);
+    assert_same_server_runs(&batched, &flipped);
+}
+
+/// [`assert_same_three_ways`] for a script that follows [`seed_records`], given as the
+/// `tail` after the seed. The seed runs once per test process, batched, into a cached
+/// template, and its observed commands are kept. The batched and the one by one runs each
+/// start from their own copy of the seeded fixture and run only `tail`, and the seed
+/// commands themselves are compared in the batched and the one by one runs by
+/// `records_read_the_same_without_batching_and_with_the_server`. The run with the server
+/// the other way round runs the whole script in a fresh fixture, and its commands are
+/// compared with the seed and the batched tail together.
+fn assert_same_three_ways_after_seed(tail: &[Run]) {
     let run_tail = |no_batch: bool| {
         let extra: &[(&str, &str)] = if no_batch {
             &[("TSK_NO_BATCH", "1")]
@@ -7437,10 +7461,22 @@ fn assert_same_without_batching_after_seed(tail: &[Run]) {
         };
         observe_in(&Fixture::seeded_records(), None, extra, tail)
     };
-    let batched = run_tail(false);
-    let one_by_one = run_tail(true);
-    assert_same_observed(batched, one_by_one);
+    let batched_tail = run_tail(false);
+    let one_by_one_tail = run_tail(true);
+    let mut script = seed_records();
+    script.extend(tail.iter().cloned());
+    let flipped = observe_with(&[("TSK_DOLT_SERVER", other_server_setting())], &script);
+    let mut batched = Fixture::seeded_records_observed();
+    batched.extend(batched_tail.iter().cloned());
+    assert_same_observed(
+        "batched against one by one",
+        &batched_tail,
+        &one_by_one_tail,
+    );
+    assert_same_server_runs(&batched, &flipped);
 }
+
+static SEED_OBSERVED: std::sync::OnceLock<Vec<Observed>> = std::sync::OnceLock::new();
 
 impl Fixture {
     /// A fetched ledger with [`seed_records`] written to clone A, built once per test
@@ -7459,15 +7495,23 @@ impl Fixture {
                     step.command, step.stderr
                 );
             }
+            SEED_OBSERVED.set(seeded).unwrap();
             (fx, String::new())
         })
         .0
     }
+
+    /// What the seed commands of [`Fixture::seeded_records`] did when the template was
+    /// built, with the same masks as a run in a fresh fixture.
+    fn seeded_records_observed() -> Vec<Observed> {
+        Fixture::seeded_records();
+        SEED_OBSERVED.get().unwrap().clone()
+    }
 }
 
-fn assert_same_observed(batched: Vec<Observed>, one_by_one: Vec<Observed>) {
+fn assert_same_observed(what: &str, batched: &[Observed], one_by_one: &[Observed]) {
     if std::env::var_os("TSK_TEST_SHOW_FLOW").is_some() {
-        for (with, without) in batched.iter().zip(&one_by_one) {
+        for (with, without) in batched.iter().zip(one_by_one) {
             eprintln!(
                 "[{} -> {}] {} (exit {})\n  out: {}\n  err: {}",
                 with.launches,
@@ -7487,17 +7531,26 @@ fn assert_same_observed(batched: Vec<Observed>, one_by_one: Vec<Observed>) {
             );
         }
     }
-    assert_eq!(batched.len(), one_by_one.len());
-    for (with, without) in batched.iter().zip(&one_by_one) {
-        assert_eq!(with.command, without.command);
+    assert_eq!(batched.len(), one_by_one.len(), "{}", what);
+    for (with, without) in batched.iter().zip(one_by_one) {
+        assert_eq!(with.command, without.command, "{}", what);
         assert_eq!(
             no_server_line(with.stdout.clone()),
             no_server_line(without.stdout.clone()),
-            "stdout of {}",
+            "{}: stdout of {}",
+            what,
             with.command
         );
-        assert_eq!(with.stderr, without.stderr, "stderr of {}", with.command);
-        assert_eq!(with.code, without.code, "exit code of {}", with.command);
+        assert_eq!(
+            with.stderr, without.stderr,
+            "{}: stderr of {}",
+            what, with.command
+        );
+        assert_eq!(
+            with.code, without.code,
+            "{}: exit code of {}",
+            what, with.command
+        );
     }
     let total = |runs: &[Observed]| runs.iter().map(|o| o.launches).sum::<usize>();
     // With the Dolt server on, neither run starts a `dolt` process for its SQL, so the
@@ -7506,37 +7559,53 @@ fn assert_same_observed(batched: Vec<Observed>, one_by_one: Vec<Observed>) {
         return;
     }
     assert!(
-        total(&one_by_one) > total(&batched),
-        "TSK_NO_BATCH=1 started {} dolt processes against {} batched",
-        total(&one_by_one),
-        total(&batched)
+        total(one_by_one) > total(batched),
+        "{}: TSK_NO_BATCH=1 started {} dolt processes against {} batched",
+        what,
+        total(one_by_one),
+        total(batched)
     );
 }
 
-/// Run the script with the Dolt server off and on and require the same output, errors and
-/// exit codes from every command. With the server on, a command starts no `dolt` process
-/// for its SQL, so the second run starts fewer in total.
-fn assert_same_with_the_server(script: &[Run]) {
-    let off = observe_with(&[("TSK_DOLT_SERVER", "off")], script);
-    let on = observe_with(&[("TSK_DOLT_SERVER", "on")], script);
-    assert_eq!(off.len(), on.len());
-    for (without, with) in off.iter().zip(&on) {
-        assert_eq!(without.command, with.command);
+/// Require the same output, errors and exit codes from every command in a run with the
+/// Dolt server off and a run with it on. With the server on, a command starts no `dolt`
+/// process for its SQL, so the run with the server starts fewer in total. `one` and
+/// `other` are the two runs of the script, in either order.
+fn assert_same_server_runs(one: &[Observed], other: &[Observed]) {
+    let (off, on) = if server_on() {
+        (other, one)
+    } else {
+        (one, other)
+    };
+    let what = "with the server against without";
+    assert_eq!(off.len(), on.len(), "{}", what);
+    for (without, with) in off.iter().zip(on) {
+        assert_eq!(without.command, with.command, "{}", what);
         assert_eq!(
             no_server_line(without.stdout.clone()),
             no_server_line(with.stdout.clone()),
-            "stdout of {}",
+            "{}: stdout of {}",
+            what,
             without.command
         );
-        assert_eq!(without.stderr, with.stderr, "stderr of {}", without.command);
-        assert_eq!(without.code, with.code, "exit code of {}", without.command);
+        assert_eq!(
+            without.stderr, with.stderr,
+            "{}: stderr of {}",
+            what, without.command
+        );
+        assert_eq!(
+            without.code, with.code,
+            "{}: exit code of {}",
+            what, without.command
+        );
     }
     let total = |runs: &[Observed]| runs.iter().map(|o| o.launches).sum::<usize>();
     assert!(
-        total(&on) * 2 < total(&off),
-        "the server run started {} dolt processes against {} without it",
-        total(&on),
-        total(&off)
+        total(on) * 2 < total(off),
+        "{}: the server run started {} dolt processes against {} without it",
+        what,
+        total(on),
+        total(off)
     );
 }
 
@@ -7590,13 +7659,13 @@ fn records_script() -> Vec<Run> {
 }
 
 #[test]
-fn records_read_the_same_without_batching() {
+fn records_read_the_same_without_batching_and_with_the_server() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
     let script = records_script();
-    assert_same_without_batching(&script);
+    assert_same_three_ways(&script);
 }
 
 fn fetch_status_script() -> Vec<Run> {
@@ -7628,13 +7697,13 @@ fn fetch_status_tail() -> Vec<Run> {
 }
 
 #[test]
-fn fetch_and_status_read_the_same_without_batching() {
+fn fetch_and_status_read_the_same_without_batching_and_with_the_server() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
     let tail = fetch_status_tail();
-    assert_same_without_batching_after_seed(&tail);
+    assert_same_three_ways_after_seed(&tail);
 }
 
 fn push_merge_script() -> Vec<Run> {
@@ -7667,13 +7736,13 @@ fn push_merge_tail() -> Vec<Run> {
 }
 
 #[test]
-fn push_and_merge_read_the_same_without_batching() {
+fn push_and_merge_read_the_same_without_batching_and_with_the_server() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
     let tail = push_merge_tail();
-    assert_same_without_batching_after_seed(&tail);
+    assert_same_three_ways_after_seed(&tail);
 }
 
 fn thread_script() -> Vec<Run> {
@@ -7720,13 +7789,13 @@ fn thread_tail() -> Vec<Run> {
 }
 
 #[test]
-fn thread_commands_read_the_same_without_batching() {
+fn thread_commands_read_the_same_without_batching_and_with_the_server() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
     let tail = thread_tail();
-    assert_same_without_batching_after_seed(&tail);
+    assert_same_three_ways_after_seed(&tail);
 }
 
 /// With the switch off, `tsk` is the release before the server: the same output, errors and
@@ -7768,42 +7837,6 @@ fn with_the_switch_off_every_command_is_that_of_the_baseline_release() {
         }
     }
     eprintln!("note: {} commands matched the baseline", commands);
-}
-
-#[test]
-fn records_read_the_same_with_the_server() {
-    if !dolt_installed() {
-        eprintln!("note: dolt is not installed; skipping");
-        return;
-    }
-    assert_same_with_the_server(&records_script());
-}
-
-#[test]
-fn fetch_and_status_read_the_same_with_the_server() {
-    if !dolt_installed() {
-        eprintln!("note: dolt is not installed; skipping");
-        return;
-    }
-    assert_same_with_the_server(&fetch_status_script());
-}
-
-#[test]
-fn push_and_merge_read_the_same_with_the_server() {
-    if !dolt_installed() {
-        eprintln!("note: dolt is not installed; skipping");
-        return;
-    }
-    assert_same_with_the_server(&push_merge_script());
-}
-
-#[test]
-fn thread_commands_read_the_same_with_the_server() {
-    if !dolt_installed() {
-        eprintln!("note: dolt is not installed; skipping");
-        return;
-    }
-    assert_same_with_the_server(&thread_script());
 }
 
 // --- A pause, a start and a push do not ask origin first; a fresh clone fetches once ---
