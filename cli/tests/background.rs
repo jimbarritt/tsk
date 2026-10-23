@@ -15,7 +15,26 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::templates::{self, Seed, Step};
+
 const BRIEFING: &str = "missions/operational/M-TEST-01-example.md";
+
+/// A ledger with the briefing, published from the only clone. The build runs once per test
+/// process (see `common::templates`), and each test gets a copy.
+const SEEDED: Seed = Seed {
+    branch: "main",
+    clones: &["work"],
+    refs: Some("branches"),
+    steps: &[
+        Step::Tsk("work", &["ledger", "fetch"]),
+        Step::Stdin(
+            "work",
+            &["ledger", "doc", "put", BRIEFING],
+            "# Mission: example\n",
+        ),
+        Step::Tsk("work", &["ledger", "push", "Seed the ledger"]),
+    ],
+};
 
 const SESSION_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 
@@ -64,57 +83,14 @@ impl Fixture {
     }
 
     fn build(server: Option<&'static str>) -> Fixture {
-        let fixture = Fixture {
-            root: tempfile::tempdir().unwrap(),
+        Fixture {
+            root: templates::instance(&SEEDED),
             server,
-        };
-        let root = fixture.root.path();
-        std::fs::create_dir_all(fixture.home()).unwrap();
-        std::fs::create_dir_all(fixture.state()).unwrap();
-        git(
-            root,
-            &["init", "--quiet", "--bare", "-b", "main", "origin.git"],
-        );
-        git(root, &["init", "--quiet", "-b", "main", "seed"]);
-        git(
-            &fixture.seed(),
-            &[
-                "remote",
-                "add",
-                "origin",
-                fixture.origin().to_str().unwrap(),
-            ],
-        );
-        std::fs::write(fixture.seed().join("README.md"), "main\n").unwrap();
-        git(&fixture.seed(), &["add", "-A"]);
-        git(&fixture.seed(), &["commit", "--quiet", "-m", "Main commit"]);
-        git(
-            &fixture.seed(),
-            &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
-        );
-        git(
-            root,
-            &[
-                "clone",
-                "--quiet",
-                fixture.origin().to_str().unwrap(),
-                "work",
-            ],
-        );
-        assert_success(&fixture.tsk(&["ledger", "fetch"]));
-        assert_success(
-            &fixture.tsk_stdin(&["ledger", "doc", "put", BRIEFING], "# Mission: example\n"),
-        );
-        assert_success(&fixture.tsk(&["ledger", "push", "Seed the ledger"]));
-        fixture
+        }
     }
 
     fn origin(&self) -> PathBuf {
         self.root.path().join("origin.git")
-    }
-
-    fn seed(&self) -> PathBuf {
-        self.root.path().join("seed")
     }
 
     fn work(&self) -> PathBuf {

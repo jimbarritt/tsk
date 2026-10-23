@@ -8,6 +8,33 @@ use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
+mod common;
+
+use common::templates::{self, Seed, Step};
+
+/// `work` has fetched and pushed a new ledger. The harness leaves `TSK_LEDGER_REFS` out, so
+/// the refs are the default ones.
+const CUSTOM_PUBLISHED: Seed = Seed {
+    branch: "main",
+    clones: &["work", "work2"],
+    refs: None,
+    steps: &[
+        Step::Tsk("work", &["ledger", "fetch"]),
+        Step::Tsk("work", &["ledger", "push", "publish"]),
+    ],
+};
+
+const BRANCHES_PUBLISHED: Seed = Seed {
+    branch: "main",
+    clones: &["work", "work2"],
+    refs: None,
+    steps: &[
+        Step::Tsk("work", &["config", "ledger-refs", "branches"]),
+        Step::Tsk("work", &["ledger", "fetch"]),
+        Step::Tsk("work", &["ledger", "push", "publish"]),
+    ],
+};
+
 const CLOUD_NOTE: &str = "This is a Claude Code cloud session, which cannot push a custom ref, so the ledger uses branches. To choose, run tsk config ledger-refs custom or branches before the first push.";
 
 fn dolt_installed() -> bool {
@@ -33,6 +60,13 @@ struct Fx {
     root: TempDir,
 }
 
+impl Drop for Fx {
+    /// Stop the Dolt servers that the commands started (ADR 0018) before the files go.
+    fn drop(&mut self) {
+        common::stop_servers(self.root.path(), false);
+    }
+}
+
 impl Fx {
     fn new() -> Fx {
         let fx = Fx {
@@ -48,6 +82,28 @@ impl Fx {
                 root,
                 &["clone", "--quiet", fx.origin().to_str().unwrap(), name],
             );
+        }
+        fx
+    }
+
+    /// A copy of a template: `work` has fetched a new ledger on the default refs, which
+    /// are custom, and pushed it. `work2` has fetched nothing. The build runs once per test
+    /// process (see `common::templates`).
+    fn published() -> Fx {
+        Fx::from_template(&CUSTOM_PUBLISHED)
+    }
+
+    /// [`Fx::published`] on branches: `work` set the repo config to `branches` first.
+    fn published_on_branches() -> Fx {
+        Fx::from_template(&BRANCHES_PUBLISHED)
+    }
+
+    fn from_template(seed: &Seed) -> Fx {
+        let fx = Fx {
+            root: templates::instance(seed),
+        };
+        for dir in ["home", "state", "config", "shim"] {
+            std::fs::create_dir_all(fx.root.path().join(dir)).unwrap();
         }
         fx
     }
@@ -392,10 +448,7 @@ fn branches_chosen_in_the_repo_config_round_trip() {
 #[test]
 fn a_clone_with_no_setting_finds_a_branch_ledger_on_origin() {
     need_dolt!();
-    let fx = Fx::new();
-    assert_success(&fx.tsk(&fx.work(), &["config", "ledger-refs", "branches"]));
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "fetch"]));
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "push", "publish"]));
+    let fx = Fx::published_on_branches();
     let shown = fx.ok(&fx.work2(), &["config", "ledger-refs"]);
     assert_eq!(
         shown,
@@ -509,10 +562,8 @@ fn the_nexus_entry_beats_the_repo_config_and_the_environment_beats_both() {
 #[test]
 fn the_repo_config_is_read_when_no_nexus_is_attached() {
     need_dolt!();
-    let fx = Fx::new();
     // Origin holds a custom ledger. A clone whose repo config says custom follows it.
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "fetch"]));
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "push", "publish"]));
+    let fx = Fx::published();
     assert_success(&fx.tsk(&fx.work2(), &["config", "ledger-refs", "custom"]));
     let shown = fx.ok(&fx.work2(), &["config", "ledger-refs"]);
     assert!(
@@ -526,9 +577,7 @@ fn the_repo_config_is_read_when_no_nexus_is_attached() {
 #[test]
 fn discovery_asks_origin_once_and_caches_the_answer() {
     need_dolt!();
-    let fx = Fx::new();
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "fetch"]));
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "push", "publish"]));
+    let fx = Fx::published();
     // work2 has no store yet: the first command asks, the cache answers the next.
     let first = fx.ok(&fx.work2(), &["config", "ledger-refs"]);
     assert!(first.contains("source: discovered on origin"), "{}", first);
@@ -630,10 +679,7 @@ fn an_explicit_choice_in_a_cloud_session_is_kept() {
 #[test]
 fn custom_refs_set_against_a_branch_ledger_stop_before_a_second_ledger() {
     need_dolt!();
-    let fx = Fx::new();
-    assert_success(&fx.tsk(&fx.work(), &["config", "ledger-refs", "branches"]));
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "fetch"]));
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "push", "publish"]));
+    let fx = Fx::published_on_branches();
     let before = fx.origin_refs();
 
     assert_success(&fx.tsk(&fx.work2(), &["config", "ledger-refs", "custom"]));
@@ -654,9 +700,7 @@ fn custom_refs_set_against_a_branch_ledger_stop_before_a_second_ledger() {
 #[test]
 fn branches_set_against_a_custom_ledger_stop_before_a_second_ledger() {
     need_dolt!();
-    let fx = Fx::new();
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "fetch"]));
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "push", "publish"]));
+    let fx = Fx::published();
     let before = fx.origin_refs();
 
     assert_success(&fx.tsk(&fx.work2(), &["config", "ledger-refs", "branches"]));
@@ -692,9 +736,7 @@ fn the_nexus_mismatch_names_the_entry_as_the_place_to_change() {
 #[test]
 fn a_published_ledger_store_cannot_switch_and_says_which_refs_it_is_on() {
     need_dolt!();
-    let fx = Fx::new();
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "fetch"]));
-    assert_success(&fx.tsk(&fx.work(), &["ledger", "push", "publish"]));
+    let fx = Fx::published();
     let output = fx.tsk(&fx.work(), &["config", "ledger-refs", "branches"]);
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
@@ -861,10 +903,8 @@ fn ledger_refs_outside_a_repo_is_a_plain_error() {
 #[test]
 fn a_second_writer_merges_onto_a_custom_ref_it_did_not_fetch() {
     need_dolt!();
-    let fx = Fx::new();
+    let fx = Fx::published();
     let (a, b) = (fx.work(), fx.work2());
-    assert_success(&fx.tsk(&a, &["ledger", "fetch"]));
-    assert_success(&fx.tsk(&a, &["ledger", "push", "publish"]));
     assert_success(&fx.tsk(&b, &["ledger", "fetch"]));
     // A publishes a record and a document while B holds its own, unpushed.
     assert_success(&fx.tsk(

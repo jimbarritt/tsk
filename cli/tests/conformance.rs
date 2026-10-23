@@ -11,6 +11,8 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::templates::{self, Seed, Step};
+
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 const DOCS_REF: &str = "refs/heads/tsk/docs";
 const BRIEFING: &str = "missions/operational/M-CONF-01-conformance.md";
@@ -101,35 +103,14 @@ impl Fixture {
     }
 
     /// A fixture that costs many `tsk` and `dolt` runs to build is built once per test
-    /// process, then copied for each test that asks for it. `build` returns the fixture
-    /// and a note a test may need from it (a thread ID, say). The copy is a real
-    /// filesystem copy. Every file that holds the path of the built fixture, such as a
-    /// git remote URL or a Dolt remote, is rewritten to the path of the copy.
+    /// process, then copied for each test that asks for it (see `common::templates`).
+    /// `build` returns the fixture and a note a test may need from it (a thread ID, say).
+    /// The copy is a real filesystem copy. Every file that holds the path of the built
+    /// fixture, such as a git remote URL or a Dolt remote, is rewritten to the path of the
+    /// copy.
     fn cached(key: &str, build: impl FnOnce() -> (Fixture, String)) -> (Fixture, String) {
-        let (template, built_at, note) = {
-            let mut templates = TEMPLATES.lock().unwrap_or_else(|e| e.into_inner());
-            if !templates.contains_key(key) {
-                let (built, note) = build();
-                let dir = template_store().join(key);
-                // A running Dolt server would leave its files and a store that is still
-                // changing in the copy. Stop them first, and let them clean up.
-                common::stop_servers(built.root.path(), true);
-                run_cp(&built.root.path().join("."), &dir);
-                let built_at = built.root.path().to_string_lossy().into_owned();
-                templates.insert(key.to_string(), (dir, built_at, note));
-            }
-            templates[key].clone()
-        };
-        let fixture = Fixture {
-            root: tempfile::tempdir().unwrap(),
-        };
-        run_cp(&template.join("."), fixture.root.path());
-        rewrite_paths(
-            fixture.root.path(),
-            &built_at,
-            &fixture.root.path().to_string_lossy(),
-        );
-        (fixture, note)
+        let (root, note) = templates::cached(key, build);
+        (Fixture { root }, note)
     }
 
     fn origin(&self) -> PathBuf {
@@ -300,10 +281,9 @@ impl Fixture {
 
     /// A ledger with the briefing published from clone A.
     fn with_briefing() -> Fixture {
-        Fixture::cached("briefing", || {
-            (Fixture::build_with_briefing(), String::new())
-        })
-        .0
+        Fixture {
+            root: templates::instance(&BRIEFING_SEED),
+        }
     }
 
     fn build_with_briefing() -> Fixture {
@@ -316,78 +296,33 @@ impl Fixture {
 
     /// A new ledger fetched into clone A, which publishes nothing.
     fn fetched() -> Fixture {
-        Fixture::cached("fetched", || {
-            let fx = Fixture::new();
-            fx.ok(&fx.a(), &["ledger", "fetch"]);
-            (fx, String::new())
-        })
-        .0
-    }
-}
-
-type Templates = std::collections::BTreeMap<String, (PathBuf, String, String)>;
-
-static TEMPLATES: std::sync::Mutex<Templates> = std::sync::Mutex::new(Templates::new());
-
-/// The directory that holds this process's fixture templates, under the target
-/// directory. The next test run removes it, with any other store whose process has
-/// ended.
-fn template_store() -> PathBuf {
-    static STORE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    STORE
-        .get_or_init(|| {
-            let parent = Path::new(env!("CARGO_TARGET_TMPDIR"));
-            let prefix = "conformance-templates-";
-            if let Ok(entries) = std::fs::read_dir(parent) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().into_owned();
-                    if let Some(pid) = name.strip_prefix(prefix) {
-                        if !Path::new("/proc").join(pid).exists() {
-                            let _ = std::fs::remove_dir_all(entry.path());
-                        }
-                    }
-                }
-            }
-            let dir = parent.join(format!("{}{}", prefix, std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            dir
-        })
-        .clone()
-}
-
-/// `cp -a from to`, which keeps modes, times and links. `from` ends in `/.` to copy the
-/// content of a directory.
-fn run_cp(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).unwrap();
-    let output = Command::new("cp")
-        .arg("-a")
-        .arg(from)
-        .arg(to)
-        .output()
-        .expect("failed to run cp");
-    assert!(output.status.success(), "cp failed: {}", stderr(&output));
-}
-
-/// Replace `old` by `new` in every file under `dir` that holds it. A file that holds it
-/// and is not UTF-8 text fails the test: a byte replacement could corrupt it.
-fn rewrite_paths(dir: &Path, old: &str, new: &str) {
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        let kind = std::fs::symlink_metadata(&path).unwrap().file_type();
-        if kind.is_dir() {
-            rewrite_paths(&path, old, new);
-        } else if kind.is_file() {
-            let bytes = std::fs::read(&path).unwrap();
-            if !bytes.windows(old.len()).any(|w| w == old.as_bytes()) {
-                continue;
-            }
-            let text = String::from_utf8(bytes)
-                .unwrap_or_else(|_| panic!("{} holds a path and is not text", path.display()));
-            std::fs::write(&path, text.replace(old, new)).unwrap();
+        Fixture {
+            root: templates::instance(&templates::FETCHED),
         }
     }
 }
+
+impl templates::Root for Fixture {
+    fn root(&self) -> &Path {
+        self.root.path()
+    }
+}
+
+/// A ledger with the briefing published from clone A (`work`).
+const BRIEFING_SEED: Seed = Seed {
+    branch: "main",
+    clones: &["work", "work2"],
+    refs: Some("branches"),
+    steps: &[
+        Step::Tsk("work", &["ledger", "fetch"]),
+        Step::Stdin(
+            "work",
+            &["ledger", "doc", "put", BRIEFING],
+            "# Mission: conformance\n",
+        ),
+        Step::Tsk("work", &["ledger", "push", "Add the briefing"]),
+    ],
+};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")

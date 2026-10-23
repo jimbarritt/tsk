@@ -12,6 +12,8 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::templates;
+
 const RUNNING: &str = env!("CARGO_PKG_VERSION");
 
 fn dolt_installed() -> bool {
@@ -45,70 +47,31 @@ fn spawn_retry(command: &mut Command) -> std::process::Child {
     command.spawn().unwrap()
 }
 
-fn run(dir: &Path, program: &str, args: &[&str]) {
-    let output = Command::new(program)
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_AUTHOR_NAME", "Test")
-        .env("GIT_AUTHOR_EMAIL", "test@example.com")
-        .env("GIT_COMMITTER_NAME", "Test")
-        .env("GIT_COMMITTER_EMAIL", "test@example.com")
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{} {:?}: {}",
-        program,
-        args,
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
 struct Fixture {
     root: TempDir,
 }
 
+impl Drop for Fixture {
+    /// Stop the Dolt servers that the commands started (ADR 0018) before the files go.
+    fn drop(&mut self) {
+        common::stop_servers(self.root.path(), false);
+    }
+}
+
 impl Fixture {
     /// A work clone with a fetched ledger whose manifest says layout 9, and a copy of
-    /// the built binary in `bin/` that stands for the installed tsk.
+    /// the built binary in `bin/` that stands for the installed tsk. The fetched ledger is
+    /// built once per test process (see `common::templates`), and each test gets a copy.
     fn new() -> Fixture {
         let fx = Fixture {
-            root: tempfile::tempdir().unwrap(),
+            root: templates::instance(&templates::FETCHED),
         };
         let root = fx.root.path();
-        std::fs::create_dir_all(fx.home()).unwrap();
-        run(
-            root,
-            "git",
-            &["init", "-q", "--bare", "-b", "main", "origin.git"],
-        );
-        run(root, "git", &["init", "-q", "-b", "main", "seed"]);
-        let seed = root.join("seed");
-        run(
-            &seed,
-            "git",
-            &["remote", "add", "origin", fx.origin().to_str().unwrap()],
-        );
-        std::fs::write(seed.join("README.md"), "main\n").unwrap();
-        run(&seed, "git", &["add", "-A"]);
-        run(&seed, "git", &["commit", "-q", "-m", "seed"]);
-        run(
-            &seed,
-            "git",
-            &["push", "-q", "origin", "HEAD:refs/heads/main"],
-        );
-        run(
-            root,
-            "git",
-            &["clone", "-q", fx.origin().to_str().unwrap(), "work"],
-        );
         std::fs::create_dir_all(root.join("bin")).unwrap();
         install_binary(&fx.installed());
-        let fetch = fx.tsk(&["ledger", "fetch"], "", &[]);
-        assert!(fetch.status.success(), "{}", err(&fetch));
         let path = fx.tsk(&["ledger", "path"], "", &[]);
-        // A Dolt server that the fetch started holds the store; stop it before a write.
+        assert!(path.status.success(), "{}", err(&path));
+        // A Dolt server that a command started holds the store; stop it before a write.
         common::stop_servers(root, true);
         let sql = Command::new("dolt")
             .args([
@@ -198,7 +161,7 @@ impl Fixture {
             .env("GIT_COMMITTER_NAME", "Test")
             .env("GIT_COMMITTER_EMAIL", "test@example.com")
             .env("HOME", self.home())
-            .env("XDG_STATE_HOME", self.home().join("state"))
+            .env("XDG_STATE_HOME", self.root.path().join("state"))
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("TSK_LEDGER_REFS", "branches")

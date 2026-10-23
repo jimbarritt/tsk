@@ -6,6 +6,28 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::templates::{self, Seed, Step};
+
+const fn seeded(branch: &'static str) -> Seed {
+    Seed {
+        branch,
+        clones: &["work", "work2"],
+        refs: Some("branches"),
+        steps: &[
+            Step::Tsk("work", &["ledger", "fetch"]),
+            Step::Stdin(
+                "work",
+                &["ledger", "doc", "put", BRIEFING],
+                "# Mission: example\n",
+            ),
+            Step::Tsk("work", &["ledger", "push", "Seed the ledger"]),
+        ],
+    }
+}
+
+const MAIN: Seed = seeded("main");
+const TRUNK: Seed = seeded("trunk");
+
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 const BRIEFING: &str = "missions/operational/M-TEST-01-example.md";
 /// What resume, detach and set mission print on stderr after a write that does not push.
@@ -30,88 +52,22 @@ impl Fixture {
 
     /// A published Dolt ledger that holds the briefing of mission M-TEST-01. Clone `work`
     /// runs the commands. Clone `work2` stands for another writer. The ledger for each
-    /// default branch is built once per test process, then copied for each test. The copy
-    /// is a real filesystem copy, so no test writes into the template and no test sees
-    /// the change of another.
+    /// default branch is built once per test process (see `common::templates`), then
+    /// copied for each test. The copy is a real filesystem copy, so no test writes into the
+    /// template and no test sees the change of another.
     fn with_default_branch(branch: &str) -> Fixture {
-        let mut templates = TEMPLATES.lock().unwrap_or_else(|e| e.into_inner());
-        if !templates.contains_key(branch) {
-            let built = Fixture::build(branch);
-            let dir = template_store().join(branch);
-            // A running Dolt server would leave its files and a store that is still
-            // changing in the copy. Stop them first, and let them clean up.
-            common::stop_servers(built.root.path(), true);
-            run_cp(&built.root.path().join("."), &dir);
-            let built_at = built.root.path().to_string_lossy().into_owned();
-            templates.insert(branch.to_string(), (dir, built_at));
-        }
-        let (template, built_at) = templates[branch].clone();
-        drop(templates);
-        let fixture = Fixture {
-            root: tempfile::tempdir().unwrap(),
+        let seed = match branch {
+            "main" => &MAIN,
+            "trunk" => &TRUNK,
+            other => panic!("no template for the default branch {}", other),
         };
-        run_cp(&template.join("."), fixture.root.path());
-        rewrite_paths(
-            fixture.root.path(),
-            &built_at,
-            &fixture.root.path().to_string_lossy(),
-        );
-        fixture
-    }
-
-    /// Build the published ledger with every `tsk` and `git` run it takes.
-    fn build(branch: &str) -> Fixture {
-        let fixture = Fixture {
-            root: tempfile::tempdir().unwrap(),
-        };
-        let root = fixture.root.path();
-        std::fs::create_dir_all(fixture.home()).unwrap();
-        std::fs::create_dir_all(fixture.state()).unwrap();
-        git(
-            root,
-            &["init", "--quiet", "--bare", "-b", branch, "origin.git"],
-        );
-        git(root, &["init", "--quiet", "-b", branch, "seed"]);
-        git(
-            &fixture.seed(),
-            &[
-                "remote",
-                "add",
-                "origin",
-                fixture.origin().to_str().unwrap(),
-            ],
-        );
-        write(&fixture.seed().join("README.md"), "main\n");
-        commit_all(&fixture.seed(), "Main commit");
-        git(
-            &fixture.seed(),
-            &[
-                "push",
-                "--quiet",
-                "origin",
-                &format!("HEAD:refs/heads/{}", branch),
-            ],
-        );
-        for name in ["work", "work2"] {
-            git(
-                root,
-                &["clone", "--quiet", fixture.origin().to_str().unwrap(), name],
-            );
+        Fixture {
+            root: templates::instance(seed),
         }
-        assert_success(&fixture.tsk(&["ledger", "fetch"]));
-        assert_success(
-            &fixture.tsk_stdin(&["ledger", "doc", "put", BRIEFING], "# Mission: example\n"),
-        );
-        assert_success(&fixture.tsk(&["ledger", "push", "Seed the ledger"]));
-        fixture
     }
 
     fn origin(&self) -> PathBuf {
         self.root.path().join("origin.git")
-    }
-
-    fn seed(&self) -> PathBuf {
-        self.root.path().join("seed")
     }
 
     fn work(&self) -> PathBuf {
@@ -394,70 +350,6 @@ impl Fixture {
         let output = self.tsk(&["ledger", "path"]);
         assert_success(&output);
         PathBuf::from(stdout(&output).trim_end())
-    }
-}
-
-type Templates = std::collections::BTreeMap<String, (PathBuf, String)>;
-
-static TEMPLATES: std::sync::Mutex<Templates> = std::sync::Mutex::new(Templates::new());
-
-/// The directory that holds this process's fixture templates, under the target
-/// directory. The next test run removes it, with any other store whose process has
-/// ended.
-fn template_store() -> PathBuf {
-    static STORE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    STORE
-        .get_or_init(|| {
-            let parent = Path::new(env!("CARGO_TARGET_TMPDIR"));
-            let prefix = "thread-templates-";
-            if let Ok(entries) = std::fs::read_dir(parent) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().into_owned();
-                    if let Some(pid) = name.strip_prefix(prefix) {
-                        if !Path::new("/proc").join(pid).exists() {
-                            let _ = std::fs::remove_dir_all(entry.path());
-                        }
-                    }
-                }
-            }
-            let dir = parent.join(format!("{}{}", prefix, std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            dir
-        })
-        .clone()
-}
-
-/// `cp -a from to`, which keeps modes, times and links. `from` ends in `/.` to copy the
-/// content of a directory.
-fn run_cp(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).unwrap();
-    let output = Command::new("cp")
-        .arg("-a")
-        .arg(from)
-        .arg(to)
-        .output()
-        .expect("failed to run cp");
-    assert!(output.status.success(), "cp failed: {}", stderr(&output));
-}
-
-/// Replace `old` by `new` in every file under `dir` that holds it. A file that holds it
-/// and is not UTF-8 text fails the test: a byte replacement could corrupt it.
-fn rewrite_paths(dir: &Path, old: &str, new: &str) {
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        let kind = std::fs::symlink_metadata(&path).unwrap().file_type();
-        if kind.is_dir() {
-            rewrite_paths(&path, old, new);
-        } else if kind.is_file() {
-            let bytes = std::fs::read(&path).unwrap();
-            if !bytes.windows(old.len()).any(|w| w == old.as_bytes()) {
-                continue;
-            }
-            let text = String::from_utf8(bytes)
-                .unwrap_or_else(|_| panic!("{} holds a path and is not text", path.display()));
-            std::fs::write(&path, text.replace(old, new)).unwrap();
-        }
     }
 }
 

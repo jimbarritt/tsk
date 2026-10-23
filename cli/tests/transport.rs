@@ -10,6 +10,19 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::templates::{self, Seed, Step};
+
+const PUBLISHED: Seed = Seed {
+    branch: "main",
+    clones: &["a", "b", "c"],
+    refs: Some("branches"),
+    steps: &[
+        Step::Tsk("a", &["ledger", "fetch"]),
+        Step::Tsk("a", &["mission", "create", "M-ONE", "One"]),
+        Step::Tsk("a", &["ledger", "push", "Create the ledger"]),
+    ],
+};
+
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 const DOCS_REF: &str = "refs/heads/tsk/docs";
 
@@ -193,13 +206,12 @@ impl Fixture {
         .unwrap()
     }
 
-    /// A ledger the clone `a` has published, with mission M-ONE.
+    /// A ledger the clone `a` has published, with mission M-ONE. The build runs once per
+    /// test process (see `common::templates`), and each test gets a copy.
     fn published() -> Fixture {
-        let fx = Fixture::new();
-        fx.ok("a", &["ledger", "fetch"]);
-        fx.ok("a", &["mission", "create", "M-ONE", "One"]);
-        fx.ok("a", &["ledger", "push", "Create the ledger"]);
-        fx
+        Fixture {
+            root: templates::instance(&PUBLISHED),
+        }
     }
 
     /// A pre-push hook in clone `a` that, once per `races`, runs `TSK_RACE` before a push
