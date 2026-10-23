@@ -1,0 +1,2 @@
+[env]
+TSK_DOLT_SERVER = { value = "on", force = false }
