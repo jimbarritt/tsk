@@ -297,3 +297,37 @@ helpers; 6 and 7 only if the suite is still too slow after them. Expected total 
 server on, on this machine: 260 s to about 180 s with the stand-in (about 165 s without it,
 from Jim's 239 s), a third off, with every assertion kept. About 650 thread-seconds remain
 after these changes, so a further cut needs more CPUs or fewer tests.
+
+## Result
+
+M-TIDY T-20 to T-23 are done: the template library, the Dolt identity in the test home, the
+merged comparisons and the single test binary. Dolt 2.5.0 first on `PATH`, the server on, 4 CPUs,
+nothing else on the machine. This machine ran the unchanged suite slower than section 1 did, so
+only the ratios compare.
+
+| Measure | Before (2 runs) | After (2 runs) |
+|---|---|---|
+| Sum of the test binary times | 315.0 s, 325.1 s | 239.3 s, 225.5 s |
+| Wall clock of `cargo test --workspace` | 315.1 s, 325.3 s | 239.5 s, 225.6 s |
+| Peak `dolt sql-server` processes | 8, 7 | 7, 8 |
+| Tests | 746 | 742 |
+
+The 742 is 746 less four: each `*_read_the_same_with_the_server` test is now part of the
+`*_read_the_same_without_batching_and_with_the_server` test of its script. Every other name is
+unchanged, with the file name as a module prefix. With `TSK_DOLT_SERVER=off` the whole suite
+passes in 452.7 s. The `auto_update` `Text file busy` failure did not occur in any run.
+
+Thread-seconds per file from `--report-time` (one run each, so the tails differ):
+
+| File | Before | After | File | Before | After |
+|---|---|---|---|---|---|
+| `conformance` | 405.5 | 376.1 | `ledger_refs` | 67.5 | 53.7 |
+| `thread` | 132.4 | 125.7 | `nexus` | 75.1 | 57.7 |
+| `ledger` | 103.2 | 40.2 | `transport` | 66.6 | 54.1 |
+| `events` | 91.5 | 46.2 | `background` | 42.7 | 26.1 |
+| `dolt_server` | 76.4 | 41.9 | `migrate_docs` | 67.6 | 68.6 |
+
+The saving is below the 80 s that section 7 expected. The `ledger_refs`, `nexus`, `transport`
+and `conformance` tests mostly test the first fetch or the first push, so they keep their own
+set-up. `migrate_docs` and `git_protocol` build a version 1 store by hand or log the first
+launches, and keep theirs too.
