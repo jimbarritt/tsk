@@ -10,57 +10,43 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::templates::{self, Seed, Step};
+
+const PUBLISHED: Seed = Seed {
+    branch: "main",
+    clones: &["work", "work2"],
+    refs: Some("branches"),
+    steps: &[
+        Step::Tsk("work", &["ledger", "fetch"]),
+        Step::Tsk("work", &["ledger", "push", "Create the ledger"]),
+    ],
+};
+
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 
 struct Fixture {
     root: TempDir,
 }
 
+impl Drop for Fixture {
+    /// Stop the Dolt servers that the commands started (ADR 0018) before the files go.
+    fn drop(&mut self) {
+        common::stop_servers(self.root.path(), false);
+    }
+}
+
 impl Fixture {
+    /// A ledger that clone `work` has fetched and pushed. Clone `work2` has not fetched
+    /// it. The build runs once per test process (see `common::templates`), and each test
+    /// gets a copy.
     fn new() -> Fixture {
-        let fixture = Fixture {
-            root: tempfile::tempdir().unwrap(),
-        };
-        let root = fixture.root.path();
-        std::fs::create_dir_all(fixture.home()).unwrap();
-        std::fs::create_dir_all(fixture.state()).unwrap();
-        git(
-            root,
-            &["init", "--quiet", "--bare", "-b", "main", "origin.git"],
-        );
-        git(root, &["init", "--quiet", "-b", "main", "seed"]);
-        git(
-            &fixture.seed(),
-            &[
-                "remote",
-                "add",
-                "origin",
-                fixture.origin().to_str().unwrap(),
-            ],
-        );
-        write(&fixture.seed().join("README.md"), "main\n");
-        commit_all(&fixture.seed(), "Main commit");
-        git(
-            &fixture.seed(),
-            &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
-        );
-        for name in ["work", "work2"] {
-            git(
-                root,
-                &["clone", "--quiet", fixture.origin().to_str().unwrap(), name],
-            );
+        Fixture {
+            root: templates::instance(&PUBLISHED),
         }
-        assert_success(&fixture.tsk_in(&fixture.work(), &["ledger", "fetch"]));
-        assert_success(&fixture.tsk_in(&fixture.work(), &["ledger", "push", "Create the ledger"]));
-        fixture
     }
 
     fn origin(&self) -> PathBuf {
         self.root.path().join("origin.git")
-    }
-
-    fn seed(&self) -> PathBuf {
-        self.root.path().join("seed")
     }
 
     fn work(&self) -> PathBuf {
@@ -307,11 +293,6 @@ fn git(dir: &Path, args: &[&str]) -> String {
 
 fn git_line(dir: &Path, args: &[&str]) -> String {
     git(dir, args).trim_end().to_string()
-}
-
-fn commit_all(dir: &Path, message: &str) {
-    git(dir, &["add", "-A"]);
-    git(dir, &["commit", "--quiet", "-m", message]);
 }
 
 fn write(path: &Path, content: &str) {

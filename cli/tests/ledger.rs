@@ -11,6 +11,19 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::templates::{self, Seed, Step};
+
+/// A ledger the publisher has fetched and pushed. `work` has not fetched it.
+const PUBLISHED: Seed = Seed {
+    branch: "main",
+    clones: &["work", "publisher"],
+    refs: Some("branches"),
+    steps: &[
+        Step::Tsk("publisher", &["ledger", "fetch"]),
+        Step::Tsk("publisher", &["ledger", "push", "Create the ledger"]),
+    ],
+};
+
 const DOCS_REF: &str = "refs/heads/tsk/docs";
 
 struct Fixture {
@@ -65,13 +78,12 @@ impl Fixture {
     }
 
     /// [`Fixture::new`] and a ledger the publisher has pushed: both branches exist on
-    /// origin. The clone `work` has not fetched it.
+    /// origin. The clone `work` has not fetched it. The build runs once per test process
+    /// (see `common::templates`), and each test gets a copy.
     fn with_ledger() -> Fixture {
-        let fixture = Fixture::new();
-        let publisher = fixture.publisher();
-        assert_success(&fixture.tsk_in(&publisher, &["ledger", "fetch"]));
-        assert_success(&fixture.tsk_in(&publisher, &["ledger", "push", "Create the ledger"]));
-        fixture
+        Fixture {
+            root: templates::instance(&PUBLISHED),
+        }
     }
 
     fn origin(&self) -> PathBuf {
@@ -84,10 +96,6 @@ impl Fixture {
 
     fn work(&self) -> PathBuf {
         self.root.path().join("work")
-    }
-
-    fn publisher(&self) -> PathBuf {
-        self.root.path().join("publisher")
     }
 
     fn home(&self) -> PathBuf {

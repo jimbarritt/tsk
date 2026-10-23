@@ -5,6 +5,8 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::templates;
+
 const IN_REPO_REF: &str = "refs/heads/tsk/ledger";
 const NEXUS_REF: &str = "refs/heads/ledgers/work-api";
 const NEXUS_DOCS_REF: &str = "refs/heads/ledgers/work-api-docs";
@@ -15,6 +17,12 @@ const WORK_API_ENTRY: &str =
 
 struct Fixture {
     root: TempDir,
+}
+
+impl templates::Root for Fixture {
+    fn root(&self) -> &Path {
+        self.root.path()
+    }
 }
 
 impl Drop for Fixture {
@@ -103,6 +111,39 @@ impl Fixture {
         );
         fixture.set_nexus_json("");
         fixture
+    }
+
+    /// A fixture whose nexus holds the entry `work-api` with `ledger: nexus`, attached, with
+    /// the ledger fetched. The build runs once per test process (see `common::templates`),
+    /// and each test gets a copy. A test whose subject is the first fetch builds its own.
+    fn attached_and_fetched() -> Fixture {
+        Fixture::template("attached-and-fetched", |fx| {
+            fx.set_nexus_json(WORK_API_ENTRY);
+            fx.attach();
+            fx.fetch_ok();
+        })
+    }
+
+    /// [`Fixture::attached_and_fetched`] with the briefing pushed to the nexus ledger.
+    fn attached_and_seeded() -> Fixture {
+        Fixture::template("attached-and-seeded", |fx| {
+            fx.set_nexus_json(WORK_API_ENTRY);
+            fx.attach();
+            fx.fetch_ok();
+            let doc = fx.root.path().join("briefing.md");
+            write(&doc, "# Mission: example\n");
+            assert_success(&fx.tsk(&["ledger", "doc", "put", BRIEFING, doc.to_str().unwrap()]));
+            fx.push_ok("Seed the nexus ledger");
+        })
+    }
+
+    fn template(key: &str, build: impl FnOnce(&Fixture)) -> Fixture {
+        let (root, _) = templates::cached(key, || {
+            let fx = Fixture::new();
+            build(&fx);
+            (fx, String::new())
+        });
+        Fixture { root }
     }
 
     fn managed(&self) -> PathBuf {
@@ -478,9 +519,7 @@ fn the_documents_worktree_stays_a_linked_worktree_of_the_managed_clone() {
 
 #[test]
 fn a_later_push_and_fetch_round_trip_through_the_nexus_branch() {
-    let fx = Fixture::new();
-    fx.set_nexus_json(WORK_API_ENTRY);
-    fx.attach();
+    let fx = Fixture::attached_and_fetched();
     let path = fx.fetch_ok();
     for (name, text) in [("one.md", "one\n"), ("two.md", "two\n")] {
         let doc = fx.root.path().join(name);
@@ -504,14 +543,7 @@ fn a_later_push_and_fetch_round_trip_through_the_nexus_branch() {
 
 #[test]
 fn an_existing_nexus_ledger_is_fetched() {
-    let fx = Fixture::new();
-    fx.set_nexus_json(WORK_API_ENTRY);
-    fx.attach();
-    fx.fetch_ok();
-    let doc = fx.root.path().join("briefing.md");
-    write(&doc, "# Mission: example\n");
-    assert_success(&fx.tsk(&["ledger", "doc", "put", BRIEFING, doc.to_str().unwrap()]));
-    fx.push_ok("Seed the nexus ledger");
+    let fx = Fixture::attached_and_seeded();
 
     // A new clone ID stands for a clone that has never seen the ledger.
     fx.forget_local_ledger();
@@ -605,11 +637,7 @@ fn an_ssh_origin_matches_an_https_entry() {
 
 #[test]
 fn the_cached_repo_id_is_used_before_the_origin_url() {
-    let fx = Fixture::new();
-    fx.set_nexus_json(WORK_API_ENTRY);
-    fx.attach();
-    fx.fetch_ok();
-    fx.push_ok("Create the ledger");
+    let fx = Fixture::attached_and_seeded();
     assert_eq!(
         std::fs::read_to_string(fx.repo_id_file()).unwrap().trim(),
         "work-api"
@@ -751,10 +779,7 @@ fn an_attached_nexus_that_cannot_be_read_stops_with_an_error() {
 
 #[test]
 fn the_held_copy_of_the_nexus_resolves_the_location_when_a_refresh_fails() {
-    let fx = Fixture::new();
-    fx.set_nexus_json(WORK_API_ENTRY);
-    fx.attach();
-    fx.fetch_ok();
+    let fx = Fixture::attached_and_fetched();
 
     let moved = fx.root.path().join("nexus-moved.git");
     std::fs::rename(fx.nexus(), &moved).unwrap();
@@ -767,14 +792,7 @@ fn the_held_copy_of_the_nexus_resolves_the_location_when_a_refresh_fails() {
 
 #[test]
 fn threads_pause_and_resume_against_a_nexus_ledger() {
-    let fx = Fixture::new();
-    fx.set_nexus_json(WORK_API_ENTRY);
-    fx.attach();
-    fx.fetch_ok();
-    let doc = fx.root.path().join("briefing.md");
-    write(&doc, "# Mission: example\n");
-    assert_success(&fx.tsk(&["ledger", "doc", "put", BRIEFING, doc.to_str().unwrap()]));
-    fx.push_ok("Add the briefing");
+    let fx = Fixture::attached_and_seeded();
 
     let started = fx.tsk(&["thread", "start", "M-TEST-01", BRIEFING]);
     assert_success(&started);
@@ -819,10 +837,7 @@ fn threads_pause_and_resume_against_a_nexus_ledger() {
 
 #[test]
 fn events_append_and_read_new_against_a_nexus_ledger() {
-    let fx = Fixture::new();
-    fx.set_nexus_json(WORK_API_ENTRY);
-    fx.attach();
-    fx.fetch_ok();
+    let fx = Fixture::attached_and_fetched();
     let payload = fx.root.path().join("payload.json");
     write(&payload, "{\"id\": 1}");
 

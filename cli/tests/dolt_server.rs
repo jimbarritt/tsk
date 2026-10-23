@@ -14,6 +14,8 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::templates;
+
 const CLOUD_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 
 fn dolt_installed() -> bool {
@@ -24,26 +26,6 @@ fn dolt_installed() -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_AUTHOR_NAME", "Test")
-        .env("GIT_AUTHOR_EMAIL", "test@example.com")
-        .env("GIT_COMMITTER_NAME", "Test")
-        .env("GIT_COMMITTER_EMAIL", "test@example.com")
-        .output()
-        .expect("failed to run git");
-    assert!(
-        output.status.success(),
-        "git {:?} failed: {}",
-        args,
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 fn out(output: &Output) -> String {
@@ -153,50 +135,14 @@ impl Drop for Fx {
 
 impl Fx {
     /// A bare origin with `main`, two clones `work` and `work2`, and the ledger fetched in
-    /// `work`.
+    /// `work`. The build runs once per test process with the switch off (see
+    /// `common::templates`), and each test gets a copy: the first command of the case
+    /// starts its server.
     fn new(switch: &'static str) -> Fx {
-        let fx = Fx {
-            root: tempfile::tempdir().unwrap(),
+        Fx {
+            root: templates::instance(&common::templates::FETCHED),
             switch,
-        };
-        std::fs::create_dir_all(fx.home()).unwrap();
-        std::fs::create_dir_all(fx.state()).unwrap();
-        let root = fx.root.path();
-        git(
-            root,
-            &["init", "--quiet", "--bare", "-b", "main", "origin.git"],
-        );
-        git(root, &["init", "--quiet", "-b", "main", "seed"]);
-        let seed = root.join("seed");
-        git(
-            &seed,
-            &[
-                "remote",
-                "add",
-                "origin",
-                root.join("origin.git").to_str().unwrap(),
-            ],
-        );
-        std::fs::write(seed.join("README.md"), "main\n").unwrap();
-        git(&seed, &["add", "-A"]);
-        git(&seed, &["commit", "--quiet", "-m", "Main commit"]);
-        git(
-            &seed,
-            &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
-        );
-        for name in ["work", "work2"] {
-            git(
-                root,
-                &[
-                    "clone",
-                    "--quiet",
-                    root.join("origin.git").to_str().unwrap(),
-                    name,
-                ],
-            );
         }
-        assert_success(&fx.tsk('a', &["ledger", "fetch"]));
-        fx
     }
 
     fn home(&self) -> PathBuf {
