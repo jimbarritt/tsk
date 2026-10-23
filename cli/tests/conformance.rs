@@ -7349,7 +7349,16 @@ fn observe_program(
     extra: &[(&str, &str)],
     script: &[Run],
 ) -> Vec<Observed> {
-    let fx = Fixture::fetched();
+    observe_in(&Fixture::fetched(), program, extra, script)
+}
+
+/// [`observe_program`] in a fixture the caller made.
+fn observe_in(
+    fx: &Fixture,
+    program: Option<&Path>,
+    extra: &[(&str, &str)],
+    script: &[Run],
+) -> Vec<Observed> {
     let log = fx.root.path().join("dolt-log.txt");
     let shim = dolt_log_shim(fx.root.path());
     let mut thread_ids: Vec<String> = Vec::new();
@@ -7484,6 +7493,44 @@ fn timestamp_len(chars: &[char]) -> Option<usize> {
 fn assert_same_without_batching(script: &[Run]) {
     let batched = observe(false, script);
     let one_by_one = observe(true, script);
+    assert_same_observed(batched, one_by_one);
+}
+
+/// [`assert_same_without_batching`] for a script that follows [`seed_records`]. The seed
+/// runs once per test process, batched, into a cached template. Each of the two runs
+/// starts from its own copy of the seeded fixture and runs only `tail`. The seed commands
+/// themselves are compared by `records_read_the_same_without_batching`.
+fn assert_same_without_batching_after_seed(tail: &[Run]) {
+    let run_tail = |no_batch: bool| {
+        let extra: &[(&str, &str)] = if no_batch {
+            &[("TSK_NO_BATCH", "1")]
+        } else {
+            &[]
+        };
+        observe_in(&Fixture::seeded_records(), None, extra, tail)
+    };
+    let batched = run_tail(false);
+    let one_by_one = run_tail(true);
+    assert_same_observed(batched, one_by_one);
+}
+
+impl Fixture {
+    /// A fetched ledger with [`seed_records`] written to clone A, built once per test
+    /// process. A test gets its own copy and never writes to the template.
+    fn seeded_records() -> Fixture {
+        Fixture::cached("seeded-records", || {
+            // Built here, not through `Fixture::fetched`: `cached` holds the template
+            // lock while it builds, and a nested `cached` call would wait on itself.
+            let fx = Fixture::new();
+            fx.ok(&fx.a(), &["ledger", "fetch"]);
+            observe_in(&fx, None, &[], &seed_records());
+            (fx, String::new())
+        })
+        .0
+    }
+}
+
+fn assert_same_observed(batched: Vec<Observed>, one_by_one: Vec<Observed>) {
     if std::env::var_os("TSK_TEST_SHOW_FLOW").is_some() {
         for (with, without) in batched.iter().zip(&one_by_one) {
             eprintln!(
@@ -7619,7 +7666,12 @@ fn records_read_the_same_without_batching() {
 
 fn fetch_status_script() -> Vec<Run> {
     let mut script = seed_records();
-    script.extend([
+    script.extend(fetch_status_tail());
+    script
+}
+
+fn fetch_status_tail() -> Vec<Run> {
+    vec![
         run('a', &["ledger", "status"]),
         run('a', &["ledger", "status", "--porcelain"]),
         run('a', &["ledger", "push", "Seed the records"]),
@@ -7637,8 +7689,7 @@ fn fetch_status_script() -> Vec<Run> {
         run('b', &["ledger", "status"]),
         run('b', &["task", "list", "M-NB"]),
         run('b', &["ledger", "discard"]),
-    ]);
-    script
+    ]
 }
 
 #[test]
@@ -7647,13 +7698,18 @@ fn fetch_and_status_read_the_same_without_batching() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let script = fetch_status_script();
-    assert_same_without_batching(&script);
+    let tail = fetch_status_tail();
+    assert_same_without_batching_after_seed(&tail);
 }
 
 fn push_merge_script() -> Vec<Run> {
     let mut script = seed_records();
-    script.extend([
+    script.extend(push_merge_tail());
+    script
+}
+
+fn push_merge_tail() -> Vec<Run> {
+    vec![
         run('a', &["ledger", "push", "Seed the records"]),
         run('b', &["ledger", "fetch"]),
         // Both change different rows and documents, and the second push merges.
@@ -7672,8 +7728,7 @@ fn push_merge_script() -> Vec<Run> {
         run('a', &["task", "add", "M-NB", "Stopped"]),
         run('a', &["ledger", "push", "Stopped by a link"]),
         run('a', &["ledger", "status"]),
-    ]);
-    script
+    ]
 }
 
 #[test]
@@ -7682,13 +7737,18 @@ fn push_and_merge_read_the_same_without_batching() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let script = push_merge_script();
-    assert_same_without_batching(&script);
+    let tail = push_merge_tail();
+    assert_same_without_batching_after_seed(&tail);
 }
 
 fn thread_script() -> Vec<Run> {
     let mut script = seed_records();
-    script.extend([
+    script.extend(thread_tail());
+    script
+}
+
+fn thread_tail() -> Vec<Run> {
+    vec![
         run('a', &["ledger", "push", "Seed the records"]),
         run('a', &["thread", "start", "M-NB"]),
         run('a', &["thread", "start", "M-NB"]),
@@ -7721,8 +7781,7 @@ fn thread_script() -> Vec<Run> {
             "{\"session_id\":\"nb-1\",\"source\":\"startup\"}",
         ),
         run_with_stdin('a', &["thread", "guard"], "{\"session_id\":\"x\"}"),
-    ]);
-    script
+    ]
 }
 
 #[test]
@@ -7731,8 +7790,8 @@ fn thread_commands_read_the_same_without_batching() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
-    let script = thread_script();
-    assert_same_without_batching(&script);
+    let tail = thread_tail();
+    assert_same_without_batching_after_seed(&tail);
 }
 
 /// With the switch off, `tsk` is the release before the server: the same output, errors and
