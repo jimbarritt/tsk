@@ -22,6 +22,29 @@ fn dolt_installed() -> bool {
         .unwrap_or(false)
 }
 
+/// Puts the built binary at `target`. A hard link leaves no write handle open, so a fork on
+/// another test thread cannot hold one and make a later spawn fail with ETXTBSY. A copy is
+/// the fallback when the link fails, for example across file systems.
+fn install_binary(target: &Path) {
+    let source = env!("CARGO_BIN_EXE_tsk");
+    if std::fs::hard_link(source, target).is_err() {
+        std::fs::copy(source, target).unwrap();
+    }
+}
+
+/// Spawns a command again for a short while when the kernel answers ETXTBSY.
+fn spawn_retry(command: &mut Command) -> std::process::Child {
+    for _ in 0..200 {
+        match command.spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            result => return result.unwrap(),
+        }
+    }
+    command.spawn().unwrap()
+}
+
 fn run(dir: &Path, program: &str, args: &[&str]) {
     let output = Command::new(program)
         .args(args)
@@ -81,7 +104,7 @@ impl Fixture {
             &["clone", "-q", fx.origin().to_str().unwrap(), "work"],
         );
         std::fs::create_dir_all(root.join("bin")).unwrap();
-        std::fs::copy(env!("CARGO_BIN_EXE_tsk"), fx.installed()).unwrap();
+        install_binary(&fx.installed());
         let fetch = fx.tsk(&["ledger", "fetch"], "", &[]);
         assert!(fetch.status.success(), "{}", err(&fetch));
         let path = fx.tsk(&["ledger", "path"], "", &[]);
@@ -198,7 +221,7 @@ impl Fixture {
         for (k, v) in vars {
             command.env(k, v);
         }
-        let mut child = command.spawn().unwrap();
+        let mut child = spawn_retry(&mut command);
         child
             .stdin
             .take()
