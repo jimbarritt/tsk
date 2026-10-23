@@ -7523,7 +7523,14 @@ impl Fixture {
             // lock while it builds, and a nested `cached` call would wait on itself.
             let fx = Fixture::new();
             fx.ok(&fx.a(), &["ledger", "fetch"]);
-            observe_in(&fx, None, &[], &seed_records());
+            let seeded = observe_in(&fx, None, &[], &seed_records());
+            for step in &seeded {
+                assert_eq!(
+                    step.code, 0,
+                    "the seed command {} failed: {}",
+                    step.command, step.stderr
+                );
+            }
             (fx, String::new())
         })
         .0
