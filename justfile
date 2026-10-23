@@ -5,9 +5,13 @@
 build-install:
     cargo install --path cli
 
-# Run all tests
+# Run all tests, with the local Dolt server on (the default set in .cargo/config.toml)
 test:
     cargo test --workspace
+
+# Run all tests with the local Dolt server off, the path every user has until the default changes
+test-server-off:
+    TSK_DOLT_SERVER=off cargo test --workspace
 
 # Build (debug)
 build:
