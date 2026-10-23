@@ -8,15 +8,9 @@ use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
-fn dolt_installed() -> bool {
-    Command::new("dolt")
-        .arg("version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
+mod common;
+
+use common::dolt_installed;
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -74,6 +68,7 @@ impl Fixture {
         };
         let root = fx.root.path();
         std::fs::create_dir_all(root.join("home")).unwrap();
+        common::seed_dolt_home(&root.join("home"));
         std::fs::create_dir_all(root.join("state")).unwrap();
         git(
             root,

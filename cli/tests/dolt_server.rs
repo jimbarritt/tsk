@@ -14,19 +14,11 @@ use tempfile::TempDir;
 
 mod common;
 
+use common::dolt_installed;
+
 use common::templates;
 
 const CLOUD_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
-
-fn dolt_installed() -> bool {
-    Command::new("dolt")
-        .arg("version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
 
 fn out(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()

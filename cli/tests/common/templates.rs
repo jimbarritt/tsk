@@ -190,6 +190,7 @@ fn build(seed: &Seed) -> TempDir {
     let path = root.path();
     std::fs::create_dir_all(path.join("home")).unwrap();
     std::fs::create_dir_all(path.join("state")).unwrap();
+    super::seed_dolt_home(&path.join("home"));
     git(
         path,
         &["init", "--quiet", "--bare", "-b", seed.branch, "origin.git"],
