@@ -3,7 +3,7 @@ use std::process::{Command, Output};
 
 use tempfile::TempDir;
 
-mod common;
+use crate::common;
 
 use common::templates;
 

@@ -9,7 +9,7 @@ use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
-mod common;
+use crate::common;
 
 use common::dolt_installed;
 

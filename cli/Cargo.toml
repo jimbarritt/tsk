@@ -6,12 +6,18 @@ description = "tsk — work with a clear context"
 homepage.workspace = true
 repository.workspace = true
 license.workspace = true
+autotests = false
 keywords.workspace = true
 categories.workspace = true
 
 [[bin]]
 name = "tsk"
 path = "src/main.rs"
+
+# One test binary: every file under tests/ is a module of tests/main.rs.
+[[test]]
+name = "integration"
+path = "tests/main.rs"
 
 [dependencies]
 serde_json = { version = "1", features = ["raw_value"] }
