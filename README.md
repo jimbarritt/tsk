@@ -1,82 +1,104 @@
 # tsk - work with a clear context
 
-tsk keeps the work of a repo in a ledger: missions, their tasks, decisions and questions,
-and the threads that work them. Claude Code and GitHub Copilot CLI sessions read and
-write the ledger through `tsk` commands, so a session starts with the state of the work,
-and the state it writes is there for the next one. The ledger is a Dolt database, synced through a
-git ref on the repo. Research and reports are Markdown documents on a second ref.
+tsk is about navigating software delivery, for people and agents together.
+
+It keeps track of where you and your agents are: which piece of work each of you is
+on, what it is for, what is decided, what is still open, and where a line of work
+stopped so the next session picks it up. Work spread across many people and many
+sessions stays in one place that all of them read and write.
 
 **If you are an agent, read [README-AGENT.md](README-AGENT.md) first.**
 
-Set up a repo the way that matches where your sessions run: on a laptop (section 1), or
-in Claude Code cloud sessions (section 2).
+## The problem with ticket systems
 
-## 1. Set up on a laptop, in a terminal
+A ticket system has one domain concept, the ticket, a concept from support work. Teams
+add labels, epics, projects and initiatives to it to approximate the concepts their own
+work needs, and the result models one axis only: a ticket moving through states over
+time. It records nothing about what the product is, what a change does to it, or why
+the work went the way it did.
 
-You need git with credentials that can push to the repo, and Claude Code or GitHub
-Copilot CLI, signed in.
+Agents add a second problem. An agent session runs for a bounded amount of context, then
+stops or compacts. Whatever it had not written down is gone. The next session starts
+from nothing, and so does the person who returns to the work after a week.
 
-**Install tsk.** On macOS or Linux with [Homebrew](https://brew.sh):
+## Four dimensions of delivery
+
+tsk rests on four dimensions of software delivery, and models each one explicitly.
+Other tools model parts of them.
+
+- **Navigation.** Where am I, where am I going, where have I been. The route through the
+  work, not only the list of destinations.
+- **Delta.** An observable change to the production system: what differs between the
+  system yesterday and the system now. A story is temporary; the delta is what persists.
+- **Product.** The thing being changed: product maps, metrics, signals from customers.
+  Other tools put this outside the engine, in a wiki that is soon out of date.
+- **Scale.** One model at every zoom level, from a single commit to a whole programme,
+  with no change of type between an epic, a story and a sub-task.
+
+The definitions, and the alternatives rejected, are in
+[docs/domain/ubiquitous-language.md](docs/domain/ubiquitous-language.md). The reasoning
+is in [docs/vision.md](docs/vision.md).
+
+## How tsk works
+
+A repo gets a **ledger**: a database of records, synced through git alongside the code.
+The records are:
+
+- A **mission**: an outcome to achieve, with its purpose, its constraints, what is out
+  of scope, and who decides what. A mission states the outcome, not the method, and the
+  agent or the person who takes it works out the mechanism. This follows mission
+  command doctrine: the order states the objective, not the route.
+- **Tasks**, **decisions** and **open questions**, each a numbered record of its mission.
+  A decision records what was chosen and why, in one line. A question stays open until
+  someone answers it.
+- A **thread**: one line of work, paused and resumed across sessions. When a session
+  pauses a thread, it records the mission, the task in progress and where things stand.
+  The next session, agent or human, resumes the thread and continues.
+- **Documents**: research, reports and designs, as Markdown, linked to the mission they
+  serve.
+
+Everything is written and read through `tsk` commands, so it is queryable:
+
+```bash
+tsk mission list            # every mission, its status and what blocks it
+tsk question list           # every open question, across every mission
+tsk thread list             # every thread and who is working it
+```
+
+Several people and agents work the same ledger at once. Each writes locally and
+publishes at the points that matter: when it claims work, when it pauses, when the
+session ends. Writes from different actors merge by row, and a push that collides on a
+number renumbers and prints each change.
+
+## Install
+
+On macOS or Linux with [Homebrew](https://brew.sh):
 
 ```bash
 brew install jimbarritt/tap/tsk
 ```
 
-Homebrew installs `dolt` and `jq` with it. Without Homebrew, see
-[docs/user-guide/installation.md](docs/user-guide/installation.md).
-
-**Install the plugin in your repo, and start your agent:**
+Then, in the repo you work in:
 
 ```bash
-cd your-repo
 tsk install-plugin claude-cli    # or: tsk install-plugin copilot-cli
 claude                           # or: copilot
 ```
 
-The plugin's session start hook creates a ledger for the repo and prints the missions
-with a prompt to choose one. The first `tsk ledger push` creates the ledger ref on `origin`.
+That is the whole setup. The plugin installs into Claude Code or GitHub Copilot CLI,
+and at the start of every session it fetches the ledger and prints the missions, with a
+prompt to pick one or to resume a thread. The first push creates the ledger on `origin`.
 
-**If the same repo is also used from Claude cloud sessions,** choose branches for the
-ledger before the first push, and commit the choice:
+Without Homebrew: `cargo install tsk-bin --locked`, with `dolt` and `jq` on `PATH`. See
+[docs/user-guide/installation.md](docs/user-guide/installation.md).
 
-```bash
-tsk config ledger-refs branches
-git add .tsk/config.toml && git commit -m "Keep the tsk ledger on branches" && git push
-```
+**Claude Code cloud sessions.** A cloud session starts in a new container, so each
+environment has a setup script that installs `tsk`. The same `tsk install-plugin`
+command above also commits a hook that installs the plugin in every cloud session. The
+script and the hook are in
+[docs/user-guide/new-cloud-environment.md](docs/user-guide/new-cloud-environment.md).
 
-A new ledger uses a custom git ref, which GitHub does not list as a branch. A push of a
-custom ref fails at the cloud proxy, so a repo used from the cloud keeps its ledger on
-branches instead.
-
-## 2. Set up for Claude Code cloud sessions
-
-A cloud session starts in a new container with nothing installed. tsk works there after
-one setup step per environment and one per repo.
-
-**Once per environment:** add the setup script from
-[docs/user-guide/new-cloud-environment.md](docs/user-guide/new-cloud-environment.md) to
-the environment. It installs `tsk` and `dolt`.
-
-**Once per repo:** from any session or terminal in the repo, run:
-
-```bash
-tsk install-plugin claude-cli
-tsk config ledger-refs branches
-git add .claude/settings.json .tsk/config.toml
-git commit -m "Set up tsk for cloud sessions" && git push
-```
-
-The first command writes a `SessionStart` hook into `.claude/settings.json`. In every
-cloud session the hook installs the plugin, fetches the ledger and prints the missions
-with a prompt to choose one. The second command keeps the ledger on branches, which the
-cloud proxy accepts.
-
-The guide covers both steps in full, with what to check in the first session.
-
-## Keep the ledger outside the repo
-
-For a repo you cannot push a ledger ref to, keep its ledger in a separate nexus repo.
-Follow
+**A repo you cannot push a ledger to.** Keep its ledger in a separate nexus repo:
 [docs/user-guide/new-nexus-on-a-clean-machine.md](docs/user-guide/new-nexus-on-a-clean-machine.md).
 
 ## Work on tsk itself
@@ -87,17 +109,19 @@ cd tsk
 claude
 ```
 
-Then say "hi". The repo's `SessionStart` script installs the plugins and `dolt`, builds
-`tsk` from `cli/`, fetches the ledger and prints the missions with a prompt to choose one.
+Then say "hi". The repo's session start script builds `tsk`, fetches the ledger and
+prints the missions. tsk tracks its own development in its own ledger.
 
 ## Documentation
 
 | Doc | Covers |
 |---|---|
-| [README-AGENT.md](README-AGENT.md) | What an agent needs to know to work with the ledger |
+| [README-AGENT.md](README-AGENT.md) | What an agent needs to work with the ledger |
 | [docs/index.md](docs/index.md) | Full documentation index |
 | [docs/vision.md](docs/vision.md) | Why tsk exists and what it models |
-| [docs/user-guide/installation.md](docs/user-guide/installation.md) | Prerequisites, installing, upgrading, CI |
-| [docs/user-guide/new-cloud-environment.md](docs/user-guide/new-cloud-environment.md) | Step by step: a Claude cloud environment with tsk ready in every session |
-| [docs/user-guide/new-nexus-on-a-clean-machine.md](docs/user-guide/new-nexus-on-a-clean-machine.md) | A new nexus, with a repo's ledger in it |
-| [docs/user-guide/getting-started.md](docs/user-guide/getting-started.md) | The ledger, thread and external event commands, building, publishing |
+| [docs/user-guide/introducing-tsk.md](docs/user-guide/introducing-tsk.md) | The problem with ticket systems, and sessions, threads and missions |
+| [docs/user-guide/missions-threads-and-continuation.md](docs/user-guide/missions-threads-and-continuation.md) | How missions, threads and continuation state fit together |
+| [docs/user-guide/getting-started.md](docs/user-guide/getting-started.md) | The commands, building, publishing |
+| [docs/user-guide/installation.md](docs/user-guide/installation.md) | Prerequisites, installing, upgrading |
+| [docs/user-guide/new-cloud-environment.md](docs/user-guide/new-cloud-environment.md) | A Claude cloud environment with tsk in every session |
+| [docs/user-guide/new-nexus-on-a-clean-machine.md](docs/user-guide/new-nexus-on-a-clean-machine.md) | A nexus, with a repo's ledger in it |
