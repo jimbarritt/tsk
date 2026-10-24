@@ -268,11 +268,19 @@ tsk mission out-of-scope add <id> "<text>"    # prints n; also remove <id> <n> a
 tsk mission block <id> <by-id>                # and unblock
 tsk mission objective add <id> <outcome>      # prints n; also done, undone, remove, list
 tsk mission link <id> <path> --role <intelligence|report|design>   # and unlink
+tsk mission prefix [<PREFIX>]                 # print or set the ledger's mission prefix, 3 or 4 capitals
 tsk mission mv <old-id> <new-id> [--dry-run]  # rename: only the ID changes; linked documents named for it are renamed
 tsk mission list [<id>] [--json] [--porcelain]
 ```
 
-A mission has an internal ID, which a rename never changes, and the ID a person types. Every
+A ledger can have a mission prefix, such as `TSK` (ADR 0027). With one, `create` and `mv`
+add it to an ID that lacks it (`M-BOOT` becomes `M-TSK-BOOT`) and print the ID that results.
+A number at the end of an ID marks a part of a mission and nothing else: `M-TSK-BOOT-01` is
+a part of `M-TSK-BOOT`, which has to exist, and it becomes the parent. A separate mission of
+the same kind gets a name, not a number. A ledger with no prefix has none of these rules and
+prints a note that says how to set one. If `mission prefix` says the ledger has none, choose 3
+or 4 capital letters for the repo from its name, tell the person, and set it. A mission has an
+internal ID, which a rename never changes, and the ID a person types. Every
 command takes and prints the second. `list <id> --json` has the first as `uid`. A rename
 changes one cell, so another clone can add records to the mission while you rename it, and
 the two merge. `mv` prints one line per change (`mission M-OLD -> M-NEW`, `doc A -> B`),

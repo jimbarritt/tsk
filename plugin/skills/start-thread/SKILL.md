@@ -18,7 +18,7 @@ Backs the `/tsk:start-thread` command. This skill is the agent-facing wrapper ar
 
    If I want continuity but no mission, start a thread with no mission: skip the
    mission ID in step 2. A thread with no mission has no tasks. Tasks belong to
-   missions, so for ad hoc tasks use an administrative mission such as `M-ADMIN-02`
+   missions, so for ad hoc tasks use an administrative mission such as `M-<prefix>-ADHOC`
    instead. Attach a mission to a thread later with
    `tsk thread set mission <mission-id>`.
 

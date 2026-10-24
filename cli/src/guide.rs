@@ -57,7 +57,7 @@ commands write them. An import does not create threads.
 
 | In the plan | In the ledger |
 |---|---|
-| A goal or project | A mission: `tsk mission create`, then `set` for its purpose and decision authority. A mission ID is `M-` and a short upper-case name, for example `M-SETUP`, or `M-SETUP-02` for a sub-mission (`--parent`). |
+| A goal or project | A mission: `tsk mission create`, then `set` for its purpose and decision authority. A mission ID is `M-` and a short upper-case name, for example `M-SETUP`. A ledger can have a mission prefix of 3 or 4 capital letters (`tsk mission prefix`), which `create` then adds: `M-TSK-SETUP`. A number at the end marks a part of a mission: `M-TSK-SETUP-01` is a part of `M-TSK-SETUP`. |
 | A step under it | A task: `tsk task add`, then `task set` for its status (`todo`, `in-progress` or `done`). tsk numbers tasks `T-01`, `T-02` and so on within the mission. |
 | A step or goal that waits for another | `tsk task block` for tasks of one mission, `tsk mission block` for missions. |
 | A decision already made | `tsk decision add`, with `--by` for who decided, `--on` for the date if it is not today, `--task` if it concerns one task, and `--adr` if an ADR in the repo records it. |

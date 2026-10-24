@@ -4,6 +4,7 @@
 
 pub mod model;
 pub mod mv;
+pub mod prefix;
 pub mod records;
 pub mod table;
 
@@ -20,7 +21,9 @@ pub enum MissionCommands {
         about = "Create a mission in the local store; an administrative mission starts in-progress"
     )]
     Create {
-        #[arg(help = "Mission ID, for example M-TSK-SCHEMA")]
+        #[arg(
+            help = "Mission ID, for example M-TSK-SCHEMA. With a mission prefix (tsk mission prefix) it is added when missing, and a number at the end marks a part of a mission"
+        )]
         id: String,
         #[arg(allow_hyphen_values = true, help = "One-line name")]
         name: String,
@@ -74,6 +77,13 @@ pub enum MissionCommands {
     },
     #[command(about = "Remove a document link")]
     Unlink { id: String, path: String },
+    #[command(
+        about = "Print the mission prefix of this ledger, or set it: 3 or 4 capital letters that namespace every mission ID, such as TSK (ADR 0027). A new mission ID then reads M-<prefix>-<NAME>, and a number at the end marks a part of a mission. Setting it renames no mission. Exits 1 and says how to set it when the ledger has none"
+    )]
+    Prefix {
+        #[arg(help = "The prefix to set; prints the prefix when omitted")]
+        prefix: Option<String>,
+    },
     #[command(
         about = "Rename a mission: only its ID changes, and every record, thread, block and parent follows. Linked documents named for the mission are renamed too. Prints one line per change, then one line for each record whose text names the old ID, which is not changed. A local write"
     )]
@@ -170,9 +180,24 @@ pub fn run_with(store: &dyn LedgerStore, action: MissionCommands) -> Result<(), 
                 Some(value) => Category::parse(&value)?,
                 None => Category::Operational,
             };
-            change(store, |missions| {
-                model::create(missions, &id, &name, category, parent.as_deref())
-            })?;
+            let prefix = store.mission_prefix()?;
+            let missions = store.missions_load()?;
+            // The prefix is added when it is missing, and the form is checked after.
+            let placed = prefix::place(&missions, prefix.as_deref(), &id, parent.as_deref(), None)?;
+            let created = model::create(
+                &missions,
+                &placed.id,
+                &name,
+                category,
+                placed.parent.as_deref(),
+            )?;
+            store.mission_save(&created)?;
+            if placed.added {
+                eprintln!("note: the mission prefix was added to the ID");
+                println!("{}", placed.id);
+            } else if prefix.is_none() && !missions.is_empty() {
+                eprintln!("{}", prefix::missing_note());
+            }
         }
         MissionCommands::Set { id, field, value } => {
             let value = if value == "-" {
@@ -210,6 +235,7 @@ pub fn run_with(store: &dyn LedgerStore, action: MissionCommands) -> Result<(), 
             let path = check_docs_path(&path).unwrap_or(path);
             change(store, |missions| model::unlink(missions, &id, &path))?;
         }
+        MissionCommands::Prefix { prefix } => prefix::run(store, prefix.as_deref())?,
         MissionCommands::Mv { from, to, dry_run } => mv::mission_mv(store, &from, &to, dry_run)?,
         MissionCommands::List {
             id,
