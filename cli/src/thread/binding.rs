@@ -177,7 +177,7 @@ pub fn unbind_current(session: &Session) -> Result<BindingKind, String> {
     Ok(kind)
 }
 
-fn no_clone_id() -> String {
+pub fn no_clone_id() -> String {
     "error: this clone has no clone id yet, so it has no ledger store to hold a binding. Run tsk ledger fetch first"
         .to_string()
 }

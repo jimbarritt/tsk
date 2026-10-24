@@ -733,7 +733,7 @@ mod cases {
         let row = fx.thread_row(&a, &id);
         assert_eq!(
             row["actors"],
-            serde_json::json!([{"actor": main, "kind": "worktree"}])
+            serde_json::json!([{"actor": main, "kind": "worktree", "name": null}])
         );
 
         // A linked worktree of the same clone is another actor, named for the worktree.
@@ -5259,8 +5259,10 @@ const OLD_LISTS: [&str; 6] = [
 ];
 
 /// What a ledger below version 8 has for bindings: the `cloud_session_bindings` table, and
-/// no `bindings`.
-const OLD_BINDINGS: [&str; 2] = [
+/// no `bindings`. It has no `actors` and no `instances` either (version 9).
+const OLD_BINDINGS: [&str; 4] = [
+    "drop table actors",
+    "drop table instances",
     "drop table bindings",
     "create table cloud_session_bindings (session_id varchar(255) primary key, thread_id varchar(64) not null, registered_at varchar(32) not null)",
 ];
@@ -5393,12 +5395,12 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
     );
 
     // The first write creates the tables, adds the counters, adds the thread column and
-    // records version 8.
+    // records version 9.
     assert_eq!(
         fx.ok(&other, &["task", "add", "M-OLD", "First on version 3"]),
         "T-01\n"
     );
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     let tables = fx.tables(&other);
     for table in TASK_TABLES {
         assert!(tables.lines().any(|t| t == table), "{}: {}", table, tables);
@@ -5441,7 +5443,7 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
     assert_eq!(fx.manifest_version(&a), "3");
     fx.ok(&other, &["ledger", "push", "First task"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "8");
+    assert_eq!(fx.manifest_version(&a), "9");
     assert_eq!(
         fx.ok(&a, &["task", "list", "M-OLD", "--porcelain"]),
         "T-01\ttodo\t-\tFirst on version 3\nT-02\ttodo\tT-01\tSecond\n"
@@ -5471,7 +5473,7 @@ fn a_version_three_ledger_upgrades_at_a_mission_write_too() {
     fx.ok(&other, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&other), "3");
     fx.ok(&other, &["mission", "create", "M-NEW", "New"]);
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     assert_eq!(fx.ok(&other, &["task", "add", "M-OLD", "x"]), "T-01\n");
 }
 
@@ -5483,7 +5485,7 @@ fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_eight() {
     }
     let fx = Fixture::fetched();
     let a = fx.a();
-    assert_eq!(fx.manifest_version(&a), "8");
+    assert_eq!(fx.manifest_version(&a), "9");
     let tables = fx.tables(&a);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -5548,10 +5550,10 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
         fx.ok(&other, &["ledger", "doc", "get", "base.md"]),
         "base\n"
     );
-    // The first mission write creates the tables, the column and records version 8 in one
+    // The first mission write creates the tables, the column and records version 9 in one
     // change.
     fx.ok(&other, &["mission", "create", "M-X", "First on version 2"]);
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     let tables = fx.tables(&other);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -5571,13 +5573,13 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
     assert_eq!(fx.manifest_version(&a), "2");
     fx.ok(&other, &["ledger", "push", "First mission"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "8");
+    assert_eq!(fx.manifest_version(&a), "9");
     assert_eq!(
         fx.ok(&a, &["mission", "list", "--porcelain"]),
         "M-X\ttodo\t-\t-\tFirst on version 2\n"
     );
     fx.ok(&a, &["mission", "create", "M-Y", "Second"]);
-    assert_eq!(fx.manifest_version(&a), "8");
+    assert_eq!(fx.manifest_version(&a), "9");
 }
 
 #[test]
@@ -5607,14 +5609,14 @@ fn a_version_two_ledger_upgrades_at_the_first_thread_write_and_not_before() {
         "c\n0\n"
     );
 
-    // The first thread write creates the tables and the column and records version 8.
+    // The first thread write creates the tables and the column and records version 9.
     let started = fx.ok(&other, &["thread", "start", "M-CONF-01"]);
     let id = started
         .trim_end()
         .strip_prefix("started:")
         .unwrap()
         .to_string();
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     let tables = fx.tables(&other);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -5632,7 +5634,7 @@ fn a_version_two_ledger_upgrades_at_the_first_thread_write_and_not_before() {
     // The start pushed itself.
     assert_eq!(fx.manifest_version(&a), "2");
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "8");
+    assert_eq!(fx.manifest_version(&a), "9");
     assert_eq!(fx.ok(&a, &["mission", "list", "--porcelain"]), "");
 }
 
@@ -5711,9 +5713,9 @@ fn a_version_four_ledger_reads_threads_and_upgrades_at_the_first_thread_start() 
     );
     fx.ok(&other, &["thread", "detach"]);
 
-    // The first thread start alters the table and records version 8, in its own push.
+    // The first thread start alters the table and records version 9, in its own push.
     let id = fx.started(&other, &["thread", "start", "M-CONF-01"]);
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     assert_eq!(
         fx.dolt_sql(
             &other,
@@ -5729,7 +5731,7 @@ fn a_version_four_ledger_reads_threads_and_upgrades_at_the_first_thread_start() 
     // The other clone takes the upgrade with its next fetch.
     assert_eq!(fx.manifest_version(&a), "4");
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "8");
+    assert_eq!(fx.manifest_version(&a), "9");
     assert_eq!(fx.thread_row(&a, &id)["mission_id"], "M-CONF-01");
     assert_eq!(fx.thread_row(&a, "aaaa1111")["mission_id"], "M-CONF-01");
 }
@@ -5739,14 +5741,14 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
     // What the previous release does with a Dolt ledger the new release has written:
     // the manifest check is the first thing every command runs. The supported list is
     // faked in a unit test (ledger::manifest); here a version no release knows yet
-    // stands in, because this binary supports 1, 2, 3, 4, 5, 6, 7 and 8.
+    // stands in, because this binary supports 1, 2, 3, 4, 5, 6, 7, 8 and 9.
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
     }
     let fx = Fixture::fetched();
     let a = fx.a();
-    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '9')");
+    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '10')");
     for args in [
         vec!["mission", "list", "--porcelain"],
         vec!["mission", "create", "M-X", "x"],
@@ -5756,8 +5758,8 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
         assert_exit(&out, 1);
         let message = stderr(&out);
         assert!(
-            message.contains("unsupported ledger version 9")
-                && message.contains("supports version 1, 2, 3, 4, 5, 6, 7, 8")
+            message.contains("unsupported ledger version 10")
+                && message.contains("supports version 1, 2, 3, 4, 5, 6, 7, 8, 9")
                 && message.contains("Update tsk"),
             "{:?}: {}",
             args,
@@ -5821,11 +5823,11 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
         &other,
         &["mission", "create", "M-NEW", "First on version 2"],
     );
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     assert_eq!(
         fx.ok(&other, &["ledger", "status", "--porcelain"]),
         "data\tlocal changes\n\
-         data\tupgrade\tschema upgraded to version 8\n\
+         data\tupgrade\tschema upgraded to version 9\n\
          data\tmissions\tadded 1\tmodified 0\tdeleted 0\n\
          docs\tclean\n\
          data\tremote\tup to date\n\
@@ -5834,7 +5836,7 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
     assert_eq!(
         no_server_line(fx.ok(&other, &["ledger", "status"])),
         "Local   2 changes not pushed\n\
-         \x20         data  upgrade   schema upgraded to version 8 (origin has 2)\n\
+         \x20         data  upgrade   schema upgraded to version 9 (origin has 2)\n\
          \x20         data  missions  1 added\n\
          Origin  up to date\n"
     );
@@ -5849,7 +5851,7 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
     // Clone A takes the upgrade with its fetch. Its next write is an ordinary change:
     // origin has the same version, so there is no label.
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "8");
+    assert_eq!(fx.manifest_version(&a), "9");
     fx.ok(&a, &["mission", "create", "M-LATER", "After the upgrade"]);
     assert_eq!(
         fx.ok(&a, &["ledger", "status", "--porcelain"]),
@@ -5879,11 +5881,11 @@ fn dolt_status_keeps_the_rows_a_person_changed_in_an_upgrade_write() {
     let other = fx.b();
     fx.ok(&other, &["ledger", "fetch"]);
     fx.ok(&other, &["mission", "set", "M-OLD", "purpose", "Changed"]);
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     assert_eq!(
         fx.ok(&other, &["ledger", "status", "--porcelain"]),
         "data\tlocal changes\n\
-         data\tupgrade\tschema upgraded to version 8\n\
+         data\tupgrade\tschema upgraded to version 9\n\
          data\tmissions\tadded 0\tmodified 1\tdeleted 0\n\
          docs\tclean\n\
          data\tremote\tup to date\n\
@@ -6005,7 +6007,7 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
             "docs/adr/0001-first.md",
         ],
     );
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     assert_eq!(
         fx.dolt_sql(
             &other,
@@ -6027,7 +6029,7 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
     assert_eq!(
         fx.ok(&other, &["ledger", "status", "--porcelain"]),
         "data\tlocal changes\n\
-         data\tupgrade\tschema upgraded to version 8\n\
+         data\tupgrade\tschema upgraded to version 9\n\
          data\tdecisions\tadded 1\tmodified 0\tdeleted 0\n\
          docs\tclean\n\
          data\tremote\tup to date\n\
@@ -6038,7 +6040,7 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
     assert_eq!(fx.manifest_version(&a), "5");
     fx.ok(&other, &["ledger", "push", "First ADR link"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "8");
+    assert_eq!(fx.manifest_version(&a), "9");
     assert_eq!(
         fx.ok(
             &a,
@@ -6067,7 +6069,7 @@ fn a_decision_without_an_adr_upgrades_a_version_five_ledger_too() {
         &other,
         &["decision", "add", "M-OLD", "Plain", "--by", "Jim"],
     );
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     assert!(fx
         .ok(&other, &["decision", "list", "M-OLD", "--porcelain"])
         .lines()
@@ -6179,7 +6181,7 @@ fn a_version_six_ledger_reads_its_text_as_lists_and_the_first_write_moves_it() {
         fx.ok(&other, &["mission", "constraint", "add", "M-OLD", "fourth"]),
         "4\n"
     );
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     let tables = fx.tables(&other);
     assert!(
         tables.lines().any(|t| t == "mission_constraints"),
@@ -6252,7 +6254,7 @@ fn a_version_six_ledger_reads_its_text_as_lists_and_the_first_write_moves_it() {
     // writes, not the columns that went.
     let status = fx.ok(&other, &["ledger", "status", "--porcelain"]);
     assert!(
-        status.contains("data\tupgrade\tschema upgraded to version 8\n"),
+        status.contains("data\tupgrade\tschema upgraded to version 9\n"),
         "{}",
         status
     );
@@ -6263,7 +6265,7 @@ fn a_version_six_ledger_reads_its_text_as_lists_and_the_first_write_moves_it() {
     assert_eq!(fx.manifest_version(&a), "6");
     fx.ok(&other, &["ledger", "push", "Move the lists"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "8");
+    assert_eq!(fx.manifest_version(&a), "9");
     assert_eq!(
         fx.ok(&a, &["mission", "constraint", "list", "M-OLD"]),
         "1\tfirst\n2\tsecond\n3\tthird\n4\tfourth\n"
@@ -6289,7 +6291,7 @@ fn a_thread_write_moves_the_lists_of_a_version_six_ledger_too() {
     fx.ok(&other, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&other), "6");
     fx.started(&other, &["thread", "start", "M-OLD"]);
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     assert_eq!(
         fx.ok(&other, &["mission", "constraint", "list", "M-OLD"]),
         "1\tfirst\n2\tsecond\n3\tthird\n"
@@ -6365,7 +6367,7 @@ fn a_version_seven_ledger_reads_its_bindings_from_the_old_table_and_the_first_wr
     let row = fx.thread_row(&other, &id);
     assert_eq!(
         row["actors"],
-        serde_json::json!([{"actor": "cse_old", "kind": "cloud"}])
+        serde_json::json!([{"actor": "cse_old", "kind": "cloud", "name": null}])
     );
     assert_eq!(fx.manifest_version(&other), "7");
     assert_eq!(clean(), "c\n0\n");
@@ -6376,11 +6378,11 @@ fn a_version_seven_ledger_reads_its_bindings_from_the_old_table_and_the_first_wr
     assert!(!fx.tables(&other).lines().any(|t| t == "bindings"));
 
     // A write upgrades: this bind creates the table, copies the rows as cloud rows, drops
-    // the old table and records version 8, and the push after it carries it.
+    // the old table and records version 9, and the push after it carries it.
     assert_success(&fx.tsk_cloud(&other, "cse_new", &["thread", "resume", &id]));
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     // The bind is local. The next push carries the upgrade.
-    fx.ok(&other, &["ledger", "push", "Upgrade to version 8"]);
+    fx.ok(&other, &["ledger", "push", "Upgrade to version 9"]);
     let tables = fx.tables(&other);
     assert!(tables.lines().any(|t| t == "bindings"), "{}", tables);
     assert!(
@@ -6404,16 +6406,152 @@ fn a_version_seven_ledger_reads_its_bindings_from_the_old_table_and_the_first_wr
             "select column_name, column_type from information_schema.columns \
              where table_name = 'bindings' order by ordinal_position"
         ),
-        "COLUMN_NAME,COLUMN_TYPE\nactor,varchar(255)\nkind,\"enum('cloud','worktree')\"\n\
-         thread_id,varchar(64)\nregistered_at,varchar(32)\n"
+        BINDINGS_COLUMNS
     );
     // The original clone picks the upgrade up from origin.
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "8");
+    assert_eq!(fx.manifest_version(&a), "9");
     assert_eq!(
         stdout(&fx.tsk_cloud(&a, "cse_old", &["thread", "binding"])),
         format!("cloud:{}\n", id)
+    );
+}
+
+/// The columns of `bindings`, as `information_schema.columns` lists them. Version 9 leaves
+/// the table as version 8 made it.
+const BINDINGS_COLUMNS: &str =
+    "COLUMN_NAME,COLUMN_TYPE\nactor,varchar(255)\nkind,\"enum('cloud','worktree')\"\n\
+     thread_id,varchar(64)\nregistered_at,varchar(32)\n";
+
+// --- Actors and harness instances, and the version 9 ledger ---
+
+impl Fixture {
+    /// A published Dolt ledger at version 8, as the previous release left it: no `actors`
+    /// and no `instances` table, and the one thread is bound by `cse_old`. Returns the
+    /// thread ID.
+    fn version_eight_ledger() -> (Fixture, String) {
+        Fixture::cached("version-eight", Fixture::build_version_eight_ledger)
+    }
+
+    fn build_version_eight_ledger() -> (Fixture, String) {
+        let fx = Fixture::build_with_briefing();
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        let start = fx.tsk_cloud(&a, "cse_old", &["thread", "start", "M-CONF-01"]);
+        assert_success(&start);
+        let id = stdout(&start)
+            .trim_end()
+            .strip_prefix("started:")
+            .unwrap()
+            .to_string();
+        fx.dolt_sql(
+            &a,
+            "drop table actors; drop table instances; \
+             insert into bindings (actor, kind, thread_id, registered_at) \
+               values ('cse_gone', 'cloud', 'zzzzzzzz', '2026-01-02T00:00:00Z'); \
+             replace into manifest (k, v) values ('version', '8')",
+        );
+        fx.ok(&a, &["ledger", "push", "A version 8 ledger"]);
+        (fx, id)
+    }
+}
+
+#[test]
+fn a_version_eight_ledger_reads_without_actor_tables_and_the_first_registration_adds_them() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let (fx, id) = Fixture::version_eight_ledger();
+    let other = fx.b();
+    fx.ok(&other, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&other), "8");
+    let tables = fx.tables(&other);
+    assert!(!tables.lines().any(|t| t == "actors"), "{}", tables);
+    assert!(!tables.lines().any(|t| t == "instances"), "{}", tables);
+
+    // Reads see no actor, and upgrade nothing.
+    let clean = || fx.dolt_sql(&other, "select count(*) as c from dolt_status");
+    assert_eq!(
+        stdout(&fx.tsk_cloud(&other, "cse_old", &["thread", "binding"])),
+        format!("cloud:{}\n", id)
+    );
+    assert_eq!(
+        fx.thread_row(&other, &id)["actors"],
+        serde_json::json!([{"actor": "cse_old", "kind": "cloud", "name": null}])
+    );
+    assert_eq!(
+        stdout(&fx.tsk_cloud(&other, "cse_old", &["actor", "name"])),
+        "no actor registered\n"
+    );
+    assert_eq!(fx.ok(&other, &["actor", "list"]), "");
+    assert_eq!(fx.ok(&other, &["actor", "list", "--json"]), "[]\n");
+    assert_eq!(fx.guard_reason(&other, Some("cse_old")), None);
+    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(clean(), "c\n0\n");
+
+    // The first registration upgrades: both tables are made, every binding row is kept,
+    // and version 9 is recorded in the same local change.
+    let registered = fx.tsk_cloud(
+        &other,
+        "cse_old",
+        &["actor", "register", "alice", "--kind", "robot"],
+    );
+    assert_success(&registered);
+    assert_eq!(stdout(&registered), "registered alice (robot)\n");
+    assert_eq!(fx.manifest_version(&other), "9");
+    let tables = fx.tables(&other);
+    assert!(tables.lines().any(|t| t == "actors"), "{}", tables);
+    assert!(tables.lines().any(|t| t == "instances"), "{}", tables);
+    assert_eq!(
+        fx.dolt_sql(
+            &other,
+            "select column_name, column_type from information_schema.columns \
+             where table_name = 'bindings' order by ordinal_position"
+        ),
+        BINDINGS_COLUMNS
+    );
+    assert_eq!(
+        fx.dolt_sql(
+            &other,
+            "select actor, kind, thread_id from bindings order by actor"
+        ),
+        format!(
+            "actor,kind,thread_id\ncse_gone,cloud,zzzzzzzz\ncse_old,cloud,{}\n",
+            id
+        )
+    );
+    assert_eq!(
+        fx.dolt_sql(&other, "select name, kind from actors"),
+        "name,kind\nalice,robot\n"
+    );
+    assert_eq!(
+        fx.dolt_sql(&other, "select instance, kind, actor_name from instances"),
+        "instance,kind,actor_name\ncse_old,cloud,alice\n"
+    );
+    let status = fx.ok(&other, &["ledger", "status", "--local", "--porcelain"]);
+    assert!(
+        status.contains("data\tupgrade\tschema upgraded to version 9\n"),
+        "{}",
+        status
+    );
+    // The registration is local until the next push, which carries the upgrade too.
+    fx.ok(&other, &["ledger", "push", "Upgrade to version 9"]);
+    let a = fx.a();
+    fx.ok(&a, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&a), "9");
+    assert_eq!(
+        stdout(&fx.tsk_cloud(&a, "cse_old", &["thread", "binding"])),
+        format!("cloud:{}\nactor: alice (robot)\n", id)
+    );
+    assert_eq!(
+        stdout(&fx.tsk_cloud(&a, "cse_gone", &["actor", "name"])),
+        "no actor registered\n"
+    );
+    assert_eq!(
+        fx.ok(&a, &["actor", "list", "--porcelain"]),
+        "alice\trobot\tcse_old\n"
     );
 }
 
@@ -6442,7 +6580,7 @@ fn a_marker_file_on_a_version_seven_ledger_is_migrated_by_a_write_that_upgrades_
         format!("worktree:{}\n", id)
     );
     assert!(!fx.marker(&other).exists());
-    assert_eq!(fx.manifest_version(&other), "8");
+    assert_eq!(fx.manifest_version(&other), "9");
     let actor = fx.main_actor(&other);
     assert_eq!(
         fx.dolt_sql(
@@ -6458,7 +6596,7 @@ fn a_marker_file_on_a_version_seven_ledger_is_migrated_by_a_write_that_upgrades_
     // The change is local: origin still holds version 7.
     let status = fx.ok(&other, &["ledger", "status", "--porcelain"]);
     assert!(
-        status.contains("data\tupgrade\tschema upgraded to version 8\n"),
+        status.contains("data\tupgrade\tschema upgraded to version 9\n"),
         "{}",
         status
     );
@@ -6472,7 +6610,7 @@ fn a_marker_file_on_a_version_seven_ledger_is_migrated_by_a_write_that_upgrades_
     fx.ok(&other, &["ledger", "push", "Carry the binding"]);
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "8");
+    assert_eq!(fx.manifest_version(&a), "9");
     assert_eq!(fx.actors_of(&a, &id).len(), 2);
 }
 

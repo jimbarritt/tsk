@@ -228,6 +228,13 @@ fn pending_warning(pending: &PendingNote) -> String {
     )
 }
 
+/// What the session start says about the actor this harness instance registered as
+/// (`tsk actor register`), after the thread sentence. `label` is `<name> (<kind>)`.
+/// Nothing is said when the instance registered none.
+pub fn actor_context(label: &str) -> String {
+    format!("Actor: {}.", label)
+}
+
 /// What the session start says about the thread: the binding to resume, or the prompt
 /// that asks which mission to work.
 pub fn thread_message(binding: Option<&str>, unbound_prompt: &str) -> String {
@@ -375,10 +382,14 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
     } else {
         unbound_prompt(&open_mission_lines(&missions))
     };
-    let mut thread_text = thread_message(binding.map(|b| b.to_string()).as_deref(), &prompt);
+    let mut thread_text =
+        thread_message(binding.as_ref().map(|b| b.to_string()).as_deref(), &prompt);
     if let Some(no_mission) = no_mission {
         thread_text.push(' ');
         thread_text.push_str(&no_mission);
+    }
+    if let Some(actor) = crate::actor::current(session).ok().flatten() {
+        push_part(&mut thread_text, &actor_context(&actor.label()));
     }
     let mut context = fetched_context(
         &outcome.path,
@@ -412,7 +423,7 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.15";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.16";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
