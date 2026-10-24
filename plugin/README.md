@@ -22,6 +22,7 @@ this repository. They hold the minimum logic: see
 | `detach-thread` | `tsk thread detach`, then `tsk thread skip` if asked |
 | `stop-thread` | `tsk thread stop` |
 | `register-repo` | `tsk nexus register-repo` |
+| `construct-robot` | `tsk actor list`, then `tsk actor register --kind robot` with a name the robot chooses in the style of the Culture ships, `tsk ledger push`, and the session title |
 
 | Hook | Runs |
 |---|---|
