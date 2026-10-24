@@ -112,6 +112,18 @@ pub fn thread_mission(info: &ThreadInfo) -> Option<String> {
         .or_else(|| info.briefing_path.as_deref().and_then(mission_id_of_file))
 }
 
+/// The session title for an actor and the mission its thread works: `<name> (<mission>)`,
+/// the name alone with no mission, the mission alone with no actor, and `None` with
+/// neither (GitHub issue #7).
+pub fn session_title(actor: Option<&str>, mission: Option<&str>) -> Option<String> {
+    match (actor, mission) {
+        (Some(name), Some(mission)) => Some(format!("{} ({})", name, mission)),
+        (Some(name), None) => Some(name.to_string()),
+        (None, Some(mission)) => Some(mission.to_string()),
+        (None, None) => None,
+    }
+}
+
 /// The briefing document of a mission that has no record: a document at
 /// `missions/<category>/<ID>-<slug>.md` or `missions/<category>/<ID>.md`. The first in
 /// path order when several match.
@@ -680,6 +692,17 @@ pub fn list(session: &Session) -> Result<Vec<ListRow>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_title_is_the_actor_and_the_mission_or_whichever_there_is() {
+        assert_eq!(
+            session_title(Some("Plain Statement Of Fact"), Some("M-ADMIN-02")).as_deref(),
+            Some("Plain Statement Of Fact (M-ADMIN-02)")
+        );
+        assert_eq!(session_title(Some("alice"), None).as_deref(), Some("alice"));
+        assert_eq!(session_title(None, Some("M-X")).as_deref(), Some("M-X"));
+        assert_eq!(session_title(None, None), None);
+    }
 
     #[test]
     fn thread_id_must_be_eight_lowercase_base36_characters() {

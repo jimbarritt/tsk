@@ -110,6 +110,10 @@ pub enum ThreadCommands {
         no_fetch: bool,
     },
     #[command(
+        about = "Print the session title for this session or worktree: <actor name> (<mission ID>) when it is registered as an actor and bound to a thread with a mission, the actor name alone when the thread has no mission or there is no binding, and the mission ID alone when no actor is registered. Exit status 1 and no output with neither. Reads the ledger store as it is and never fetches, so it shows a local write such as tsk thread set mission at once. The skills pass the title to set_session_title in a cloud session"
+    )]
+    Title,
+    #[command(
         about = "Stop hook check: when this session or worktree is unbound, has not skipped a thread and the ledger holds missions, print a block decision as JSON that asks for a thread. Otherwise, when the ledger store holds changes that are not pushed (no network), start a background publish (tsk ledger push --background; TSK_BACKGROUND_PUBLISH=off switches it off) and print nothing. Exit 0 whatever happens. Reads stdin; never fetches"
     )]
     Guard,
@@ -372,6 +376,24 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                     if let Some(actor) = crate::actor::current(&session)? {
                         println!("actor: {}", actor.label());
                     }
+                    Ok(0)
+                }
+                None => Ok(1),
+            }
+        }
+        ThreadCommands::Title => {
+            let actor = crate::actor::current(&session)?.map(|actor| actor.name);
+            let mission = match resolve_local(&session)? {
+                Some(binding) => session
+                    .store
+                    .thread_info(binding.thread_id())
+                    .ok()
+                    .and_then(|info| ops::thread_mission(&info)),
+                None => None,
+            };
+            match ops::session_title(actor.as_deref(), mission.as_deref()) {
+                Some(title) => {
+                    println!("{}", title);
                     Ok(0)
                 }
                 None => Ok(1),

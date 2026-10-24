@@ -46,7 +46,8 @@ each of those as described below, and do not inline their work here.
    - If no threads exist at all, say so and stop. There is nothing to switch
      to. Offer `tsk:start-thread` instead.
 
-5. **Resume.** Run the `tsk:resume-thread` skill's steps for the chosen thread ID.
+5. **Resume.** Run the `tsk:resume-thread` skill's steps for the chosen thread ID. Its
+   title step sets the session title for the new thread's mission.
 
 Detach and resume write locally and do not push. Stop pushes. The binding change goes
 out with the next thread start, pause or stop, at the end of the session, or with

@@ -48,7 +48,15 @@ refuse.
    A thread can have no mission: `latest.mission_id` is null, or `latest` is `{}`. Then
    write `we are working on no mission (this thread has no mission, so it has no
    tasks)` for the second line. Offer `tsk thread set mission <mission-id>` if I want
-   to attach one.
+   to attach one. After `tsk thread set mission`, repeat step 4.
 
-4. **Ask whether to continue** with this thread, or do something else. Do not
+4. **Set the session title.** Run `tsk thread title`. Exit 1 means there is no
+   actor and no mission: skip this step. Exit 0 prints the title, `<robot name> (<mission
+   ID>)`, the name alone, or the mission ID alone.
+   - In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` is set), call `get_session` from
+     the `claude-code-remote` MCP server with no `session_id` to read this session's ID.
+     Then call `set_session_title` with that ID and the title.
+   - In a terminal, no tool sets the title. Ask me to run `/rename <title>`.
+
+5. **Ask whether to continue** with this thread, or do something else. Do not
    assume continuation.
