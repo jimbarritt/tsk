@@ -324,3 +324,30 @@ The pause plan is `docs/arch/2026-10-20-session-start-and-pause.md` and ADR 0019
 Not known yet: whether the 24 s is `tsk thread pause` alone or the `/tsk:pause-thread` skill, which includes the agent's own time to write the entry; whether the Dolt server was on; which repo and ledger state (published ledger, custom refs). Needed from Jim: `time tsk thread pause <thread> <T-nn> "<text>"` run directly, with the server on and then off.
 
 Record: M-PERF T-21.
+
+### 2026-10-24, entry 18: session start in java-dojo took 23 seconds
+
+Jim started `claude` in `java-dojo` and typed "hi". What the terminal showed, as pasted (some lines were cut or overlapped in the paste):
+
+```
+Ran 1 shell command
+Skill(tsk:resume-thread)
+Successfully loaded skill
+Ran 2 shell commands
+Hi. This session is now bound to thread 5a33b6e5.
+thread id: 5a33b6e5
+we are working on mission Bootstrap a Java practice environment (M-DOJO-ENV)
+this is where we are at: The mission has one task, T-01, which bootstraps the real interview Java project ... Main.java has uncommitted ch...
+Do you want to continue with this thread?
+SWE: Verified
+Sautéed for 23s
+```
+
+Readings:
+
+- The agent ran one shell command, loaded the `tsk:resume-thread` skill, ran two more shell commands, and then wrote the summary. The whole turn took 23 s.
+- tsk's own session start takes under 1 s on this machine (the hook ran before the first prompt). So the 23 s is the agent's turns: model time and tool calls.
+- The bound thread and the mission came out right, and the swe plugin is now active ("SWE: Verified").
+- The same shape is the likely cause of the 24 s pause in entry 17: `/tsk:pause-thread` is a skill, so its time includes the agent writing the entry. To confirm, Jim runs `tsk thread pause` directly.
+
+Records: M-PERF T-21 (hypothesis added) and T-22 (cut the agent's turns at session start and pause).
