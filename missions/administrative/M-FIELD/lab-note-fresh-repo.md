@@ -37,3 +37,23 @@ error: unrecognized subcommand 'status'
 Expected: the ledger status. The 0.26.0 source has `tsk ledger status`, so the installed binary is probably older than the latest release. Open: the output of `tsk --version` on the laptop, and whether the Homebrew formula follows each release.
 
 Record: M-ADMIN-02 T-10.
+
+### 2026-10-24, entry 3: an old tsk shadowed the Homebrew install
+
+Jim ran `brew install jimbarritt/tap/tsk`. `tsk --version` then printed 0.2.1, and Jim thought the Homebrew formula was out of date. The tap has `Formula/tsk.rb` at 0.26.0, so the formula was current.
+
+Jim ran `which -a tsk`. Output, exactly:
+
+```
+/Users/jmdb/.cargo/bin/tsk
+/Users/jmdb/.local/bin/tsk
+/opt/homebrew/bin/tsk
+```
+
+The cargo copy runs first and shadows the Homebrew copy. A `sudo xcodebuild -license` prompt also appeared during the brew steps (the Xcode licence was not accepted), which may have interrupted the install or the update.
+
+Cause: a stale copy from an earlier install. Fix for Jim: remove the cargo and `~/.local/bin` copies, run `hash -r`, check `tsk --version`.
+
+Findings: a new user with an old `tsk` meets error messages from the old version (`unrecognized subcommand 'status'`, `runs without tskd` in the old help) that look like defects in the new one. Entries 1 and 2 are from 0.2.1 until Jim shows otherwise; recheck both on 0.26.0.
+
+Record: M-ADMIN-02 T-11. T-09 and T-10 stay open until rechecked on 0.26.0.
