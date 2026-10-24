@@ -6,8 +6,8 @@ Start at [docs/index.md](docs/index.md) to find design docs, domain model, user 
 
 Missions, objectives, constraints, out of scope, tasks, decisions, questions and thread
 state are now records: typed rows in the Dolt database, written through `tsk` commands.
-The ledger is at layout 8. Markdown briefings and `index.md` are no longer the state of
-the work. Documents stay Markdown on `tsk/docs` for intelligence, research and reports.
+The ledger is at layout 9 (layout 8 plus the `actors` and `instances` tables of
+0.26.0). Markdown briefings and `index.md` are no longer the state of the work. Documents stay Markdown on `tsk/docs` for intelligence, research and reports.
 
 - The first `tsk` write on 0.14.0 or later upgrades a ledger to layout 8. A binary older
   than that then stops with `unsupported ledger version`. Update it with `tsk self-update`.

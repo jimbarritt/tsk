@@ -95,7 +95,10 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk thread pause` | Appends a continuation state entry | Writes and pushes |
 | `tsk thread resume` | Loads a thread's latest continuation state entry | Binds in the local store only (0.24.0) |
 | `tsk thread detach` | Removes this session's binding | Local store only (0.24.0) |
-| `tsk thread binding` | Prints the current binding, if any | None beyond a fetch |
+| `tsk thread binding` | Prints the current binding, if any, and the actor this session or worktree is registered as | None beyond a fetch |
+| `tsk actor register <name> --kind human\|robot` | Registers this session or worktree as an actor; needs no thread | Local store only (0.26.0) |
+| `tsk actor name` | Prints the actor this session or worktree is registered as | None |
+| `tsk actor list` | Lists the actors and the sessions and worktrees registered as each | None |
 | `tsk thread guard` | Stop hook check for a binding; starts a background publish when the store holds unpushed changes | None. Never fetches |
 | `tsk thread session-start` | SessionStart hook: fetches the ledger, exports `$TSK_LEDGER_WT` | Updates the ledger store |
 

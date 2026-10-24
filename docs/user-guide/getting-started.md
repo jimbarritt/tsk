@@ -110,6 +110,14 @@ tsk thread stop [<thread-id>] # delete the thread and every cloud binding to it
 tsk thread list               # one JSON object per thread, most recently paused first
 ```
 
+**Register as an actor** (optional, and separate from any thread):
+
+```bash
+tsk actor register <name> --kind human|robot   # this session or worktree is <name>; a new name makes the actor
+tsk actor name                                 # the name this session or worktree is registered as, or "no actor registered"
+tsk actor list                                 # every actor, its kind, and the sessions and worktrees registered as it
+```
+
 **6. Change the ledger:**
 
 Write records with the `tsk mission`, `tsk task`, `tsk decision` and `tsk question`

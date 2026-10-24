@@ -44,10 +44,22 @@ Every binding is one row of the ledger's `bindings` table, keyed on the actor:
   ID is in `.git/tsk-clone-id` and the worktree name is `main` for the main worktree or the
   name of the linked worktree.
 
-An actor has one binding, so binding it again replaces the old one. More than one session
+A session or code worktree has one binding, so binding it again replaces the old one. More than one session
 or code worktree can bind to the same thread, and `tsk thread list` shows them in `actors`,
-an array of `{"actor", "kind"}` objects (`cloud` or `worktree`), empty when none is bound.
+an array of `{"actor", "kind", "name"}` objects (`cloud` or `worktree`; `name` is the actor
+the instance registered as, or `null`), empty when none is bound.
 Resuming a thread that another actor wrote to binds anyway, and prints a warning.
+
+An **actor** is a human or a robot, with a name and a kind. Its identity persists outside
+any harness instance. A **harness instance** is the running harness: a cloud session, or a
+code worktree of a clone, the same key as `bindings.actor`. An instance registers as an
+actor with `tsk actor register <name> --kind human|robot`, which is separate from binding
+to a thread and needs none. A new name makes the actor; a name already registered must
+have the same kind, and the instance then joins it. The registration stays through a
+rebind, a detach and a stop. `tsk actor name` prints the name this instance is registered
+as, or `no actor registered`. `tsk actor list` lists the actors with their instances.
+`tsk thread binding` and the session start context name the actor when the instance is
+registered. Registering is a local write; the next push publishes it.
 
 Older tsk versions kept the binding of a code worktree in the file `tsk-thread-id` in its
 git directory. The first tsk command that resolves such a binding writes the row from the
@@ -121,7 +133,10 @@ tsk thread detach                                                     remove thi
 tsk thread skip                                                       work without a thread; local to this clone, never pushed
 tsk thread stop [<thread-id>]                                         delete a thread and every cloud binding to it, push
 tsk thread list                                                       list threads, most recently paused first
-tsk thread binding [--no-fetch]                                       print the current binding
+tsk thread binding [--no-fetch]                                       print the current binding, and the actor when registered
+tsk actor register <name> --kind human|robot                          register this session or code worktree as an actor; local, tsk ledger push publishes
+tsk actor name                                                        print the actor this session or code worktree is registered as
+tsk actor list [--porcelain|--json]                                   list the actors and the instances registered as each
 tsk thread prune-bindings [--older-than <days>] [--dry-run]           remove old cloud bindings, local; tsk ledger push publishes
 tsk thread guard                                                      Stop hook check for a binding; never fetches
 tsk thread session-start [--format claude|copilot] [--plugin-version <semver>]
@@ -343,8 +358,11 @@ to stderr.
 | `thread detach` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding |
 | `thread stop` | `stopped:<thread-id>` | exit 1 with no binding and no thread ID given |
 | `thread skip` | `skipped` | |
-| `thread list` | one compact JSON object per line: `id`, `mission_id` (null for a thread with no mission), `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp` | |
-| `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding |
+| `thread list` | one compact JSON object per line: `id`, `mission_id` (null for a thread with no mission), `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp`, `actors` (each `{"actor", "kind", "name"}`) | |
+| `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>`, then `actor: <name> (<kind>)` on a second line when registered | exit 1, nothing on stdout, with no binding |
+| `actor register` | `registered <name> (<kind>)` for a new name; `<name> (<kind>) is now this session's actor` or `... this worktree's actor` for a name already registered with that kind | exit 1 with `<name> is registered as a <kind>` for the other kind, or for a name that is empty, over 200 characters or starts with `/` |
+| `actor name` | the actor name, or `no actor registered` | |
+| `actor list` | one actor per line: name, kind, instances (comma-separated keys, or `-`); tab-separated with `--porcelain`; the records with their `instances` with `--json` | |
 | `thread prune-bindings` | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; with `--dry-run`, `would remove <actor> <thread-id>` lines and `<n> bindings would be removed`, and nothing changes | |
 | `thread guard` | nothing when bound, after `thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise, asking for a thread. With unpushed changes it also starts `tsk ledger push --background` and prints nothing | |
 

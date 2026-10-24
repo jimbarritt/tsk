@@ -2044,3 +2044,280 @@ fn version_prints_the_workspace_version() {
     }
     assert!(!env!("CARGO_PKG_VERSION").is_empty());
 }
+
+// --- Actors and harness instances (tsk actor) ---
+
+/// The `actors` of the first `thread list` row, sorted by actor.
+fn listed_actors(fx: &Fixture) -> Vec<serde_json::Value> {
+    let output = fx.tsk(&["thread", "list"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    let row = json(text.lines().next().unwrap_or_else(|| panic!("no rows")));
+    let mut actors = row["actors"].as_array().cloned().unwrap_or_default();
+    actors.sort_by_key(|actor| actor["actor"].as_str().unwrap_or_default().to_string());
+    actors
+}
+
+impl Fixture {
+    fn register(&self, name: &str, kind: &str) -> Output {
+        self.tsk(&["actor", "register", name, "--kind", kind])
+    }
+
+    fn actor_name(&self) -> String {
+        let output = self.tsk(&["actor", "name"]);
+        assert_success(&output);
+        stdout(&output)
+    }
+}
+
+#[test]
+fn actor_register_makes_the_actor_and_registers_this_worktree_as_it() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    assert_eq!(fx.actor_name(), "no actor registered\n");
+    assert_eq!(fx.binding(), format!("worktree:{}\n", id));
+
+    let before = fx.origin_ledger_sha();
+    let registered = fx.register("alice", "robot");
+    assert_success(&registered);
+    assert_eq!(stdout(&registered), "registered alice (robot)\n");
+    assert!(stderr(&registered).contains(NOT_PUBLISHED));
+    // A local write: origin is unchanged until the next push.
+    assert_eq!(fx.origin_ledger_sha(), before);
+    assert_eq!(fx.actor_name(), "alice\n");
+    assert_eq!(
+        fx.rows("select name, kind from actors")[0],
+        serde_json::json!({"name": "alice", "kind": "robot"})
+    );
+    assert_eq!(
+        fx.rows("select instance, kind, actor_name from instances")[0],
+        serde_json::json!({"instance": fx.worktree_actor(), "kind": "worktree", "actor_name": "alice"})
+    );
+    // The binding prints the actor on its own line, after the binding.
+    assert_eq!(
+        fx.binding(),
+        format!("worktree:{}\nactor: alice (robot)\n", id)
+    );
+    assert_eq!(
+        stdout(&fx.tsk(&["thread", "binding", "--no-fetch"])),
+        format!("worktree:{}\nactor: alice (robot)\n", id)
+    );
+
+    assert_success(&fx.tsk(&["ledger", "push", "Publish the registration"]));
+    assert_eq!(
+        fx.origin_rows("select name from actors")[0]["name"],
+        "alice"
+    );
+    assert_eq!(
+        fx.origin_rows("select actor_name from instances")[0]["actor_name"],
+        "alice"
+    );
+}
+
+#[test]
+fn actor_register_needs_no_thread_binding() {
+    let fx = Fixture::new();
+    assert_exit(&fx.tsk(&["thread", "binding"]), 1);
+
+    let registered = fx.register("alice", "human");
+    assert_success(&registered);
+    assert_eq!(stdout(&registered), "registered alice (human)\n");
+    assert_eq!(fx.actor_name(), "alice\n");
+    assert!(fx.rows("select actor from bindings").is_empty());
+
+    // A cloud session with no binding registers too.
+    let cloud = fx.tsk_cloud("cse_free", &["actor", "register", "bot", "--kind", "robot"]);
+    assert_success(&cloud);
+    assert_eq!(stdout(&cloud), "registered bot (robot)\n");
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_free", &["actor", "name"])),
+        "bot\n"
+    );
+    assert_eq!(fx.actor_name(), "alice\n");
+}
+
+#[test]
+fn actor_register_joins_an_existing_name_of_the_same_kind_and_refuses_the_other_kind() {
+    let fx = Fixture::new();
+    assert_success(&fx.register("alice", "robot"));
+
+    // The same name and kind from another instance joins the actor.
+    let joined = fx.tsk_cloud(
+        "cse_two",
+        &["actor", "register", "alice", "--kind", "robot"],
+    );
+    assert_success(&joined);
+    assert_eq!(
+        stdout(&joined),
+        "alice (robot) is now this session's actor\n"
+    );
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_two", &["actor", "name"])),
+        "alice\n"
+    );
+    assert_eq!(fx.rows("select name from actors").len(), 1);
+    assert_eq!(fx.rows("select instance from instances").len(), 2);
+
+    // Registering again from the same instance is a join too, and keeps one row.
+    let again = fx.register("alice", "robot");
+    assert_success(&again);
+    assert_eq!(
+        stdout(&again),
+        "alice (robot) is now this worktree's actor\n"
+    );
+    assert_eq!(fx.rows("select instance from instances").len(), 2);
+
+    // The other kind is refused, and nothing changes.
+    let refused = fx.tsk_cloud(
+        "cse_three",
+        &["actor", "register", "alice", "--kind", "human"],
+    );
+    assert_exit(&refused, 1);
+    assert_eq!(stdout(&refused), "");
+    assert!(
+        stderr(&refused).contains("alice is registered as a robot"),
+        "{}",
+        stderr(&refused)
+    );
+    assert_eq!(fx.rows("select instance from instances").len(), 2);
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_three", &["actor", "name"])),
+        "no actor registered\n"
+    );
+
+    // An instance moves to another actor by registering as it.
+    assert_eq!(
+        stdout(&fx.register("bob", "robot")),
+        "registered bob (robot)\n"
+    );
+    assert_eq!(fx.actor_name(), "bob\n");
+    assert_eq!(fx.rows("select instance from instances").len(), 2);
+}
+
+#[test]
+fn actor_register_rejects_an_empty_a_long_and_a_path_like_name() {
+    let fx = Fixture::new();
+    let long = "x".repeat(201);
+    for (name, says) in [
+        ("", "empty"),
+        ("   ", "empty"),
+        (long.as_str(), "limit is 200"),
+        ("/tmp/x", "start with /"),
+    ] {
+        let output = fx.register(name, "robot");
+        assert_exit(&output, 1);
+        assert_eq!(stdout(&output), "");
+        assert!(stderr(&output).contains(says), "{}", stderr(&output));
+    }
+    assert_exit(&fx.tsk(&["actor", "register", "alice", "--kind", "cat"]), 2);
+    assert_eq!(fx.actor_name(), "no actor registered\n");
+    assert!(fx.rows("select name from actors").is_empty());
+    let longest = "y".repeat(200);
+    assert_success(&fx.register(&longest, "human"));
+    assert_eq!(fx.actor_name(), format!("{}\n", longest));
+}
+
+#[test]
+fn actor_list_prints_each_actor_with_its_instances() {
+    let fx = Fixture::new();
+    assert_eq!(fx.ok_list(&["actor", "list"]), "");
+    assert_eq!(fx.ok_list(&["actor", "list", "--json"]), "[]\n");
+    assert_success(&fx.register("alice", "robot"));
+    // Two registrations in one second sort by key: these keys sort in that order too.
+    assert_success(&fx.tsk_cloud("cse_2", &["actor", "register", "bob", "--kind", "human"]));
+    assert_success(&fx.tsk_cloud("cse_3", &["actor", "register", "bob", "--kind", "human"]));
+    let main = fx.worktree_actor();
+
+    assert_eq!(
+        fx.ok_list(&["actor", "list", "--porcelain"]),
+        format!("alice\trobot\t{}\nbob\thuman\tcse_2,cse_3\n", main)
+    );
+    let aligned = fx.ok_list(&["actor", "list"]);
+    assert_eq!(
+        aligned,
+        format!("alice  robot  {}\nbob    human  cse_2,cse_3\n", main)
+    );
+    let listed = json(&fx.ok_list(&["actor", "list", "--json"]));
+    assert_eq!(listed.as_array().unwrap().len(), 2);
+    assert_eq!(listed[0]["name"], "alice");
+    assert_eq!(listed[0]["kind"], "robot");
+    assert_eq!(listed[0]["instances"][0]["instance"], main);
+    assert_eq!(listed[0]["instances"][0]["kind"], "worktree");
+    assert_eq!(listed[1]["name"], "bob");
+    assert_eq!(listed[1]["instances"].as_array().unwrap().len(), 2);
+    assert_eq!(listed[1]["instances"][1]["instance"], "cse_3");
+    assert!(listed[1]["instances"][1]["registered_at"].is_string());
+}
+
+impl Fixture {
+    fn ok_list(&self, args: &[&str]) -> String {
+        let output = self.tsk(args);
+        assert_success(&output);
+        stdout(&output)
+    }
+}
+
+#[test]
+fn the_actor_stays_while_the_instance_rebinds() {
+    let fx = Fixture::new();
+    fx.seed_thread("7777aaaa", "");
+    let id = fx.start();
+    assert_success(&fx.register("alice", "robot"));
+
+    assert_success(&fx.tsk(&["thread", "resume", "7777aaaa"]));
+    assert_eq!(fx.binding(), "worktree:7777aaaa\nactor: alice (robot)\n");
+    assert_success(&fx.tsk(&["thread", "detach"]));
+    assert_exit(&fx.tsk(&["thread", "binding"]), 1);
+    assert_eq!(fx.actor_name(), "alice\n");
+    assert_success(&fx.tsk(&["thread", "resume", &id]));
+    assert_success(&fx.tsk(&["thread", "stop"]));
+    assert_eq!(fx.actor_name(), "alice\n");
+    let started = fx.start();
+    assert_eq!(
+        fx.binding(),
+        format!("worktree:{}\nactor: alice (robot)\n", started)
+    );
+}
+
+#[test]
+fn list_shows_the_actor_name_of_each_instance() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    assert_success(&fx.tsk_cloud("cse_n", &["thread", "resume", &id]));
+    assert_eq!(
+        listed_actors(&fx),
+        vec![
+            serde_json::json!({"actor": "cse_n", "kind": "cloud", "name": null}),
+            serde_json::json!({"actor": fx.worktree_actor(), "kind": "worktree", "name": null}),
+        ]
+    );
+    assert_success(&fx.register("alice", "robot"));
+    assert_eq!(
+        listed_actors(&fx),
+        vec![
+            serde_json::json!({"actor": "cse_n", "kind": "cloud", "name": null}),
+            serde_json::json!({"actor": fx.worktree_actor(), "kind": "worktree", "name": "alice"}),
+        ]
+    );
+}
+
+#[test]
+fn session_start_names_the_actor_when_this_instance_is_registered() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    assert_success(&fx.register("alice", "robot"));
+    assert_success(&fx.tsk(&["ledger", "push", "Publish the registration"]));
+
+    let output = session_start(&fx, "{\"source\":\"resume\"}", None);
+
+    assert_success(&output);
+    let context = session_context(&output);
+    assert!(
+        context.ends_with(&format!(
+            "An existing thread binding was found: worktree:{}. Run /tsk:resume-thread {} next. Actor: alice (robot).",
+            id, id
+        )),
+        "{}",
+        context
+    );
+}

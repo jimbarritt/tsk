@@ -113,7 +113,9 @@ gives the reasons.
 | `manifest` | `k` varchar(64), primary key; `v` text | The manifest keys as rows, for example `version` and `repo_id`. The `version` row is `8`. |
 | `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the mission the thread works, and is null for a thread with no mission. `briefing_path` is the mission's briefing document, stored only when the mission has no record. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
-| `bindings` | `actor` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `thread_id` varchar(64); `registered_at` varchar(32) | One row per bound actor, of either kind. The actor key of a cloud session is the session ID (`cse_...`). The actor key of a local code worktree is `<clone-id>/<worktree-name>`: the ID in `.git/tsk-clone-id`, a slash, and `main` for the main worktree or the name of the linked worktree. A bind sets or replaces the actor's row. `thread stop` deletes every row that names the stopped thread. There is no foreign key to `threads`. It replaces the `tsk-thread-id` marker files. A ledger below version 8 holds the cloud rows in `cloud_session_bindings` (`session_id`, `thread_id`, `registered_at`) instead. |
+| `bindings` | `actor` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `thread_id` varchar(64); `registered_at` varchar(32) | One row per bound actor, of either kind. The actor key of a cloud session is the session ID (`cse_...`). The actor key of a local code worktree is `<clone-id>/<worktree-name>`: the ID in `.git/tsk-clone-id`, a slash, and `main` for the main worktree or the name of the linked worktree. A bind sets or replaces the actor's row. `thread stop` deletes every row that names the stopped thread. There is no foreign key to `threads`. It replaces the `tsk-thread-id` marker files. A ledger below version 8 holds the cloud rows in `cloud_session_bindings` (`session_id`, `thread_id`, `registered_at`) instead. Since 0.26.0 the `actor` column is the key of a harness instance (see `instances`); it keeps its name. |
+| `actors` | `name` varchar(200), primary key; `kind` enum(`human`, `robot`); `registered_at` varchar(32) | One row per actor: a human or a robot, by name. An actor's identity is its own, outside any harness instance. `tsk actor register` adds a row for a new name. Nothing deletes a row. Version 9. |
+| `instances` | `instance` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `actor_name` varchar(200); `registered_at` varchar(32) | One row per harness instance that registered as an actor. The key is the one `bindings.actor` holds: the session ID of a cloud session, or `<clone-id>/<worktree-name>` of a code worktree. `tsk actor register` sets or replaces the instance's row. There is no foreign key to `actors` or to `bindings`. A registration is separate from a binding: an instance may be registered and unbound, or bound and unregistered. Version 9. |
 | `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of the [event envelope](#event-envelope). |
 | `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` varchar(32) | One row, `id` 1, the processed position of the queue. No row reads as `0`. It replaces `watermark.json`. |
 | `missions` | `id` varchar(64), primary key; `name` varchar(255); `category` enum(`operational`, `administrative`); `status` enum(`todo`, `in-progress`, `done`), default `todo`; `parent` varchar(64), null, foreign key to `missions(id)`; `purpose`, `decision_authority` longtext, null; `next_objective`, `next_task`, `next_question`, `next_constraint`, `next_out_of_scope` int, default 1 | One row per mission. Empty text is stored as null. Each `next_` column is the number the next objective outcome, task, question, constraint or out-of-scope item gets. It only grows, so a number is never reused. A ledger below version 7 has two more columns, `constraints_text` and `out_of_scope` (longtext, null), in place of the last two counters. |
@@ -453,14 +455,15 @@ Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::di
 
 ### Manifest version
 
-The `version` row of the `manifest` table is `8` for a ledger whose bindings, of cloud
-sessions and of code worktrees, are rows of `bindings`, `7` for a ledger whose constraints
+The `version` row of the `manifest` table is `9` for a ledger with the `actors` and
+`instances` tables, `8` for a ledger whose bindings, of cloud sessions and of code
+worktrees, are rows of `bindings` and that has no actor tables, `7` for a ledger whose constraints
 and out of scope are tables of their own with the bindings still in `cloud_session_bindings`, `6` for a ledger whose `decisions` table has
 `adr_path`, `5` for a ledger whose `threads` table has
 `mission_id`, `4` for a ledger with the mission, task, decision and question tables and the
 older `threads` table, `3` for a ledger with the mission tables only, and `2` for a
 ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
-backend accepts versions 1, 2, 3, 4, 5, 6, 7 and 8. Version 1 is a ledger that still keeps its
+backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8 and 9. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger is refused by every command except `tsk ledger fetch`,
@@ -470,26 +473,26 @@ documents in a `documents` table.
 - A version 2 ledger works for everything it did before. The mission read commands behave
   as an empty mission set and write nothing. The first mission write command creates the
   mission, task, decision and question tables, adds `mission_id` to `threads` and makes
-  `briefing_path` nullable, and sets the `version` row to `8` in the same local Dolt
+  `briefing_path` nullable, and sets the `version` row to `9` in the same local Dolt
   change as the mission, so `tsk ledger push` publishes both. The tables are created in
   their newest shape.
 - A version 3 ledger works for everything it did before. The task, decision and question
   read commands behave as if the mission had none, and write nothing. The first write
   command of any of the four kinds (`mission`, `task`, `decision` or `question`) adds the
   columns `next_task` and `next_question` to `missions`, creates the four new tables, alters
-  `threads` as above and sets the `version` row to `8` in the same local Dolt change as the
+  `threads` as above and sets the `version` row to `9` in the same local Dolt change as the
   record, so `tsk ledger push` publishes both. A write that fails a check upgrades nothing.
 - A version 4 ledger works for everything it did before. `thread list` derives each
   thread's mission ID from its briefing path. The first write that needs the new column
-  alters `threads` and sets the `version` row to `8` in the same local Dolt change:
+  alters `threads` and sets the `version` row to `9` in the same local Dolt change:
   `tsk thread start`, `tsk thread set mission`, and a mission, task, decision or question write.
   Reads, `thread skip` and a `thread pause` upgrade nothing, and neither does a write that is refused.
-  A version 2, 3, 4, 5 or 6 ledger takes the whole chain of changes up to version 8 at its first
+  A version 2, 3, 4, 5 or 6 ledger takes the whole chain of changes up to version 9 at its first
   such write.
 - A version 5 ledger works for everything it did before. `decision list` prints `-` as the
   ADR path of every decision, and `mission list --json` prints `adr` as null. The first
   write of any of the four kinds adds `decisions.adr_path` with
-  `alter table decisions add column` and the later steps, and sets the `version` row to `8`
+  `alter table decisions add column` and the later steps, and sets the `version` row to `9`
   in the same local Dolt change as the record. Reads, and a write that is refused (a path that is not a
   file included), upgrade nothing. `tsk ledger status` labels the upgrade; see
   [Status and discard](#status-and-discard).
@@ -508,7 +511,7 @@ documents in a `documents` table.
   3. sets each counter to the number after the last item, or leaves it at 1 for a mission
      with no item;
   4. drops `constraints_text` and `out_of_scope`;
-  5. sets the `version` row to `8`, after the bindings step below.
+  5. sets the `version` row to `9`, after the bindings step and the actor step below.
   The same step runs for a ledger at version 3, 4 or 5, in the same chain. `tsk ledger
   status` labels the upgrade, and shows the new list rows as added rows of the two tables.
 - A version 7 ledger works for everything it did before. The bindings are read from
@@ -522,12 +525,21 @@ documents in a `documents` table.
   1. creates `bindings`;
   2. copies every `cloud_session_bindings` row into it as kind `cloud`;
   3. drops `cloud_session_bindings`;
-  4. sets the `version` row to `8`.
+  4. sets the `version` row to `9`.
   The same step ends the chain for a ledger at version 2 to 6, and for the first write of
   any other kind that upgrades it. A write that is refused upgrades nothing. `tsk ledger
   status` labels the upgrade and does not show the copied rows as changes.
-- A `tsk` binary from before version 8 does not know the version. It stops at its manifest
-  check with `unsupported ledger version 8`, before it writes. The binary needs updating.
+- A version 8 ledger works for everything it did before. It has no actor: `tsk actor name`
+  prints `no actor registered`, `tsk actor list` prints nothing, `thread list` prints
+  `null` as the `name` of every actor, and a read upgrades nothing. The first write that
+  reaches a binding or a registration (`tsk actor register`, `thread start`, `thread
+  resume`, `thread detach`, `thread stop`, or the marker migration in
+  [`tsk-thread-id`](#tsk-thread-id)) creates `actors` and `instances`, both empty, and sets
+  the `version` row to `9` in the same local Dolt change as the write. The same step ends
+  the chain for a ledger at version 2 to 7, after the bindings step. `tsk ledger status`
+  labels the upgrade.
+- A `tsk` binary from before version 9 does not know the version. It stops at its manifest
+  check with `unsupported ledger version 9`, before it writes. The binary needs updating.
 - **Automatic update (tsk 0.18.0 and later).** A command refused with `unsupported ledger
   version N`, where N is above the highest layout this tsk supports, prints `warning: this
   ledger is at layout N and this tsk (X) supports up to M. Updating tsk now.` to stderr,
@@ -1215,10 +1227,30 @@ thread paused before the change gives no warning until a pause writes an actor k
 ### Bindings
 
 A binding is a row of `bindings`: `actor`, `kind` (`cloud` or `worktree`), `thread_id` and
-`registered_at`. The actor of a cloud binding is the `CLAUDE_CODE_REMOTE_SESSION_ID` value
-(`cse_...`). The actor of a worktree binding is `<clone-id>/<worktree-name>`. A bind sets
-or replaces the actor's row. Detach deletes that one row. Stop deletes every row whose
-`thread_id` is the stopped thread, of either kind. `thread list` shows the rows as actors.
+`registered_at`. The `actor` column holds the key of a harness instance (the column keeps
+its name from before 0.26.0). The key of a cloud session is the `CLAUDE_CODE_REMOTE_SESSION_ID` value
+(`cse_...`). The key of a code worktree is `<clone-id>/<worktree-name>`. A bind sets
+or replaces the instance's row. Detach deletes that one row. Stop deletes every row whose
+`thread_id` is the stopped thread, of either kind. `thread list` shows the rows as
+`actors`, each with the `name` of the actor the instance registered as, or `null`.
+
+An actor is a human or a robot, with a name and a kind, and its identity persists outside
+any harness instance: a row of `actors`. A harness instance registers as an actor, which
+is a row of `instances` keyed as `bindings.actor` is, and that is separate from binding to
+a thread. `tsk actor register <name> --kind human|robot` checks the name (1 to 200
+characters, not starting with `/`), adds the `actors` row when the name is new, and sets or
+replaces this instance's `instances` row. A name already registered must have the same
+kind: the command then prints `<name> (<kind>) is now this session's actor` or `... this
+worktree's actor`; with the other kind it exits 1 with `<name> is registered as a <kind>`
+and changes nothing. A new name prints `registered <name> (<kind>)`. The command needs no
+thread binding and does not fetch. The write is local; the next push publishes it. A
+rebind, a detach and a stop leave the registration as it is. Nothing deletes an `actors`
+row. `tsk actor name` prints the name this instance is registered as, or `no actor
+registered`, and exits 0 either way. `tsk actor list` prints one actor per line: name,
+kind, and the keys of the instances registered as it, comma-separated, or `-`, in the
+order `registered_at` then key; `--porcelain` prints the columns tab-separated and
+`--json` prints the records with their `instances`. `tsk thread binding` prints
+`actor: <name> (<kind>)` on a second line when the instance is registered.
 
 A cloud session rarely detaches, so its row stays after it ends. `tsk thread prune-bindings
 [--older-than <days>] [--dry-run]` deletes the cloud rows whose `registered_at` is more
@@ -1546,7 +1578,9 @@ Standard output on success:
    records, the prompt lists the missions not done, in the format of `tsk mission list`,
    and offers them; it does not mention `index.md`. Both prompts end by naming
    `tsk thread skip` as the choice for no thread. When this session or code worktree
-   skipped a thread, the context says so in place of the prompt.
+   skipped a thread, the context says so in place of the prompt. When this session or
+   code worktree is registered as an actor (`tsk actor register`), `Actor: <name>
+   (<kind>).` follows.
    When the ledger store holds local changes that are not committed (records or documents
    written since the last push), the fetch leaves them in place and does not reset or
    merge. The context adds `The ledger store holds local changes that are not pushed
@@ -1603,8 +1637,11 @@ what the harness expects until then.
 | `thread-resume.sh` | `{"thread_id":"...","latest":{...},"warning":"..."}` (`latest` is `{}` with no entry; `warning` is empty unless another actor wrote to the thread) | | `tsk thread resume <thread-id>` |
 | `thread-detach.sh` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread detach` |
 | `thread-stop.sh` | `stopped:<thread-id>` | | `tsk thread stop [<thread-id>]` |
-| `thread-list.sh` | one compact JSON object per line: `id`, `mission_id` (`null` for a thread with no mission), `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry), `actors` (an array of `{"actor", "kind"}`, one for each session or worktree bound to the thread, oldest binding first; `kind` is `cloud` or `worktree`; empty when none is bound) | | `tsk thread list` |
-| `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger store |
+| `thread-list.sh` | one compact JSON object per line: `id`, `mission_id` (`null` for a thread with no mission), `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry), `actors` (an array of `{"actor", "kind", "name"}`, one for each session or worktree bound to the thread, oldest binding first; `kind` is `cloud` or `worktree`; `name` is the actor the instance registered as, or `null`; empty when none is bound) | | `tsk thread list` |
+| `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>`, then `actor: <name> (<kind>)` on a second line when the instance is registered | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger store |
+| (none) | `registered <name> (<kind>)` for a new name; `<name> (<kind>) is now this session's actor` or `... this worktree's actor` for a name already registered with that kind | exit 1 with `<name> is registered as a <kind>` for the other kind, or for a name that is empty, over 200 characters or starts with `/` | `tsk actor register <name> --kind human\|robot` |
+| (none) | the actor name, or `no actor registered` | | `tsk actor name` |
+| (none) | one actor per line: name, kind, instances (comma-separated keys, or `-`); tab-separated with `--porcelain`; the records with their `instances` with `--json` | | `tsk actor list [--porcelain\|--json]` |
 | (none) | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; `would remove ...` and `<n> bindings would be removed` with `--dry-run` | | `tsk thread prune-bindings [--older-than <days>] [--dry-run]` |
 | (none) | `mission-set:<thread-id>:<mission-id>`, or `mission-cleared:<thread-id>` with `--none` | exit 1 for an unknown mission or thread, or with no thread ID and no binding | `tsk thread set mission <mission-id> [<thread-id>]`, `tsk thread set mission --none [<thread-id>]` |
 | `thread-binding-guard.sh` | nothing when bound, after `tsk thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | | `tsk thread guard` |

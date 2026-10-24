@@ -496,10 +496,10 @@ fn migrate_docs_moves_every_document_byte_for_byte_and_a_fresh_clone_reads_them(
         "Documents of the tsk ledger. Written by tsk ledger doc put.\n"
     );
 
-    // The database: no table, version 8, and one Dolt commit for the change.
+    // The database: no table, version 9, and one Dolt commit for the change.
     assert_eq!(
         fx.dolt_sql(&a, "select v from manifest where k = 'version'"),
-        "v\n8\n"
+        "v\n9\n"
     );
     // The migrated thread gained the mission column, still null.
     assert_eq!(
@@ -574,16 +574,16 @@ fn an_older_tsk_stops_at_the_manifest_check_of_a_version_it_does_not_know() {
     need_dolt!();
     let fx = Fixture::new();
     // A version this tsk does not know stands in for what this tsk meets in a later release.
-    fx.old_ledger("9", &[], "");
+    fx.old_ledger("10", &[], "");
     let out = fx.tsk(&fx.a(), &["ledger", "fetch"]);
-    assert_fails(&out, "unsupported ledger version 9");
+    assert_fails(&out, "unsupported ledger version 10");
     assert!(
-        stderr(&out).contains("supports version 1, 2, 3, 4, 5, 6, 7, 8"),
+        stderr(&out).contains("supports version 1, 2, 3, 4, 5, 6, 7, 8, 9"),
         "{}",
         stderr(&out)
     );
     let out = fx.tsk(&fx.a(), &["ledger", "migrate-docs"]);
-    assert_fails(&out, "unsupported ledger version 9");
+    assert_fails(&out, "unsupported ledger version 10");
     assert_eq!(fx.remote_ref(DOCS_REF), None);
 }
 
