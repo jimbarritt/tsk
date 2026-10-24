@@ -81,7 +81,7 @@ An actor has a name of its own choosing, in the style of the Culture ships of Ia
 Banks (M-NAMES; the style is defined in the ledger document
 `missions/operational/M-NAMES/in-the-style-of-culture-ships.md`). The name is stored on
 the actor's registration, the `bindings` row, from layout 9, and set with
-`tsk thread name "<name>"`. It is not a thread name and not a mission name: an
+`tsk actor name "<name>"`. It is not a thread name and not a mission name: an
 interactive session runs more than one mission over its life, so the identity sits with
 the actor (Jim, 2026-10-24). A human actor's name is the person's name. An agent actor
 chooses its own. The first named agent actor was the cloud session that built the field,
