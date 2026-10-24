@@ -40,6 +40,8 @@ java {
 }
 ```
 
+Hidden folders in the file picker: the path is under `.local`, a hidden folder. In the macOS file dialog press Cmd+Shift+. (full stop) to show or hide hidden folders. Or press Cmd+Shift+G, or type `/`, and paste the path to go straight to it. Some IntelliJ dialogs also have a "Show hidden files" toggle in the toolbar. Pasting the path is the quickest.
+
 Points to know:
 
 - The path contains the version number. After `mise upgrade` or a change of version the old path can disappear, and IntelliJ then shows the SDK in red. Add the new path and set it again.
@@ -120,6 +122,21 @@ javac 25.0.5
 The terminal uses Temurin 25.0.5, an LTS build dated 2026-10-20. The path to add in IntelliJ (Q1, step 2) is `/Users/jmdb/.local/share/mise/installs/java/temurin-25.0.5+8.0.LTS`. The directory name contains a `+`, which IntelliJ accepts. After a patch update (`25.0.6` for example) the directory name changes and the SDK must be added again.
 
 Next step: add the SDK in IntelliJ by that path, set the project SDK and the Gradle JVM, then check that `./gradlew --version` prints the same Java.
+
+## Q5: Kotlin or Groovy for the Gradle build
+
+Question: Jim prefers Kotlin. Does the Kotlin DSL add complications to the setup?
+
+Answer: no real complications for a Java project. Choose Kotlin (`build.gradle.kts`).
+
+- The Kotlin DSL is the default for new builds in the Gradle `init` task and the IntelliJ wizard in current versions. The Gradle documentation uses it first.
+- The Java source is unaffected. Only the build script is Kotlin. No Kotlin plugin, Kotlin standard library or Kotlin source directory is needed for a Java project.
+- IntelliJ gives type-checked completion and navigation in `.kts` files, which Groovy scripts do not get to the same degree. This is the main benefit.
+- Costs: the first run after a change to the build script compiles the script, so it is a few seconds slower than Groovy. Older tutorials and Stack Overflow answers show Groovy, so the syntax needs translating. For example `implementation 'x:y:1'` becomes `implementation("x:y:1")`, and `test { useJUnitPlatform() }` becomes `tasks.test { useJUnitPlatform() }`.
+
+Settings that follow from the choice: `settings.gradle.kts`, `build.gradle.kts`, and the toolchain block in Q1, step 5.
+
+How sure: from memory of Gradle and IntelliJ behaviour; not run on Jim's machine.
 
 ## Open questions
 
