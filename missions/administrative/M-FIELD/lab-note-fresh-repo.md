@@ -293,3 +293,24 @@ Facts checked in this session: `claude plugin install --help` prints `-s, --scop
 Jim's request: put this in the user guide that `tsk --help` becomes, as an optional instruction.
 
 Record: M-ADMIN-02 T-09 (reworded to include the optional swe step and the scope default).
+
+### 2026-10-24, entry 16: plugin list on the laptop
+
+Jim ran `claude plugin list` in `java-dojo` and saw `swe` twice and `tsk` twice, mostly "disabled". `claude plugin list --json` explained it. Each entry has a `projectPath`, and the list covers every project, not only the current one. Relevant entries, from Jim's output:
+
+| Plugin | Version | Scope | projectPath | Enabled here |
+|---|---|---|---|---|
+| swe | 0.12.1 | local | `/Users/jmdb/Code/github/jimbarritt/marq` | no |
+| swe | 0.16.4 | project | `/Users/jmdb/Code/github/jimbarritt/tsk` | no |
+| tsk | 0.1.4 | project | `/Users/jmdb/Code/github/jimbarritt/tsk` | yes (`projectEnabled` true) |
+| tsk | 0.3.16 | project | `/Users/jmdb/Code/github/jimbarritt/java-dojo` | yes |
+
+Readings:
+
+- `java-dojo` has `tsk` 0.3.16 and no `swe` at all. The two `swe` entries belong to the `marq` and `tsk` clones, and they are old (the current `swe` is 0.21.0).
+- The `tsk` clone on the laptop still has `tsk` plugin 0.1.4, installed on 2026-10-06. That plugin has not been updated for 18 days. Expected: 0.3.16.
+- Three LSP plugins at user scope (kotlin, rust-analyzer, swift) are disabled and unrelated.
+
+Fix for `java-dojo`: `tsk install-plugin claude-cli --plugin tsk --plugin swe`, then restart `claude`.
+
+Finding for `tsk doctor` (M-ADMIN-02 T-12): the plugin check lists the entry for this repo's path and flags entries older than the binary expects, with the path of each.
