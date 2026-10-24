@@ -224,3 +224,21 @@ Comparison with entry 10 (server off):
 Reading: the server saves about 1 s on a local command and about 0.3 s on a command that asks `origin`. It does not remove the local wait: 0.89 s elapsed against 0.38 s of CPU leaves about 0.5 s of waiting with no network call. On the cloud container the same command takes 0.1 s, so the extra time is specific to this laptop. Next measurement: `time tsk --version`, which starts the binary and touches no ledger. If it takes 0.3 s or more, the cost is process start on this machine and not the ledger code.
 
 The server supports M-PERF T-19 (on by default). The remaining local wait goes on M-PERF T-18.
+
+### 2026-10-24, entry 12: starting the binary is fast, a ledger command is not
+
+Jim ran `time tsk --version`. Output, exactly:
+
+```
+$ time tsk --version
+tsk 0.26.0
+tsk --version  0.00s user 0.00s system 51% cpu 0.008 total
+```
+
+Starting `tsk` takes 8 ms, so the 0.5 s wait in `tsk ledger status --local` (entry 11) is inside the ledger command.
+
+Trace in the cloud container (not Jim's laptop): `strace -f -e trace=execve` shows `tsk ledger status --local` starting `git` six times, with no network call. Here each start is cheap and the command takes 25 ms.
+
+Hypothesis: on macOS `/usr/bin/git` is a shim that looks up the real `git` through `xcode-select` on every call, so six starts cost about 0.5 s. Test for Jim: `which -a git` and `time git rev-parse --git-common-dir`, and the same with `/opt/homebrew/bin/git` if it exists. Result still to come.
+
+Record: M-PERF T-20.
