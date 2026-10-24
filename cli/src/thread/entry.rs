@@ -46,6 +46,8 @@ impl NewEntry<'_> {
 
 #[derive(Debug, Default, Deserialize)]
 pub struct Entry {
+    pub mission_id: Option<String>,
+    pub task_id: Option<String>,
     pub whats_next: Option<String>,
     pub timestamp: Option<String>,
     pub written_by: Option<String>,
