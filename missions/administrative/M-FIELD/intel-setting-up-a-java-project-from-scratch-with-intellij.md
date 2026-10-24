@@ -168,6 +168,25 @@ Findings:
 
 After Create: run `./gradlew --version` in the terminal. It should print Java 25.0.5. If Gradle reports an unsupported Java version, the wizard chose an older Gradle (Q2).
 
+## Q7: Gradle version in the wizard (checked from Jim's second screenshot, 2026-10-24)
+
+The Advanced Settings of the wizard showed:
+
+| Field | Value |
+|---|---|
+| Gradle DSL | Kotlin (Jim confirmed) |
+| Gradle distribution | Wrapper |
+| Gradle version | 8.5 (default offered), Auto-select unticked |
+| Use these settings for future projects | ticked |
+| GroupId | `org.ixcode` |
+| ArtifactId | `java-dojo` |
+
+Finding: Gradle 8.5 supports Java up to 21. A Java 25 project needs Gradle 9.1 or later (from memory, not run). The wizard offered 8.5 with Java 25 selected, so Create with the defaults gives a build that fails with an unsupported-version error.
+
+Fix: pick the newest 9.x in the Gradle version dropdown before Create, or tick Auto-select. After Create, run `./gradlew --version` in the terminal. It should print Gradle 9.x and Java 25.0.5. An existing project changes version with `./gradlew wrapper --gradle-version <9.x>`, run with a Java the old Gradle supports.
+
+How sure: the Gradle and Java compatibility is from memory. Jim's `./gradlew --version` output decides.
+
 ## Open questions
 
 (Jim has more questions to add.)
