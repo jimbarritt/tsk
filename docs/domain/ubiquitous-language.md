@@ -4,7 +4,8 @@ Every term tsk's design uses, with its meaning, the alternatives rejected, and t
 reason.
 
 The terms form a graph: a mission has tasks, decisions, questions, documents and threads;
-a thread has a mission, an actor and continuations; an actor has a binding. Being able
+a thread has a mission, an actor and continuations; a harness instance registers as an
+actor and binds to a thread. Being able
 to navigate that graph in tsk from different perspectives is what matters (Jim,
 2026-10-16). Two terms divide it. A mission is definition of work: it changes over time,
 but it represents state, not execution. A thread is temporal: it represents the
@@ -49,21 +50,22 @@ collision.
 
 ## Actor
 
-Whoever or whatever holds a thread and executes a mission: a human, or an agent
-session. Not the same as a session: a session is a platform-level execution instance,
+Whoever or whatever holds a thread and executes a mission: a human, or a robot. Not the
+same as a session: a session is a platform-level execution instance,
 ephemeral and defined by the harness (see `docs/kb/session-creation-and-environments.md`
 in the tsk repo), while an actor is the tsk-domain party using one.
 
 Cardinality is the distinguishing fact, and it settles whether a thread is about the
 actor or about the work. A human actor attends to one line of work at a time and
-switches between several. An agent session is bound to one thread and runs beside other
-sessions. A different agent session picking up that thread later is a different actor
-holding it, not the same actor switching.
+switches between several. A robot's harness instance is bound to one thread and runs
+beside other instances. A different harness instance picking up that thread later is a
+different instance holding it; it is the same actor only if it registers under the same
+name.
 
-The human case and the agent case differ in who does the scheduling (Jim, 2026-10-16).
+The human case and the robot case differ in who does the scheduling (Jim, 2026-10-16).
 In the human case there is one attention: "work on thread 1" pauses the others, and one
 thread is active. Jim's earlier use of "thread" named these threads of his attention.
-In the agent case there are many actors at once and no single active one, which is why
+In the robot case there are many actors at once and no single active one, which is why
 the ledger holds no current mission. The threads of a human's attention are still in the
 model, as the open missions and the latest thread continuation on each; the active one
 is whichever session the human is talking to. Where one session switches between
@@ -77,16 +79,21 @@ thread's identity across both. Thread identity is tsk's own, minted once when th
 thread starts, and a session or a [code worktree](#code-worktree) binds to it, not the
 other way round.
 
-An actor has a name of its own choosing, in the style of the Culture ships of Iain M.
-Banks (M-NAMES; the style is defined in the ledger document
-`missions/operational/M-NAMES/in-the-style-of-culture-ships.md`). The name is stored on
-the actor's registration, the `bindings` row, from layout 9, and set with
-`tsk actor name "<name>"`. It is not a thread name and not a mission name: an
-interactive session runs more than one mission over its life, so the identity sits with
-the actor (Jim, 2026-10-24). A human actor's name is the person's name. An agent actor
-chooses its own. The first named agent actor was the cloud session that built the field,
-Still Here After The Compaction. Open: whether the thing that runs several sessions in a
-row, the harness, is the actor or something above it, and what to call it (M-NAMES T-08).
+An actor is a human or a [robot](#robot). An actor has a name of its own choosing and
+a kind, and later a role, skills or a focus. An actor is a record of its own (the
+`actors` table, from layout 9), so a robot's identity persists outside any
+[harness instance](#harness-instance). A harness instance records which actor it is with
+`tsk actor register <name> --kind robot|human`; the same command in a new container with
+an existing name is that actor returning. A human actor's name is the person's name. A
+robot gives itself one, in the style of the Culture ships of Iain M. Banks (M-NAMES; the
+style is defined in the ledger document
+`missions/operational/M-NAMES/in-the-style-of-culture-ships.md`). The name is not a
+thread name and not a mission name: an interactive session runs more than one mission
+over its life, so the identity sits with the actor (Jim, 2026-10-24). The first registered
+robot was the cloud session that built the field, Still Here After The Compaction.
+
+Open: whether two harness instances may be one actor at the same time (the model allows
+it, nothing checks it), and the clash rule from M-NAMES Q-02.
 
 Related: operating context (`docs/kb/agent-context-self-regulation-and-unattended-handoff.md`
 in the tsk repo) describes how a session started and who or what is supervising it —
@@ -94,6 +101,26 @@ supervised interactive, unsupervised autonomous, orchestrator spawning workers,
 event-triggered. Actor and operating context overlap but answer different questions:
 operating context is a property of the session, actor is who holds the thread running
 in it.
+
+## Robot
+
+The non-human kind of [actor](#actor). Chosen over "agent" (Jim, 2026-10-24) because
+Claude Code uses "agent" for the product as a whole and for a subagent spawned by its
+Agent tool, which is one session with its own context: smaller than a harness instance,
+not larger. A Claude Code subagent is a session, not a robot in tsk's sense, unless it
+registers as one. "Robot" has a physical sense in general use, which is accepted. Older
+prose in this repo says "agent" for a robot; read it as robot.
+
+## Harness instance
+
+A running harness that executes one or more sessions. Its identifier is the one the
+platform gives it: the cloud session ID (`cse_...`), which survives `/clear` and
+compaction, or `<clone-id>/<worktree-name>` locally, where the CLI mints a new session ID
+at every `/clear`. A harness instance [registers](#actor) as an actor and
+[binds](#binding) to a thread; the two are separate records. The `bindings` table's
+`actor` column has contained this identifier since layout 8; it is a harness instance key, and the
+column keeps its name. Chosen over "instance" alone (too general) and "session" (the
+platforms do not use it consistently). Jim, 2026-10-24.
 
 ## Thread
 
@@ -264,12 +291,14 @@ never the ledger store.
 
 ## Binding
 
-The link from a session or a code worktree to the thread it works. A cloud session's
-binding is a row of the ledger's `bindings` table, keyed on the session ID that Claude
+The link from a [harness instance](#harness-instance) to the thread it works. A cloud
+session's binding is a row of the ledger's `bindings` table, keyed on the session ID that Claude
 Code gives it. A code worktree's binding is a row of the same table, keyed on the clone ID
-from `.git/tsk-clone-id`, a slash, and the worktree name. An actor has one binding.
-Several actors can bind to one thread, `tsk thread list` shows them in `actors`, and
-`tsk thread resume` warns when another actor wrote the latest continuation.
+from `.git/tsk-clone-id`, a slash, and the worktree name. A harness instance has one
+binding. Several instances can bind to one thread, `tsk thread list` shows them in
+`actors` with their registered actor names, and `tsk thread resume` warns when another
+instance wrote the latest continuation. A binding is not a registration: `thread stop`
+deletes the binding and leaves the registration.
 
 Decided 2026-10-16, built by M-TSK-SCHEMA T-11: every binding is a row of one table. The
 `tsk-thread-id` marker file that a code worktree used to hold becomes a row the first time
