@@ -2164,13 +2164,13 @@ fn thread_title_is_the_actor_name_and_the_mission_of_the_thread() {
     assert_eq!(title(&fx), (Some(0), "M-TEST-01\n".to_string()));
 
     assert_success(&fx.register("alice", "robot"));
-    assert_eq!(title(&fx), (Some(0), "alice (M-TEST-01)\n".to_string()));
+    assert_eq!(title(&fx), (Some(0), "M-TEST-01: alice\n".to_string()));
 
     // A mission switch is a local write, and the title follows it at once.
     assert_success(&fx.tsk(&["thread", "set", "mission", "--none"]));
     assert_eq!(title(&fx), (Some(0), "alice\n".to_string()));
     assert_success(&fx.tsk(&["thread", "set", "mission", "M-TEST-01"]));
-    assert_eq!(title(&fx), (Some(0), "alice (M-TEST-01)\n".to_string()));
+    assert_eq!(title(&fx), (Some(0), "M-TEST-01: alice\n".to_string()));
 }
 
 #[test]

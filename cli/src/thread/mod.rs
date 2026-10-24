@@ -116,7 +116,7 @@ pub enum ThreadCommands {
         no_fetch: bool,
     },
     #[command(
-        about = "Print the session title for this session or worktree: <actor name> (<mission ID>) when it is registered as an actor and bound to a thread with a mission, the actor name alone when the thread has no mission or there is no binding, and the mission ID alone when no actor is registered. Exit status 1 and no output with neither. Reads the ledger store as it is and never fetches, so it shows a local write such as tsk thread set mission at once. The skills pass the title to set_session_title in a cloud session"
+        about = "Print the session title for this session or worktree: <mission ID>: <actor name> when it is registered as an actor and bound to a thread with a mission, the actor name alone when the thread has no mission or there is no binding, and the mission ID alone when no actor is registered. Exit status 1 and no output with neither. Reads the ledger store as it is and never fetches, so it shows a local write such as tsk thread set mission at once. The skills pass the title to set_session_title in a cloud session"
     )]
     Title,
     #[command(

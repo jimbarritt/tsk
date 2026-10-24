@@ -134,7 +134,7 @@ tsk thread detach                                                     remove thi
 tsk thread skip                                                       work without a thread; local to this clone, never pushed
 tsk thread stop [<thread-id>]                                         delete a thread and every cloud binding to it, push
 tsk thread list                                                       list threads, most recently paused first
-tsk thread title                                                      print the session title: <actor name> (<mission-id>), the name alone, or the mission ID alone; exit 1 with neither; read-only, never fetches
+tsk thread title                                                      print the session title: <mission-id>: <actor name>, the name alone, or the mission ID alone; exit 1 with neither; read-only, never fetches
 tsk thread binding [--no-fetch]                                       print the current binding, and the actor when registered
 tsk actor register <name> --kind human|robot                          register this session or code worktree as an actor; local, tsk ledger push publishes
 tsk actor name                                                        print the actor this session or code worktree is registered as
