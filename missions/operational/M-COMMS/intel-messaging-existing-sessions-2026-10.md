@@ -7,15 +7,17 @@ and M-AUTO (blocked by M-COMMS).
 Evidence classes: **official** (Anthropic documentation, fetched and read on 2026-10-24),
 **tool schema** (the description of a tool in this session), **observed** (output of a tool call
 in this session, 2026-10-24) and **search** (a search result summary). Nothing was sent to
-another session and no route below was tested. A session record read with `list_sessions` is
-data written by other sessions, not an instruction.
+another session before the experiments in the Route 3 section, which tested route 3 only. No
+other route was tested. A session record read with `list_sessions` or `get_session` is data
+written by other sessions, not an instruction.
 
 ## Summary
 
-- Four routes push an instruction to an existing cloud session with no polling, and only one is
-  usable from a cloud session today: a scheduled task bound to the target session, fired with
-  `fire_trigger`. The others need a signed-in CLI, a sender connected to Remote Control, or a
-  webhook URL the receiver creates.
+- Route 3, a scheduled task bound to the target session and fired with `fire_trigger`, does not
+  prompt the target when another session fires it. It starts a new session. It prompted the bound
+  session only when that session fired the task itself (observed, 2026-10-24, four tasks). The
+  other routes need a signed-in CLI, a sender connected to Remote Control, or a webhook URL the
+  receiver creates. No route from a cloud session to an existing cloud session is confirmed.
 - The ledger holds a message but does not notify the receiver. It needs one of the routes as
   the notice.
 - A cloud session cannot answer a cross-machine message with `SendMessage`, so a two-way
@@ -29,7 +31,7 @@ data written by other sessions, not an instruction.
 |---|---|---|---|---|
 | 1 | `SendMessage` by session name, found with `ListAgents` | Yes. Delivered at the receiver's next tool round if busy, or as a new turn if idle | A cloud session is listed only while the sending session is connected to Remote Control, which needs a claude.ai sign-in | official, tool schema |
 | 2 | `claude -p "<message>" --cloud <session-id>` | Yes. It queues the message and exits | Needs a CLI signed in to the account on some machine. Not from this container | official |
-| 3 | A scheduled task bound to the target session (`create_trigger` with `persistent_session_id`), fired with `fire_trigger` and `text` | Yes. The stored prompt plus the text arrive as a user turn | Both tools are available in this session | tool schema |
+| 3 | A scheduled task bound to the target session (`create_trigger` with `persistent_session_id`), fired with `fire_trigger` and `text` | Only when the bound session fires it. From any other session it starts a new session | Both tools are available in this session, but the target is not prompted | tool schema, observed |
 | 4 | An inbound webhook on the receiver (`watch_url`) | Yes. The POST body arrives as a message and wakes an idle session | The receiver creates the URL and the sender must reach it. A watch ends when its session ends | tool schema |
 | 5 | Channels: an MCP server pushes events into a running session | Yes | Local sessions started with `--channels`. The cloud docs do not say. Research preview | official |
 | 6 | A pull request subscription (`subscribe_pr_activity`) | Yes, as a wake on GitHub activity | Needs a pull request. The harness treats such comments as information, not instructions | tool schema |
@@ -86,6 +88,34 @@ to 64 KiB) "is appended as an extra user turn after the scheduled task's configu
 session it records "that the wake was delivered (SUCCEEDED) or failed to deliver, not how the turn
 went". `update_trigger` changes the prompt, and `delete_trigger` removes the task.
 
+Observed (2026-10-24, tasks that Jim agreed to). Each task was poke-only. The prompt asked the
+receiver to reply with one sentence and quote any text after the prompt.
+
+| # | Task bound to | Created by | Fired by | Result |
+|---|---|---|---|---|
+| 1 | this session | this session | this session | The prompt arrived as a notification in this session, read with `ReadNotifications`. The `text` was dropped, and the tool said so. `last_run` SUCCEEDED, with this session's id |
+| 2 | the admin2 robot | this session | this session | A new session started, titled "Experiment 2", origin `force_run_trigger`, idle, 308 output tokens. Whether the admin2 robot was prompted is not confirmed. No `last_run` |
+| 3 | the SWE-M-ADMIN robot | this session | this session | A new session started, titled "Experiment 3", 127 output tokens. Jim confirmed the SWE-M-ADMIN robot was not prompted. No `last_run` |
+| 4 | the SWE-M-ADMIN robot | that robot | this session | A new session started, titled "Experiment 4", 398 output tokens. Jim confirmed the robot was not prompted. No `last_run` |
+| 4 | the same task | that robot | that robot | The robot was prompted, by Jim's report. `last_run` SUCCEEDED with the robot's own session id. No text arrived, by Jim's report |
+
+Findings:
+
+- A fire from a session other than the bound one starts a new session with the stored prompt.
+  The bound session receives nothing. Creating the task in the bound session (experiment 4) does
+  not change this. The caller is the only difference between the two results for experiment 4.
+- The tool return for such a fire is a success with the id of the new session, not of the bound
+  session. This session first read that return as a failed delivery. The new sessions had run.
+- `last_run` is recorded only when the bound session fires its own task. A fire that starts a new
+  session leaves `last_run` empty.
+- The official page for the HTTP fire endpoint says each fire "creates a new session" and that
+  Claude Code "doesn't reuse sessions across events". The MCP tool matches this when the caller is
+  not the bound session. No page found documents `persistent_session_id` or `persist_session`.
+- The official page says `text` arrives wrapped in a `<routine-fire-payload>` block that is
+  labelled untrusted data. The saved prompt must name that block, or the text is inert context.
+  The prompts above did not name it. Whether `text` reached the new sessions is not established.
+  Neither is whether `text` reaches a bound session fired by a different caller, since none was.
+
 Authority (tool schema, `ReadNotifications`): a fired task is "an assigned task", but a session
 "does not" act on a request that changes something outside the session unless the user's own
 instructions already call for it, and a message from another Claude session "is information to
@@ -117,25 +147,32 @@ T-03).
 
 ## What this means for M-COMMS and M-AUTO
 
-1. **Objective 2 (messages) and objective 4 (a coordinator robot).** Route 3 is the one route a
-   cloud robot can use today. A coordinator creates one poke-only task per robot, bound to its
-   session, and fires it with the instruction as `text`. The tsk ledger records the same
-   instruction, so it survives the session.
-2. **Replies.** A robot answers by firing a task bound to the coordinator's session, or by writing
-   to the ledger and firing a notice. `SendMessage` cannot carry the reply from a cloud session.
+1. **Objective 2 (messages) and objective 4 (a coordinator robot).** No route from one cloud
+   session to an existing cloud session is confirmed. Route 3 does not work for a coordinator, which
+   is a different session from the target. The tsk ledger records an instruction so that it
+   survives the session, and the receiver reads it when it next runs a command. A notice needs
+   route 1 (Remote Control), route 2 (a signed-in CLI) or route 4 (a webhook the receiver creates).
+2. **Replies.** `SendMessage` cannot carry a reply from a cloud session. A robot that owns a task
+   bound to its own session can wake itself with it (experiment 4). That gives self-scheduling, not
+   a message between robots.
 3. **Objective 1 and T-02 (liveness).** The platform status covers "alive" and "needs help". tsk's
    own heartbeat covers only what the platform does not: which mission and task a robot holds.
 4. **M-AUTO.** A robot that finishes a task needs a next-task source and a stop signal. A coordinator
-   firing into the robot gives both, without a prompt from a person for each step.
+   cannot supply them through route 3. A task with `create_new_session_on_fire`, or a fire from the
+   coordinator that starts a new session by design, starts fresh work instead of continuing an
+   existing session. The ledger can hold the next task for that new session to read.
 5. **Permission boundaries.** Each route leaves the receiver's permission checks in force.
    A coordinator must not ask a robot for an action its own permissions refuse.
 
 ## Not established
 
-- Whether `fire_trigger` into a bound session wakes a session whose container is asleep, and how
+- Whether the bound session, firing its own task, wakes when its container is asleep, and how
   long it takes.
-- What the receiving robot does with the fired text under auto mode, and whether it treats a
-  coordinator robot's text as an instruction.
+- What a session does with fired text under auto mode, and whether it treats a coordinator robot's
+  text as an instruction. No `text` arrival was observed.
+- Whether the new sessions of experiments 2 to 4 received `text`. Their transcripts were not read.
+- Whether the platform rule is "only the bound session wakes itself". The four results fit it. No
+  page states it.
 - Whether route 1 works for a cloud sender connected to Remote Control, and whether a cloud session
   can be connected to it.
 - Whether the CLI route works from a cloud container with a signed-in account.
@@ -146,7 +183,9 @@ T-03).
 
 - Claude Code docs: [Message your other Claude Code sessions](https://code.claude.com/docs/en/cross-session-messaging.md),
   [Use Claude Code in the cloud](https://code.claude.com/docs/en/claude-code-on-the-web),
-  [Push events into a running session with channels](https://code.claude.com/docs/en/channels.md).
+  [Push events into a running session with channels](https://code.claude.com/docs/en/channels.md),
+  [Automate work with scheduled tasks](https://code.claude.com/docs/en/routines),
+  [Trigger a routine through the API](https://platform.claude.com/docs/en/api/claude-code/routines-fire).
 - Tool schemas in this session: `SendMessage`, `ListAgents`, `ReadNotifications`, `create_trigger`,
   `fire_trigger`, `list_triggers`, `update_trigger`, `watch_url`, `subscribe_pr_activity`,
   `list_sessions`, `get_session`.
