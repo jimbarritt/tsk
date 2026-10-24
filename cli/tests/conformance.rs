@@ -5261,6 +5261,93 @@ fn a_stale_docs_push_is_rebased_for_different_files_and_refused_for_the_same_fil
     assert_eq!(fx.remote_docs(), docs_before);
 }
 
+const REPLACED_NOTE: &str =
+    "note: replaced an empty local ledger (creation commits only, no rows) with origin's ledger";
+
+#[test]
+fn fetch_replaces_an_empty_local_ledger_with_the_ledger_origin_gets_later() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new();
+    let (a, b) = (fx.a(), fx.b());
+    // A runs before origin has a ledger, so it makes an empty one of its own.
+    fx.ok(&a, &["ledger", "fetch"]);
+    // B publishes the first ledger: a different root.
+    fx.ok(&b, &["ledger", "fetch"]);
+    fx.ok(&b, &["mission", "create", "M-REMOTE", "Made in B"]);
+    fx.put(&b, "note.md", "from b\n");
+    fx.ok(&b, &["ledger", "push", "B creates the ledger"]);
+
+    let fetch = fx.tsk(&a, &["ledger", "fetch"]);
+    assert_success(&fetch);
+    assert!(stderr(&fetch).contains(REPLACED_NOTE), "{}", stderr(&fetch));
+    assert!(
+        !stderr(&fetch).contains("holds a commit"),
+        "{}",
+        stderr(&fetch)
+    );
+    assert!(fx.ok(&a, &["mission", "list"]).contains("M-REMOTE"));
+    assert_eq!(fx.ok(&a, &["ledger", "doc", "get", "note.md"]), "from b\n");
+
+    // The replacement is once: the next fetch is quiet, and a push works.
+    let again = fx.tsk(&a, &["ledger", "fetch"]);
+    assert_success(&again);
+    assert!(!stderr(&again).contains("replaced"), "{}", stderr(&again));
+    fx.ok(&a, &["mission", "create", "M-LATER", "Made in A"]);
+    fx.ok(&a, &["ledger", "push", "A adds a mission"]);
+}
+
+#[test]
+fn fetch_keeps_a_local_ledger_that_holds_a_commit_of_its_own() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&a, &["ledger", "fetch"]);
+    fx.ok(&a, &["mission", "create", "M-LOCAL", "Made in A"]);
+    // A record, committed in the database and never pushed.
+    let path = fx.ledger_path(&a);
+    let db = |args: &[&str]| {
+        common::stop_servers(fx.root.path(), true);
+        let out = Command::new("dolt")
+            .args(args)
+            .current_dir(&path)
+            .env("HOME", fx.home())
+            .env("DOLT_DISABLE_EVENT_FLUSH", "1")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+    };
+    db(&["add", "-A"]);
+    db(&["commit", "-m", "Pending local work"]);
+
+    fx.ok(&b, &["ledger", "fetch"]);
+    fx.ok(&b, &["mission", "create", "M-REMOTE", "Made in B"]);
+    fx.ok(&b, &["ledger", "push", "B creates the ledger"]);
+
+    let fetch = fx.tsk(&a, &["ledger", "fetch"]);
+    assert_success(&fetch);
+    assert!(
+        stderr(&fetch).contains("holds a commit that is not on"),
+        "{}",
+        stderr(&fetch)
+    );
+    // The ledger is kept. Its documents branch is still only the creation commit, so that
+    // side has nothing to lose and origin's replaces it.
+    assert!(
+        !stderr(&fetch).contains(REPLACED_NOTE),
+        "{}",
+        stderr(&fetch)
+    );
+    let missions = fx.ok(&a, &["mission", "list"]);
+    assert!(missions.contains("M-LOCAL"), "{}", missions);
+    assert!(!missions.contains("M-REMOTE"), "{}", missions);
+}
+
 #[test]
 fn unpushed_documents_commits_are_noted_by_fetch_and_a_dirty_docs_worktree_is_refused() {
     if !dolt_installed() {

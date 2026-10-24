@@ -1197,6 +1197,23 @@ ledger there, the command stops with the mismatch error and makes nothing.
 The refs are created by the first `tsk ledger push`. A later `tsk ledger fetch` while
 the ref is still absent leaves the store as it is and prints the note again.
 
+When another clone then publishes the ledger, its root is not the root of this clone's
+store. A store that holds only its creation commits has no data to lose, so `tsk ledger
+fetch` replaces it with origin's ledger, with no prompt, and prints one line on stderr. The
+two sides are checked on their own:
+
+- The Dolt database is replaced when every unpushed commit is `Initialize data repository`
+  or `Create the ledger`, its working set is clean, and no table other than `manifest` has a
+  row. The line is `note: replaced an empty local ledger (creation commits only, no rows)
+  with origin's ledger`.
+- The documents worktree is replaced when its only unpushed commit is `Create the documents
+  branch` and its working tree is clean. The line is `note: replaced an empty local
+  documents branch (creation commit only, no files) with origin's documents`. It is printed
+  only when the database was not replaced.
+
+Any other local commit, any row and any uncommitted change keeps the earlier behaviour: the
+note that names the commits, and no reset.
+
 ## `missions/`
 
 The files missions leave behind, as Markdown: intelligence, research, reports and designs,

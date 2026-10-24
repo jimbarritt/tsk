@@ -13,6 +13,9 @@ pub struct FetchOutcome {
 
 pub const INITIAL_INDEX: &str = "# Ledger index\n";
 
+/// The message of the one commit a new documents branch starts with.
+pub const DOCS_CREATION_MESSAGE: &str = "Create the documents branch";
+
 pub fn fetch_tip(git: &Git, location: &LedgerLocation) -> Result<Option<String>, String> {
     let (args, output) =
         git.output(["fetch", "--quiet", location.remote(), location.ref_name()])?;
@@ -86,19 +89,24 @@ pub(crate) fn add_worktree(repo: &Repo, path: &Path, commit: &str) -> Result<(),
     Ok(())
 }
 
+/// Bring the documents worktree up to `commit` and return the commits it holds that are
+/// not on it.
+///
+/// The second value is true when the worktree held only its creation commit and was reset
+/// to `commit`: such a worktree has no document to lose.
 pub(crate) fn refresh_worktree(
     repo: &Repo,
     path: &Path,
     commit: &str,
     keep_local: bool,
-) -> Result<Vec<String>, String> {
+) -> Result<(Vec<String>, bool), String> {
     let wt = Git::new(path);
     ensure_worktree_of_repo(&wt, &repo.common_dir)?;
 
     let status = wt.run(["status", "--porcelain=v2", "-z"])?;
     if !status.is_empty() {
         if keep_local {
-            return pending_commits(&wt, commit);
+            return Ok((pending_commits(&wt, commit)?, false));
         }
         return Err(format!(
             "error: {} holds uncommitted changes; refusing to reset over them.\n       \
@@ -111,8 +119,19 @@ pub(crate) fn refresh_worktree(
     let pending = pending_commits(&wt, commit)?;
     if pending.is_empty() {
         wt.run(["reset", "--hard", "--quiet", commit])?;
+        return Ok((pending, false));
     }
-    Ok(pending)
+    if is_creation_only(&pending) {
+        wt.run(["reset", "--hard", "--quiet", commit])?;
+        return Ok((Vec::new(), true));
+    }
+    Ok((pending, false))
+}
+
+/// True when the one unpushed commit is the creation commit of a documents branch. The
+/// worktree is clean, so it holds the two seed files and nothing else.
+fn is_creation_only(pending: &[String]) -> bool {
+    matches!(pending, [only] if only.split_once(' ').map(|(_, message)| message) == Some(DOCS_CREATION_MESSAGE))
 }
 
 pub fn ensure_worktree_of_repo(wt: &Git, common_dir: &Path) -> Result<(), String> {
@@ -201,5 +220,17 @@ mod tests {
             &real.join("missing")
         ));
         assert!(!same_location(&dir.path().join("a"), &real.join("b")));
+    }
+
+    #[test]
+    fn only_the_creation_commit_of_the_documents_branch_is_replaceable() {
+        let creation = format!("abc1234 {}", DOCS_CREATION_MESSAGE);
+        assert!(is_creation_only(std::slice::from_ref(&creation)));
+        assert!(!is_creation_only(&[]));
+        assert!(!is_creation_only(&["abc1234 Add a note".to_string()]));
+        assert!(!is_creation_only(&[
+            "def5678 Add a note".to_string(),
+            creation
+        ]));
     }
 }
