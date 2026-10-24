@@ -210,6 +210,24 @@ git commit -m "Stop tracking .idea"
 
 How sure: from memory of the JetBrains guidance and the template. Jim can confirm with `cat .idea/.gitignore` and `git status`.
 
+## Q9: Vim keybindings in IntelliJ
+
+Question: can IntelliJ use Vim keybindings, so that `:w` saves?
+
+Answer: yes, with the IdeaVim plugin from JetBrains. It supports modes, motions, registers, macros, `/` search, and `:w`, `:q` and `:wq`.
+
+Install: Settings (Cmd+,), Plugins, Marketplace, search for IdeaVim, Install, restart the IDE. The editor then starts in normal mode: `i` inserts, `Esc` leaves insert mode, and `:w` saves.
+
+Points:
+
+- IntelliJ also autosaves on focus change and on build, so `:w` is mostly habit.
+- IdeaVim reads `~/.ideavimrc`. It supports many `.vimrc` options, not all. Options such as `set relativenumber` and `set ideajoin` go there.
+- The Tools menu, Vim Emulator, turns the emulation on and off.
+- On first use of a clashing Ctrl key (Ctrl+C, Ctrl+V and similar), IdeaVim asks whether the key goes to the IDE or to Vim. The choice is per key.
+- For the interview: check whether the coding platform supports Vim keybindings. Some browser editors have a keybinding setting and some do not. Practising with Vim bindings helps only if they are available on the day.
+
+How sure: from memory of IdeaVim; not run on Jim's machine.
+
 ## Open questions
 
 (Jim has more questions to add.)
