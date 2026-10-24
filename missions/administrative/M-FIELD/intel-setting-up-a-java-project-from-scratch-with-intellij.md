@@ -228,6 +228,23 @@ Points:
 
 How sure: from memory of IdeaVim; not run on Jim's machine.
 
+## Q10: red `System` and "project JDK is misconfigured" after Create (2026-10-24)
+
+What Jim saw: the generated `Main.java` had a red underline under `System` and a red error marker. After an IDE restart a banner said the project JDK is misconfigured.
+
+`Main.java` itself is valid Java 25. The template uses `static void main()` with no `public` and no arguments, which Java 25 allows.
+
+Facts from Jim's machine:
+
+- In a terminal, `mise where java` prints `/Users/jmdb/.local/share/mise/installs/java/temurin-25.0.5+8.0.LTS`, and `bin/java` exists directly under it.
+- In IntelliJ, the Temurin 25 SDK entry has the JDK home `/Users/jmdb/.local/share/mise/installs/java/temurin-25.0.5+8.0.LTS/Contents/Home`.
+
+Cause: the entry that IntelliJ registered through its automatic detection of the mise JDK (the link icon in the wizard, Q6) has a path ending in `Contents/Home`. That is the layout of a macOS JDK package. The mise install has its `bin` directly under the install directory, so the stored path does not match it. IntelliJ then cannot read the class library, and `System` does not resolve. This reverses the finding in Q6, where the detection looked like it worked.
+
+Fix: remove the entry in Project Structure, SDKs. Add JDK from disk, and select the install directory without `Contents/Home`. Set the project SDK to it and the language level to 25. Set the Gradle JVM to it too, then reload the Gradle project.
+
+How sure: the symptom and the path difference are checked. Whether `Contents/Home` exists on disk was not checked. Jim's result after the fix decides.
+
 ## Open questions
 
 (Jim has more questions to add.)
