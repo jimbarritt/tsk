@@ -367,3 +367,18 @@ Fix options from the report: 1) tsk runs its own commits with hooks disabled; 2)
 Interim for Jim: lint the two documents, or list them in `.swe-ignore`, so the hook passes; or switch the hook off for the push.
 
 Record: M-ADMIN-02 T-21.
+
+### 2026-10-24, entry 20: the bulk import test (GitHub issue #4)
+
+Issue #4 reported 253 record commands taking over two minutes (about one command a second) when 16 missions were imported on tsk 0.10.0. The question was whether `tsk import <file>` is still needed.
+
+Test in the cloud container on 0.26.0, with a scratch repo and a local bare origin, 16 missions with a purpose, constraints, an out-of-scope item, objectives, tasks, a decision and a question each. 224 commands in a row, each a separate `tsk` process:
+
+| Dolt server | Time for 224 commands | Per command |
+|---|---|---|
+| off | 32.2 s | 0.14 s |
+| on | 4.2 s | 0.02 s |
+
+The 253 commands of issue #4 took about 0.9 s each on 0.10.0. The server cuts the cost per command by about 7 times against the server-off run, and the container run is 45 times faster than the issue's. Not measured: the laptop. A `dolt` start there costs more (a local `mission list` took 0.95 s with the server off), so the server-off figure there is likely 3 to 4 minutes for 224 commands. With the server on, the cost per command should be dominated by one `git` start of 40 to 60 ms, so about 10 to 15 s.
+
+Decision for Jim: drop `tsk import <file>` if the server is on by default (M-PERF T-19).
