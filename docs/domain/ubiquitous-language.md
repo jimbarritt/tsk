@@ -77,6 +77,17 @@ thread's identity across both. Thread identity is tsk's own, minted once when th
 thread starts, and a session or a [code worktree](#code-worktree) binds to it, not the
 other way round.
 
+An actor has a name of its own choosing, in the style of the Culture ships of Iain M.
+Banks (M-NAMES; the style is defined in the ledger document
+`missions/operational/M-NAMES/in-the-style-of-culture-ships.md`). The name is stored on
+the actor's registration, the `bindings` row, from layout 9, and set with
+`tsk thread name "<name>"`. It is not a thread name and not a mission name: an
+interactive session runs more than one mission over its life, so the identity sits with
+the actor (Jim, 2026-10-24). A human actor's name is the person's name. An agent actor
+chooses its own. The first named agent actor was the cloud session that built the field,
+Still Here After The Compaction. Open: whether the thing that runs several sessions in a
+row, the harness, is the actor or something above it, and what to call it (M-NAMES T-08).
+
 Related: operating context (`docs/kb/agent-context-self-regulation-and-unattended-handoff.md`
 in the tsk repo) describes how a session started and who or what is supervising it —
 supervised interactive, unsupervised autonomous, orchestrator spawning workers,
