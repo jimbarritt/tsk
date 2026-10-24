@@ -160,3 +160,37 @@ Suspected cause, from the source and not yet measured: when origin has no ledger
 To measure on Jim's laptop: `time git ls-remote origin` (one round trip), `time tsk ledger status --local` (no network), and `GIT_TRACE=1 tsk ledger status 2>&1 | grep -c "git"` (how many git calls).
 
 Record: M-PERF T-18.
+
+### 2026-10-24, entry 10: timings after the ledger was published
+
+Jim ran three timings in `java-dojo`. By now the ledger was on `origin`: the Stop hook had published it (`Background publish: ok at 2026-10-24T09:28:40Z`), and `git ls-remote origin` lists `refs/tsk/ledger` and `refs/tsk/docs`, so this repo uses custom refs, as a laptop repo does by default. Output, exactly:
+
+```
+$ time git ls-remote origin
+05a8f80ca1c952e75d9c5a57e9c6fe0424c1ce5c        HEAD
+05a8f80ca1c952e75d9c5a57e9c6fe0424c1ce5c        refs/heads/main
+ea471e4821a17294338285510cf2fec75573c937        refs/tsk/docs
+fb26c93661e72923e6ee5fa689dc63d9570e8dc4        refs/tsk/ledger
+git ls-remote origin  0.03s user 0.04s system 4% cpu 1.603 total
+$ time tsk ledger status --local
+Local   nothing to push
+Origin  not checked (--local)
+Server  not running (switch off)
+Background publish: ok at 2026-10-24T09:28:40Z
+tsk ledger status --local  0.32s user 0.40s system 37% cpu 1.938 total
+$ time tsk ledger status
+Local   nothing to push
+Origin  up to date
+Server  not running (switch off)
+Background publish: ok at 2026-10-24T09:28:40Z
+tsk ledger status  0.36s user 0.35s system 26% cpu 2.652 total
+```
+
+Reading:
+
+- One round trip to GitHub costs 1.6 s on this laptop (`git ls-remote`, 0.07 s of CPU).
+- `tsk ledger status` against a published ledger takes 2.65 s, against 6.8 s when the ledger was unpublished (entry 9). So the unpublished state costs about four extra seconds. This supports the suspected cause in M-PERF T-18: nothing is cached for a ledger that origin does not have yet.
+- `tsk ledger status --local` makes no network call and still takes 1.94 s, with 0.72 s of CPU. About 1.2 s is spent waiting on something local. With the Dolt server off, each command starts `dolt` processes, and a start can be slow on macOS (for example when the system scans each new process). This is a guess. The Dolt server (M-PERF T-19) avoids those starts. Next measurement: enable the server and time `--local` twice.
+- The Stop hook publish worked on the first real use on a laptop.
+
+Records: M-PERF T-18 (unpublished ledger cost) and T-19 (server on by default).
