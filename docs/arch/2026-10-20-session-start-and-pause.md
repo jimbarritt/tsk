@@ -221,7 +221,7 @@ on every start; after, 7.0 s on the first and 0.58 s afterwards. The output is t
 Warnings keep their wording. A failed marketplace add warns once for each plugin, as
 before. A failed install skips that plugin's update, as before.
 
-### Update, 2026-10-24: tsk comes from the release
+### Update, 2026-10-24: installing tsk from the release
 
 Both hooks used to build `tsk` with `cargo install`: the repo script from the checkout
 whenever the installed version differed from the workspace version, and the plugin script

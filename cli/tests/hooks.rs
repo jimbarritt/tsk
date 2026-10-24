@@ -622,7 +622,7 @@ impl Installer {
         for tool in [
             "awk", "sed", "sort", "head", "tail", "tr", "uname", "mktemp", "curl", "tar",
             "install", "mv", "rm", "dirname", "readlink", "cat", "git", "mkdir", "env", "bash",
-            "chmod", "grep", "date", "sh", "gzip", "gunzip",
+            "chmod", "grep", "date", "sh", "gzip", "gunzip", "basename", "id",
         ] {
             if let Some(real) = which(tool) {
                 std::os::unix::fs::symlink(real, sys.join(tool)).unwrap();
@@ -692,11 +692,45 @@ impl Installer {
             .env_remove("CARGO_HOME")
             .env_remove("TSK_INSTALL_DIR");
         for (name, value) in envs {
-            command.env(name, value);
+            match name.strip_prefix('-') {
+                Some(unset) => command.env_remove(unset),
+                None => command.env(name, value),
+            };
         }
         let output = command.output().unwrap();
         assert!(output.status.success(), "the installer must exit 0");
         String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    /// Sets the version in plugin/tsk-version.
+    fn require(&self, version: &str) {
+        std::fs::write(
+            self.machine.repo().join("plugin").join("tsk-version"),
+            format!("{}\n", version),
+        )
+        .unwrap();
+    }
+
+    /// Replaces the stand-in `uname` on the scratch PATH.
+    fn uname(&self, os: &str, arch: &str) {
+        let uname = self.machine.root.path().join("sys").join("uname");
+        let _ = std::fs::remove_file(&uname);
+        write_script(
+            &uname,
+            &format!(
+                "#!/bin/sh\ncase \"$1\" in -s) echo {} ;; -m) echo {} ;; esac\n",
+                os, arch
+            ),
+        );
+    }
+
+    /// The names left in `dir` that start with a dot: staged files of a failed install.
+    fn leftovers(&self, dir: &Path) -> Vec<String> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with('.'))
+            .collect()
     }
 
     fn version_of(&self, tsk: &Path) -> String {
@@ -712,7 +746,10 @@ impl Installer {
 }
 
 fn bad_base() -> (&'static str, String) {
-    ("TSK_RELEASE_DOWNLOAD_URL", "file:///nonexistent".to_string())
+    (
+        "TSK_RELEASE_DOWNLOAD_URL",
+        "file:///nonexistent".to_string(),
+    )
 }
 
 #[test]
@@ -857,7 +894,10 @@ fn the_tsk_installer_warns_and_exits_0_when_the_download_fails() {
     let target = i.dir("install");
     let out = i.run(
         &[],
-        &[("TSK_INSTALL_DIR", target.display().to_string()), bad_base()],
+        &[
+            ("TSK_INSTALL_DIR", target.display().to_string()),
+            bad_base(),
+        ],
     );
     assert!(
         out.starts_with("WARNING: downloading tsk 0.26.0 failed"),
@@ -945,4 +985,436 @@ fn the_tsk_installer_picks_the_archive_target_of_the_platform() {
         "{}",
         out
     );
+}
+
+#[test]
+fn the_tsk_installer_follows_the_rules_of_self_update() {
+    // The script cannot call the Rust code, so this test reads both files and fails when
+    // the target mapping, the archive URL, the defaults or the tag lookup differ.
+    let rust = std::fs::read_to_string(workspace().join("cli/src/self_update.rs")).unwrap();
+    let script = std::fs::read_to_string(workspace().join("plugin/hooks/install-tsk.sh")).unwrap();
+    let quoted = |line: &str| -> Vec<String> {
+        line.split('"')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_string)
+            .collect()
+    };
+    let body = |text: &str, start: &str, end: &str| -> Vec<String> {
+        let from = text.find(start).unwrap_or_else(|| panic!("no {}", start));
+        let rest = &text[from..];
+        rest[..rest.find(end).unwrap_or_else(|| panic!("no {}", end))]
+            .lines()
+            .map(|l| l.trim().to_string())
+            .collect()
+    };
+
+    // The targets. Rust: ("macos", "aarch64") => Ok("aarch64-apple-darwin"),
+    let mut rust_map = std::collections::BTreeMap::new();
+    for line in body(&rust, "pub fn target_for", "_ =>") {
+        if line.starts_with("(\"") {
+            let q = quoted(&line);
+            assert_eq!(q.len(), 3, "{}", line);
+            rust_map.insert((q[0].clone(), q[1].clone()), q[2].clone());
+        }
+    }
+    assert_eq!(rust_map.len(), 4, "{:?}", rust_map);
+    // Script: Darwin/arm64 | Darwin/aarch64) echo "aarch64-apple-darwin" ;;
+    let mut covered = std::collections::BTreeSet::new();
+    for line in body(&script, "target_for() {", "*) return 1") {
+        let Some((patterns, rest)) = line.split_once(')') else {
+            continue;
+        };
+        if !rest.contains("echo") {
+            continue;
+        }
+        let target = quoted(rest).remove(0);
+        for pattern in patterns.split('|') {
+            let (os, arch) = pattern.trim().split_once('/').unwrap();
+            let os = match os {
+                "Darwin" => "macos",
+                "Linux" => "linux",
+                other => panic!("unknown os {}", other),
+            };
+            let arch = match arch {
+                "arm64" | "aarch64" => "aarch64",
+                "x86_64" | "amd64" => "x86_64",
+                other => panic!("unknown arch {}", other),
+            };
+            assert_eq!(
+                rust_map.get(&(os.to_string(), arch.to_string())),
+                Some(&target),
+                "{}",
+                line
+            );
+            covered.insert((os.to_string(), arch.to_string()));
+        }
+    }
+    assert_eq!(
+        covered,
+        rust_map.keys().cloned().collect(),
+        "the script must map every platform that self_update.rs maps"
+    );
+
+    // The archive URL. Rust: format!("{}/v{}/tsk-{}-{}.tar.gz", base.trim_end_matches('/'), ...)
+    let lines = body(&rust, "pub fn archive_url", "\n}");
+    let format_at = lines.iter().position(|l| l.contains("\"{}/v")).unwrap();
+    let mut template = quoted(&lines[format_at]).remove(0);
+    let args: Vec<&str> = lines[format_at + 1..]
+        .iter()
+        .map(|l| l.trim_end_matches(',').trim())
+        .filter(|l| !l.is_empty() && *l != ")")
+        .collect();
+    assert_eq!(
+        args,
+        ["base.trim_end_matches('/')", "version", "version", "target"],
+        "the arguments of archive_url changed; update this test and install-tsk.sh"
+    );
+    for value in ["BASE", "VER", "VER", "TARGET"] {
+        template = template.replacen("{}", value, 1);
+    }
+    let url_line = script
+        .lines()
+        .find(|l| l.trim_start().starts_with("url=\""))
+        .unwrap();
+    let script_url = quoted(url_line)
+        .remove(0)
+        .replace("${DOWNLOAD_BASE%/}", "BASE")
+        .replace("$version", "VER")
+        .replace("$target", "TARGET");
+    assert_eq!(script_url, template);
+
+    // The defaults and the variables that override them.
+    for (constant, variable) in [
+        ("DEFAULT_REPO_URL", "TSK_RELEASE_REPO_URL"),
+        ("DEFAULT_DOWNLOAD_URL", "TSK_RELEASE_DOWNLOAD_URL"),
+    ] {
+        let line = rust
+            .lines()
+            .find(|l| l.starts_with(&format!("pub const {}:", constant)))
+            .unwrap();
+        let default = quoted(line).remove(0);
+        assert!(
+            script.contains(&format!("${{{}:-{}}}", variable, default)),
+            "{} default {} differs",
+            variable,
+            default
+        );
+        assert!(
+            rust.contains(&format!("\"{}\"", variable)),
+            "{} is not a variable of self_update.rs",
+            variable
+        );
+    }
+
+    // The tag lookup: the same command and the same tag shape.
+    assert!(rust.contains("[\"ls-remote\", \"--tags\", \"--refs\""));
+    assert!(script.contains("ls-remote --tags --refs"));
+    assert!(rust.contains("strip_prefix(\"refs/tags/v\")"));
+    assert!(script.contains("refs/tags/v\\("));
+}
+
+#[test]
+fn the_tsk_installer_prefers_the_homebrew_directory_on_apple_silicon() {
+    let Some(i) = Installer::new() else {
+        return;
+    };
+    let brew = i.dir("opt-homebrew-bin");
+    let brew_env = || ("TSK_HOMEBREW_BIN_DIR", brew.display().to_string());
+
+    // Apple silicon, directory present and writable: it is the target.
+    i.uname("Darwin", "arm64");
+    let out = i.run(&[], &[brew_env()]);
+    assert_eq!(out, "");
+    assert_eq!(i.version_of(&brew.join("tsk")), "tsk 0.26.0");
+    std::fs::remove_file(brew.join("tsk")).unwrap();
+
+    // TSK_INSTALL_DIR is explicit, so it wins.
+    let explicit = i.dir("explicit");
+    i.run(
+        &[],
+        &[
+            brew_env(),
+            ("TSK_INSTALL_DIR", explicit.display().to_string()),
+        ],
+    );
+    assert!(explicit.join("tsk").exists());
+    assert!(!brew.join("tsk").exists());
+}
+
+#[test]
+fn the_tsk_installer_replaces_a_plain_file_in_the_homebrew_directory_but_not_a_cellar_file() {
+    let Some(i) = Installer::new() else {
+        return;
+    };
+    // A file this script put in /opt/homebrew/bin is replaced like any other.
+    let brew = i.dir("homebrew/bin");
+    stub_tsk(&brew.join("tsk"), "0.12.1", "none");
+    let out = i.run(&[&brew], &[]);
+    assert_eq!(out, "");
+    assert_eq!(i.version_of(&brew.join("tsk")), "tsk 0.26.0");
+
+    // A link into a Cellar is brew's, so the script warns and leaves it.
+    let cellar = i.dir("homebrew/Cellar/tsk/0.12.1/bin");
+    stub_tsk(&cellar.join("tsk"), "0.12.1", "none");
+    let linked = i.dir("homebrew/linked");
+    std::os::unix::fs::symlink(cellar.join("tsk"), linked.join("tsk")).unwrap();
+    let out = i.run(&[&linked], &[]);
+    assert!(out.contains("brew upgrade"), "{}", out);
+    assert_eq!(i.version_of(&cellar.join("tsk")), "tsk 0.12.1");
+}
+
+#[test]
+fn the_tsk_installer_compares_versions_as_numbers_and_reads_any_version_output() {
+    let Some(i) = Installer::new() else {
+        return;
+    };
+    let dir = i.dir("cmp");
+    let write = |output: &str| {
+        write_script(
+            &dir.join("tsk"),
+            &format!(
+                "#!/bin/sh\ncase \"$1\" in --version) echo '{}' ;; self-update) exit 0 ;; esac\n",
+                output
+            ),
+        );
+    };
+    // (required, installed output, replaced)
+    for (required, output, replaced) in [
+        ("0.15.0", "tsk 0.9.0", true),
+        ("0.9.0", "tsk 0.15.0", false),
+        ("0.26.10", "tsk 0.26.1", true),
+        ("0.26.2", "tsk 0.26.10", false),
+        ("0.26.0", "tsk 0.26.0", false),
+        ("1.0.0", "tsk 0.99.99", true),
+        (
+            "0.26.0",
+            "tsk version 0.30.2 (git abc123, built 2026-10-24)",
+            false,
+        ),
+        ("0.26.0", "0.30.2", false),
+        ("0.26.0", "tsk 0.30.2-dev+7e1a095", false),
+        ("0.31.0", "tsk 0.30.2-dev+7e1a095", true),
+    ] {
+        i.require(required);
+        i.release(required);
+        write(output);
+        i.run(&[&dir], &[]);
+        let now = i.version_of(&dir.join("tsk"));
+        assert_eq!(
+            now != output,
+            replaced,
+            "required {} installed {:?} now {:?}",
+            required,
+            output,
+            now
+        );
+    }
+    // No version in the output at all: the file is treated as stale and replaced.
+    i.require("0.26.0");
+    write("usage: tsk <command>");
+    i.run(&[&dir], &[]);
+    assert_eq!(i.version_of(&dir.join("tsk")), "tsk 0.26.0");
+}
+
+#[test]
+fn the_tsk_installer_picks_the_highest_tag_as_numbers() {
+    let Some(i) = Installer::new() else {
+        return;
+    };
+    i.release("0.26.10");
+    i.release("0.9.0");
+    let repo = i.dir("tags-numeric");
+    for args in [
+        vec!["init", "-q"],
+        vec![
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@e",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "x",
+        ],
+        vec!["tag", "v0.26.2"],
+        vec!["tag", "v0.26.10"],
+        vec!["tag", "v0.9.0"],
+    ] {
+        assert!(Command::new("git")
+            .args(&args)
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success());
+    }
+    let target = i.dir("install");
+    i.run(
+        &[],
+        &[
+            ("TSK_INSTALL_DIR", target.display().to_string()),
+            ("TSK_RELEASE_REPO_URL", repo.display().to_string()),
+        ],
+    );
+    assert_eq!(i.version_of(&target.join("tsk")), "tsk 0.26.10");
+}
+
+#[test]
+fn a_failed_install_leaves_the_old_tsk_whole_and_no_staged_file() {
+    let Some(i) = Installer::new() else {
+        return;
+    };
+    let dir = i.dir("atomic");
+    stub_tsk(&dir.join("tsk"), "0.12.1", "none");
+    let before = std::fs::read(dir.join("tsk")).unwrap();
+
+    // A truncated archive: curl succeeds, tar fails.
+    let base = i.dir("truncated");
+    let archive_dir = base.join("v0.26.0");
+    std::fs::create_dir_all(&archive_dir).unwrap();
+    let whole = std::fs::read(
+        i.releases()
+            .join("v0.26.0")
+            .join("tsk-0.26.0-x86_64-unknown-linux-gnu.tar.gz"),
+    )
+    .unwrap();
+    for target in TARGETS {
+        std::fs::write(
+            archive_dir.join(format!("tsk-0.26.0-{}.tar.gz", target)),
+            &whole[..whole.len() / 2],
+        )
+        .unwrap();
+    }
+    let out = i.run(
+        &[&dir],
+        &[(
+            "TSK_RELEASE_DOWNLOAD_URL",
+            format!("file://{}", base.display()),
+        )],
+    );
+    assert!(
+        out.starts_with("WARNING: unpacking tsk 0.26.0 failed"),
+        "{}",
+        out
+    );
+    assert_eq!(std::fs::read(dir.join("tsk")).unwrap(), before);
+    assert_eq!(i.leftovers(&dir), Vec::<String>::new());
+
+    // A curl that writes part of the file and then fails.
+    let sys = i.machine.root.path().join("sys");
+    let _ = std::fs::remove_file(sys.join("curl"));
+    write_script(
+        &sys.join("curl"),
+        "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = -o ] && out=\"$2\"; shift; done\n\
+         printf 'partial' > \"$out\"; echo 'curl: (18) transfer closed' >&2; exit 18\n",
+    );
+    let out = i.run(&[&dir], &[]);
+    assert!(
+        out.starts_with("WARNING: downloading tsk 0.26.0 failed"),
+        "{}",
+        out
+    );
+    assert!(out.contains("transfer closed"), "{}", out);
+    assert_eq!(std::fs::read(dir.join("tsk")).unwrap(), before);
+    assert_eq!(i.leftovers(&dir), Vec::<String>::new());
+}
+
+#[test]
+fn the_tsk_installer_replaces_the_target_of_a_symbolic_link_and_keeps_the_link() {
+    let Some(i) = Installer::new() else {
+        return;
+    };
+    let real = i.dir("real");
+    let links = i.dir("links");
+    stub_tsk(&real.join("tsk-real"), "0.12.1", "none");
+    std::os::unix::fs::symlink("../real/tsk-real", links.join("tsk")).unwrap();
+    let out = i.run(&[&links], &[]);
+    assert_eq!(out, "");
+    assert!(std::fs::symlink_metadata(links.join("tsk"))
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(i.version_of(&real.join("tsk-real")), "tsk 0.26.0");
+    assert_eq!(i.version_of(&links.join("tsk")), "tsk 0.26.0");
+}
+
+#[test]
+fn the_tsk_installer_handles_paths_with_spaces_and_an_unset_home() {
+    let Some(i) = Installer::new() else {
+        return;
+    };
+    let spaced = i.dir("with space/bin dir");
+    let out = i.run(
+        &[],
+        &[
+            ("TSK_INSTALL_DIR", spaced.display().to_string()),
+            ("-HOME", String::new()),
+            ("-CLAUDE_ENV_FILE", String::new()),
+        ],
+    );
+    assert_eq!(out, "");
+    assert_eq!(i.version_of(&spaced.join("tsk")), "tsk 0.26.0");
+
+    // A stale tsk in a directory with spaces is replaced in place.
+    let old = i.dir("old dir/bin");
+    stub_tsk(&old.join("tsk"), "0.12.1", "none");
+    let out = i.run(&[&old], &[("-HOME", String::new())]);
+    assert_eq!(out, "");
+    assert_eq!(i.version_of(&old.join("tsk")), "tsk 0.26.0");
+}
+
+#[test]
+fn two_tsk_installers_at_once_leave_one_whole_tsk() {
+    let Some(i) = Installer::new() else {
+        return;
+    };
+    let dir = i.dir("race");
+    stub_tsk(&dir.join("tsk"), "0.12.1", "none");
+    let script = i
+        .machine
+        .repo()
+        .join("plugin")
+        .join("hooks")
+        .join("install-tsk.sh");
+    let spawn = || {
+        let mut command = i.machine.command(&script);
+        command
+            .env("PATH", i.path(&[&dir]))
+            .env(
+                "TSK_RELEASE_DOWNLOAD_URL",
+                format!("file://{}", i.releases().display()),
+            )
+            .env(
+                "TSK_RELEASE_REPO_URL",
+                i.machine.root.path().join("no-repo"),
+            )
+            .env("SU_LOG", i.machine.log("selfupdate"))
+            .stdout(Stdio::piped());
+        command.spawn().unwrap()
+    };
+    let (a, b) = (spawn(), spawn());
+    for child in [a, b] {
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    }
+    assert_eq!(i.version_of(&dir.join("tsk")), "tsk 0.26.0");
+    assert_eq!(i.leftovers(&dir), Vec::<String>::new());
+}
+
+#[test]
+fn the_tsk_installer_warns_when_it_cannot_write_the_directory() {
+    let Some(i) = Installer::new() else {
+        return;
+    };
+    // A file where the directory should be: mkdir and the staged file both fail, whoever
+    // runs the test.
+    let blocker = i.machine.root.path().join("blocker");
+    std::fs::write(&blocker, "x").unwrap();
+    let out = i.run(
+        &[],
+        &[("TSK_INSTALL_DIR", blocker.join("bin").display().to_string())],
+    );
+    assert!(out.starts_with("WARNING: installing tsk into"), "{}", out);
 }
