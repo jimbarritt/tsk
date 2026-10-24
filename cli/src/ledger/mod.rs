@@ -358,6 +358,9 @@ pub fn fetch_keeping_local_reporting(store: &dyn LedgerStore) -> Result<RefreshO
 
 /// Print the notes of a refresh to stderr and hand the outcome back.
 pub(crate) fn report_refresh(outcome: RefreshOutcome) -> RefreshOutcome {
+    if let Some(note) = &outcome.replaced_note {
+        eprintln!("{}", note);
+    }
     if let Some(note) = &outcome.pending_note {
         eprintln!("{}", note);
     }

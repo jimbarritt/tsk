@@ -8,7 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use super::fetch::{
-    add_worktree, ensure_worktree_of_repo, fetch_tip, refresh_worktree, INITIAL_INDEX,
+    add_worktree, ensure_worktree_of_repo, fetch_tip, refresh_worktree, DOCS_CREATION_MESSAGE,
+    INITIAL_INDEX,
 };
 use super::git::Git;
 use super::location::{docs_worktree_path, LedgerLocation, Repo};
@@ -27,6 +28,9 @@ pub struct DocsFetch {
     pub pending: Vec<String>,
     /// True when the remote holds no documents branch yet.
     pub unpublished: bool,
+    /// True when the worktree held only its creation commit and was replaced by the
+    /// remote branch.
+    pub replaced: bool,
 }
 
 /// Where this clone's documents worktree is, or would be.
@@ -93,19 +97,21 @@ fn fetch_at_tip(
             path: path.to_path_buf(),
             pending: Vec::new(),
             unpublished: true,
+            replaced: false,
         });
     };
-    let pending = if path.exists() {
+    let (pending, replaced) = if path.exists() {
         refresh_worktree(repo, path, &commit, keep_local)?
     } else {
         add_worktree(repo, path, &commit)?;
-        Vec::new()
+        (Vec::new(), false)
     };
     Ok(DocsFetch {
         location: docs,
         path: path.to_path_buf(),
         pending,
         unpublished: false,
+        replaced,
     })
 }
 
@@ -119,12 +125,7 @@ pub fn create_initial_commit(git: &Git) -> Result<String, String> {
         readme, README_FILE, index, INDEX_FILE
     );
     let tree = git.run_stdin(["mktree"], &listing)?;
-    git.run_line([
-        "commit-tree",
-        tree.as_str(),
-        "-m",
-        "Create the documents branch",
-    ])
+    git.run_line(["commit-tree", tree.as_str(), "-m", DOCS_CREATION_MESSAGE])
 }
 
 /// True when `body` is one of the files a new documents branch starts with.

@@ -986,6 +986,9 @@ impl DoltStore {
         let fetched =
             docs::fetch_with_tip(&self.repo, &self.state_root, &location, keep_local, tip)?;
         let dolt_unpublished = outcome.unpublished;
+        if fetched.replaced && outcome.replaced_note.is_none() {
+            outcome.replaced_note = Some(REPLACED_DOCUMENTS_NOTE.to_string());
+        }
         for line in &fetched.pending {
             outcome.pending.push(format!("documents: {}", line));
         }
@@ -1529,6 +1532,43 @@ fn pending_query() -> String {
     )
 }
 
+const REPLACED_LEDGER_NOTE: &str =
+    "note: replaced an empty local ledger (creation commits only, no rows) with origin's ledger";
+
+const REPLACED_DOCUMENTS_NOTE: &str = "note: replaced an empty local documents branch (creation commit only, no files) with origin's documents";
+
+/// The messages of the commits a new ledger database starts with: `dolt init`, then the
+/// schema.
+const CREATION_MESSAGES: [&str; 2] = ["Initialize data repository", "Create the ledger"];
+
+/// True when every unpushed commit, as `pending_from_rows` words it, is a creation commit.
+fn is_creation_only(pending: &[String]) -> bool {
+    pending.iter().all(|line| {
+        line.split_once(' ')
+            .is_some_and(|(_, message)| CREATION_MESSAGES.contains(&message))
+    })
+}
+
+/// True when no table other than the manifest has a row.
+fn holds_no_rows(db: &Dolt) -> Result<bool, String> {
+    let tables = db.rows(
+        "select table_name as t from information_schema.tables \
+         where table_schema = database() and table_type = 'BASE TABLE' and table_name <> 'manifest'",
+    )?;
+    let counts: Vec<String> = tables
+        .iter()
+        .filter_map(|row| text(row, "t"))
+        .map(|table| format!("select count(*) as c from `{}`", table.replace('`', "``")))
+        .collect();
+    if counts.is_empty() {
+        return Ok(true);
+    }
+    Ok(db
+        .rows_each(&counts)?
+        .iter()
+        .all(|set| dolt::first_count(set) == 0))
+}
+
 fn pending_commits(db: &Dolt) -> Result<Vec<String>, String> {
     Ok(pending_from_rows(&db.rows(&pending_query())?))
 }
@@ -1858,6 +1898,7 @@ impl DoltStore {
                     pending: Vec::new(),
                     unpublished: true,
                     pending_note: None,
+                    replaced_note: None,
                 },
                 version,
             ));
@@ -1950,10 +1991,19 @@ impl DoltStore {
         }
         let DataState {
             remote_head,
-            pending,
-            version,
-            ..
+            mut pending,
+            mut version,
+            dirty,
         } = state;
+        // A store made before origin had a ledger holds only its creation commits and has
+        // no root in common with origin's. It has no data to lose, so origin's replaces it.
+        let mut replaced_note = None;
+        if !pending.is_empty() && !dirty && is_creation_only(&pending) && holds_no_rows(&db)? {
+            let remote_ref = format!("{}/{}", REMOTE, BRANCH);
+            version = self.reset_and_read_tail(&db, &location, keep_local, &remote_ref)?;
+            pending.clear();
+            replaced_note = Some(REPLACED_LEDGER_NOTE.to_string());
+        }
         let pending_note = (!pending.is_empty()).then(|| {
             let mut note = format!(
                 "note: {} holds a commit that is not on {}:\n",
@@ -1979,6 +2029,7 @@ impl DoltStore {
                 unpublished: false,
                 pending_note,
                 unpublished_note: None,
+                replaced_note,
             },
             version,
         ))
@@ -3622,6 +3673,21 @@ fn merge_remote(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_creation_commits_make_a_store_replaceable() {
+        let line = |message: &str| format!("abc1234 {}", message);
+        assert!(is_creation_only(&[
+            line("Create the ledger"),
+            line("Initialize data repository"),
+        ]));
+        assert!(is_creation_only(&[line("Create the ledger")]));
+        assert!(!is_creation_only(&[
+            line("Create the ledger"),
+            line("Pending local work"),
+        ]));
+        assert!(!is_creation_only(&[line("Pending local work")]));
+    }
+
     use super::*;
 
     #[test]

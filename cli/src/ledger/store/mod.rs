@@ -36,6 +36,8 @@ pub struct RefreshOutcome {
     pub unpublished: bool,
     pub pending_note: Option<String>,
     pub unpublished_note: Option<String>,
+    /// Says that an empty local ledger was replaced by origin's, or `None`.
+    pub replaced_note: Option<String>,
 }
 
 /// The outcome of `commit_and_push`.
