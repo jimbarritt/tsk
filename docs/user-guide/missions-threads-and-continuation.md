@@ -102,7 +102,7 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk thread resume` | Loads a thread's latest continuation state entry | Binds in the local store only (0.24.0) |
 | `tsk thread detach` | Removes this session's binding | Local store only (0.24.0) |
 | `tsk thread binding` | Prints the current binding, if any, and the actor this session or worktree is registered as | None beyond a fetch |
-| `tsk thread title` | Prints the session title: `<actor name> (<mission ID>)`, the name alone, or the mission ID alone. Exit 1 with neither | None. It reads the ledger store as it is and never fetches |
+| `tsk thread title` | Prints the session title: `<mission ID>: <actor name>`, the name alone, or the mission ID alone. Exit 1 with neither | None. It reads the ledger store as it is and never fetches |
 | `tsk actor register <name> --kind human\|robot` | Registers this session or worktree as an actor; needs no thread | Local store only (0.26.0) |
 | `tsk actor name` | Prints the actor this session or worktree is registered as | None |
 | `tsk actor list` | Lists the actors and the sessions and worktrees registered as each | None |
