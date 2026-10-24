@@ -54,7 +54,7 @@ A Culture Mind chooses its own name. The name usually expresses something about 
 Mind's attitude, character or aims. The names range from funny to cryptic. A warship's
 name can be dark.
 
-- A phrase or a short sentence. A few names are one or two words.
+- At most four words. A phrase, a short remark, or one or two words.
 - It states an attitude, a character or an aim. It does not state the job.
 - Dry, humorous or cryptic in tone. It can read as a remark or a quotation, and it can
   end in an ellipsis.
@@ -63,10 +63,8 @@ name can be dark.
 Examples from the books, to show the style only:
 
 - Just Read the Instructions
-- Of Course I Still Love You
 - So Much For Subtlety
 - Funny, It Worked Last Time...
-- Experiencing a Significant Gravitas Shortfall
 - Mistake Not…
 
 Not in the style:
@@ -79,5 +77,5 @@ Not in the style:
 ## Limits
 
 - The name works as a `SendMessage` target and an @ mention.
-- At most 200 characters.
+- At most four words, and at most 200 characters.
 - It does not start with `/`.
