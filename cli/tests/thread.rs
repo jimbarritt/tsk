@@ -541,7 +541,13 @@ fn pause_appends_an_entry_with_the_nested_git_state_and_pushes() {
     let output = fx.tsk(&["thread", "pause", &id, "T-05", "Write the \"thread\" tests"]);
 
     assert_success(&output);
-    assert_eq!(stdout(&output), format!("paused:{}\n", id));
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "paused:{}\ncode: clean\ncode pushed: yes\nledger: pushed\n",
+            id
+        )
+    );
     let stored = fx.origin_entries(&id);
     assert_eq!(stored.len(), 1);
     let line = stored[0].as_str();
@@ -580,6 +586,80 @@ fn pause_appends_an_entry_with_the_nested_git_state_and_pushes() {
     assert_eq!(entry["written_by"], fx.worktree_actor().as_str());
     assert_eq!(entry["timestamp"].as_str().unwrap().len(), 20);
     assert_eq!(fx.origin_subject(), format!("Pause thread {}: T-05", id));
+}
+
+#[test]
+fn pause_prints_the_verification_lines_when_everything_is_clean_and_pushed() {
+    let fx = Fixture::new();
+    let id = fx.start();
+
+    let output = fx.tsk(&["thread", "pause", &id, "T-05", "Go on"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "paused:{}\ncode: clean\ncode pushed: yes\nledger: pushed\n",
+            id
+        )
+    );
+}
+
+#[test]
+fn pause_counts_the_dirty_files_of_the_code_worktree() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    write(&fx.work().join("a.md"), "one\n");
+    write(&fx.work().join("b.md"), "two\n");
+
+    let output = fx.tsk(&["thread", "pause", &id, "T-05", "Go on"]);
+
+    assert_success(&output);
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "paused:{}\ncode: dirty (2 files)\ncode pushed: yes\nledger: pushed\n",
+            id
+        )
+    );
+}
+
+#[test]
+fn pause_bound_pauses_the_thread_this_worktree_is_bound_to() {
+    let fx = Fixture::new();
+    let id = fx.start();
+
+    let output = fx.tsk(&["thread", "pause", "--bound", "T-05", "Go on"]);
+
+    assert_success(&output);
+    assert!(
+        stdout(&output).starts_with(&format!("paused:{}\n", id)),
+        "{}",
+        stdout(&output)
+    );
+    let stored = fx.origin_entries(&id);
+    assert_eq!(stored.len(), 1);
+    assert_eq!(json(&stored[0])["task_id"], "T-05");
+    assert_eq!(json(&stored[0])["whats_next"], "Go on");
+
+    // Three arguments with --bound are refused.
+    let three = fx.tsk(&["thread", "pause", "--bound", &id, "T-05", "Go on"]);
+    assert_exit(&three, 1);
+}
+
+#[test]
+fn pause_bound_with_no_binding_fails_clearly() {
+    let fx = Fixture::new();
+
+    let output = fx.tsk(&["thread", "pause", "--bound", "T-05", "Go on"]);
+
+    assert_exit(&output, 1);
+    assert!(
+        stderr(&output).contains("bound to no thread"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(stdout(&output), "");
 }
 
 fn assert_pause_not_recorded(fx: &Fixture, id: &str, before: &str) {
@@ -907,7 +987,7 @@ fn resume_of_a_thread_with_no_entry_prints_an_empty_latest() {
     assert_success(&output);
     assert_eq!(
         stdout(&output),
-        "{\"thread_id\":\"1111aaaa\",\"latest\":{},\"warning\":\"\"}\n"
+        "{\"thread_id\":\"1111aaaa\",\"latest\":{},\"warning\":\"\",\"mission\":null,\"task\":null}\n"
     );
 }
 
@@ -1009,7 +1089,7 @@ fn resume_list_and_pause_keep_entries_as_stored() {
     assert_eq!(
         stdout(&output),
         format!(
-            "{{\"thread_id\":\"4onylfsg\",\"latest\":{},\"warning\":\"\"}}\n",
+            "{{\"thread_id\":\"4onylfsg\",\"latest\":{},\"warning\":\"\",\"mission\":null,\"task\":null}}\n",
             stored
         )
     );
@@ -2068,6 +2148,29 @@ impl Fixture {
         assert_success(&output);
         stdout(&output)
     }
+}
+
+#[test]
+fn thread_title_is_the_actor_name_and_the_mission_of_the_thread() {
+    let fx = Fixture::new();
+    let title = |fx: &Fixture| {
+        let output = fx.tsk(&["thread", "title"]);
+        (output.status.code(), stdout(&output))
+    };
+    // No actor and no binding: nothing to print.
+    assert_eq!(title(&fx), (Some(1), String::new()));
+
+    fx.start();
+    assert_eq!(title(&fx), (Some(0), "M-TEST-01\n".to_string()));
+
+    assert_success(&fx.register("alice", "robot"));
+    assert_eq!(title(&fx), (Some(0), "alice (M-TEST-01)\n".to_string()));
+
+    // A mission switch is a local write, and the title follows it at once.
+    assert_success(&fx.tsk(&["thread", "set", "mission", "--none"]));
+    assert_eq!(title(&fx), (Some(0), "alice\n".to_string()));
+    assert_success(&fx.tsk(&["thread", "set", "mission", "M-TEST-01"]));
+    assert_eq!(title(&fx), (Some(0), "alice (M-TEST-01)\n".to_string()));
 }
 
 #[test]

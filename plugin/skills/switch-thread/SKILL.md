@@ -36,9 +36,9 @@ each of those as described below, and do not inline their work here.
    - Given an explicit thread ID as this skill's argument: use it directly, and
      skip the rest of this step.
    - Given anything else (a mission name, natural language) or nothing: run
-     `tsk thread list` and, for each candidate, read the mission title from its
-     `mission_id` with `tsk mission list <mission-id>`, as `tsk:resume-thread` does (a null
-     `mission_id` is a thread with no mission). Present the
+     `tsk thread list` and `tsk mission list` once each, and read each candidate's mission
+     title from the mission list by its `mission_id` (a null `mission_id` is a thread with
+     no mission). Do not run a command for each candidate. Present the
      threads as `AskUserQuestion` options with thread ID, mission title, and
      `latest_whats_next` if present, with free text open for a thread ID not
      listed. If the argument named a mission, use it only to pick your suggested
@@ -46,7 +46,8 @@ each of those as described below, and do not inline their work here.
    - If no threads exist at all, say so and stop. There is nothing to switch
      to. Offer `tsk:start-thread` instead.
 
-5. **Resume.** Run the `tsk:resume-thread` skill's steps for the chosen thread ID.
+5. **Resume.** Run the `tsk:resume-thread` skill's steps for the chosen thread ID. Its
+   title step sets the session title for the new thread's mission.
 
 Detach and resume write locally and do not push. Stop pushes. The binding change goes
 out with the next thread start, pause or stop, at the end of the session, or with
