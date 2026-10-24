@@ -34,21 +34,27 @@ pub enum ThreadCommands {
         briefing_path: Option<String>,
     },
     #[command(
-        about = "Append a continuation state entry to a thread and push; prints paused:<thread-id>. The mission comes from the thread. When the mission has a record, a task ID must name one of its tasks. A thread with no mission has no tasks: its task ID must be empty"
+        about = "Append a continuation state entry to a thread and push; prints paused:<thread-id>, then three lines that verify the hand-off: code: clean or code: dirty (N files), code pushed: yes or no, and ledger: pushed or ledger: N changes not pushed. With --bound the thread is the one this session or worktree is bound to: tsk thread pause --bound <task-id> <whats-next>. The mission comes from the thread. When the mission has a record, a task ID must name one of its tasks. A thread with no mission has no tasks: its task ID must be empty"
     )]
     Pause {
-        #[arg(help = "Thread ID")]
+        #[arg(
+            long,
+            help = "Pause the thread this session or worktree is bound to, read from the ledger store with no network call. Then pass two arguments only: <task-id> <whats-next>"
+        )]
+        bound: bool,
+        #[arg(help = "Thread ID (with --bound: the task ID)")]
         thread_id: String,
         #[arg(
-            help = "Task in progress, for example T-05 or T-5; can be empty",
+            help = "Task in progress, for example T-05 or T-5; can be empty (with --bound: what's next)",
             allow_hyphen_values = true
         )]
         task_id: String,
         #[arg(
             help = "A short account of where things stand",
-            allow_hyphen_values = true
+            allow_hyphen_values = true,
+            required_unless_present = "bound"
         )]
-        whats_next: String,
+        whats_next: Option<String>,
         #[arg(
             hide = true,
             allow_hyphen_values = true,
@@ -275,23 +281,43 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
             }
         }
         ThreadCommands::Pause {
+            bound,
             thread_id,
             task_id,
             whats_next,
             legacy_whats_next,
         } => {
-            // The old form puts a mission link before the task. It is ignored.
-            let (task_id, whats_next) = match legacy_whats_next {
-                Some(last) => {
-                    eprintln!(
-                        "note: the mission link argument of tsk thread pause is no longer needed and is ignored"
+            let (thread_id, task_id, whats_next) = if bound {
+                // With --bound the first two positionals are the task and what's next.
+                if whats_next.is_some() || legacy_whats_next.is_some() {
+                    return Err(
+                        "error: --bound takes two arguments: tsk thread pause --bound <task-id> <whats-next>"
+                            .to_string(),
                     );
-                    (whats_next, last)
                 }
-                None => (task_id, whats_next),
+                let binding = resolve_local(&session)?.ok_or_else(|| {
+                    "error: this session or worktree is bound to no thread, so --bound has none to pause. Pass the thread ID: tsk thread pause <thread-id> <task-id> <whats-next>"
+                        .to_string()
+                })?;
+                (binding.thread_id().to_string(), thread_id, task_id)
+            } else {
+                let whats_next = whats_next.unwrap_or_default();
+                // The old form puts a mission link before the task. It is ignored.
+                match legacy_whats_next {
+                    Some(last) => {
+                        eprintln!(
+                            "note: the mission link argument of tsk thread pause is no longer needed and is ignored"
+                        );
+                        (thread_id, whats_next, last)
+                    }
+                    None => (thread_id, task_id, whats_next),
+                }
             };
             ops::pause(&session, &thread_id, &task_id, &whats_next)?;
             println!("paused:{}", thread_id);
+            for line in ops::pause_report(&session) {
+                println!("{}", line);
+            }
             Ok(0)
         }
         ThreadCommands::Set {

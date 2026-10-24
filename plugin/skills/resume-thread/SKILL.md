@@ -13,7 +13,14 @@ refuse.
 
 ## Steps
 
-1. **Run the command.**
+1. **Check the SessionStart context first.** When the session start context already shows
+   the thread, its mission name, and its latest pause entry (the task and its
+   description, what is next, who wrote it and when), write the summary in step 4 from
+   that text and run no command. The session is already bound. Ask whether to continue,
+   as in step 5, and run `tsk thread resume "<thread-id>"` only after I say to
+   continue, or when I name a different thread.
+
+2. **Otherwise run one command.**
 
    ```bash
    tsk thread resume "<thread-id>"
@@ -23,34 +30,47 @@ refuse.
    binding is a local write: it does not push, and it prints `note: saved in the local
    ledger store; it goes out with the next push ...` on stderr. The binding goes out
    with the next thread start, pause or stop, at the end of the session, or with
-   `tsk ledger push`. The command prints one JSON object: `{"thread_id", "latest", "warning"}`, where `latest`
-   is the most recent continuation state entry (or `{}` if the thread has never been
-   paused) and `warning` is non-empty if the thread was already associated
-   with a different actor.
+   `tsk ledger push`. The command prints one JSON object:
 
-2. **If `warning` is non-empty**, surface it to me plainly before going further.
+   ```json
+   {"thread_id": "...", "latest": {...}, "warning": "...",
+    "mission": {"id": "...", "name": "..."}, "task": {"id": "...", "description": "..."}}
+   ```
+
+   - `latest` is the most recent continuation state entry, or `{}` if the thread has
+     never been paused.
+   - `warning` is non-empty if the thread was already associated with a different actor.
+   - `mission` is null when the thread has no mission or the mission has no record.
+   - `task` is null when the latest entry names no task or the mission has no such task.
+
+   This is all the summary needs. Run no further command to look up the mission name or
+   the task text.
+
+3. **If `warning` is non-empty**, surface it to me plainly before going further.
    Do not silently take over a thread another actor is or was working.
 
-3. **Present the fixed-shape summary**, reading `latest.mission_id`,
-   `latest.task_id` and `latest.whats_next`
-   (if `latest` is `{}`, say so instead of inventing a summary):
+4. **Present the fixed-shape summary**, from `thread_id`, `mission.name`, `task`
+   and `latest.whats_next` (if `latest` is `{}`, say so instead of inventing a summary):
 
    ```
    thread id: <thread-id>
-   we are working on mission <mission title>
+   we are working on mission <mission name>
    this is where we are at: <summary of the handover note>
    ```
 
-   Resolve `<mission title>` from `latest.mission_id`: `tsk mission list <mission-id>`
-   prints the name. Do not just repeat the raw ID. Run `tsk task list <mission-id>` if
-   `latest.task_id` is set and you need the task's description.
+   Do not just repeat the raw mission ID. Name the task from `task.id` and
+   `task.description` when `task` is set.
 
-   A thread can have no mission: `latest.mission_id` is null, or `latest` is `{}`. Then
-   write `we are working on no mission (this thread has no mission, so it has no
-   tasks)` for the second line. Offer `tsk thread set mission <mission-id>` if I want
-   to attach one. After `tsk thread set mission`, repeat step 4.
+   A thread can have no mission: `mission` is null and `latest.mission_id` is null, or
+   `latest` is `{}`. Then write `we are working on no mission (this thread has no
+   mission, so it has no tasks)` for the second line. Offer `tsk thread set mission
+   <mission-id>` if I want to attach one.
 
-4. **Set the session title.** Run `tsk thread title`. Exit 1 means there is no
+   An older `tsk` prints no `mission` or `task` field. If both are absent, run
+   `tsk mission list <latest.mission_id>` for the name and `tsk task list
+   <latest.mission_id>` for the task text.
+
+5. **Set the session title.** Run `tsk thread title`. Exit 1 means there is no
    actor and no mission: skip this step. Exit 0 prints the title, `<robot name> (<mission
    ID>)`, the name alone, or the mission ID alone.
    - In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` is set), call `get_session` from
@@ -58,5 +78,5 @@ refuse.
      Then call `set_session_title` with that ID and the title.
    - In a terminal, no tool sets the title. Ask me to run `/rename <title>`.
 
-5. **Ask whether to continue** with this thread, or do something else. Do not
+6. **Ask whether to continue** with this thread, or do something else. Do not
    assume continuation.

@@ -125,7 +125,8 @@ tsk ledger status [--local] [--porcelain]  print Local (what is not pushed) and 
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
 
 tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push (the claim)
-tsk thread pause <thread-id> <task-id> <whats-next>                   append a continuation state entry, push
+tsk thread pause <thread-id> <task-id> <whats-next>                   append a continuation state entry, push, print the verification lines
+tsk thread pause --bound <task-id> <whats-next>                       the same for the thread this session is bound to
 tsk thread set mission <mission-id> [<thread-id>]                     attach or change a thread's mission; local, tsk ledger push publishes
 tsk thread set mission --none [<thread-id>]                           remove a thread's mission; local, tsk ledger push publishes
 tsk thread resume <thread-id>                                         bind to a thread, print its latest entry; local, tsk ledger push publishes
@@ -364,9 +365,9 @@ to stderr.
 | Command | Stdout on success | Other exits |
 |---|---|---|
 | `thread start` | `started:<thread-id>` | `resume-required:<thread-id>` and exit status 2 when a binding exists |
-| `thread pause` | `paused:<thread-id>` | exit 1 when the managed repo's `HEAD` is not on any branch on origin, or when a thread with no mission gets a task ID |
+| `thread pause` | `paused:<thread-id>`, then `code: clean` or `code: dirty (N files)`, `code pushed: yes` or `no`, `ledger: pushed` or `ledger: N changes not pushed` | exit 1 when the managed repo's `HEAD` is not on any branch on origin, or when a thread with no mission gets a task ID |
 | `thread set mission` | `mission-set:<thread-id>:<mission-id>`, or `mission-cleared:<thread-id>` with `--none` | exit 1 for an unknown mission or thread, or with no thread ID and no binding |
-| `thread resume` | `{"thread_id":"...","latest":{...},"warning":"..."}` | |
+| `thread resume` | `{"thread_id":"...","latest":{...},"warning":"...","mission":{"id","name"}|null,"task":{"id","description"}|null}` | |
 | `thread detach` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding |
 | `thread stop` | `stopped:<thread-id>` | exit 1 with no binding and no thread ID given |
 | `thread skip` | `skipped` | |
@@ -384,7 +385,8 @@ than `--older-than` days ago (30 by default), except the row of the session that
 It never removes a worktree row. It is a local write like the record commands, so run `tsk
 ledger push` to publish it. Try `--dry-run` first.
 
-In `thread resume`, `latest` is the thread's last continuation state entry as stored, or
+In `thread resume`, `mission` and `task` contain the mission name and the task description,
+so no lookup follows. `latest` is the thread's last continuation state entry as stored, or
 `{}` with no entry. `warning` is empty unless the thread's entries name a `written_by`
 actor and none of them is the current actor.
 

@@ -642,7 +642,13 @@ mod cases {
         );
 
         let paused = fx.ok(&a, &["thread", "pause", &id, "T-01", "first \"step\""]);
-        assert_eq!(paused, format!("paused:{}\n", id));
+        assert_eq!(
+            paused,
+            format!(
+                "paused:{}\ncode: clean\ncode pushed: yes\nledger: pushed\n",
+                id
+            )
+        );
         let list = fx.ok(&a, &["thread", "list"]);
         let row = json(list.lines().next().unwrap());
         assert_eq!(row["id"], id.as_str());
@@ -2470,7 +2476,10 @@ mod cases {
         // A task of the mission is accepted, and T-1 is T-01.
         assert_eq!(
             fx.ok(&a, &["thread", "pause", &id, "T-1", "first"]),
-            format!("paused:{}\n", id)
+            format!(
+                "paused:{}\ncode: clean\ncode pushed: yes\nledger: pushed\n",
+                id
+            )
         );
         let latest = fx.latest_entry(&a, &id);
         assert_eq!(latest["mission_id"], "M-REC");
@@ -2509,7 +2518,13 @@ mod cases {
             ],
         );
         assert_success(&old);
-        assert_eq!(stdout(&old), format!("paused:{}\n", id));
+        assert_eq!(
+            stdout(&old),
+            format!(
+                "paused:{}\ncode: clean\ncode pushed: yes\nledger: pushed\n",
+                id
+            )
+        );
         assert!(
             stderr(&old).contains("no longer needed"),
             "{}",
@@ -2959,7 +2974,10 @@ mod cases {
         // An empty task ID is accepted, and the entry records a null mission.
         assert_eq!(
             fx.ok(&a, &["thread", "pause", &id, "", "Review the draft"]),
-            format!("paused:{}\n", id)
+            format!(
+                "paused:{}\ncode: clean\ncode pushed: yes\nledger: pushed\n",
+                id
+            )
         );
         let latest = fx.latest_entry(&a, &id);
         assert!(latest["mission_id"].is_null(), "{}", latest);
@@ -3114,6 +3132,82 @@ mod cases {
         assert_exit(&both, 1);
         assert!(stderr(&both).contains("--none"), "{}", stderr(&both));
         assert!(stores_no_mission(&fx, &a, &id));
+    }
+
+    pub fn session_start_carries_the_latest_entry_so_the_agent_can_answer_at_once() {
+        let fx = Fixture::fetched();
+        let (a, b) = (fx.a(), fx.b());
+        fx.ok(&a, &["mission", "create", "M-REC", "Recorded mission"]);
+        fx.ok(&a, &["task", "add", "M-REC", "Open one"]);
+        fx.ok(&a, &["task", "add", "M-REC", "Second one"]);
+        fx.ok(&a, &["ledger", "push", "Add the mission"]);
+        let id = fx.started(&a, &["thread", "start", "M-REC"]);
+
+        // No entry yet: the existing text, with nothing about a latest entry.
+        let none = fx.session_context(&a, "s-le-1", "claude");
+        assert!(none.contains("This thread works mission M-REC"), "{}", none);
+        assert!(!none.contains("latest pause entry"), "{}", none);
+
+        // An entry by this actor: the task and its description, what is next, who and when.
+        fx.ok(&a, &["thread", "pause", &id, "T-02", "Write the tests"]);
+        let own = fx.session_context(&a, "s-le-2", "claude");
+        assert!(
+            own.contains("Its latest pause entry is on task T-02 (Second one), written by "),
+            "{}",
+            own
+        );
+        assert!(own.contains("What's next: Write the tests."), "{}", own);
+        assert!(own.contains("M-REC (todo): Recorded mission."), "{}", own);
+        assert!(
+            own.contains("run no command until the person confirms"),
+            "{}",
+            own
+        );
+        assert!(!own.contains("WARNING"), "{}", own);
+
+        // An entry by another actor adds a warning that names it.
+        fx.ok(&b, &["thread", "resume", &id]);
+        fx.ok(&b, &["thread", "pause", &id, "T-01", "Review the diff"]);
+        let other = fx.session_context(&a, "s-le-3", "claude");
+        assert!(
+            other.contains("Its latest pause entry is on task T-01 (Open one), written by "),
+            "{}",
+            other
+        );
+        assert!(other.contains("What's next: Review the diff."), "{}", other);
+        assert!(
+            other.contains(&format!(
+                "WARNING: thread {} is already associated with other actor(s): ",
+                id
+            )),
+            "{}",
+            other
+        );
+
+        // A thread with no mission keeps the shorter text.
+        fx.ok(&a, &["thread", "set", "mission", "--none"]);
+        let none = fx.session_context(&a, "s-le-4", "claude");
+        assert!(none.contains("This thread has no mission"), "{}", none);
+        assert!(!none.contains("latest pause entry"), "{}", none);
+    }
+
+    pub fn thread_resume_carries_the_mission_name_and_the_task_description() {
+        let fx = Fixture::fetched();
+        let a = fx.a();
+        fx.ok(&a, &["mission", "create", "M-REC", "Recorded mission"]);
+        fx.ok(&a, &["task", "add", "M-REC", "Open one"]);
+        fx.ok(&a, &["ledger", "push", "Add the mission"]);
+        let id = fx.started(&a, &["thread", "start", "M-REC"]);
+        fx.ok(&a, &["thread", "pause", &id, "T-01", "Go on"]);
+
+        let result = json(&fx.ok(&a, &["thread", "resume", &id]));
+        assert_eq!(result["thread_id"], id.as_str());
+        assert_eq!(result["latest"]["task_id"], "T-01");
+        assert_eq!(result["warning"], "");
+        assert_eq!(result["mission"]["id"], "M-REC");
+        assert_eq!(result["mission"]["name"], "Recorded mission");
+        assert_eq!(result["task"]["id"], "T-01");
+        assert_eq!(result["task"]["description"], "Open one");
     }
 
     pub fn session_start_says_a_bound_thread_with_no_mission_has_no_tasks() {
@@ -4723,6 +4817,8 @@ conformance!(
     a_thread_can_start_with_no_mission_and_pause_with_an_empty_task,
     thread_set_mission_attaches_changes_and_detaches_a_mission,
     session_start_says_a_bound_thread_with_no_mission_has_no_tasks,
+    session_start_carries_the_latest_entry_so_the_agent_can_answer_at_once,
+    thread_resume_carries_the_mission_name_and_the_task_description,
     thread_commands_carry_local_record_and_document_changes_to_the_remote,
     status_and_discard_report_and_drop_local_changes,
     status_counts_commits_ahead_and_behind_origin,
@@ -8018,7 +8114,13 @@ fn a_pause_does_not_ask_origin_and_pushes_once() {
 
     let (output, ops, log) = fx.counted(&a, &["thread", "pause", &id, "T-01", "Next step"]);
     assert_success(&output);
-    assert_eq!(stdout(&output), format!("paused:{}\n", id));
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "paused:{}\ncode: clean\ncode pushed: yes\nledger: pushed\n",
+            id
+        )
+    );
     // The record of the last fetch stands in for the question to origin, so the one
     // network operation is the push of the data. The documents did not change.
     assert_eq!(
@@ -8058,7 +8160,13 @@ fn a_pause_after_origin_moved_is_rejected_quietly_once_and_keeps_both_changes() 
 
     let output = fx.tsk(&a, &["thread", "pause", &id, "T-01", "After the move"]);
     assert_success(&output);
-    assert_eq!(stdout(&output), format!("paused:{}\n", id));
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "paused:{}\ncode: clean\ncode pushed: yes\nledger: pushed\n",
+            id
+        )
+    );
     // The first rejection only shows that the record was out of date, which an ask to
     // origin first would have shown without a note. It is not said.
     assert_eq!(stderr(&output), "");
@@ -8092,7 +8200,13 @@ fn a_pause_checks_what_it_does_not_know_against_a_fresh_fetch() {
 
     let output = fx.tsk(&a, &["thread", "pause", &other, "T-02", "From A"]);
     assert_success(&output);
-    assert_eq!(stdout(&output), format!("paused:{}\n", other));
+    assert_eq!(
+        stdout(&output),
+        format!(
+            "paused:{}\ncode: clean\ncode pushed: yes\nledger: pushed\n",
+            other
+        )
+    );
     fx.ok(&a, &["ledger", "fetch"]);
     let list = fx.ok(&a, &["thread", "list"]);
     assert!(list.contains("From A"), "{}", list);

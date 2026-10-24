@@ -195,6 +195,14 @@ worktrees yet.
 `/pause-thread` is invoked manually, in the supervised operating context: a human runs
 it themselves before `/clear`.
 
+The skill runs one command, `tsk thread pause --bound <task-id> <whats-next>`. `--bound`
+names the thread this session or code worktree is bound to, read from the local ledger
+store, so no lookup is needed first. After `paused:<thread-id>` the command prints three lines
+that replace the checks a person would run by hand: `code: clean` or `code: dirty (N
+files)`, `code pushed: yes` or `no` (whether a branch on origin holds `HEAD`), and `ledger:
+pushed` or `ledger: N changes not pushed`. The skill says it is safe to `/clear` only when
+all three pass. A check that cannot run prints `unknown (...)` and does not pass.
+
 ### Working without a thread
 
 `tsk thread skip` records, in a file in the clone's git directory, that this session or
@@ -215,6 +223,13 @@ thread id: <id>
 we are working on mission <mission title>
 this is where we are at: <summary of the handover note>
 ```
+
+The session start context already contains what the summary needs for a bound thread: the
+mission name, the task and its description, what is next, who wrote the latest entry and
+when, and a warning when another actor wrote it. The agent then writes the summary with no
+command and runs `tsk thread resume` only when the person confirms. Otherwise `tsk thread
+resume` prints the same facts as `mission` and `task` fields beside `latest`, so the skill
+is one command and no lookup.
 
 Invoked two ways:
 
