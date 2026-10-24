@@ -28,6 +28,18 @@ pub enum ConfigCommands {
         long_about = "Print which documents hook script applies and where it came from, or none.\n\nThe first of these that exists wins: the file TSK_DOCS_HOOK names, <state>/repos/<clone-id>/hooks/pre-docs-commit, <config>/tsk/hooks/pre-docs-commit in the user config directory, and .tsk/hooks/pre-docs-commit in the repo. A script that exists and is not executable is an error."
     )]
     DocsHook,
+    #[command(
+        name = "ledger-server",
+        about = "Print whether tsk uses the local Dolt server and where that was decided, or set [ledger] server in the user config",
+        long_about = "Print whether tsk uses the local Dolt server and where that was decided, or set [ledger] server in the user config.\n\nThe server is used unless the switch says off. The order is the environment variable TSK_DOLT_SERVER (on or off), then [ledger] server in the user config file, then the default, on. With on or off, the command writes [ledger] server in the user config file and keeps its other keys and comments. A TSK_DOLT_SERVER in the environment still wins over the file. See ADR 0018."
+    )]
+    LedgerServer {
+        #[arg(
+            value_parser = ["on", "off"],
+            help = "The value to write to [ledger] server in the user config; omit it to print the switch in force"
+        )]
+        mode: Option<String>,
+    },
     LedgerRefs {
         #[arg(
             value_parser = ["branches", "custom"],
@@ -185,7 +197,125 @@ pub fn attach_and_report(file: &Path, url: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The text of a config file with `[ledger] server` set to `value`. The other keys and the
+/// comments stay as they are: an existing `server` line of the `[ledger]` table is replaced,
+/// else the line follows the table header, else a new table ends the file.
+pub fn with_ledger_server(text: &str, value: &str) -> Result<String, String> {
+    let line = format!("server = \"{}\"", value);
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let header = lines.iter().position(|l| l.trim() == "[ledger]");
+    match header {
+        None => {
+            if !lines.is_empty() && !lines.last().is_some_and(|l| l.trim().is_empty()) {
+                lines.push(String::new());
+            }
+            lines.push("[ledger]".to_string());
+            lines.push(line);
+        }
+        Some(start) => {
+            let end = lines[start + 1..]
+                .iter()
+                .position(|l| l.trim_start().starts_with('['))
+                .map_or(lines.len(), |i| start + 1 + i);
+            let existing = (start + 1..end).find(|&i| {
+                let l = lines[i].trim_start();
+                l.strip_prefix("server")
+                    .is_some_and(|rest| rest.trim_start().starts_with('='))
+            });
+            match existing {
+                Some(i) => {
+                    let indent: String =
+                        lines[i].chars().take_while(|c| c.is_whitespace()).collect();
+                    // Keep a trailing comment that follows the closing quote of the value.
+                    let comment = lines[i]
+                        .rsplit_once('"')
+                        .and_then(|(_, after)| after.trim_start().strip_prefix('#'))
+                        .map(|c| format!(" #{}", c));
+                    lines[i] = format!("{}{}{}", indent, line, comment.unwrap_or_default());
+                }
+                None => lines.insert(start + 1, line),
+            }
+        }
+    }
+    let mut out = lines.join("\n");
+    out.push('\n');
+    // The result must parse and say what was asked, or the file is left alone.
+    let table = out.parse::<toml::Table>().map_err(|e| {
+        format!(
+            "error: could not set [ledger] server in the config: {}",
+            e.message()
+        )
+    })?;
+    let set = table
+        .get("ledger")
+        .and_then(|t| t.as_table())
+        .and_then(|t| t.get("server"))
+        .and_then(|v| v.as_str());
+    if set != Some(value) {
+        return Err(
+            "error: could not set [ledger] server in the config: edit the file by hand".to_string(),
+        );
+    }
+    Ok(out)
+}
+
+/// Write `[ledger] server` in the user config file.
+pub fn set_ledger_server(file: &Path, value: &str) -> Result<(), String> {
+    read_table(file)?;
+    let text = match std::fs::read_to_string(file) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("error: could not read {}: {}", file.display(), e)),
+    };
+    let text = with_ledger_server(&text, value)?;
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("error: could not create {}: {}", parent.display(), e))?;
+    }
+    std::fs::write(file, text)
+        .map_err(|e| format!("error: could not write {}: {}", file.display(), e))
+}
+
+/// `tsk config ledger-server`: print the switch, or write it to the user config.
+fn ledger_server(mode: Option<String>) -> Result<(), String> {
+    use crate::ledger::store::server;
+    let file = config_file_from_env();
+    if let Some(mode) = mode {
+        let file = required_config_file()?;
+        set_ledger_server(&file, &mode)?;
+        println!("ledger server: {} (written to {})", mode, file.display());
+        if let Some(env) = std::env::var(server::SWITCH_VAR)
+            .ok()
+            .filter(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "on" | "off"))
+        {
+            println!(
+                "note: {} is {} in the environment and wins over the file",
+                server::SWITCH_VAR,
+                env.trim()
+            );
+        }
+        return Ok(());
+    }
+    let env = std::env::var(server::SWITCH_VAR).ok();
+    let config = file.as_deref().and_then(read_ledger_server);
+    let (on, source) = server::resolve_switch(env.as_deref(), config.as_deref());
+    println!("ledger server: {}", if on { "on" } else { "off" });
+    match (source, &file) {
+        (server::Source::Env, _) => {
+            println!("source: environment ({})", server::SWITCH_VAR)
+        }
+        (server::Source::Config, Some(file)) => {
+            println!("source: user config ({})", file.display())
+        }
+        _ => println!("source: default"),
+    }
+    Ok(())
+}
+
 pub fn run(action: ConfigCommands) -> Result<(), String> {
+    if let ConfigCommands::LedgerServer { mode } = action {
+        return ledger_server(mode);
+    }
     if let ConfigCommands::LedgerRefs { mode } = action {
         return match mode
             .as_deref()
@@ -202,6 +332,7 @@ pub fn run(action: ConfigCommands) -> Result<(), String> {
     match action {
         ConfigCommands::DocsHook => unreachable!("handled above"),
         ConfigCommands::LedgerRefs { .. } => unreachable!("handled above"),
+        ConfigCommands::LedgerServer { .. } => unreachable!("handled above"),
         ConfigCommands::AttachNexus { url } => attach_and_report(&file, &url),
         ConfigCommands::Show => {
             println!("config: {}", file.display());
@@ -331,6 +462,27 @@ mod tests {
         attach_nexus(&file, "https://a.test/n").unwrap();
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(text.contains("colour = \"blue\""), "{}", text);
+    }
+
+    #[test]
+    fn ledger_server_is_written_and_the_rest_of_the_file_stays() {
+        let text = "# my config\ncolour = \"blue\"\n\n[nexus]\nurl = \"u\" # keep\n";
+        let out = with_ledger_server(text, "off").unwrap();
+        assert!(out.starts_with(text), "{}", out);
+        assert!(out.ends_with("[ledger]\nserver = \"off\"\n"), "{}", out);
+        let text =
+            "[ledger]\n# note\nserver = \"on\" # why\nbackend = \"dolt\"\n[nexus]\nurl = \"u\"\n";
+        let out = with_ledger_server(text, "off").unwrap();
+        assert_eq!(
+            out,
+            "[ledger]\n# note\nserver = \"off\" # why\nbackend = \"dolt\"\n[nexus]\nurl = \"u\"\n"
+        );
+        let out = with_ledger_server("[ledger]\nbackend = \"dolt\"\n", "on").unwrap();
+        assert_eq!(out, "[ledger]\nserver = \"on\"\nbackend = \"dolt\"\n");
+        assert_eq!(
+            with_ledger_server("", "on").unwrap(),
+            "[ledger]\nserver = \"on\"\n"
+        );
     }
 
     #[test]

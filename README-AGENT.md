@@ -95,7 +95,7 @@ nothing is bound. The plugin has skills for these: `/tsk:start-thread`,
 | `warning: the last background publish failed` | The `Stop` hook's publish was not pushed to origin. | Run `tsk ledger push "<message>"` and read its error. The warning shows the first 20 lines of the failing command's stderr or the hook's output. |
 | `tsk ledger doc put` or `tsk ledger push` exits 1 and prints findings, then `the documents hook ... failed` | The documents hook (`tsk config docs-hook` names it) rejected a document. | Fix the document the findings name and put it again, then push. Do not set `TSK_SKIP_DOC_CHECK=1`. |
 | `$TSK_LEDGER_WT` is not set | The session start hook did not run. | Run `tsk ledger fetch`. It prints the ledger store path. |
-| `database is read only` | A local Dolt server from a newer `tsk` has the store open. | Run `tsk ledger server stop`, or update `tsk`. |
+| `database is read only` | A local Dolt server from a newer `tsk` has the store open. | Run `tsk ledger server stop`, or update `tsk`. A `tsk` older than 0.23.0 meets this on every write once the server is on by default (0.29.0); 0.23.0 is the minimum that stops the server itself. |
 
 ## Where to read more
 

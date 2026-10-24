@@ -36,7 +36,8 @@ use serde_json::Value;
 
 use super::mysql::{Conn, Error as SqlError, ResultSet};
 
-/// `on` or `off`. The environment wins over `[ledger] server` in the user config.
+/// `on` or `off`. The environment wins over `[ledger] server` in the user config. With
+/// neither set the server is used (since 0.29.0).
 pub const SWITCH_VAR: &str = "TSK_DOLT_SERVER";
 /// Seconds with no connection after which the server stops. The default is 120.
 pub const IDLE_VAR: &str = "TSK_DOLT_SERVER_IDLE_SECS";
@@ -100,7 +101,7 @@ pub fn resolve_switch(env: Option<&str>, config: Option<&str>) -> (bool, Source)
     if let Some(on) = config.and_then(parse_switch) {
         return (on, Source::Config);
     }
-    (false, Source::Default)
+    (true, Source::Default)
 }
 
 /// Whether the SQL of a store goes through a server, and where the answer came from. Read
@@ -985,6 +986,16 @@ fn open(store: &Path) -> Result<Conn, String> {
 /// `dolt` command line, and does not try again.
 static UNAVAILABLE: AtomicBool = AtomicBool::new(false);
 
+/// The one line a process prints on stderr when it gives up on the server.
+fn fallback_note(reason: &str) -> String {
+    let reason = reason.trim().trim_start_matches("error: ");
+    let reason = reason.lines().next().unwrap_or("").trim();
+    format!(
+        "note: the Dolt server could not be used ({}); running dolt directly. TSK_DOLT_SERVER=off stops tsk from trying.",
+        reason
+    )
+}
+
 /// Why the server could not be used.
 pub enum Failure {
     /// No server could be reached or started. The caller falls back to the `dolt` command.
@@ -1005,8 +1016,10 @@ pub fn with_connection<T>(
         return Err(Failure::Unavailable);
     }
     let open_or_give_up = || {
-        open(store).map_err(|_| {
-            UNAVAILABLE.store(true, Ordering::SeqCst);
+        open(store).map_err(|reason| {
+            if !UNAVAILABLE.swap(true, Ordering::SeqCst) {
+                eprintln!("{}", fallback_note(&reason));
+            }
             Failure::Unavailable
         })
     };
@@ -1185,7 +1198,7 @@ mod tests {
 
     #[test]
     fn the_environment_beats_the_config_and_a_bad_value_counts_as_unset() {
-        assert_eq!(resolve_switch(None, None), (false, Source::Default));
+        assert_eq!(resolve_switch(None, None), (true, Source::Default));
         assert_eq!(resolve_switch(Some("on"), Some("off")), (true, Source::Env));
         assert_eq!(
             resolve_switch(Some("off"), Some("on")),
@@ -1196,7 +1209,17 @@ mod tests {
             resolve_switch(Some("maybe"), Some("on")),
             (true, Source::Config)
         );
-        assert_eq!(resolve_switch(Some(""), None), (false, Source::Default));
+        assert_eq!(resolve_switch(Some(""), None), (true, Source::Default));
+        assert_eq!(resolve_switch(None, Some("off")), (false, Source::Config));
+    }
+
+    #[test]
+    fn the_fallback_note_is_one_line() {
+        let note =
+            fallback_note("error: the Dolt server did not start within 30 s; see /x/log\nmore");
+        assert!(note
+            .starts_with("note: the Dolt server could not be used (the Dolt server did not start"));
+        assert_eq!(note.lines().count(), 1);
     }
 
     #[test]

@@ -54,6 +54,8 @@ dolt config --global --add user.email tsk@localhost
 ```
 Every ledger needs `dolt`. The files backend, which did not, was removed in 0.16.0.
 
+From 0.29.0 `tsk` starts a local `dolt sql-server` for each ledger store on first use and sends the store's SQL to it, which makes a command about ten times faster than one `dolt sql` process per command. If the server cannot start, the command runs without it and prints one `note:` line. `tsk config ledger-server` prints whether the server is used, and `tsk config ledger-server off` (or `TSK_DOLT_SERVER=off`) switches it off. A `tsk` older than 0.23.0 on the same clone fails a write with `database is read only` while the server runs: update it with `tsk self-update`, or run `tsk ledger server stop`.
+
 Once the Rust toolchain is installed, verify with:
 ```bash
 rustc --version

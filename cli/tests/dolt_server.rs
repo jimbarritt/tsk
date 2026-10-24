@@ -170,9 +170,14 @@ impl Fx {
             .env("TSK_LEDGER_REFS", "branches")
             .env("TSK_MACHINE_NAME", "laptop")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
-            .env("TSK_DOLT_SERVER", self.switch)
             .env("TSK_DOLT_SERVER_IDLE_SECS", "60")
             .env_remove(CLOUD_VAR);
+        // "unset" leaves the variable out, so the user config or the default decides.
+        if self.switch == "unset" {
+            command.env_remove("TSK_DOLT_SERVER");
+        } else {
+            command.env("TSK_DOLT_SERVER", self.switch);
+        }
         command
     }
 
@@ -380,6 +385,144 @@ fn the_switch_comes_from_the_user_config_when_the_environment_leaves_it_out() {
         "{}",
         out(&output)
     );
+}
+
+#[test]
+fn with_no_switch_set_the_server_is_used() {
+    if skip() {
+        return;
+    }
+    let fx = Fx::new("unset");
+    fx.ok('a', &["mission", "create", "M-DEF", "Default"]);
+    let (listed, launches) = fx.counted('a', &["mission", "list"]);
+    assert_success(&listed);
+    assert!(launches.is_empty(), "{:?}", launches);
+    assert_eq!(err(&listed), "");
+    fx.running('a');
+    let status = fx.ok('a', &["ledger", "server", "status"]);
+    assert!(status.contains("switch: on (default)"), "{}", status);
+    let shown = fx.ok('a', &["config", "ledger-server"]);
+    assert_eq!(shown, "ledger server: on\nsource: default\n");
+}
+
+#[test]
+fn off_in_the_environment_or_the_config_beats_the_default() {
+    if skip() {
+        return;
+    }
+    let fx = Fx::new("unset");
+    let config = fx.home().join("config").join("tsk");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(config.join("config.toml"), "[ledger]\nserver = \"off\"\n").unwrap();
+    fx.ok('a', &["mission", "create", "M-CFG", "Config off"]);
+    assert!(
+        fx.info('a').is_none(),
+        "a server started with the config off"
+    );
+    let (listed, launches) = fx.counted('a', &["mission", "list"]);
+    assert_success(&listed);
+    assert_eq!(launches.len(), 1, "{:?}", launches);
+    let status = fx.ok('a', &["ledger", "server", "status"]);
+    assert!(status.contains("switch: off (config)"), "{}", status);
+    // The environment wins over the file.
+    let mut command = fx.command('a', &["config", "ledger-server"]);
+    command.env("TSK_DOLT_SERVER", "on");
+    assert_eq!(
+        out(&command.output().unwrap()),
+        "ledger server: on\nsource: environment (TSK_DOLT_SERVER)\n"
+    );
+    let fx = Fx::new("off");
+    assert_eq!(
+        fx.ok('a', &["config", "ledger-server"]),
+        "ledger server: off\nsource: environment (TSK_DOLT_SERVER)\n"
+    );
+}
+
+#[test]
+fn config_ledger_server_prints_and_writes_the_user_config() {
+    if skip() {
+        return;
+    }
+    let fx = Fx::new("unset");
+    let file = fx.home().join("config").join("tsk").join("config.toml");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let before = "# mine\n[nexus]\nurl = \"https://a.test/n\" # keep\n";
+    std::fs::write(&file, before).unwrap();
+    let written = fx.ok('a', &["config", "ledger-server", "off"]);
+    assert!(
+        written.starts_with("ledger server: off (written to "),
+        "{}",
+        written
+    );
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.starts_with(before), "{}", text);
+    assert!(text.contains("[ledger]\nserver = \"off\""), "{}", text);
+    assert_eq!(
+        fx.ok('a', &["config", "ledger-server"]),
+        format!(
+            "ledger server: off\nsource: user config ({})\n",
+            file.display()
+        )
+    );
+    fx.ok('a', &["config", "ledger-server", "on"]);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.contains("server = \"on\"") && text.contains("# mine"),
+        "{}",
+        text
+    );
+    assert!(
+        fx.tsk('a', &["config", "ledger-server", "maybe"])
+            .status
+            .code()
+            != Some(0)
+    );
+}
+
+#[test]
+fn a_server_that_cannot_start_falls_back_to_dolt_with_one_note() {
+    if skip() {
+        return;
+    }
+    let fx = Fx::new("unset");
+    // A dolt whose sql-server exits at once. Every other subcommand is the real one.
+    let dir = fx.root.path().join("dolt-no-server");
+    std::fs::create_dir_all(&dir).unwrap();
+    let real = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|d| d.join("dolt"))
+        .find(|c| c.is_file())
+        .unwrap();
+    let shim = dir.join("dolt");
+    std::fs::write(
+        &shim,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = sql-server ]; then echo refused >&2; exit 1; fi\nexec '{}' \"$@\"\n",
+            real.display()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut path = vec![dir];
+    path.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
+    let path = std::env::join_paths(path).unwrap();
+    let run = |args: &[&str]| fx.command('a', args).env("PATH", &path).output().unwrap();
+    let created = run(&["mission", "create", "M-FB", "Fallback"]);
+    assert_success(&created);
+    let notes = err(&created)
+        .lines()
+        .filter(|l| l.starts_with("note:"))
+        .count();
+    assert_eq!(notes, 1, "{}", err(&created));
+    assert!(
+        err(&created).contains("running dolt directly"),
+        "{}",
+        err(&created)
+    );
+    // The command worked without the server: the record is there.
+    let listed = run(&["mission", "list", "--porcelain"]);
+    assert_success(&listed);
+    assert_eq!(out(&listed), "M-FB\ttodo\t-\t-\tFallback\n");
 }
 
 // --- Start, status, stop ---
@@ -597,6 +740,58 @@ fn the_session_start_hook_starts_the_server_and_replaces_a_dead_one() {
     assert_eq!(
         out(&fx.tsk('a', &["mission", "list", "--porcelain"])),
         "M-SS\ttodo\t-\t-\tSession\n"
+    );
+}
+
+#[test]
+fn the_session_start_hook_with_the_default_switch_prints_on_time_and_skips_a_missing_store() {
+    if skip() {
+        return;
+    }
+    let hook = |fx: &Fx, who: char, id: &str| {
+        let mut child = fx
+            .command(who, &["thread", "session-start", "--format", "claude"])
+            .env_remove("CLAUDE_ENV_FILE")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(format!("{{\"session_id\":\"{}\",\"source\":\"startup\"}}", id).as_bytes())
+            .unwrap();
+        let start = Instant::now();
+        let output = child.wait_with_output().unwrap();
+        (output, start.elapsed())
+    };
+    // A store exists and no server runs (a container that woke up): the hook replaces it.
+    let fx = Fx::new("unset");
+    fx.ok('a', &["mission", "create", "M-HD", "Hook default"]);
+    fx.ok('a', &["ledger", "server", "stop"]);
+    let (output, took) = hook(&fx, 'a', "hd-1");
+    assert_success(&output);
+    assert!(
+        out(&output).contains("hookSpecificOutput"),
+        "{}",
+        out(&output)
+    );
+    assert!(took < Duration::from_secs(25), "the hook took {:?}", took);
+    wait_until(Duration::from_secs(20), "the server to start", || {
+        fx.info('a')
+            .is_some_and(|i| i.0.get("state").map(String::as_str) == Some("ready"))
+    });
+    // The second clone has no ledger store yet. The hook starts no server before it fetches
+    // (`store_of` finds no store), and it still prints its context.
+    assert!(!fx.dir('b').join(".git").join("tsk-clone-id").exists());
+    let (output, _) = hook(&fx, 'b', "hd-2");
+    assert_success(&output);
+    assert!(
+        out(&output).contains("hookSpecificOutput"),
+        "{}",
+        out(&output)
     );
 }
 

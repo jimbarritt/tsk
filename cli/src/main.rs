@@ -754,6 +754,16 @@ mod tests {
             }
         }
         assert!(Cli::try_parse_from(["tsk", "config", "ledger-refs", "tags"]).is_err());
+        match Cli::try_parse_from(["tsk", "config", "ledger-server", "off"])
+            .unwrap()
+            .command
+        {
+            Some(Commands::Config {
+                action: config::ConfigCommands::LedgerServer { mode },
+            }) => assert_eq!(mode.as_deref(), Some("off")),
+            _ => panic!("ledger-server did not parse"),
+        }
+        assert!(Cli::try_parse_from(["tsk", "config", "ledger-server", "maybe"]).is_err());
         match Cli::try_parse_from(["tsk", "nexus", "register-repo", "--ledger-refs", "branches"])
             .unwrap()
             .command

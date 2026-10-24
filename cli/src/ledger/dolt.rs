@@ -435,7 +435,7 @@ fn is_read_only_refusal(stderr: &str) -> bool {
 }
 
 /// True for a Dolt database whose `origin` is a file remote.
-fn is_file_remote_store(dir: &Path) -> bool {
+pub(crate) fn is_file_remote_store(dir: &Path) -> bool {
     dir.join(".dolt").is_dir()
         && transport::store_url(dir)
             .is_some_and(|url| Transport::of_url(&url) == Transport::FileRemote)

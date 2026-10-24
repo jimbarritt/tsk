@@ -486,7 +486,8 @@ fn install_plugin_warning() -> Option<String> {
 }
 
 /// Start the Dolt server of this clone's ledger store when the switch is on and there is
-/// a store. Nothing here can fail the hook: a server that does not start is started by
+/// a store that uses a file remote (the stores `tsk` serves). A clone with no store yet
+/// starts nothing. Nothing here can fail the hook: a server that does not start is started by
 /// the first command that needs it, or the command falls back to the `dolt` command line.
 fn start_server_in_background() {
     if !crate::ledger::store::server::enabled() {
@@ -496,6 +497,9 @@ fn start_server_in_background() {
         return;
     };
     if let Ok(store) = crate::ledger::store::server::store_of(&cwd) {
+        if !crate::ledger::dolt::is_file_remote_store(&store) {
+            return;
+        }
         let _ = crate::ledger::store::server::ensure_background(&store);
     }
 }
