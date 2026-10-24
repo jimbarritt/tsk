@@ -138,3 +138,25 @@ Reproduction in a scratch repo on 0.26.0 (this session): after `tsk ledger fetch
 Why the agent did not use it: an agent in another repo sees the plugin skill and the session start context, not `README-AGENT.md`. Neither tells it how to check the ledger or to avoid `head`.
 
 Records: M-ADMIN-02 T-18 (agent rules in the skill and session start context), T-19 (an empty list says so), T-20 (a Ledger block in `tsk ledger status`).
+
+### 2026-10-24, entry 9: tsk ledger status takes 6.8 seconds
+
+Jim ran `time tsk ledger status` in `java-dojo`, which has no ledger on `origin` yet. Output, exactly:
+
+```
+$ time tsk ledger status
+Local   nothing to push
+Origin  not published yet (tsk ledger push creates it)
+Server  not running (switch off)
+tsk ledger status  0.49s user 0.55s system 15% cpu 6.775 total
+```
+
+Jim's words: "wow this is sloooow".
+
+Reading of the numbers: 6.8 s elapsed against 1.0 s of CPU, so the command waited about 5.7 s, most likely on network round trips to GitHub.
+
+Suspected cause, from the source and not yet measured: when origin has no ledger, nothing is cached (discovery of the ledger refs caches only a found ledger). Each command then repeats the ref discovery `git ls-remote` and the tips `git ls-remote`, and may run a fetch. Each is a full connection to GitHub. A published ledger records the tips and skips most of this (0.22.0), so the cost may be specific to the unpublished state.
+
+To measure on Jim's laptop: `time git ls-remote origin` (one round trip), `time tsk ledger status --local` (no network), and `GIT_TRACE=1 tsk ledger status 2>&1 | grep -c "git"` (how many git calls).
+
+Record: M-PERF T-23.
