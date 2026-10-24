@@ -92,7 +92,8 @@ nothing is bound. The plugin has skills for these: `/tsk:start-thread`,
 | `unsupported ledger version` | The ledger is newer than this `tsk`. | Nothing: `tsk` updates itself and runs the command again. From a hook, run `tsk self-update`. |
 | `origin refused the push to refs/tsk/...` | The repo is used from a cloud session, and a push of a custom ref fails at the cloud proxy. | Run `tsk config ledger-refs branches`, commit `.tsk/config.toml`, push again. |
 | A push exits 1 and names tables | Two actors changed the same field of the same row. | Read the conflict, fix the row with a `set` command, push again. The local commit stays. |
-| `warning: the last background publish failed` | The `Stop` hook's publish was not pushed to origin. | Run `tsk ledger push "<message>"` and read its error. |
+| `warning: the last background publish failed` | The `Stop` hook's publish was not pushed to origin. | Run `tsk ledger push "<message>"` and read its error. The warning shows the first 20 lines of the failing command's stderr or the hook's output. |
+| `tsk ledger doc put` or `tsk ledger push` exits 1 and prints findings, then `the documents hook ... failed` | The documents hook (`tsk config docs-hook` names it) rejected a document. | Fix the document the findings name and put it again, then push. Do not set `TSK_SKIP_DOC_CHECK=1`. |
 | `$TSK_LEDGER_WT` is not set | The session start hook did not run. | Run `tsk ledger fetch`. It prints the ledger store path. |
 | `database is read only` | A local Dolt server from a newer `tsk` has the store open. | Run `tsk ledger server stop`, or update `tsk`. |
 

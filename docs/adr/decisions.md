@@ -24,3 +24,4 @@
 - [22. Numbers are per mission and renumbered at push](0022-numbers-are-per-mission-and-renumbered-at-push.md)
 - [23. A tsk older than the ledger updates itself](0023-a-tsk-older-than-the-ledger-updates-itself.md)
 - [24. A thread is the unit of continuation; there is no current mission](0024-a-thread-is-the-unit-of-continuation.md)
+- [25. A documents hook point, and no git hooks in the ledger worktrees](0025-a-documents-hook-point-and-no-git-hooks-in-the-ledger-worktrees.md)
