@@ -69,3 +69,11 @@ Expected: a short guide that says what tsk is, how to start, and the few command
 Jim also asked for a check of the environment, so that a shadowed `tsk`, a missing `dolt` or an unaccepted Xcode licence shows up in one place.
 
 Records: M-ADMIN-02 T-09 (reworded to a user-guide help) and T-12 (`tsk doctor`). The shadowing finding in entry 3 is T-11, the first check of the doctor.
+
+### 2026-10-24, entry 5: install-plugin does not say it works on a repo
+
+Jim's finding: "`install-plugin` its not really explaining that it needs to be installed in a repo."
+
+Expected: the help and the output say that the command installs into the repo it runs in, and what it changes there.
+
+Record: M-ADMIN-02 T-13.
