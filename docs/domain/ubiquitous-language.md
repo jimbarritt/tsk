@@ -109,7 +109,7 @@ Claude Code uses "agent" for the product as a whole and for a subagent spawned b
 Agent tool, which is one session with its own context: smaller than a harness instance,
 not larger. A Claude Code subagent is a session, not a robot in tsk's sense, unless it
 registers as one. "Robot" has a physical sense in general use, which is accepted. Older
-prose in this repo says "agent" for a robot; read it as robot.
+prose in this repo uses "agent" where this document means robot.
 
 ## Harness instance
 
