@@ -807,7 +807,7 @@ fn open() -> Result<Box<dyn LedgerStore>, String> {
 fn repo_root() -> Result<std::path::PathBuf, String> {
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
-    crate::ledger::git::Git::new(cwd)
+    crate::ledger::git::Git::in_code_worktree(cwd)
         .run_line(["rev-parse", "--show-toplevel"])
         .map(std::path::PathBuf::from)
         .map_err(|_| {

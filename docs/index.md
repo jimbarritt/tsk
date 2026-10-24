@@ -28,6 +28,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 - [installation.md](user-guide/installation.md): prerequisites, installing and upgrading the `tsk` binary, installing the plugin with `tsk install-plugin claude-cli`, and CI.
 - [new-nexus-on-a-clean-machine.md](user-guide/new-nexus-on-a-clean-machine.md): step by step, a new nexus, tsk and the plugin on a clean machine, `tsk nexus add`, `list` and `register-repo`, and a repo's ledger held in the nexus.
 - [new-cloud-environment.md](user-guide/new-cloud-environment.md): step by step, a Claude cloud environment on claude.ai/code with the `tsk` binary, the plugin and the ledger ready in every session.
+- [checking-ledger-documents.md](user-guide/checking-ledger-documents.md): run a check, such as a prose lint, on ledger documents when they are written and pushed, with a script of your own in one of four places, including for a repo you do not control.
 - [getting-started.md](user-guide/getting-started.md): the `tsk ledger`, `tsk thread`, `tsk events` and `tsk nexus` commands, tests, building, publishing.
 - [state-models.md](user-guide/state-models.md): historical. Task and thread state models of the retired daemon design.
 - [missions-threads-and-continuation.md](user-guide/missions-threads-and-continuation.md): how tsk's own missions and task data are stored and worked, the `/start-thread`, `/pause-thread` and `/resume-thread` commands, and what the `SessionStart` hook does.
@@ -86,6 +87,7 @@ Architecture Decision Records capture why significant technical choices were mad
 - [0022-numbers-are-per-mission-and-renumbered-at-push.md](adr/0022-numbers-are-per-mission-and-renumbered-at-push.md): short numbers per mission, minted locally; a publish that merges renumbers the publisher's own colliding rows and prints each change. Releases: [v0.19.0](releases/v0.19.0.md).
 - [0023-a-tsk-older-than-the-ledger-updates-itself.md](adr/0023-a-tsk-older-than-the-ledger-updates-itself.md): a command stopped by a newer ledger layout updates tsk and runs again; never from the hook commands; a loop guard and an opt-out. Releases: [v0.18.0](releases/v0.18.0.md).
 - [0024-a-thread-is-the-unit-of-continuation.md](adr/0024-a-thread-is-the-unit-of-continuation.md): a thread records where work stopped, names a mission or none, and there is no current mission in the ledger.
+- [0025-a-documents-hook-point-and-no-git-hooks-in-the-ledger-worktrees.md](adr/0025-a-documents-hook-point-and-no-git-hooks-in-the-ledger-worktrees.md): `.tsk/hooks/pre-docs-commit` is a generic hook point owned by `tsk`, run on `doc put` and before a push commits, with no dependency on any lint tool; git hooks are off in every git process of the ledger. Releases: [v0.26.1](releases/v0.26.1.md).
 
 ## Knowledge base
 

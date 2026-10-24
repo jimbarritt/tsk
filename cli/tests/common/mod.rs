@@ -154,3 +154,46 @@ pub fn servers_running(needle: &str) -> usize {
         })
         .count()
 }
+
+/// A `git` first on `PATH` that runs `prelude` (shell) before it hands over to the real
+/// `git`, which the prelude finds in `$REAL_GIT`. A test uses it to act as another writer
+/// between the fetch and the push of a command. A git hook of the code repo cannot do
+/// that: `tsk` runs its own git with hooks off. Returns the directory; [`with_git_shim`]
+/// puts it on the `PATH` of a command.
+pub fn install_git_shim(root: &Path, prelude: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let real = String::from_utf8(
+        Command::new("sh")
+            .args(["-c", "command -v git"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    let dir = root.join("git-shim");
+    std::fs::create_dir_all(&dir).unwrap();
+    let shim = dir.join("git");
+    std::fs::write(
+        &shim,
+        format!(
+            "#!/bin/sh\nREAL_GIT='{real}'\n{prelude}\nexec \"$REAL_GIT\" \"$@\"\n",
+            real = real.trim(),
+            prelude = prelude
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    dir
+}
+
+/// Put the shim of [`install_git_shim`] first on the `PATH` of `command`, when `root` has one.
+pub fn with_git_shim(command: &mut Command, root: &Path) {
+    let dir = root.join("git-shim");
+    if dir.is_dir() {
+        let mut dirs = vec![dir];
+        dirs.extend(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        ));
+        command.env("PATH", std::env::join_paths(dirs).unwrap());
+    }
+}

@@ -133,6 +133,7 @@ prints the missions. tsk tracks its own development in its own ledger.
 | [docs/user-guide/introducing-tsk.md](docs/user-guide/introducing-tsk.md) | The story behind why tsk exists |
 | [docs/user-guide/missions-threads-and-continuation.md](docs/user-guide/missions-threads-and-continuation.md) | How missions, threads and continuation state fit together |
 | [docs/user-guide/getting-started.md](docs/user-guide/getting-started.md) | The commands, building, publishing |
+| [docs/user-guide/checking-ledger-documents.md](docs/user-guide/checking-ledger-documents.md) | Run a check, such as a prose lint, on ledger documents, also in a repo you do not control |
 | [docs/user-guide/installation.md](docs/user-guide/installation.md) | Prerequisites, installing, upgrading |
 | [docs/user-guide/new-cloud-environment.md](docs/user-guide/new-cloud-environment.md) | A Claude cloud environment with tsk in every session |
 | [docs/user-guide/new-nexus-on-a-clean-machine.md](docs/user-guide/new-nexus-on-a-clean-machine.md) | A nexus, with a repo's ledger in it |

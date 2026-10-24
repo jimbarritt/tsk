@@ -17,6 +17,8 @@ use crate::common;
 
 use common::templates::{self, Seed, Step};
 
+mod doc_hook;
+
 const BRIEFING: &str = "missions/operational/M-TEST-01-example.md";
 
 /// A ledger with the briefing, published from the only clone. The build runs once per test
@@ -453,8 +455,9 @@ fn a_failure_writes_the_result_and_warns_once_on_the_next_command() {
     let first = fx.tsk(&["ledger", "status", "--local"]);
     assert_success(&first);
     assert!(stderr(&first).starts_with(WARNING), "{}", stderr(&first));
-    assert!(stderr(&first).contains("; run tsk ledger push"));
-    assert_eq!(stderr(&first).lines().count(), 1);
+    // The warning shows the stderr of the failing git command, then the next step.
+    assert!(stderr(&first).contains("nonexistent"), "{}", stderr(&first));
+    assert!(stderr(&first).trim_end().ends_with("Run tsk ledger push"));
     assert!(stdout(&first).contains("Background publish: failed at "));
 
     let second = fx.tsk(&["ledger", "status", "--local"]);
@@ -638,7 +641,7 @@ fn the_guard_and_the_session_start_print_the_warning_once() {
     assert_eq!(stdout(&out), "");
     assert_eq!(
         stderr(&out),
-        "warning: the last background publish failed at 2023-11-14T22:13:20Z: origin said no; run tsk ledger push\n"
+        "warning: the last background publish failed at 2023-11-14T22:13:20Z:\n  origin said no\n         more detail\nRun tsk ledger push\n"
     );
     let again = fx.guard("{}");
     assert_eq!(stderr(&again), "");

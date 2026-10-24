@@ -114,6 +114,7 @@ impl Fixture {
             .env("TSK_AUTO_UPDATE", "never")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove("TSK_LEDGER_TRANSPORT");
+        common::with_git_shim(&mut command, self.root.path());
         command
     }
 
@@ -207,36 +208,27 @@ impl Fixture {
         }
     }
 
-    /// A pre-push hook in clone `a` that, once per `races`, runs `TSK_RACE` before a push
-    /// of the ledger ref goes out. The shell command acts as another writer.
+    /// A `git` shim that, once per `races`, runs `TSK_RACE` before a push of the ledger
+    /// ref goes out. The shell command acts as another writer. (A pre-push hook of the code
+    /// repo would not run: tsk starts its own git with hooks off.)
     fn install_race_hook(&self, races: usize) {
-        let script = format!(
-            "#!/bin/sh\n\
-             target=\n\
-             while read lref lsha rref rsha; do\n\
-             \x20 [ \"$rref\" = {ledger} ] && target=1\n\
-             done\n\
-             [ -z \"$target\" ] && exit 0\n\
+        let prelude = format!(
+            "if [ \"$1\" = push ]; then\n\
+             case \"$*\" in *{ledger}*)\n\
              count_file='{count}'\n\
              n=$(cat \"$count_file\" 2>/dev/null || echo 0)\n\
-             [ \"$n\" -ge {races} ] && exit 0\n\
+             if [ \"$n\" -lt {races} ]; then\n\
              echo $((n + 1)) > \"$count_file\"\n\
              unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR\n\
              sh -c \"$TSK_RACE\" >&2 || exit 97\n\
-             exit 0\n",
+             fi;;\n\
+             esac\n\
+             fi",
             ledger = LEDGER_REF,
             count = self.root.path().join("race-count").display(),
             races = races,
         );
-        let hook = self
-            .clone_dir("a")
-            .join(".git")
-            .join("hooks")
-            .join("pre-push");
-        write(&hook, &script);
-        let mut permissions = std::fs::metadata(&hook).unwrap().permissions();
-        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-        std::fs::set_permissions(&hook, permissions).unwrap();
+        common::install_git_shim(self.root.path(), &prelude);
     }
 
     /// The shell command that has clone `b` run `tsk` with `args`, then push.
