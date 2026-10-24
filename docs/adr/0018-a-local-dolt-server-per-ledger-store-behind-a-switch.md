@@ -6,7 +6,7 @@ Date: 2026-10-21
 
 Accepted. Decided by Jim on 2026-10-21 after the spike in
 [2026-10-21-local-dolt-server-spike.md](../arch/2026-10-21-local-dolt-server-spike.md).
-Built in 0.23.0 with the switch off by default. The measurements are in
+Built in 0.23.0 with the switch off by default. On by default from 0.29.0 (see the last amendment). The measurements are in
 [2026-10-21-local-dolt-server-results.md](../arch/2026-10-21-local-dolt-server-results.md).
 ADR 0014 (Dolt is the store) and ADR 0017 (the ledger is a file remote carried by plain
 git) stand. This ADR changes how `tsk` sends SQL to the store on one machine, and nothing
@@ -151,8 +151,8 @@ revisited (an M-TIDY task). Nothing else about the idle mechanism changed.
   the client uses `std::os::unix`.
 - A downgrade needs `tsk ledger server stop` first, or a wait of the idle time. The
   release notes say so.
-- The default can change to on in a later release, when the measurements across sessions
-  support it. The flip is a one-line change of `resolve_switch`.
+- The default changed to on in 0.29.0 (see the last amendment). The flip was a one-line
+  change of `resolve_switch`.
 
 ## Alternatives not taken
 
@@ -166,3 +166,45 @@ revisited (an M-TIDY task). Nothing else about the idle mechanism changed.
   store is reached from the clone. One server for each store keeps a deleted store from
   being served by another clone's process, and keeps the lock and the pid files beside the
   store they describe.
+
+### Amendment, 0.29.0: the server is on by default
+
+Date: 2026-10-24. The field test on a Mac (lab note entries 10 and 11 of M-PERF) and the
+container measurements support the flip that the Consequences section left open. On the
+Mac, `tsk mission list` takes 0.95 s with the server off because each command starts a
+`dolt sql` process, and `ledger status --local` falls from 1.94 s to 0.89 s with the
+server on. In the cloud container, 224 record commands take 32 s with the server off and
+4.2 s with it on. The test suite has run with the server on since 0.23.0.
+
+1. **The precedence.** `TSK_DOLT_SERVER` (`on` or `off`) first, then `[ledger] server` in
+   the user config file, then the default, which is now on. A value that is neither `on`
+   nor `off` counts as unset. `TSK_DOLT_SERVER=off` and `server = "off"` keep the 0.22.0
+   behaviour: no server starts, and every statement is a `dolt sql` process. The change is
+   `resolve_switch` in `cli/src/ledger/store/server.rs`.
+2. **The fallback.** When the server cannot be reached or started (no `dolt` on the path,
+   a start that dies or times out after 30 s, something else holds the store), the
+   command runs its statements through the `dolt` command line instead, as it did before
+   the flip. The first failure in a process prints one line on stderr, `note: the Dolt
+   server could not be used (<reason>); running dolt directly. TSK_DOLT_SERVER=off stops
+   tsk from trying.`, and the rest of the process does not try again. A failure of the
+   server never fails a command that works without it. A statement that the server ran
+   and that failed is an error as before, and does not fall back.
+3. **`tsk config ledger-server`.** With no argument it prints `ledger server: on|off` and
+   `source:` as `environment (TSK_DOLT_SERVER)`, `user config (<path>)` or `default`.
+   With `on` or `off` it writes `[ledger] server` in the user config file and keeps the
+   other keys and the comments of the file. The environment variable still wins over the
+   file.
+4. **Mixed versions.** With the server on by default, a clone that also runs an older
+   `tsk` meets decision 10 more often. A `tsk` older than 0.23.0 does not know the
+   server. It reads the store correctly while a server runs and fails a write with
+   `database is read only`. The cure is `tsk ledger server stop`, or `tsk self-update`.
+   0.23.0 or later is therefore the minimum for a clone that also runs a newer `tsk`: from
+   0.23.0 a `tsk` with the switch off stops the server of a store when its first write is
+   refused as read only, and runs the write again. The on-disk format does not change, and
+   the supervisor still deletes `.dolt/sql-server.info`.
+5. **The session start hook.** `tsk thread session-start` starts a dead or stale server in
+   the background before it fetches, as it did with the switch on. With the default on,
+   a cloud session that wakes from hibernation gets a live server, and the hook prints
+   its JSON without waiting for the server. A clone with no ledger store yet starts none,
+   and so does a store that does not use a file remote (a ledger made before 0.21.0 until
+   `tsk ledger migrate-transport`), because `tsk` does not serve that store.

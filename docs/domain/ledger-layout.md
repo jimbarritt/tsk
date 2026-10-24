@@ -160,11 +160,14 @@ backend.
 
 ### The local Dolt server
 
-Everything above describes the default: every SQL batch is a `dolt sql` process.
+Everything above describes the path with the server off: every SQL batch is a `dolt sql`
+process.
 [ADR 0018](../adr/0018-a-local-dolt-server-per-ledger-store-behind-a-switch.md) adds a
-second way to reach the same store, which 0.23.0 uses only when the switch is on
-(`TSK_DOLT_SERVER=on`, or `[ledger] server = "on"` in the user config; the environment
-wins; the default is off).
+second way to reach the same store, which `tsk` uses unless the switch says off
+(`TSK_DOLT_SERVER=off`, or `[ledger] server = "off"` in the user config; the environment
+wins; the default is on since 0.29.0, and off in 0.23.0 to 0.28.x). Where the server cannot
+start, the command falls back to `dolt sql` and prints one `note:` line. `tsk config
+ledger-server` prints the switch and writes it.
 
 - **What it is.** One `dolt sql-server` for each ledger store whose `origin` is a file
   remote. The first command that needs it starts it, under a file lock, through a detached
@@ -191,7 +194,8 @@ wins; the default is off).
 - **The command line beside it.** While the server runs, `dolt` opens the store read only:
   reads work and print typed JSON, and a write fails with `database is read only`. A
   `tsk` with the switch off stops the server of a store when its first write is refused.
-  A person who writes with `dolt` runs `tsk ledger server stop` first.
+  A `tsk` older than 0.23.0 does not, so it needs `tsk ledger server stop` or
+  `tsk self-update`. A person who writes with `dolt` runs `tsk ledger server stop` first.
 - **Commands.** `tsk ledger server status|start|stop`.
 
 ### Documents

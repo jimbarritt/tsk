@@ -116,7 +116,7 @@ tsk ledger fetch                         fetch the ledger branch (creating a new
 tsk ledger path                          print the ledger store path (the Dolt database); no fetch, no writes
 tsk ledger push "<message>"              commit every local ledger change, pull and push; prints the ledger commit
 tsk ledger migrate-transport             convert a ledger that holds Dolt's older git blobstore to a Dolt file remote carried by plain git; run once, other clones follow on their next fetch
-tsk ledger server status|start|stop      inspect or control the local Dolt server of this clone's ledger store; it runs only when TSK_DOLT_SERVER=on or [ledger] server = "on" (off by default); while it runs, `dolt` opens the store read only
+tsk ledger server status|start|stop      inspect or control the local Dolt server of this clone's ledger store; it runs unless TSK_DOLT_SERVER=off or [ledger] server = "off" (on by default since 0.29.0; `tsk config ledger-server` prints and sets the switch); while it runs, `dolt` opens the store read only
 tsk ledger doc get <path>                print a document's body
 tsk ledger doc put <path> [<file>]       write a document from <file>, or from stdin; changes the local store only
 tsk ledger doc list [<prefix>]           list document paths, optionally under a prefix

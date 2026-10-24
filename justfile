@@ -9,7 +9,7 @@ build-install:
 test:
     cargo test --workspace
 
-# Run all tests with the local Dolt server off, the path every user has until the default changes
+# Run all tests with the local Dolt server off, the path of a user who sets TSK_DOLT_SERVER=off
 test-server-off:
     TSK_DOLT_SERVER=off cargo test --workspace
 

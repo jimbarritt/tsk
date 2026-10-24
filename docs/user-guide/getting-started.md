@@ -179,7 +179,7 @@ when the entry exists. Step 6 of the clean machine guide describes each option.
 cargo test --workspace
 ```
 
-The tests run with the local Dolt server on, because `.cargo/config.toml` sets `TSK_DOLT_SERVER=on` unless you set it yourself. This halves the run time. To test the path with the server off, run `TSK_DOLT_SERVER=off cargo test --workspace` or `just test-server-off`. Dolt 2.5.0 or later must be on `PATH`.
+The tests run with the local Dolt server on, because `.cargo/config.toml` sets `TSK_DOLT_SERVER=on` unless you set it yourself. This halves the run time. The server is on by default for users too (since 0.29.0). `tsk config ledger-server` prints whether it is used and where that was decided, and `tsk config ledger-server off` writes `[ledger] server = "off"` in your user config. To test the path with the server off, run `TSK_DOLT_SERVER=off cargo test --workspace` or `just test-server-off`. Dolt 2.5.0 or later must be on `PATH`.
 
 The integration tests are one test binary, `integration`, and each file under `cli/tests/` is a module of it. To run one file, name its module: `cargo test -p tsk-bin --test integration -- ledger::`. To run one test, give its full name: `cargo test -p tsk-bin --test integration -- ledger::fetch_reuses_an_existing_clone_id`. The unit tests run with `cargo test -p tsk-bin --bin tsk`.
 
