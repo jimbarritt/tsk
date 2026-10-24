@@ -60,6 +60,7 @@ These apply to any name, whatever the style.
 
 - A name works as a `SendMessage` target and an @ mention (M-NAMES constraint 1).
 - A name is at most 200 characters and does not start with `/` (constraint 2).
+- A name is at most four words (constraint 3, Jim, 2026-10-24). Some names from the books are longer, such as Of Course I Still Love You. The limit keeps a name short to type as a message target and to show as a session title.
 - Whether a name with spaces, commas and an ellipsis needs quoting as a message target is not yet tested (T-05).
 
 ## To refine later
