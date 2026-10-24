@@ -159,4 +159,4 @@ Suspected cause, from the source and not yet measured: when origin has no ledger
 
 To measure on Jim's laptop: `time git ls-remote origin` (one round trip), `time tsk ledger status --local` (no network), and `GIT_TRACE=1 tsk ledger status 2>&1 | grep -c "git"` (how many git calls).
 
-Record: M-PERF T-23.
+Record: M-PERF T-18.
