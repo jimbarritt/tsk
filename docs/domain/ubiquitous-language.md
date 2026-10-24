@@ -83,7 +83,9 @@ a kind, and later a role, skills or a focus. An actor is a record of its own (th
 `actors` table, from layout 9), so a robot's identity persists outside any
 [harness instance](#harness-instance). A harness instance records which actor it is with
 `tsk actor register <name> --kind robot|human`; the same command in a new container with
-an existing name is that actor returning. A human actor's name is the person's name. A
+an existing name is that actor returning. Construction is the creation of a new robot: the
+`tsk:construct-robot` skill chooses its name and registers it. Construction is the
+robot's birth (Jim, 2026-10-24). A human actor's name is the person's name. A
 robot gives itself one, in the style of the Culture ships of Iain M. Banks (M-NAMES; the
 style is defined in the ledger document
 `missions/operational/M-NAMES/in-the-style-of-culture-ships.md`). The name is not a
