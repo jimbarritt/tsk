@@ -243,7 +243,9 @@ Cause: the entry that IntelliJ registered through its automatic detection of the
 
 Fix: remove the entry in Project Structure, SDKs. Add JDK from disk, and select the install directory without `Contents/Home`. Set the project SDK to it and the language level to 25. Set the Gradle JVM to it too, then reload the Gradle project.
 
-How sure: the symptom and the path difference are checked. Whether `Contents/Home` exists on disk was not checked. Jim's result after the fix decides.
+Result: Jim could not edit the existing entry in Project Structure. He added a second entry with Add JDK from disk, using the install directory without `Contents/Home`, set the project SDK and the Gradle JVM to it, and the project then worked (2026-10-24). So the cause was the stored path. Adding the entry by hand and switching to it is the reliable method. Removing the old entry is optional.
+
+How sure: checked on Jim's machine. Whether `Contents/Home` exists on disk was not checked.
 
 ## Open questions
 
