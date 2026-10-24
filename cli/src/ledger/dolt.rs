@@ -44,6 +44,8 @@ pub const SCHEMA: &[&str] = &[
     "create table threads (thread_id varchar(64) primary key, briefing_path varchar(1024) null, mission_id varchar(64) null)",
     "create table continuation_entries (thread_id varchar(64), seq int, entry longtext not null, primary key (thread_id, seq))",
     "create table bindings (actor varchar(255) primary key, kind enum('cloud','worktree') not null, thread_id varchar(64) not null, registered_at varchar(32) not null)",
+    "create table actors (name varchar(200) primary key, kind enum('human','robot') not null, registered_at varchar(32) not null)",
+    "create table instances (instance varchar(255) primary key, kind enum('cloud','worktree') not null, actor_name varchar(200) not null, registered_at varchar(32) not null)",
     "create table external_events (position bigint primary key, envelope longtext not null)",
     "create table watermark (id int primary key, processed_through bigint not null, updated_at varchar(32) not null)",
 ];
@@ -158,9 +160,12 @@ pub const TASK_SCHEMA: &[&str] = &[
 /// The layout version a new Dolt ledger records: documents live on the `tsk/docs` branch,
 /// missions, tasks, decisions and questions are rows, a thread names its mission in
 /// `threads.mission_id`, a decision may name an ADR in `decisions.adr_path`, a
-/// mission's constraints and out-of-scope items are rows of their own, and every
-/// session and worktree binding is a row of `bindings`.
-pub const LAYOUT_VERSION: i64 = 8;
+/// mission's constraints and out-of-scope items are rows of their own, every session and
+/// worktree binding is a row of `bindings`, and the actors and the harness instances
+/// registered as them are rows of `actors` and `instances`.
+pub const LAYOUT_VERSION: i64 = 9;
+/// The layout version with the `actors` and `instances` tables.
+pub const ACTORS_LAYOUT_VERSION: i64 = 9;
 /// The layout version with the `bindings` table in place of `cloud_session_bindings`.
 pub const BINDINGS_LAYOUT_VERSION: i64 = 8;
 /// The layout version with `threads.mission_id` and no `decisions.adr_path`.
@@ -179,17 +184,18 @@ pub const DOCS_LAYOUT_VERSION: i64 = 2;
 /// The layout version whose documents are rows in the `documents` table.
 pub const LEGACY_LAYOUT_VERSION: i64 = 1;
 
-/// Statements that take a ledger at `from` (2 to 7, or 1 once its documents have moved,
+/// Statements that take a ledger at `from` (2 to 8, or 1 once its documents have moved,
 /// which counts as 2) to the current version, then record it. Version 2 gains the
 /// mission, task, decision and question tables. Version 3 gains the counters on
 /// `missions` and the task, decision and question tables. Version 4 gains
 /// `threads.mission_id`, and `threads.briefing_path` becomes nullable. Version 5 gains
 /// `decisions.adr_path`. Version 6 gains the constraint and out-of-scope tables, and
-/// `missions` loses its two text columns. Version 8 creates `bindings`, copies every
-/// `cloud_session_bindings` row into it as kind `cloud` and drops the old table. The tables a step creates are created in their
-/// newest shape, so a later step alters only a table that an older layout made. Run at
-/// the first write that needs the new layout, and when `tsk ledger migrate-docs` moves a
-/// version 1 ledger.
+/// `missions` loses its two text columns. Version 7 gains `bindings`, which takes every
+/// `cloud_session_bindings` row as kind `cloud`, and loses the old table. Version 8
+/// gains the `actors` and `instances` tables. The tables a step creates are created in
+/// their newest shape, so a later step alters only a table that an older layout made.
+/// Run at the first write that needs the new layout, and when `tsk ledger migrate-docs`
+/// moves a version 1 ledger.
 ///
 /// The items that the version 7 step moves out of the text columns are SQL the caller
 /// builds from the rows, because splitting text into lines is not SQL. `moved` is that
@@ -242,6 +248,13 @@ pub fn upgrade_sql_moving(from: i64, moved: &str) -> String {
     if from < BINDINGS_LAYOUT_VERSION {
         sql.push_str(BINDINGS_UPGRADE_SQL);
     }
+    // No layout below 9 has the actor tables: every older ledger gains both.
+    if from < ACTORS_LAYOUT_VERSION {
+        for statement in ACTORS_SCHEMA {
+            sql.push_str(statement);
+            sql.push_str(";\n");
+        }
+    }
     sql.push_str(&version_sql());
     sql
 }
@@ -250,6 +263,10 @@ pub fn upgrade_sql_moving(from: i64, moved: &str) -> String {
 const BINDINGS_UPGRADE_SQL: &str = "create table bindings (actor varchar(255) primary key, kind enum('cloud','worktree') not null, thread_id varchar(64) not null, registered_at varchar(32) not null);\n\
      insert into bindings (actor, kind, thread_id, registered_at) select session_id, 'cloud', thread_id, registered_at from cloud_session_bindings;\n\
      drop table cloud_session_bindings;\n";
+
+/// The version 9 step: the `actors` and `instances` tables of [`SCHEMA`], which no older
+/// layout has. Both start empty: an instance registers with `tsk actor register`.
+const ACTORS_SCHEMA: &[&str] = &[SCHEMA[4], SCHEMA[5]];
 
 /// [`upgrade_sql_moving`] for a ledger that has no mission text to move.
 pub fn upgrade_sql(from: i64) -> String {
@@ -978,7 +995,9 @@ mod tests {
         assert!(!sql.contains("create table documents"));
         assert!(!sql.contains("cloud_session_bindings"));
         assert!(sql.contains("kind enum('cloud','worktree') not null"));
-        assert!(sql.contains("('version', '8')"));
+        assert!(sql.contains("create table actors (name varchar(200) primary key, kind enum('human','robot') not null"));
+        assert!(sql.contains("create table instances (instance varchar(255) primary key, kind enum('cloud','worktree') not null, actor_name varchar(200) not null"));
+        assert!(sql.contains("('version', '9')"));
         assert!(sql.contains("mission_id varchar(64) null"));
         assert!(sql.contains("briefing_path varchar(1024) null"));
         assert!(sql.contains("'repo_id'"));
@@ -993,12 +1012,12 @@ mod tests {
         assert!(!from_four.contains("create table missions "));
         assert!(!from_four.contains("create table tasks "));
         assert!(from_four.contains("alter table decisions add column adr_path varchar(1024) null"));
-        assert!(from_four.ends_with("('version', '8');\n"));
+        assert!(from_four.ends_with("('version', '9');\n"));
         let from_five = upgrade_sql(5);
         assert!(!from_five.contains("alter table threads"));
         assert!(!from_five.contains("create table tasks "));
         assert!(from_five.contains("alter table decisions add column adr_path"));
-        assert!(from_five.ends_with("('version', '8');\n"));
+        assert!(from_five.ends_with("('version', '9');\n"));
         let from_six = upgrade_sql(6);
         assert!(!from_six.contains("alter table decisions"));
         assert!(!from_six.contains("alter table threads"));
@@ -1008,7 +1027,7 @@ mod tests {
         assert!(from_six.contains("drop column constraints_text"));
         assert!(from_six.contains("drop column out_of_scope"));
         assert!(!from_six.contains("create table missions "));
-        assert!(from_six.ends_with("('version', '8');\n"));
+        assert!(from_six.ends_with("('version', '9');\n"));
         let from_seven = upgrade_sql(7);
         assert!(from_seven.contains("create table bindings "));
         assert!(from_seven.contains(
@@ -1017,9 +1036,21 @@ mod tests {
         assert!(from_seven.contains("drop table cloud_session_bindings"));
         assert!(!from_seven.contains("mission_constraints"));
         assert!(!from_seven.contains("alter table"));
-        assert!(from_seven.ends_with("('version', '8');\n"));
-        // Every older step ends with the same bindings step, after the tables it makes.
+        assert!(from_seven.ends_with("('version', '9');\n"));
+        let from_eight = upgrade_sql(8);
+        assert_eq!(
+            from_eight,
+            format!(
+                "{};\n{};\nreplace into manifest (k, v) values ('version', '9');\n",
+                SCHEMA[4], SCHEMA[5]
+            )
+        );
+        assert!(from_eight.starts_with("create table actors "));
+        assert!(from_eight.contains("create table instances "));
+        // Every older step ends with the bindings step and then the actor tables.
         assert!(from_six.contains("drop table cloud_session_bindings"));
+        assert!(from_six.contains("create table actors "));
+        assert!(from_seven.contains("create table instances "));
         let from_three = upgrade_sql(3);
         assert!(from_three.contains("alter table missions add column next_task"));
         assert!(from_three.contains("create table tasks "));

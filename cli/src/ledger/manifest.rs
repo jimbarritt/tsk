@@ -8,8 +8,9 @@ pub const MANIFEST_FILE: &str = ".tsk-ledger.toml";
 /// Version 6 adds `decisions.adr_path`. Version 7 moves the constraints and out-of-scope
 /// text of a mission into the `mission_constraints` and `mission_out_of_scope` tables.
 /// Version 8 replaces `cloud_session_bindings` with `bindings`, which also holds the
-/// bindings of local worktrees.
-pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8];
+/// bindings of local worktrees. Version 9 adds `bindings.name`, the chosen name of an
+/// actor.
+pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 /// How the unsupported-version error starts. `auto_update` finds the error by this
 /// prefix, so the text is built from it and from nothing else.
@@ -81,9 +82,10 @@ mod tests {
 
     #[test]
     fn the_unsupported_layout_is_read_back_from_the_error_check_values_makes() {
-        let err = check_values(9, None, None, "the manifest", DOLT_SUPPORTED_VERSIONS).unwrap_err();
-        assert_eq!(unsupported_layout(&err), Some(9));
-        assert_eq!(unsupported_layout(&format!("note\n{}", err)), Some(9));
+        let err =
+            check_values(10, None, None, "the manifest", DOLT_SUPPORTED_VERSIONS).unwrap_err();
+        assert_eq!(unsupported_layout(&err), Some(10));
+        assert_eq!(unsupported_layout(&format!("note\n{}", err)), Some(10));
     }
 
     #[test]
@@ -135,8 +137,28 @@ mod tests {
     }
 
     #[test]
-    fn the_dolt_list_accepts_versions_one_to_eight_and_rejects_nine() {
-        for ok in [1, 2, 3, 4, 5, 6, 7, 8] {
+    fn a_binary_that_knows_versions_one_to_eight_stops_at_a_version_nine_ledger() {
+        // What the previous release does with a Dolt ledger at version 9.
+        let err = check_values(
+            9,
+            None,
+            None,
+            "the manifest table",
+            &[1, 2, 3, 4, 5, 6, 7, 8],
+        )
+        .unwrap_err();
+        assert!(err.contains("unsupported ledger version 9"), "{}", err);
+        assert!(
+            err.contains("supports version 1, 2, 3, 4, 5, 6, 7, 8"),
+            "{}",
+            err
+        );
+        assert!(err.contains("Update tsk"), "{}", err);
+    }
+
+    #[test]
+    fn the_dolt_list_accepts_versions_one_to_nine_and_rejects_ten() {
+        for ok in [1, 2, 3, 4, 5, 6, 7, 8, 9] {
             assert_eq!(
                 check_values(
                     ok,
@@ -149,11 +171,17 @@ mod tests {
                 ok
             );
         }
-        let err =
-            check_values(9, None, None, "the manifest table", DOLT_SUPPORTED_VERSIONS).unwrap_err();
-        assert!(err.contains("unsupported ledger version 9"), "{}", err);
+        let err = check_values(
+            10,
+            None,
+            None,
+            "the manifest table",
+            DOLT_SUPPORTED_VERSIONS,
+        )
+        .unwrap_err();
+        assert!(err.contains("unsupported ledger version 10"), "{}", err);
         assert!(
-            err.contains("supports version 1, 2, 3, 4, 5, 6, 7, 8"),
+            err.contains("supports version 1, 2, 3, 4, 5, 6, 7, 8, 9"),
             "{}",
             err
         );

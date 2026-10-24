@@ -78,12 +78,56 @@ impl BindingKind {
     }
 }
 
-/// One row of the bindings: an actor and the thread it works.
+/// One row of the bindings: a harness instance (the `actor` column, kept under that name
+/// from before 0.26.0) and the thread it works.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindingRow {
     pub actor: String,
     pub kind: BindingKind,
     pub thread_id: String,
+    pub registered_at: String,
+}
+
+/// What an actor is: a person, or a program such as a coding agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActorKind {
+    Human,
+    Robot,
+}
+
+impl ActorKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ActorKind::Human => "human",
+            ActorKind::Robot => "robot",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<ActorKind> {
+        match text {
+            "human" => Some(ActorKind::Human),
+            "robot" => Some(ActorKind::Robot),
+            _ => None,
+        }
+    }
+}
+
+/// One row of `actors`: a human or a robot, by name. Its identity is its own, outside any
+/// harness instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActorRow {
+    pub name: String,
+    pub kind: ActorKind,
+    pub registered_at: String,
+}
+
+/// One row of `instances`: a harness instance (a cloud session, or a code worktree of a
+/// clone; the same key as `bindings.actor`) and the actor it registered as.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceRow {
+    pub instance: String,
+    pub kind: BindingKind,
+    pub actor_name: String,
     pub registered_at: String,
 }
 
@@ -242,9 +286,27 @@ pub trait LedgerStore {
     /// cloud rows and upgrades nothing.
     fn bindings_list(&self) -> Result<Vec<BindingRow>, String>;
     /// Bind an actor to a thread, replacing the actor's earlier binding. The first call on
-    /// a Dolt ledger below version 8 upgrades it. The change is local until the caller
+    /// a Dolt ledger below version 9 upgrades it. The change is local until the caller
     /// pushes it.
     fn binding_set(&self, row: &BindingRow) -> Result<(), String>;
+
+    // --- Actors and harness instances ---
+
+    /// Every actor, sorted by registration time and then name. Empty when none is
+    /// registered, and on a Dolt ledger below version 9, which has no `actors` table; a
+    /// read upgrades nothing.
+    fn actors_list(&self) -> Result<Vec<ActorRow>, String>;
+    /// Add an actor. The caller checks that the name is new: a second row with the same
+    /// name is refused by the table. The first call on a Dolt ledger below version 9
+    /// upgrades it. The change is local until the caller pushes it.
+    fn actor_add(&self, row: &ActorRow) -> Result<(), String>;
+    /// Every harness instance that registered as an actor, sorted by registration time
+    /// and then key. Empty on a Dolt ledger below version 9.
+    fn instances_list(&self) -> Result<Vec<InstanceRow>, String>;
+    /// Register a harness instance as an actor, replacing its earlier registration. The
+    /// first call on a Dolt ledger below version 9 upgrades it. The change is local until
+    /// the caller pushes it.
+    fn instance_set(&self, row: &InstanceRow) -> Result<(), String>;
     /// Remove an actor's binding, if it has one.
     fn binding_remove(&self, actor: &str) -> Result<(), String>;
     /// Remove the bindings of several actors in one write. An actor with no binding is

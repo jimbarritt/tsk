@@ -31,7 +31,10 @@ use crate::mission::model::{
 
 use super::doc_tree::DocTree;
 use super::renumber::{self, Renumbered};
-use super::{BindingKind, BindingRow, LedgerStore, PushReport, RefreshOutcome, ThreadInfo};
+use super::{
+    ActorKind, ActorRow, BindingKind, BindingRow, InstanceRow, LedgerStore, PushReport,
+    RefreshOutcome, ThreadInfo,
+};
 
 const MANIFEST_SOURCE: &str = "the manifest table";
 
@@ -98,6 +101,7 @@ struct Snapshot {
     head: String,
     dirty: bool,
     bindings: Vec<BindingRow>,
+    instances: Vec<InstanceRow>,
     threads: Vec<ThreadRow>,
     missions: Vec<Mission>,
 }
@@ -114,6 +118,10 @@ struct DataState {
 const DIRTY_QUERY: &str = "select count(*) as c from dolt_status";
 const BINDINGS_QUERY: &str =
     "select actor, kind, thread_id, registered_at from bindings order by registered_at, actor";
+const ACTORS_QUERY: &str =
+    "select name, kind, registered_at from actors order by registered_at, name";
+const INSTANCES_QUERY: &str = "select instance, kind, actor_name, registered_at from instances \
+     order by registered_at, instance";
 const THREADS_QUERY: &str = "select thread_id, briefing_path, mission_id from threads";
 
 /// What this process has found out about origin, so a command fetches each ref at most once.
@@ -628,6 +636,7 @@ impl DoltStore {
         let mut queries = vec![MANIFEST_QUERY.to_string()];
         queries.extend(recorded);
         queries.push(BINDINGS_QUERY.to_string());
+        queries.push(INSTANCES_QUERY.to_string());
         queries.push(THREADS_QUERY.to_string());
         queries.push(hash_query("HEAD"));
         queries.push(DIRTY_QUERY.to_string());
@@ -660,6 +669,7 @@ impl DoltStore {
         }
         let missions = read_missions_with(dolt::LAYOUT_VERSION, &mut |_| next())?;
         let bindings = binding_rows(&next()?, false);
+        let instances = instance_rows(&next()?);
         let threads = next()?
             .iter()
             .map(|row| ThreadRow {
@@ -678,6 +688,7 @@ impl DoltStore {
             head,
             dirty,
             bindings,
+            instances,
             threads,
             missions,
         }))
@@ -2570,6 +2581,50 @@ impl LedgerStore for DoltStore {
         ))
     }
 
+    fn actors_list(&self) -> Result<Vec<ActorRow>, String> {
+        // A ledger below version 9 has no table: it has no actors, and a read upgrades
+        // nothing.
+        let rows = match self.db()?.rows(ACTORS_QUERY) {
+            Ok(rows) => rows,
+            Err(e) if e.contains("table not found: actors") => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        Ok(actor_rows(&rows))
+    }
+
+    fn actor_add(&self, row: &ActorRow) -> Result<(), String> {
+        self.write_bindings(&format!(
+            "insert into actors (name, kind, registered_at) values ({}, {}, {});",
+            lit(&row.name),
+            lit(row.kind.as_str()),
+            lit(&row.registered_at)
+        ))
+    }
+
+    fn instances_list(&self) -> Result<Vec<InstanceRow>, String> {
+        let db = self.db()?;
+        if let Some(rows) = self.read_snapshot(&db, |snapshot| snapshot.instances.clone())? {
+            return Ok(rows);
+        }
+        let rows = match db.rows(INSTANCES_QUERY) {
+            Ok(rows) => rows,
+            Err(e) if e.contains("table not found: instances") => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        Ok(instance_rows(&rows))
+    }
+
+    fn instance_set(&self, row: &InstanceRow) -> Result<(), String> {
+        self.write_bindings(&format!(
+            "replace into instances (instance, kind, actor_name, registered_at) \
+             values ({}, {}, {}, {});",
+            lit(&row.instance),
+            lit(row.kind.as_str()),
+            lit(&row.actor_name),
+            lit(&row.registered_at)
+        ))
+    }
+
     fn binding_remove(&self, actor: &str) -> Result<(), String> {
         self.write_bindings(&format!(
             "delete from bindings where actor = {};",
@@ -2875,6 +2930,33 @@ fn binding_rows(rows: &[serde_json::Value], legacy: bool) -> Vec<BindingRow> {
                 actor: text(row, "actor")?,
                 kind,
                 thread_id: text(row, "thread_id").unwrap_or_default(),
+                registered_at: text(row, "registered_at").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+/// The actors in the rows of [`ACTORS_QUERY`].
+fn actor_rows(rows: &[serde_json::Value]) -> Vec<ActorRow> {
+    rows.iter()
+        .filter_map(|row| {
+            Some(ActorRow {
+                name: text(row, "name")?,
+                kind: ActorKind::parse(&text(row, "kind")?)?,
+                registered_at: text(row, "registered_at").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+/// The harness instances in the rows of [`INSTANCES_QUERY`].
+fn instance_rows(rows: &[serde_json::Value]) -> Vec<InstanceRow> {
+    rows.iter()
+        .filter_map(|row| {
+            Some(InstanceRow {
+                instance: text(row, "instance")?,
+                kind: BindingKind::parse(&text(row, "kind")?)?,
+                actor_name: text(row, "actor_name")?,
                 registered_at: text(row, "registered_at").unwrap_or_default(),
             })
         })

@@ -44,6 +44,9 @@ pub struct ListRow {
 pub struct ListActor {
     pub actor: String,
     pub kind: &'static str,
+    /// The name of the actor this harness instance registered as (`tsk actor register`),
+    /// or null when it registered none.
+    pub name: Option<String>,
 }
 
 fn check_thread_id(id: &str) -> Result<(), String> {
@@ -557,6 +560,12 @@ pub fn stop(session: &Session, target: Option<&str>) -> Result<String, String> {
 
 pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
     let bindings = store.bindings_list()?;
+    // The actor name of each harness instance that registered one.
+    let actor_names: std::collections::HashMap<String, String> = store
+        .instances_list()?
+        .into_iter()
+        .map(|row| (row.instance, row.actor_name))
+        .collect();
     let mut rows = Vec::new();
     let names = store.thread_ids()?;
     // Every thread's lines are read together, not one process per thread.
@@ -576,6 +585,7 @@ pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
                 .map(|binding| ListActor {
                     actor: binding.actor.clone(),
                     kind: binding.kind.as_str(),
+                    name: actor_names.get(&binding.actor).cloned(),
                 })
                 .collect(),
             id: name,
@@ -985,16 +995,18 @@ mod tests {
                 ListActor {
                     actor: "cse_1".to_string(),
                     kind: "cloud",
+                    name: Some("alice".to_string()),
                 },
                 ListActor {
                     actor: "tsk-1a2b/main".to_string(),
                     kind: "worktree",
+                    name: None,
                 },
             ],
         };
         assert_eq!(
             serde_json::to_string(&r).unwrap(),
-            "{\"id\":\"1234abcd\",\"mission_id\":\"M-X\",\"mission_link\":\"m.md\",\"latest_whats_next\":null,\"latest_timestamp\":null,\"actors\":[{\"actor\":\"cse_1\",\"kind\":\"cloud\"},{\"actor\":\"tsk-1a2b/main\",\"kind\":\"worktree\"}]}"
+            "{\"id\":\"1234abcd\",\"mission_id\":\"M-X\",\"mission_link\":\"m.md\",\"latest_whats_next\":null,\"latest_timestamp\":null,\"actors\":[{\"actor\":\"cse_1\",\"kind\":\"cloud\",\"name\":\"alice\"},{\"actor\":\"tsk-1a2b/main\",\"kind\":\"worktree\",\"name\":null}]}"
         );
         assert!(serde_json::to_string(&row("1234abcd", None))
             .unwrap()
