@@ -141,7 +141,9 @@ impl Fixture {
     }
 
     fn tsk_in(&self, dir: &Path, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_tsk"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        common::with_git_shim(&mut command, self.root.path());
+        command
             .args(args)
             .current_dir(dir)
             .envs(git_env())
@@ -157,7 +159,9 @@ impl Fixture {
 
     fn tsk_stdin(&self, args: &[&str], input: &str) -> Output {
         use std::io::Write;
-        let mut child = Command::new(env!("CARGO_BIN_EXE_tsk"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        common::with_git_shim(&mut command, self.root.path());
+        let mut child = command
             .args(args)
             .current_dir(self.work())
             .envs(git_env())
@@ -189,41 +193,37 @@ impl Fixture {
         self.root.path().join("racer")
     }
 
-    /// A pre-push hook in the clone that, for the first `races` pushes, lands a commit on
-    /// origin's documents branch from the racer clone before the push goes through.
+    /// A `git` shim that, for the first `races` pushes, lands a commit on origin's
+    /// documents branch from the racer clone before the push goes through. (A pre-push
+    /// hook of the code repo would not run: tsk starts its own git with hooks off.)
     fn install_racing_pre_push_hook(&self, races: usize) {
         git(
             self.root.path(),
             &["clone", "--quiet", self.origin().to_str().unwrap(), "racer"],
         );
-        let script = format!(
-            "#!/bin/sh\n\
-             cat >/dev/null\n\
-             unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR\n\
+        let prelude = format!(
+            "if [ \"$1\" = push ]; then\n\
              racer='{racer}'\n\
              count_file='{count}'\n\
              n=$(cat \"$count_file\" 2>/dev/null || echo 0)\n\
-             [ \"$n\" -ge {races} ] && exit 0\n\
+             if [ \"$n\" -lt {races} ]; then\n\
              n=$((n + 1))\n\
              echo \"$n\" > \"$count_file\"\n\
-             git -C \"$racer\" fetch --quiet origin {docs_ref} || exit 1\n\
-             git -C \"$racer\" reset --quiet --hard FETCH_HEAD || exit 1\n\
+             unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR\n\
+             \"$REAL_GIT\" -C \"$racer\" fetch --quiet origin {docs_ref} || exit 1\n\
+             \"$REAL_GIT\" -C \"$racer\" reset --quiet --hard FETCH_HEAD || exit 1\n\
              echo \"race $n\" > \"$racer/race-$n.md\"\n\
-             git -C \"$racer\" add -A || exit 1\n\
-             git -C \"$racer\" commit --quiet -m \"Race $n\" || exit 1\n\
-             git -C \"$racer\" push --quiet origin HEAD:{docs_ref} || exit 1\n\
-             exit 0\n",
+             \"$REAL_GIT\" -C \"$racer\" add -A || exit 1\n\
+             \"$REAL_GIT\" -C \"$racer\" commit --quiet -m \"Race $n\" || exit 1\n\
+             \"$REAL_GIT\" -C \"$racer\" push --quiet origin HEAD:{docs_ref} || exit 1\n\
+             fi\n\
+             fi",
             racer = self.racer().display(),
             count = self.root.path().join("race-count").display(),
             races = races,
             docs_ref = DOCS_REF,
         );
-        let hook = self.work().join(".git").join("hooks").join("pre-push");
-        std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
-        write(&hook, &script);
-        let mut permissions = std::fs::metadata(&hook).unwrap().permissions();
-        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-        std::fs::set_permissions(&hook, permissions).unwrap();
+        common::install_git_shim(self.root.path(), &prelude);
     }
 
     fn origin_file(&self, git_ref: &str, file: &str) -> Option<String> {

@@ -22,6 +22,12 @@ pub enum ConfigCommands {
         about = "Print which refs hold this repo's ledger and where that was decided, or set them in .tsk/config.toml",
         long_about = "Print which refs hold this repo's ledger and where that was decided, or set them in .tsk/config.toml.\n\nbranches: refs/heads/tsk/ledger and refs/heads/tsk/docs. GitHub lists them as branches. A repo used from Claude Code cloud sessions needs them, because the cloud proxy refuses to push a ref outside refs/heads/*.\ncustom: refs/tsk/ledger and refs/tsk/docs. GitHub does not list them. The default for a new ledger outside a cloud session.\n\nThe mode is read from the nexus entry of the repo (ledger_refs), then .tsk/config.toml, then discovered on origin. tsk does not move a ledger that origin holds from one mode to the other."
     )]
+    #[command(
+        name = "docs-hook",
+        about = "Print which documents hook script applies and where it came from, or none",
+        long_about = "Print which documents hook script applies and where it came from, or none.\n\nThe first of these that exists wins: the file TSK_DOCS_HOOK names, <state>/repos/<clone-id>/hooks/pre-docs-commit, <config>/tsk/hooks/pre-docs-commit in the user config directory, and .tsk/hooks/pre-docs-commit in the repo. A script that exists and is not executable is an error."
+    )]
+    DocsHook,
     LedgerRefs {
         #[arg(
             value_parser = ["branches", "custom"],
@@ -189,8 +195,12 @@ pub fn run(action: ConfigCommands) -> Result<(), String> {
             None => crate::ledger::refs_cmd::show(),
         };
     }
+    if let ConfigCommands::DocsHook = action {
+        return crate::ledger::doc_hook::show();
+    }
     let file = required_config_file()?;
     match action {
+        ConfigCommands::DocsHook => unreachable!("handled above"),
         ConfigCommands::LedgerRefs { .. } => unreachable!("handled above"),
         ConfigCommands::AttachNexus { url } => attach_and_report(&file, &url),
         ConfigCommands::Show => {

@@ -181,6 +181,12 @@ in another tool. `tsk ledger push` pushes the documents first and the Dolt data 
 a record never names a document the remote lacks. A rejected documents push stops it
 with exit 1 and the Dolt data stays unpushed. Run it again.
 
+A repo may check its documents with a hook, `pre-docs-commit` (`tsk config docs-hook`
+prints the script that applies). When `doc put`
+exits 1 and prints findings, the document is written locally: fix it and put it again.
+A `tsk ledger push` that exits 1 with the same findings names a document changed earlier:
+fix that one, then push again. Do not set `TSK_SKIP_DOC_CHECK=1` to get past them.
+
 The first `tsk` write on 0.14.0 upgrades the ledger to layout 8, and an older binary then
 stops with `unsupported ledger version`. Run `tsk self-update` to bring it up to date.
 From 0.18.0, a `tsk` that meets a newer layout prints a warning on stderr, updates itself

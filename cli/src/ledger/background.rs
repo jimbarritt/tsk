@@ -165,9 +165,8 @@ pub fn warn_once(db: &Path) {
         return;
     }
     eprintln!(
-        "warning: the last background publish failed at {}: {}; run tsk ledger push",
-        format_utc(outcome.time),
-        first_line(&outcome.error)
+        "{}",
+        warning_text(&format_utc(outcome.time), &outcome.error)
     );
     outcome.shown = true;
     write_outcome(&paths, &outcome);
@@ -181,6 +180,39 @@ pub fn clear_failure(db: &Path) {
             let _ = std::fs::remove_file(&paths.result);
         }
     }
+}
+
+/// How many lines of the error the warning shows.
+const WARNING_LINES: usize = 20;
+
+/// The warning for a failed publish. An error of one line reads on one line. A longer one
+/// (the stderr of a failed command, the output of the documents hook) shows its first
+/// lines, so the cause is visible.
+fn warning_text(time: &str, error: &str) -> String {
+    let error = error.trim();
+    let error = error.strip_prefix("error: ").unwrap_or(error);
+    let lines: Vec<&str> = error.lines().collect();
+    if lines.len() <= 1 {
+        return format!(
+            "warning: the last background publish failed at {}: {}; run tsk ledger push",
+            time,
+            first_line(error)
+        );
+    }
+    let mut text = format!("warning: the last background publish failed at {}:\n", time);
+    for line in lines.iter().take(WARNING_LINES) {
+        text.push_str("  ");
+        text.push_str(line.trim_end());
+        text.push('\n');
+    }
+    if lines.len() > WARNING_LINES {
+        text.push_str(&format!(
+            "  ({} more lines are in background-push.log)\n",
+            lines.len() - WARNING_LINES
+        ));
+    }
+    text.push_str("Run tsk ledger push");
+    text
 }
 
 fn first_line(text: &str) -> String {
@@ -408,6 +440,20 @@ mod tests {
     fn the_first_line_of_an_error_loses_its_prefix() {
         assert_eq!(first_line("error: boom\n  more"), "boom");
         assert_eq!(first_line(""), "unknown error");
+    }
+
+    #[test]
+    fn a_long_error_shows_its_first_lines_in_the_warning() {
+        let one = warning_text("T", "error: boom");
+        assert_eq!(
+            one,
+            "warning: the last background publish failed at T: boom; run tsk ledger push"
+        );
+        let long: String = (1..=30).map(|n| format!("line {}\n", n)).collect();
+        let text = warning_text("T", &format!("error: commit failed:\n{}", long));
+        assert!(text.contains("  line 18"), "{}", text);
+        assert!(!text.contains("line 25"), "{}", text);
+        assert!(text.contains("more lines"), "{}", text);
     }
 
     #[test]

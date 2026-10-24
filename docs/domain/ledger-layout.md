@@ -229,12 +229,84 @@ Five commands read and write the documents:
 | `tsk ledger doc path <path>` | Prints the absolute path of the document's file, for opening it in another tool. Exits 1 with `error: no such document: <path>` when it is absent. |
 
 `doc put` and `doc rm` do not reach the remote. `tsk ledger push "<message>"` does.
+
 `tsk thread start` takes a mission ID, or none. It refuses an ID that has no mission record. With no ID it mints a thread with no mission. `tsk thread set mission` applies the same check. A ledger from before the mission records also accepts a briefing document at `missions/<category>/<ID>-<slug>.md`.
 
 `tsk ledger fetch` refreshes both stores: the Dolt database, then the documents
 worktree. It creates the worktree when it is absent. It refuses a worktree with
 uncommitted changes, as it does for the database, and notes a local commit that is not on
 the remote. It still prints the path of the Dolt database.
+
+### The documents hook point
+
+A repo may check its ledger documents with an executable script named `pre-docs-commit`.
+`tsk` owns the hook point and knows nothing about what a script does: any tool can check
+the documents through it. The script is looked up in four places, and the first place
+that has the file wins:
+
+| Order | Place | Path |
+|---|---|---|
+| 1 | Environment | The file `TSK_DOCS_HOOK` names. Set to a path that is not a file, it is an error that names the path. |
+| 2 | Clone | `<state>/repos/<clone-id>/hooks/pre-docs-commit`, in the state directory of the clone, next to `ledger-db`. |
+| 3 | User | `${XDG_CONFIG_HOME:-$HOME/.config}/tsk/hooks/pre-docs-commit`. |
+| 4 | Repo | `.tsk/hooks/pre-docs-commit` at the root of the code worktree, next to `.tsk/config.toml`. Versioned and reviewed with the code. |
+
+A place with no file is skipped. A file that exists and is not executable is an error that
+names its path. A person who cannot commit a file to a repo (it is not theirs) uses the
+environment, clone or user place. `tsk config docs-hook` prints the script that applies
+and the place it came from, or `docs hook: none`, and exits 0:
+
+```text
+docs hook: /home/me/.config/tsk/hooks/pre-docs-commit
+source: user (<config>/tsk/hooks/pre-docs-commit)
+```
+
+| Item | Value |
+|---|---|
+| Arguments | The changed document paths, relative to the documents worktree, one argument each. A deleted document is not passed. |
+| Current directory | The documents worktree. |
+| Environment | `TSK_DOCS_WORKTREE` is the absolute path of the documents worktree. |
+| Output | Passed through unchanged. On exit 0 stdout and stderr go to the same streams of `tsk`. On a non-zero exit both go to stderr of `tsk`, followed by one `error:` line that names the hook and the exit status. |
+| Skip | `TSK_SKIP_DOC_CHECK=1` in the environment. `tsk` then prints `note: TSK_SKIP_DOC_CHECK is set; skipped the documents hook <path>` on stderr. |
+
+The hook runs at two points:
+
+1. `tsk ledger doc put <path>`, after the document is written to the documents worktree,
+   with that one path. A non-zero exit makes `doc put` exit 1. The document stays written
+   in the local worktree, so the author corrects it and puts it again.
+2. `tsk ledger push` and the background publish (`tsk ledger push --background`), before
+   the documents commit, once, with every document changed since the last push: the
+   documents `tsk ledger status` lists. With no changed document it does not run. A
+   non-zero exit stops the push before anything is pushed and exits 1. The local state
+   stays. The background publish stores the output in its result record, and the warning
+   of the next command shows its first 20 lines.
+
+A hook that cannot start (its interpreter line names a program that is not there, say)
+is an error that names the path. When no place has a file, nothing runs. `tsk thread start`, `pause` and `stop` push through the
+same code and run the hook too.
+
+The repo place is the code worktree of the repo the command runs in, the way
+`.tsk/config.toml` is. For a ledger kept in a nexus, the nexus holds the ledger and the
+documents, and the repo whose ledger it is holds the hook: a command run in repo A uses
+`.tsk/hooks/pre-docs-commit` of repo A, and the nexus repo needs none. A repo with several
+code worktrees uses the file of the worktree the command runs in. The clone place is the
+state directory of the clone, whatever holds the ledger.
+
+### Git hooks in the ledger worktrees
+
+The documents worktree and the ledger transport worktree are linked worktrees of the
+managed clone of the code repo, so `git rev-parse --git-common-dir` in them is the code
+repo's `.git`, and git would run the code repo's hooks (`pre-commit`, `commit-msg`,
+`pre-push`, `post-checkout` and the rest) for the commits, merges, checkouts and pushes
+`tsk` makes there. A hook written for the code (a lint of staged Markdown, say) stopped
+`tsk ledger push` before it pushed anything. `tsk` therefore starts every git process of
+the ledger with `core.hooksPath` set to `/dev/null`, so no git hook runs for them. The
+setting goes in the environment (`GIT_CONFIG_COUNT` and its keys, the way `gitenv.rs` sets
+`protocol.version`), so the arguments of the command stay the plain ones and the setting
+reaches any git process that git starts. `--no-verify` would skip only `pre-commit` and
+`commit-msg`. The setting is made in one place, the `Git` helper of
+`cli/src/ledger/git.rs`. The one helper for the user's own code worktree,
+`Git::in_code_worktree`, keeps the hooks. See ADR 0025.
 
 ### Push
 

@@ -2232,6 +2232,17 @@ impl LedgerStore for DoltStore {
         // pushes only when it has a change or an unpushed commit: a side that is already
         // on the remote sends nothing.
         let docs_outcome = {
+            // The documents hook sees every document changed since the last push, before
+            // they are committed. Both local commits stay when it fails.
+            let known = self.sync_docs_tip(&location)?;
+            let side = crate::ledger::status::worktree_side(&Git::new(&docs_path), &Ok(known))?;
+            let changed: Vec<String> = side
+                .files
+                .into_iter()
+                .filter(|(letter, _)| *letter != 'D')
+                .map(|(_, path)| path)
+                .collect();
+            crate::ledger::doc_hook::run(&self.repo, &docs_path, &changed)?;
             let mut on_retry = |attempt: usize, status: &PushStatus| {
                 if !self.rejection_is_expected(attempt) {
                     notes(&crate::ledger::retry_note(attempt, status))
@@ -2304,7 +2315,11 @@ impl LedgerStore for DoltStore {
 
     fn doc_put(&self, path: &str, body: &str) -> Result<(), String> {
         let path = super::check_docs_path(path)?;
-        self.docs_tree()?.doc_put(&path, body)
+        let tree = self.docs_tree()?;
+        tree.doc_put(&path, body)?;
+        // The document stays written when the hook fails, so the author can correct it.
+        crate::ledger::doc_hook::run(&self.repo, &tree.root, std::slice::from_ref(&path))?;
+        Ok(())
     }
 
     fn doc_list(&self, prefix: &str) -> Result<Vec<String>, String> {
