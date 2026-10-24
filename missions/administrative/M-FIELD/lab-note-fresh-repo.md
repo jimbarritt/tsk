@@ -265,3 +265,21 @@ Reading: the only `git` is Apple's `/usr/bin/git`, and a start takes 40 to 63 ms
 Not tested: whether Homebrew `git` starts faster than the Apple shim.
 
 Record: M-PERF T-20 (updated with the measurement).
+
+### 2026-10-24, entry 14: the agent set up its own mission in java-dojo
+
+Jim asked an agent in `java-dojo` to store the Revolut interview brief (distilled in this session from Jim's email) as an intel document on a mission. Jim reported that the agent did the whole job: mission, document, link and push. Jim then ran `tsk mission list`. Output, exactly:
+
+```
+$ time tsk mission list
+M-DOJO-ENV  todo  -  -  Bootstrap a Java practice environment
+tsk mission list  0.21s user 0.14s system 36% cpu 0.946 total
+```
+
+Readings:
+
+- The ledger has one mission, `M-DOJO-ENV` "Bootstrap a Java practice environment", with status `todo`. No separate interview mission is listed, so the brief is probably linked to `M-DOJO-ENV`. Not yet checked.
+- The status is `todo` while work on the mission is under way.
+- `tsk mission list` takes 0.95 s with 0.35 s of CPU on a one-mission ledger, so about 0.6 s is waiting. This matches the git start cost in M-PERF T-20 (entry 13).
+
+Open: which mission holds the brief, and whether the agent used `tsk` for all checks this time.
