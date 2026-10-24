@@ -55,5 +55,8 @@ table name the mission by it. A test with real Dolt found that this cannot be pu
   it on the cell `missions.code`. A rename after the upgrade is published does not.
 - A text that names an old ID (a task, a decision, a document) is not rewritten. `tsk
   mission mv` prints each record that mentions it.
+- A thread that stores the path of its briefing document, and no mission, reads its mission
+  from the file name. `tsk mission mv` moves that path with the document and sets the mission
+  of the thread, so the thread follows this and later renames (0.30.2, M-ADMIN-02 T-30).
 - The new mission ID has to pass the rule of `tsk mission create` (`M-` and capitals and
   digits in groups). A different ID scheme needs that rule changed first (M-ADMIN-02 T-28).

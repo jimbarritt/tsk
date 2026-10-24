@@ -402,9 +402,16 @@ pub fn mission_mv(
     dry_run: bool,
 ) -> Result<(), String> {
     let missions = store.missions_load()?;
-    let plan = plan_rename(&missions, from, to, &|path| {
+    let mut plan = plan_rename(&missions, from, to, &|path| {
         store.doc_exists(path).unwrap_or(false)
     })?;
+    let threads = threads_to_follow(store, &plan.docs)?;
+    // The thread lines come after the document lines and before the mentions.
+    let at = 1 + plan.docs.len();
+    for (offset, (id, old, new)) in threads.iter().enumerate() {
+        plan.lines
+            .insert(at + offset, format!("thread {} {} -> {}", id, old, new));
+    }
     if dry_run {
         for line in &plan.lines {
             println!("{}", line);
@@ -417,6 +424,11 @@ pub fn mission_mv(
         move_document(store, old, new)?;
     }
     store.mission_rename(from, to)?;
+    // A thread that stores the path of its briefing, and not the internal ID of a mission,
+    // reads its mission from the file name. It now names the mission by the internal ID.
+    for (id, _, new) in &threads {
+        store.thread_set_mission(id, Some(to), Some(new))?;
+    }
     if !plan.docs.is_empty() {
         let mut renamed = store.missions_load()?;
         if let Some(mission) = renamed.iter_mut().find(|m| m.id == to) {
@@ -433,6 +445,25 @@ pub fn mission_mv(
         println!("{}", line);
     }
     Ok(())
+}
+
+/// The threads whose briefing is a document the rename moves, as `(thread, old path, new
+/// path)`. A thread made before layout 5, or from a briefing document, stores that path.
+/// Its mission ID is the one in the file name, so it shows the old ID after a rename.
+fn threads_to_follow(
+    store: &dyn LedgerStore,
+    docs: &[(String, String)],
+) -> Result<Vec<(String, String, String)>, String> {
+    let mut found = Vec::new();
+    for id in store.thread_ids()? {
+        let Some(path) = store.thread_info(&id)?.briefing_path else {
+            continue;
+        };
+        if let Some((_, new)) = docs.iter().find(|(old, _)| *old == path) {
+            found.push((id, path, new.clone()));
+        }
+    }
+    Ok(found)
 }
 
 fn document_sort(mission: &mut Mission) {

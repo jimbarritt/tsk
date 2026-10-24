@@ -8916,6 +8916,74 @@ fn mission_mv_changes_the_code_and_every_record_follows() {
     assert_eq!(fx.record(&b, "M-NEW")["tasks"].as_array().unwrap().len(), 2);
 }
 
+/// M-ADMIN-02 T-30. A thread made from a briefing document stores the path of the document
+/// and not the internal ID of a mission. A rename moves the document, so the thread follows
+/// the new path and reads the new code in `thread list` and `thread title`.
+#[test]
+fn mission_mv_moves_the_briefing_path_of_a_thread_made_from_a_document() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new();
+    let a = fx.a();
+    fx.ok(&a, &["ledger", "fetch"]);
+    // The briefing document comes first, so the thread stores its path and the mission ID
+    // as text. The record is made after, as the missions of this repo were.
+    fx.put(&a, "missions/operational/M-OLD-briefing.md", "briefing\n");
+    fx.put(
+        &a,
+        "missions/operational/M-KEEP-briefing.md",
+        "other briefing\n",
+    );
+    let thread = fx.started(&a, &["thread", "start", "M-OLD"]);
+    fx.ok(&a, &["thread", "detach"]);
+    let other = fx.started(&a, &["thread", "start", "M-KEEP"]);
+    fx.ok(&a, &["mission", "create", "M-OLD", "Old name"]);
+    fx.ok(&a, &["mission", "create", "M-KEEP", "Keeps its ID"]);
+    fx.ok(
+        &a,
+        &[
+            "mission",
+            "link",
+            "M-OLD",
+            "missions/operational/M-OLD-briefing.md",
+            "--role",
+            "design",
+        ],
+    );
+    assert_eq!(fx.thread_row(&a, &thread)["mission_id"], "M-OLD");
+
+    let lines = "mission M-OLD -> M-NEW\n\
+                 doc missions/operational/M-OLD-briefing.md -> missions/operational/M-NEW-briefing.md\n\
+                 thread ";
+    let dry = fx.ok(&a, &["mission", "mv", "M-OLD", "M-NEW", "--dry-run"]);
+    assert!(dry.starts_with(lines), "{}", dry);
+    assert!(dry.contains(&format!("thread {}", thread)), "{}", dry);
+    assert_eq!(fx.thread_row(&a, &thread)["mission_id"], "M-OLD");
+
+    let moved = fx.ok(&a, &["mission", "mv", "M-OLD", "M-NEW"]);
+    assert!(moved.contains(&format!("thread {}", thread)), "{}", moved);
+    assert!(!moved.contains(&other), "{}", moved);
+    let row = fx.thread_row(&a, &thread);
+    assert_eq!(row["mission_id"], "M-NEW");
+    assert_eq!(
+        row["mission_link"],
+        "missions/operational/M-NEW-briefing.md"
+    );
+    // A thread of another mission is not touched.
+    let row = fx.thread_row(&a, &other);
+    assert_eq!(row["mission_id"], "M-KEEP");
+    assert_eq!(
+        row["mission_link"],
+        "missions/operational/M-KEEP-briefing.md"
+    );
+
+    // The thread now names the mission by its internal ID, so a second rename follows too.
+    fx.ok(&a, &["mission", "mv", "M-NEW", "M-NEWER"]);
+    assert_eq!(fx.thread_row(&a, &thread)["mission_id"], "M-NEWER");
+}
+
 #[test]
 fn a_rename_on_one_clone_merges_with_a_task_added_to_the_old_code_on_another() {
     if !dolt_installed() {
