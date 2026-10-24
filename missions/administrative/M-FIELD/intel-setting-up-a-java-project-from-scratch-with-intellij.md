@@ -185,6 +185,8 @@ Finding: Gradle 8.5 supports Java up to 21. A Java 25 project needs Gradle 9.1 o
 
 Fix: pick the newest 9.x in the Gradle version dropdown before Create, or tick Auto-select. After Create, run `./gradlew --version` in the terminal. It should print Gradle 9.x and Java 25.0.5. An existing project changes version with `./gradlew wrapper --gradle-version <9.x>`, run with a Java the old Gradle supports.
 
+Jim's choice: Gradle 9.8.0, picked in the wizard dropdown. It is newer than the 9.1 floor above. The result of `./gradlew --version` after Create is still to be recorded.
+
 How sure: the Gradle and Java compatibility is from memory. Jim's `./gradlew --version` output decides.
 
 ## Open questions
