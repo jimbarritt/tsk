@@ -138,6 +138,36 @@ Settings that follow from the choice: `settings.gradle.kts`, `build.gradle.kts`,
 
 How sure: from memory of Gradle and IntelliJ behaviour; not run on Jim's machine.
 
+## Q6: the New Project wizard (checked from Jim's screenshot, 2026-10-24)
+
+Question: should Name be `java-dojo` with Location pointing at the `java-dojo` directory, given that the wizard may nest `java-dojo/java-dojo`?
+
+Answer: the wizard creates the project at Location/Name. Set Location to the parent directory. The wizard prints the final path under the Location field, so check that line.
+
+Jim's settings:
+
+| Field | Value |
+|---|---|
+| Template | Java |
+| Name | `java-dojo` |
+| Location | `~/Code/github/jimbarritt/` (the parent) |
+| Printed path | "Project will be created in: ~/Code/github/jimbarritt/java-dojo" |
+| Create Git repository | unticked (the repo exists) |
+| Build system | Gradle |
+| JDK | Eclipse Temurin 25.0.5 - aarch64, path under `/Users/jmdb/.local/share/mise/` |
+| Gradle DSL | Kotlin or Groovy: check which button is selected before Create |
+| Add sample code | unticked |
+
+Findings:
+
+- The printed path has no repeated name, so there is no nested `java-dojo/java-dojo`.
+- IntelliJ listed the mise JDK in the JDK field with a link icon, without being given the path (Q1, step 2). So IntelliJ finds JDKs that mise installs. Adding the SDK by path is the fallback when it does not.
+- The directory is not empty (`.git` and the files added so far), so IntelliJ can ask to confirm. Accept.
+- Advanced Settings holds the group ID and artifact ID. For a practice repo any value works, for example group `dojo` and artifact `java-dojo`.
+- Add sample code adds a `Main` class. Leave it unticked for a repo where Jim writes everything by hand.
+
+After Create: run `./gradlew --version` in the terminal. It should print Java 25.0.5. If Gradle reports an unsupported Java version, the wizard chose an older Gradle (Q2).
+
 ## Open questions
 
 (Jim has more questions to add.)
