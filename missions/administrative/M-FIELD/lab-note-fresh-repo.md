@@ -97,3 +97,28 @@ Facts checked in this session (0.26.0):
 - So a user-scope plugin is a valid Claude Code setting, but with it every session outside a tsk repo starts with that warning. Whether user scope should be offered is a decision for Jim.
 
 Records: M-ADMIN-02 T-14 (list the targets in the error) and T-15 (check for a git repo first, and offer user scope or stop).
+
+### 2026-10-24, entry 7: install-plugin on the Java repo
+
+The repo is `java-dojo`, a Java 25 Gradle project made in IntelliJ (see the intel document `intel-setting-up-a-java-project-from-scratch-with-intellij.md`). Jim ran `tsk install-plugin claude-cli` inside it. Output, exactly:
+
+```
+$ tsk install-plugin claude-cli
+add the jimbarritt/claude-plugins marketplace: claude plugin marketplace add jimbarritt/claude-plugins
+install tsk@jimbarritt-claude-plugins at project scope: claude plugin install tsk@jimbarritt-claude-plugins --scope project -y
+refresh the jimbarritt-claude-plugins marketplace: claude plugin marketplace update jimbarritt-claude-plugins
+update tsk@jimbarritt-claude-plugins at project scope: claude plugin update tsk@jimbarritt-claude-plugins --scope project
+wrote the SessionStart hook to .claude/settings.json
+commit .claude/settings.json so cloud sessions install the plugin
+```
+
+What worked: the command ran to the end with no error.
+
+Findings:
+
+- The output names the four commands it runs. It does not show whether each one worked, or what they printed.
+- It does not say what to do next: start `claude`, and that the ledger is created on the first push.
+- The last line says to commit `.claude/settings.json` "so cloud sessions install the plugin". Jim works on a laptop. The line does not say that committing is only needed for cloud sessions.
+- This session expected `.tsk/config.toml` to be written as well. The output does not mention it, so only `.claude/settings.json` is written until `git status` shows otherwise.
+
+Record: M-ADMIN-02 T-17.
