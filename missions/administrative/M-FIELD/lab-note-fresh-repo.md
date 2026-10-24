@@ -351,3 +351,19 @@ Readings:
 - The same shape is the likely cause of the 24 s pause in entry 17: `/tsk:pause-thread` is a skill, so its time includes the agent writing the entry. To confirm, Jim runs `tsk thread pause` directly.
 
 Records: M-PERF T-21 (hypothesis added) and T-22 (cut the agent's turns at session start and pause).
+
+### 2026-10-24, entry 19: bug, tsk ledger push fails with a git pre-commit hook
+
+Reported by the agent in `java-dojo` and relayed by Jim. Environment: tsk 0.26.0, tsk plugin 0.3.18, swe plugin 0.22.0, `/swe:install-commit-hook` run earlier the same day (it wrote `.git/hooks/pre-commit`, version 2).
+
+What happened: `tsk ledger push "<message>"` stopped before it pushed anything. The swe hook blocked the commit of two staged documents with "commit blocked. 2 staged markdown file(s) have no clean lint record for their staged content", and it listed `revolut-build-it-brief.md` and `revolut-recruiter-call-transcript.md` under `missions/operational/M-DOJO-ENV/`. The background publish (Stop hook) failed the same way at 10:52:41Z and 10:54:04Z. The next-command warning read: `warning: the last background publish failed at 2026-10-24T10:52:41Z: git commit --quiet -m Background publish failed (exit status 1):; run tsk ledger push`. The text after "exit status 1:" is empty, so the reason is lost.
+
+Cause (verified by the agent): the documents worktree (`~/.local/state/tsk/repos/java-dojo-fe0769ec/docs`) is a linked worktree of the code repo. `git rev-parse --git-dir` gives `<repo>/.git/worktrees/docs` and `--git-common-dir` gives `<repo>/.git`, with `core.hooksPath` unset. A linked worktree uses the common directory's hooks, so the code repo's `pre-commit` runs when tsk commits documents on the `tsk/docs` ref. The documents commit is the first step of the push, so documents and Dolt data both stayed unpushed.
+
+State left: documents staged locally (one modified, one added); data has local changes (1 decision, 2 constraints, 1 mission document link, 1 mission row) and the remote is ahead by 2. Nothing is lost.
+
+Fix options from the report: 1) tsk runs its own commits with hooks disabled; 2) a worktree-specific `core.hooksPath` for the documents worktree; 3) the background publish warning includes the commit's stderr. Chosen: 1 and 3, released as 0.26.1 (below).
+
+Interim for Jim: lint the two documents, or list them in `.swe-ignore`, so the hook passes; or switch the hook off for the push.
+
+Record: M-ADMIN-02 T-21.
