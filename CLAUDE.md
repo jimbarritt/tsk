@@ -66,10 +66,12 @@ The repo's `SessionStart` script (`ops/local/claude-session-start.sh`) installs 
 `dolt` 2.5.0 or later is installed, installs `tsk` from the latest release when the
 installed binary is older than `plugin/tsk-version`, then runs `tsk thread session-start`.
 Neither hook builds `tsk` from source, and a build at or above that version (from
-`just build-install`) is never replaced. `plugin/hooks/install-tsk.sh` holds the install
-logic for both hooks: `tsk self-update` for a release install, otherwise the release
-archive over that file, or into `/usr/local/bin` or `~/.local/bin` when there is no `tsk`.
-It prints a `WARNING:` line and exits 0 on failure. The plugin's own `SessionStart` hook runs
+`just build-install`) is never replaced. The install logic for both hooks is in `plugin/hooks/install-tsk.sh`: `tsk self-update` for
+a release install, otherwise the release archive over that file (the file a symbolic link
+names, written through a temporary file and a rename). With no `tsk`, the archive installs to
+`TSK_INSTALL_DIR`, else `/opt/homebrew/bin` on an Apple silicon Mac when that directory
+is writable, else `/usr/local/bin` when writable, else `~/.local/bin`. The script
+prints a `WARNING:` line and exits 0 on failure. The plugin's own `SessionStart` hook runs
 the same command. The binary claims each event by session ID and source, so the second
 run exits with no output. The command fetches the ledger, refreshes the ledger store,
 exports its path as `$TSK_LEDGER_WT`, and prints the thread binding prompt. With the

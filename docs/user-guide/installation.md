@@ -120,12 +120,16 @@ install step does not stop the session start. It adds a warning to the session c
 repo. `copilot-cli` does not write it either, because Copilot reads the plugin's hooks.
 
 The plugin's `SessionStart` hook installs the `tsk` version the plugin requires when
-`tsk` is missing or older than that version, from the latest release binary with no compile
-(`plugin/hooks/install-tsk.sh`). A newer `tsk` is accepted and never replaced. A `tsk` that is
+The hook installs `tsk` when none is on the path or the one found is older than that version.
+It installs the latest release binary with no compile (`plugin/hooks/install-tsk.sh`). A newer `tsk` is accepted and never replaced. A `tsk` that is
 older runs `tsk self-update`, and the release archive replaces that file if self-update
 cannot. A `tsk` under `~/.cargo/bin` takes the archive directly, because self-update would
-compile there. With no `tsk`, the archive installs into `/usr/local/bin` when it is
-writable, otherwise `~/.local/bin`. `TSK_INSTALL_DIR` names another directory. A failure is
+compile there. A `tsk` that is a symbolic link keeps the link, and the file it names is replaced. A
+Homebrew `tsk` (under a Cellar directory) is left to `brew upgrade`. With no `tsk`, the
+archive installs into the first of these that applies: `TSK_INSTALL_DIR`; `/opt/homebrew/bin`
+on an Apple silicon Mac (Darwin, arm64) when that directory exists and is writable;
+`/usr/local/bin` when writable; `~/.local/bin`. The binary is written to a temporary file
+in the target directory and renamed, so after a failed download the old file is whole. A failure is
 a `WARNING:` line in the session context.
 
 ### GitHub Copilot CLI

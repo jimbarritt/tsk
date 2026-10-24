@@ -42,20 +42,20 @@ REQUIRED="$(tr -d '[:space:]' <"$PLUGIN_DIR/tsk-version")"
 # development build included), and prints a WARNING line on failure.
 TSK_INSTALL_MSG="$("$PLUGIN_DIR/hooks/install-tsk.sh" | tr '\n' ' ' | sed 's/ *$//')"
 # The installer ran in a subshell, so a PATH change it made is lost. Find the binary again.
-for bin_dir in "${TSK_INSTALL_DIR:-}" /usr/local/bin "${HOME:-/nonexistent}/.local/bin"; do
+for bin_dir in "${TSK_INSTALL_DIR:-}" "${TSK_HOMEBREW_BIN_DIR:-/opt/homebrew/bin}" /usr/local/bin "${HOME:-/nonexistent}/.local/bin"; do
   [ -n "$bin_dir" ] && [ -x "$bin_dir/tsk" ] || continue
-  case ":$PATH:" in *":$bin_dir:"*) ;; *) PATH="$bin_dir:$PATH" ;; esac
+  case ":${PATH:-}:" in *":$bin_dir:"*) ;; *) PATH="$bin_dir:${PATH:-}" ;; esac
 done
 
 installed_version() {
-  command -v tsk >/dev/null 2>&1 && tsk --version 2>/dev/null | awk '{print $NF}'
+  command -v tsk >/dev/null 2>&1 && tsk --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1
 }
 
 installed_is_current() {
   local installed
   installed="$(installed_version)"
   [ -n "$installed" ] &&
-    [ "$(printf '%s\n%s\n' "$REQUIRED" "$installed" | sort -V | head -n 1)" = "$REQUIRED" ]
+    [ "$(printf '%s\n%s\n' "$REQUIRED" "$installed" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)" = "$REQUIRED" ]
 }
 
 if ! installed_is_current; then

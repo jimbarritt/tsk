@@ -125,9 +125,9 @@ DOLT_MSG="$("$REPO_ROOT/plugin/hooks/install-dolt.sh" | tr '\n' ' ')"
 # or above plugin/tsk-version, so a development build from `just build-install` stays.
 TSK_INSTALL_MSG="$("$REPO_ROOT/plugin/hooks/install-tsk.sh" | tr '\n' ' ')"
 # The installer ran in a subshell, so a PATH change it made is lost. Find the binary again.
-for bin_dir in "${TSK_INSTALL_DIR:-}" /usr/local/bin "${HOME:-/nonexistent}/.local/bin"; do
+for bin_dir in "${TSK_INSTALL_DIR:-}" "${TSK_HOMEBREW_BIN_DIR:-/opt/homebrew/bin}" /usr/local/bin "${HOME:-/nonexistent}/.local/bin"; do
   [ -n "$bin_dir" ] && [ -x "$bin_dir/tsk" ] || continue
-  case ":$PATH:" in *":$bin_dir:"*) ;; *) PATH="$bin_dir:$PATH" ;; esac
+  case ":${PATH:-}:" in *":$bin_dir:"*) ;; *) PATH="$bin_dir:${PATH:-}" ;; esac
 done
 if command -v tsk >/dev/null 2>&1; then
   TSK_OUTPUT="$(printf '%s' "$INPUT" | tsk thread session-start)"
