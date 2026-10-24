@@ -26,3 +26,4 @@
 - [24. A thread is the unit of continuation; there is no current mission](0024-a-thread-is-the-unit-of-continuation.md)
 - [25. A documents hook point, and no git hooks in the ledger worktrees](0025-a-documents-hook-point-and-no-git-hooks-in-the-ledger-worktrees.md)
 - [26. A mission has an internal ID and a code](0026-a-mission-has-an-internal-id-and-a-code.md)
+- [27. A mission prefix belongs to the ledger](0027-a-mission-prefix-belongs-to-the-ledger.md)
