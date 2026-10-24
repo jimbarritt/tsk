@@ -119,6 +119,6 @@ Findings:
 - The output names the four commands it runs. It does not show whether each one worked, or what they printed.
 - It does not say what to do next: start `claude`, and that the ledger is created on the first push.
 - The last line says to commit `.claude/settings.json` "so cloud sessions install the plugin". Jim works on a laptop. The line does not say that committing is only needed for cloud sessions.
-- This session expected `.tsk/config.toml` to be written as well. The output does not mention it, so only `.claude/settings.json` is written until `git status` shows otherwise.
+- This session expected `.tsk/config.toml` to be written as well. `git status` afterwards showed one untracked entry, `.claude/`, and no `.tsk/`. So the command writes only under `.claude/`. The expectation was wrong, and the output was right not to mention `.tsk/config.toml`.
 
 Record: M-ADMIN-02 T-17.
