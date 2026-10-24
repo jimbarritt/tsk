@@ -1,6 +1,6 @@
 # Setting up a Java project from scratch with IntelliJ
 
-Mission: M-FIELD. Status: notes in progress. Jim will move this document later. Source: Jim's field test of tsk on 2026-10-24, in a new private repo that is a practice environment for writing Java by hand for a coding interview.
+Mission: M-FIELD. Status: notes in progress. Jim plans to relocate these notes later. The source is Jim's field test of tsk on 2026-10-24, in a new private repo that is a practice environment for writing Java by hand for a coding interview.
 
 Each section has a question from Jim, the answer, and how sure the answer is. "Checked" means someone ran it. "From memory" means it comes from the author's knowledge and has not been run on Jim's machine.
 
@@ -10,7 +10,7 @@ Question: can the ledger, `AGENTS.md` and a README come before the Java project,
 
 Answer: create the Java project first, then add the rest.
 
-- The IntelliJ new-project wizard prefers an empty directory and warns when the directory has files. It generates the Gradle wrapper, `.idea` and a `.gitignore`.
+- The IntelliJ new-project wizard works best in an empty directory and warns when the directory has files. It generates the Gradle wrapper, `.idea` and a `.gitignore`.
 - Leave "Create Git repository" unticked in the wizard when the directory is already a repo.
 - tsk does not conflict with the project files. The ledger is outside the working tree. `tsk install-plugin` adds only `.claude/settings.json` and `.tsk/config.toml`.
 - The first `tsk ledger push` or `tsk thread start` creates the ledger on `origin`.
@@ -54,14 +54,14 @@ How sure: steps 1 to 5 are from memory of IntelliJ and mise behaviour, not run. 
 
 Question: which version should the project use, and what is the latest stable version?
 
-Answer: Java 25, the current long-term support (LTS) release, released in September 2025. The next LTS is Java 29, due in September 2027. Java 26 was released in March 2026 and Java 27 is due in September 2026. Neither is an LTS release, and each stops getting updates within about six months, so neither suits a long-lived practice repo.
+Answer: Java 25, the current long-term support (LTS) release, released in September 2025. The next LTS is Java 29, due in September 2027. Java 26 was released in March 2026. Java 27 is also released: Jim's mise reported `java@27.0.1.0.2` on 2026-10-24. Neither is an LTS release, and each stops getting updates within about six months, so neither suits a long-lived practice repo.
 
 Two exceptions:
 
 - Match the interview. Ask which Java version the company uses, or read the job advert. Java 17 and 21 are common in production code, and the language practised should not be newer than the language used on the day. With no information, Java 21 is the safe middle: it has records, `switch` patterns and sealed types, and interview platforms accept it.
 - Check the tools. Java 25 needs a recent Gradle (9.1 or later, from memory) and a recent IntelliJ. An older Gradle fails with an unsupported-version error. Check with `./gradlew --version`.
 
-How sure: from memory. The author's knowledge ends in June 2026, so the status of Java 26 and 27 is not confirmed. Confirm the versions mise offers with `mise ls-remote java`.
+How sure: from memory. The author's knowledge ends in June 2026, so the details of Java 26 and 27 are not confirmed. Confirm the versions mise offers with `mise ls-remote java`.
 
 Temurin is the Eclipse Adoptium build of OpenJDK. It is free and the usual default.
 
@@ -85,6 +85,22 @@ java -version
 If `mise use` cannot find `temurin-25`, list the names with `mise ls-remote java | grep temurin` and use the exact name printed.
 
 How sure: from memory, not run on Jim's machine.
+
+## Q4: `mise where java` says java@27.0.1.0.2 is not installed
+
+Jim ran `mise where java` in the new repo. Output, exactly:
+
+```
+$ mise where java
+mise ERROR java@27.0.1.0.2 not installed
+mise ERROR Run with --verbose or MISE_VERBOSE=1 for more information
+```
+
+Cause: a mise config that applies in this directory already names `java@27.0.1.0.2`, probably the global config `~/.config/mise/config.toml` or a parent directory's `.mise.toml`. That version is not installed, and `mise use` has not yet been run in this repo, so `mise where` reports the missing one.
+
+Fix: run `mise use java@temurin-25` in the repo. The command installs the JDK and writes the repo's `.mise.toml`, which overrides the global setting for this directory. Then `mise where java` prints the install path. To see which file names Java 27, run `mise config ls` or `mise ls --current`.
+
+How sure: the cause is inferred from the error text and mise's usual config order. Jim's output decides it.
 
 ## Open questions
 
