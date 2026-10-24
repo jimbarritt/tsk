@@ -22,7 +22,7 @@ The ledger moved from files on `tsk/ledger` to a Dolt database in one commit. A 
 that runs an older `tsk` must update it and install `dolt`. The `SessionStart` hook does
 both. By hand:
 
-- Rebuild `tsk` from `cli/`, or run `cargo install --path cli --locked`.
+- Run `tsk self-update`, or rebuild `tsk` with `just build-install`.
 - Install `dolt` 2.5.0 or later (`plugin/hooks/install-dolt.sh`).
 
 The file ledger's full history is on the branch `archive/tsk-ledger-files`. An older
@@ -63,8 +63,13 @@ store, a Dolt database at a fixed path outside the repository.
 The repo's `SessionStart` script (`ops/local/claude-session-start.sh`) installs the
 `tsk` plugin (`plugin/`) from the `jimbarritt/claude-plugins` marketplace, whose
 `git-subdir` entry points at `plugin/` in this repo, installs `dolt` 2.5.0 when no
-`dolt` 2.5.0 or later is installed, builds `tsk` from `cli/` when the installed binary
-is not at the workspace version, then runs `tsk thread session-start`. The plugin's own `SessionStart` hook runs
+`dolt` 2.5.0 or later is installed, installs `tsk` from the latest release when the
+installed binary is older than `plugin/tsk-version`, then runs `tsk thread session-start`.
+Neither hook builds `tsk` from source, and a build at or above that version (from
+`just build-install`) is never replaced. `plugin/hooks/install-tsk.sh` holds the install
+logic for both hooks: `tsk self-update` for a release install, otherwise the release
+archive over that file, or into `/usr/local/bin` or `~/.local/bin` when there is no `tsk`.
+It prints a `WARNING:` line and exits 0 on failure. The plugin's own `SessionStart` hook runs
 the same command. The binary claims each event by session ID and source, so the second
 run exits with no output. The command fetches the ledger, refreshes the ledger store,
 exports its path as `$TSK_LEDGER_WT`, and prints the thread binding prompt. With the

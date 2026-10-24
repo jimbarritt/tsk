@@ -37,12 +37,20 @@ PLUGIN_VERSION_ARGS=()
 
 REQUIRED="$(tr -d '[:space:]' <"$PLUGIN_DIR/tsk-version")"
 
+# The tsk binary comes from the latest release, with no compile. The installer does
+# nothing when the tsk first on the path is at or above the required version (a
+# development build included), and prints a WARNING line on failure.
+TSK_INSTALL_MSG="$("$PLUGIN_DIR/hooks/install-tsk.sh" | tr '\n' ' ' | sed 's/ *$//')"
+# The installer ran in a subshell, so a PATH change it made is lost. Find the binary again.
+for bin_dir in "${TSK_INSTALL_DIR:-}" /usr/local/bin "${HOME:-/nonexistent}/.local/bin"; do
+  [ -n "$bin_dir" ] && [ -x "$bin_dir/tsk" ] || continue
+  case ":$PATH:" in *":$bin_dir:"*) ;; *) PATH="$bin_dir:$PATH" ;; esac
+done
+
 installed_version() {
   command -v tsk >/dev/null 2>&1 && tsk --version 2>/dev/null | awk '{print $NF}'
 }
 
-# A repo that builds tsk from its own source can install a newer tsk than the
-# plugin requires, so any version at or above the required one is accepted.
 installed_is_current() {
   local installed
   installed="$(installed_version)"
@@ -51,20 +59,7 @@ installed_is_current() {
 }
 
 if ! installed_is_current; then
-  if [ -n "${TSK_SOURCE:-}" ]; then
-    case "$TSK_SOURCE" in
-      /*) SOURCE_PATH="$TSK_SOURCE" ;;
-      *) SOURCE_PATH="${CLAUDE_PROJECT_DIR:-$PWD}/$TSK_SOURCE" ;;
-    esac
-    INSTALL_CMD="cargo install --path $SOURCE_PATH --locked"
-  else
-    INSTALL_CMD="cargo install tsk-bin --version $REQUIRED --locked"
-  fi
-  $INSTALL_CMD >&2 || true
-fi
-
-if ! installed_is_current; then
-  emit "tsk $REQUIRED or later is required and could not be installed automatically. Run \`$INSTALL_CMD\`, then run \`tsk thread session-start </dev/null\` (or restart the session) to complete session start. $DOLT_MSG"
+  emit "tsk $REQUIRED or later is required and could not be installed automatically. Run \`plugin/hooks/install-tsk.sh\` from the plugin directory or \`tsk self-update\`, then run \`tsk thread session-start </dev/null\` (or restart the session) to complete session start. $TSK_INSTALL_MSG $DOLT_MSG"
   exit 0
 fi
 
@@ -74,13 +69,13 @@ if [ -n "$PLUGIN_VERSION" ] &&
   PLUGIN_VERSION_ARGS=(--plugin-version "$PLUGIN_VERSION")
 fi
 
-if [ -z "$DOLT_MSG" ] && [ "$FORMAT" != "copilot" ]; then
+if [ -z "$DOLT_MSG$TSK_INSTALL_MSG" ] && [ "$FORMAT" != "copilot" ]; then
   exec tsk thread session-start ${PLUGIN_VERSION_ARGS[@]+"${PLUGIN_VERSION_ARGS[@]}"}
 fi
 
-# Add the dolt warning to the context that tsk prints, and convert it to the
+# Add the dolt and install warnings to the context that tsk prints, and convert it to the
 # harness's shape. tsk prints nothing when another hook already claimed the event.
 TSK_OUTPUT="$(tsk thread session-start ${PLUGIN_VERSION_ARGS[@]+"${PLUGIN_VERSION_ARGS[@]}"})"
 [ -n "$TSK_OUTPUT" ] || exit 0
 TSK_MSG="$(printf '%s' "$TSK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
-emit "$(printf '%s %s' "$TSK_MSG" "$DOLT_MSG" | sed 's/^ *//; s/ *$//')"
+emit "$(printf '%s %s %s' "$TSK_MSG" "$TSK_INSTALL_MSG" "$DOLT_MSG" | sed 's/^ *//; s/ *$//')"

@@ -120,8 +120,13 @@ install step does not stop the session start. It adds a warning to the session c
 repo. `copilot-cli` does not write it either, because Copilot reads the plugin's hooks.
 
 The plugin's `SessionStart` hook installs the `tsk` version the plugin requires when
-`tsk` is missing or older than that version. A newer `tsk` is accepted. With `TSK_SOURCE` set to a path, it installs
-from that source tree with `cargo install --path`.
+`tsk` is missing or older than that version, from the latest release binary with no compile
+(`plugin/hooks/install-tsk.sh`). A newer `tsk` is accepted and never replaced. A `tsk` that is
+older runs `tsk self-update`, and the release archive replaces that file if self-update
+cannot. A `tsk` under `~/.cargo/bin` takes the archive directly, because self-update would
+compile there. With no `tsk`, the archive installs into `/usr/local/bin` when it is
+writable, otherwise `~/.local/bin`. `TSK_INSTALL_DIR` names another directory. A failure is
+a `WARNING:` line in the session context.
 
 ### GitHub Copilot CLI
 

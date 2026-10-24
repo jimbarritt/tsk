@@ -1,7 +1,4 @@
 {
-  "env": {
-    "TSK_SOURCE": "cli"
-  },
   "skillOverrides": {
     "load-plan": "off",
     "update-plan": "off",
