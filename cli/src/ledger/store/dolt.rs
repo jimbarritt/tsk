@@ -2234,15 +2234,21 @@ impl LedgerStore for DoltStore {
         let docs_outcome = {
             // The documents hook sees every document changed since the last push, before
             // they are committed. Both local commits stay when it fails.
-            let known = self.sync_docs_tip(&location)?;
-            let side = crate::ledger::status::worktree_side(&Git::new(&docs_path), &Ok(known))?;
-            let changed: Vec<String> = side
-                .files
-                .into_iter()
-                .filter(|(letter, _)| *letter != 'D')
-                .map(|(_, path)| path)
-                .collect();
-            crate::ledger::doc_hook::run(&self.repo, &docs_path, &changed)?;
+            // With no hook, the list of changed documents is not worked out: it costs git
+            // starts that a push without a hook does not need.
+            if let Some((hook, _)) =
+                crate::ledger::doc_hook::resolve(&self.repo, docs_path.parent())?
+            {
+                let known = self.sync_docs_tip(&location)?;
+                let side = crate::ledger::status::worktree_side(&Git::new(&docs_path), &Ok(known))?;
+                let changed: Vec<String> = side
+                    .files
+                    .into_iter()
+                    .filter(|(letter, _)| *letter != 'D')
+                    .map(|(_, path)| path)
+                    .collect();
+                crate::ledger::doc_hook::run_hook(&hook, &docs_path, &changed)?;
+            }
             let mut on_retry = |attempt: usize, status: &PushStatus| {
                 if !self.rejection_is_expected(attempt) {
                     notes(&crate::ledger::retry_note(attempt, status))
