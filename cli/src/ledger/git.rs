@@ -6,11 +6,41 @@ use std::process::{Command, Output, Stdio};
 #[derive(Clone)]
 pub struct Git {
     dir: PathBuf,
+    hooks: bool,
 }
 
 impl Git {
+    /// A helper for a directory tsk owns or reads: git hooks are off.
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Git { dir: dir.into() }
+        Git {
+            dir: dir.into(),
+            hooks: false,
+        }
+    }
+
+    /// A helper for the user's own code worktree: git keeps the repository's hooks.
+    pub fn in_code_worktree(dir: impl Into<PathBuf>) -> Self {
+        Git {
+            dir: dir.into(),
+            hooks: true,
+        }
+    }
+
+    fn command(&self) -> Command {
+        let mut command = Command::new("git");
+        command.current_dir(&self.dir);
+        // Git hooks are off in every git process tsk starts for the ledger. The ledger
+        // and docs worktrees are linked worktrees of the code repo, so git would run the
+        // code repo's hooks (`pre-commit`, `pre-push`, `post-checkout` and the rest) for
+        // tsk's own commits, merges, checkouts and pushes. `--no-verify` skips only
+        // `pre-commit` and `commit-msg`. The setting goes in the environment (see
+        // `gitenv`), so the arguments stay the plain ones.
+        if self.hooks {
+            crate::gitenv::apply(&mut command);
+        } else {
+            crate::gitenv::apply_hooks_off(&mut command);
+        }
+        command
     }
 
     pub fn dir(&self) -> &Path {
@@ -26,9 +56,8 @@ impl Git {
             .into_iter()
             .map(|a| a.as_ref().to_string_lossy().into_owned())
             .collect();
-        let mut command = Command::new("git");
-        command.args(&args).current_dir(&self.dir);
-        crate::gitenv::apply(&mut command);
+        let mut command = self.command();
+        command.args(&args);
         let output = command
             .output()
             .map_err(|e| format!("error: could not run git: {}", e))?;
@@ -61,9 +90,8 @@ impl Git {
             .into_iter()
             .map(|a| a.as_ref().to_string_lossy().into_owned())
             .collect();
-        let mut command = Command::new("git");
-        command.args(&args).current_dir(&self.dir);
-        crate::gitenv::apply(&mut command);
+        let mut command = self.command();
+        command.args(&args);
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -96,8 +124,15 @@ impl Git {
 }
 
 pub fn failure_message(args: &[String], output: &Output) -> String {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stderr = stderr.trim();
+    // A git hook may write its findings to stdout, so both streams are reported.
+    let mut stderr = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let err = String::from_utf8_lossy(&output.stderr);
+    let err = err.trim();
+    if !stderr.is_empty() && !err.is_empty() {
+        stderr.push('\n');
+    }
+    stderr.push_str(err);
+    let stderr = stderr.as_str();
     let status = match output.status.code() {
         Some(code) => format!("exit status {}", code),
         None => "terminated by a signal".to_string(),
@@ -140,6 +175,30 @@ mod tests {
             "{}",
             err
         );
+    }
+
+    #[test]
+    fn hooks_are_off_unless_the_helper_is_for_the_code_worktree() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = Git::new(dir.path());
+        git.run(["init", "-q", "-b", "main"]).unwrap();
+        let hooks = dir.path().join(".git/hooks");
+        let marker = dir.path().join("marker");
+        let hook = hooks.join("pre-commit");
+        std::fs::write(
+            &hook,
+            format!("#!/bin/sh\ntouch {}\nexit 1\n", marker.display()),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let commit = ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q"];
+        let mut args = commit.to_vec();
+        args.extend(["--allow-empty", "-m", "x"]);
+        git.run(args.clone()).unwrap();
+        assert!(!marker.exists());
+        assert!(Git::in_code_worktree(dir.path()).run(args).is_err());
+        assert!(marker.exists());
     }
 
     #[test]

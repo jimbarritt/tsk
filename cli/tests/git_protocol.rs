@@ -121,7 +121,7 @@ impl Fixture {
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\nprintf 'count=%s;k0=%s;v0=%s;k1=%s;v1=%s;args=%s\\n' \"$GIT_CONFIG_COUNT\" \"$GIT_CONFIG_KEY_0\" \"$GIT_CONFIG_VALUE_0\" \"$GIT_CONFIG_KEY_1\" \"$GIT_CONFIG_VALUE_1\" \"$*\" >> '{}'\nexec '{}' \"$@\"\n",
+                "#!/bin/sh\nprintf 'count=%s;k0=%s;v0=%s;k1=%s;v1=%s;k2=%s;v2=%s;args=%s\\n' \"$GIT_CONFIG_COUNT\" \"$GIT_CONFIG_KEY_0\" \"$GIT_CONFIG_VALUE_0\" \"$GIT_CONFIG_KEY_1\" \"$GIT_CONFIG_VALUE_1\" \"$GIT_CONFIG_KEY_2\" \"$GIT_CONFIG_VALUE_2\" \"$*\" >> '{}'\nexec '{}' \"$@\"\n",
                 self.log().display(),
                 real.trim()
             ),
@@ -222,7 +222,11 @@ impl Fixture {
                     .unwrap_or_default();
                 Launch {
                     count: field("count"),
-                    entries: vec![(field("k0"), field("v0")), (field("k1"), field("v1"))],
+                    entries: vec![
+                        (field("k0"), field("v0")),
+                        (field("k1"), field("v1")),
+                        (field("k2"), field("v2")),
+                    ],
                     args,
                 }
             })
@@ -246,9 +250,11 @@ fn every_git_launch_of_a_fetch_and_a_push_carries_protocol_version_0() {
         "expected network launches, got {:?}",
         launches
     );
+    // The second entry turns git hooks off for the ledger's own git processes.
     for launch in &launches {
-        assert_eq!(launch.count, "1", "{:?}", launch);
+        assert_eq!(launch.count, "2", "{:?}", launch);
         assert!(launch.sets("protocol.version", "0"), "{:?}", launch);
+        assert!(launch.sets("core.hooksPath", "/dev/null"), "{:?}", launch);
     }
 }
 
@@ -269,7 +275,7 @@ fn the_entry_goes_after_the_users_git_config_entries() {
     let launches = fx.launches();
     assert!(!launches.is_empty());
     for launch in &launches {
-        assert_eq!(launch.count, "2", "{:?}", launch);
+        assert_eq!(launch.count, "3", "{:?}", launch);
         assert_eq!(
             launch.entries[0],
             ("core.abbrev".to_string(), "12".to_string()),
@@ -282,6 +288,7 @@ fn the_entry_goes_after_the_users_git_config_entries() {
             "{:?}",
             launch
         );
+        assert!(launch.sets("core.hooksPath", "/dev/null"), "{:?}", launch);
     }
 }
 
@@ -299,7 +306,9 @@ fn tsk_git_protocol_default_leaves_the_setting_out() {
     let launches = fx.launches();
     assert!(!launches.is_empty());
     for launch in &launches {
-        assert_eq!(launch.count, "", "{:?}", launch);
+        // Only the entry that turns git hooks off is left.
+        assert_eq!(launch.count, "1", "{:?}", launch);
         assert!(!launch.sets("protocol.version", "0"), "{:?}", launch);
+        assert!(launch.sets("core.hooksPath", "/dev/null"), "{:?}", launch);
     }
 }

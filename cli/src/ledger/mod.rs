@@ -1,4 +1,5 @@
 pub mod background;
+pub mod doc_hook;
 pub mod docs;
 pub mod dolt;
 pub mod fetch;
