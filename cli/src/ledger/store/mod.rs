@@ -337,6 +337,13 @@ pub trait LedgerStore {
     /// local store, replacing what the store held for that ID. The first call on a
     /// Dolt ledger below version 5 creates the missing tables and columns and records version 5.
     fn mission_save(&self, mission: &Mission) -> Result<(), String>;
+    /// Write several missions in one local change, as [`mission_save`](Self::mission_save)
+    /// writes one. A task, decision or question a mission no longer holds is removed.
+    fn missions_save(&self, missions: &[Mission]) -> Result<(), String>;
+    /// Change the code of the mission `from` to `to`, and nothing else: every other row
+    /// names the mission by its internal ID. The first call on a Dolt ledger below version
+    /// 10 upgrades it.
+    fn mission_rename(&self, from: &str, to: &str) -> Result<(), String>;
 
     // --- Descriptions for error messages ---
 

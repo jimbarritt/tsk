@@ -901,7 +901,7 @@ fn the_dolt_command_line_reads_the_store_while_a_server_runs_and_a_write_fails_l
         &[
             "sql",
             "-q",
-            "update missions set name = 'Renamed' where id = 'M-L'",
+            "update missions set name = 'Renamed' where code = 'M-L'",
         ],
     );
     assert!(!write.status.success());
@@ -919,7 +919,7 @@ fn the_dolt_command_line_reads_the_store_while_a_server_runs_and_a_write_fails_l
         &[
             "sql",
             "-q",
-            "update missions set name = 'Renamed' where id = 'M-L'",
+            "update missions set name = 'Renamed' where code = 'M-L'",
         ],
     ));
     assert!(out(&fx.tsk('a', &["mission", "list"])).contains("Renamed"));

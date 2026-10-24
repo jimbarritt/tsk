@@ -268,8 +268,18 @@ tsk mission out-of-scope add <id> "<text>"    # prints n; also remove <id> <n> a
 tsk mission block <id> <by-id>                # and unblock
 tsk mission objective add <id> <outcome>      # prints n; also done, undone, remove, list
 tsk mission link <id> <path> --role <intelligence|report|design>   # and unlink
+tsk mission mv <old-id> <new-id> [--dry-run]  # rename: only the ID changes; linked documents named for it are renamed
 tsk mission list [<id>] [--json] [--porcelain]
 ```
+
+A mission has an internal ID, which a rename never changes, and the ID a person types. Every
+command takes and prints the second. `list <id> --json` has the first as `uid`. A rename
+changes one cell, so another clone can add records to the mission while you rename it, and
+the two merge. `mv` prints one line per change (`mission M-OLD -> M-NEW`, `doc A -> B`),
+then `mentions <mission> <record>` for each record whose text names the old ID. It does not
+change that text: read the lines and decide. Use `--dry-run` to see the lines first. A new
+ID has the form of any mission ID. After a rename, the thread of the mission names it under
+the new ID, and continuation entries written before keep the ID they were written with.
 
 Status is `todo`, `in-progress` or `done`. An administrative mission stays `in-progress`.
 Blocked is derived: a mission is blocked while any mission it names in `block` is not
@@ -323,14 +333,23 @@ tsk task add <mission> <description>          # prints the new ID, T-01 upward
 tsk task set <mission> <task> <field> <value> # status (todo|in-progress|done) or description
 tsk task block <mission> <task> <by>          # and unblock; <by> is a task of the same mission
 tsk task list <mission> [--porcelain]
+tsk task mv <mission> <task> <to-mission> [--force]   # next number in the target; its decisions move with it
 tsk decision add <mission> "<text>" --by <who> [--task T-nn] [--on YYYY-MM-DD] [--adr <path>]
 tsk decision list <mission> [--adr <path>] [--porcelain]
 tsk decision list [--adr <path>]                # no mission: every decision of every mission, or those that name the ADR
+tsk decision mv <mission> <n> <to-mission> [--task T-nn]   # n is the place in decision list, from 1
 tsk question add <mission> "<text>" [--on YYYY-MM-DD]   # prints the new ID, Q-01 upward
 tsk question edit <mission> <q> "<text>"      # rewrites an open question; an answered one is refused
 tsk question answer <mission> <q> "<text>" --by <who> [--on YYYY-MM-DD]
 tsk question list [<mission>] [--porcelain]   # open questions, all missions when none is given
+tsk question mv <mission> <q> <to-mission>
 ```
+
+`mv` moves a record to another mission, which gives it the next number there. The number it
+had is not used again, and each command prints one line, such as `task M-A T-05 -> M-B T-12`.
+A task with blocks is refused, because a block belongs to one mission: unblock it, or add
+`--force` to drop them. A decision loses its task link unless `--task` names a task of the
+target. `tsk ledger doc mv <from> <to>` renames a document and updates the mission links.
 
 Text is one line. Every `list` here prints aligned columns: two spaces between columns, no
 tabs, no trailing spaces. `--porcelain` prints the tab-separated lines instead, with no

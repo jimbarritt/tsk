@@ -108,17 +108,19 @@ gives the reasons.
 
 ### Tables
 
+A `mission_id` column in any table below holds the internal ID of a mission, `missions.id`. It is not the mission ID a person types, which is `missions.code`.
+
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `k` varchar(64), primary key; `v` text | The manifest keys as rows, for example `version` and `repo_id`. The `version` row is `8`. |
-| `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the mission the thread works, and is null for a thread with no mission. `briefing_path` is the mission's briefing document, stored only when the mission has no record. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The manifest keys as rows, for example `version` and `repo_id`. The `version` row is `10`. |
+| `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the internal ID of the mission the thread works (the code itself for a mission with no record), and is null for a thread with no mission. Every command reads it through `missions.code`, so a renamed mission shows its new ID. `briefing_path` is the mission's briefing document, stored only when the mission has no record. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
 | `bindings` | `actor` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `thread_id` varchar(64); `registered_at` varchar(32) | One row per bound actor, of either kind. The actor key of a cloud session is the session ID (`cse_...`). The actor key of a local code worktree is `<clone-id>/<worktree-name>`: the ID in `.git/tsk-clone-id`, a slash, and `main` for the main worktree or the name of the linked worktree. A bind sets or replaces the actor's row. `thread stop` deletes every row that names the stopped thread. There is no foreign key to `threads`. It replaces the `tsk-thread-id` marker files. A ledger below version 8 holds the cloud rows in `cloud_session_bindings` (`session_id`, `thread_id`, `registered_at`) instead. Since 0.26.0 the `actor` column is the key of a harness instance (see `instances`); it keeps its name. |
 | `actors` | `name` varchar(200), primary key; `kind` enum(`human`, `robot`); `registered_at` varchar(32) | One row per actor: a human or a robot, by name. An actor's identity is its own, outside any harness instance. `tsk actor register` adds a row for a new name. Nothing deletes a row. Version 9. |
 | `instances` | `instance` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `actor_name` varchar(200); `registered_at` varchar(32) | One row per harness instance that registered as an actor. The key is the one `bindings.actor` holds: the session ID of a cloud session, or `<clone-id>/<worktree-name>` of a code worktree. `tsk actor register` sets or replaces the instance's row. There is no foreign key to `actors` or to `bindings`. A registration is separate from a binding: an instance may be registered and unbound, or bound and unregistered. Version 9. |
 | `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of the [event envelope](#event-envelope). |
 | `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` varchar(32) | One row, `id` 1, the processed position of the queue. No row reads as `0`. It replaces `watermark.json`. |
-| `missions` | `id` varchar(64), primary key; `name` varchar(255); `category` enum(`operational`, `administrative`); `status` enum(`todo`, `in-progress`, `done`), default `todo`; `parent` varchar(64), null, foreign key to `missions(id)`; `purpose`, `decision_authority` longtext, null; `next_objective`, `next_task`, `next_question`, `next_constraint`, `next_out_of_scope` int, default 1 | One row per mission. Empty text is stored as null. Each `next_` column is the number the next objective outcome, task, question, constraint or out-of-scope item gets. It only grows, so a number is never reused. A ledger below version 7 has two more columns, `constraints_text` and `out_of_scope` (longtext, null), in place of the last two counters. |
+| `missions` | `id` varchar(64), primary key; `code` varchar(64), null, unique; `name` varchar(255); `category` enum(`operational`, `administrative`); `status` enum(`todo`, `in-progress`, `done`), default `todo`; `parent` varchar(64), null, foreign key to `missions(id)`; `purpose`, `decision_authority` longtext, null; `next_objective`, `next_task`, `next_question`, `next_constraint`, `next_out_of_scope` int, default 1 | One row per mission. `id` is the internal ID: every other table names the mission by it, and it never changes. `code` is the mission ID a person types and sees, such as `M-NAMES`; a rename changes `code` and nothing else, and a `code` that is null reads as the `id`. A mission made before layout 10 has its first ID as both. A mission made from layout 10 on has a random UUID as `id`. Empty text is stored as null. Each `next_` column is the number the next objective outcome, task, question, constraint or out-of-scope item gets. It only grows, so a number is never reused. A ledger below version 7 has two more columns, `constraints_text` and `out_of_scope` (longtext, null), in place of the last two counters. |
 | `mission_constraints` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext. Primary key (`mission_id`, `seq`) | One row per constraint of a mission, one line each. |
 | `mission_out_of_scope` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext. Primary key (`mission_id`, `seq`) | One row per out-of-scope item of a mission, one line each. |
 | `objective_outcomes` | `mission_id` varchar(64), foreign key; `seq` int; `outcome` longtext; `met` boolean, default false. Primary key (`mission_id`, `seq`) | One row per objective outcome. |
@@ -539,7 +541,7 @@ and out of scope are tables of their own with the bindings still in `cloud_sessi
 `mission_id`, `4` for a ledger with the mission, task, decision and question tables and the
 older `threads` table, `3` for a ledger with the mission tables only, and `2` for a
 ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
-backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8 and 9. Version 1 is a ledger that still keeps its
+backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8, 9 and 10. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger is refused by every command except `tsk ledger fetch`,
@@ -549,26 +551,26 @@ documents in a `documents` table.
 - A version 2 ledger works for everything it did before. The mission read commands behave
   as an empty mission set and write nothing. The first mission write command creates the
   mission, task, decision and question tables, adds `mission_id` to `threads` and makes
-  `briefing_path` nullable, and sets the `version` row to `9` in the same local Dolt
+  `briefing_path` nullable, and sets the `version` row to `10` in the same local Dolt
   change as the mission, so `tsk ledger push` publishes both. The tables are created in
   their newest shape.
 - A version 3 ledger works for everything it did before. The task, decision and question
   read commands behave as if the mission had none, and write nothing. The first write
   command of any of the four kinds (`mission`, `task`, `decision` or `question`) adds the
   columns `next_task` and `next_question` to `missions`, creates the four new tables, alters
-  `threads` as above and sets the `version` row to `9` in the same local Dolt change as the
+  `threads` as above and sets the `version` row to `10` in the same local Dolt change as the
   record, so `tsk ledger push` publishes both. A write that fails a check upgrades nothing.
 - A version 4 ledger works for everything it did before. `thread list` derives each
   thread's mission ID from its briefing path. The first write that needs the new column
-  alters `threads` and sets the `version` row to `9` in the same local Dolt change:
+  alters `threads` and sets the `version` row to `10` in the same local Dolt change:
   `tsk thread start`, `tsk thread set mission`, and a mission, task, decision or question write.
   Reads, `thread skip` and a `thread pause` upgrade nothing, and neither does a write that is refused.
-  A version 2, 3, 4, 5 or 6 ledger takes the whole chain of changes up to version 9 at its first
+  A version 2, 3, 4, 5 or 6 ledger takes the whole chain of changes up to version 10 at its first
   such write.
 - A version 5 ledger works for everything it did before. `decision list` prints `-` as the
   ADR path of every decision, and `mission list --json` prints `adr` as null. The first
   write of any of the four kinds adds `decisions.adr_path` with
-  `alter table decisions add column` and the later steps, and sets the `version` row to `9`
+  `alter table decisions add column` and the later steps, and sets the `version` row to `10`
   in the same local Dolt change as the record. Reads, and a write that is refused (a path that is not a
   file included), upgrade nothing. `tsk ledger status` labels the upgrade; see
   [Status and discard](#status-and-discard).
@@ -587,7 +589,7 @@ documents in a `documents` table.
   3. sets each counter to the number after the last item, or leaves it at 1 for a mission
      with no item;
   4. drops `constraints_text` and `out_of_scope`;
-  5. sets the `version` row to `9`, after the bindings step and the actor step below.
+  5. sets the `version` row to `10`, after the bindings step and the actor step below.
   The same step runs for a ledger at version 3, 4 or 5, in the same chain. `tsk ledger
   status` labels the upgrade, and shows the new list rows as added rows of the two tables.
 - A version 7 ledger works for everything it did before. The bindings are read from
@@ -601,7 +603,7 @@ documents in a `documents` table.
   1. creates `bindings`;
   2. copies every `cloud_session_bindings` row into it as kind `cloud`;
   3. drops `cloud_session_bindings`;
-  4. sets the `version` row to `9`.
+  4. sets the `version` row to `10`.
   The same step ends the chain for a ledger at version 2 to 6, and for the first write of
   any other kind that upgrades it. A write that is refused upgrades nothing. `tsk ledger
   status` labels the upgrade and does not show the copied rows as changes.
@@ -611,11 +613,19 @@ documents in a `documents` table.
   reaches a binding or a registration (`tsk actor register`, `thread start`, `thread
   resume`, `thread detach`, `thread stop`, or the marker migration in
   [`tsk-thread-id`](#tsk-thread-id)) creates `actors` and `instances`, both empty, and sets
-  the `version` row to `9` in the same local Dolt change as the write. The same step ends
+  the `version` row to `10` in the same local Dolt change as the write. The same step ends
   the chain for a ledger at version 2 to 7, after the bindings step. `tsk ledger status`
   labels the upgrade.
-- A `tsk` binary from before version 9 does not know the version. It stops at its manifest
-  check with `unsupported ledger version 9`, before it writes. The binary needs updating.
+- A version 9 ledger works for everything it did before. A mission has no `code`: every
+  command reads the `id` as the mission ID, and `mission list --json` prints it as `uid`.
+  A read upgrades nothing. The first write that reaches a mission or a thread adds the column
+  `missions.code` after `id`, sets it to the `id` of every mission, adds the unique index
+  `missions_code_unique`, and sets the `version` row to `10`, in the same local Dolt change
+  as the write. The step adds a column and an index and rewrites no key, so two clones that
+  each upgrade write the same change and Dolt merges them. The same step ends the chain for
+  a ledger at version 3 to 8. `tsk ledger status` labels the upgrade.
+- A `tsk` binary from before version 10 does not know the version. It stops at its manifest
+  check with `unsupported ledger version 10`, before it writes. The binary needs updating.
 - **Automatic update (tsk 0.18.0 and later).** A command refused with `unsupported ledger
   version N`, where N is above the highest layout this tsk supports, prints `warning: this
   ledger is at layout N and this tsk (X) supports up to M. Updating tsk now.` to stderr,
@@ -780,6 +790,22 @@ full record as one JSON object, and `list --json` prints an array of them:
 outcome, tab-separated. There is no `show` command and no Markdown output.
 
 A mission is a row of `missions` and rows of the tables that hang from it, so Dolt merges two missions, or two fields of one mission, without a conflict.
+
+### Rename and move
+
+`tsk mission mv <old> <new> [--dry-run]` changes `missions.code` and nothing else, because every other row names the mission by `missions.id`. Concurrent writes to the mission on another clone merge with it, whatever they are. It also renames each linked document whose path names the mission, and updates its link. A path names the mission when a component is the old ID, or starts with it and a `-` or a `.`: `M-X.md`, `M-X-slug.md` and a directory `M-X`. A component that starts with the ID of a mission with a longer ID belongs to that one. The command refuses an unknown mission, an ID that is not a mission ID, an ID that a mission has (compared without regard to case), the ID the mission has, and a new document path that exists. It prints `mission <old> -> <new>`, then `doc <old> -> <new>` for each document, then `mentions <mission> <record>` for each record whose text names the old ID as a whole word. It does not change that text. `--dry-run` prints the same lines and a note on stderr, and changes nothing.
+
+The new ID has to be a mission ID by the rule of `tsk mission create`.
+
+`tsk task mv <mission> <task> <to>`, `tsk decision mv <mission> <n> <to> [--task <task>]` and `tsk question mv <mission> <question> <to>` move a record to another mission, which gives it the next number there. The number it had is not used again. The two missions are saved in one local change.
+
+- A task keeps its description and status. The decisions that name it move with it and name it under its new number. A task with blocks, in either direction, is refused and the refusal names them, because a block is a row of one mission. `--force` drops them and prints one `dropped block` line for each.
+- A decision is addressed by its place in `tsk decision list <mission>`, from 1, because the list prints no number. It keeps its text, author, date and ADR. Its task link is cleared and the output says so, unless `--task` names a task of the target.
+- A question keeps its text, status, answer and dates.
+
+Each command prints one line per change, such as `task M-A T-05 -> M-B T-12` and `decision M-A 1 -> M-B 4`. A mission save removes a task, decision or question that the mission no longer holds. It writes decisions before it removes a task, because a decision points at a task.
+
+`tsk ledger doc mv <from> <to>` renames a document in the local store and updates every mission link to the old path, keeping its role. It prints `doc <from> -> <to>` and `link <mission> <role>` for each mission, and refuses a document that does not exist and a path that does.
 
 `constraints` and `out_of_scope` are rows of `mission_constraints` and `mission_out_of_scope`, numbered from 1, with the counters `next_constraint` and `next_out_of_scope` on the mission row.
 

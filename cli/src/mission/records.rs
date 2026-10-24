@@ -47,11 +47,11 @@ fn parse_label(prefix: &str, kind: &str, label: &str) -> Result<i64, String> {
     }
 }
 
-fn parse_task(label: &str) -> Result<i64, String> {
+pub(super) fn parse_task(label: &str) -> Result<i64, String> {
     parse_label("T", "task", label)
 }
 
-fn parse_question(label: &str) -> Result<i64, String> {
+pub(super) fn parse_question(label: &str) -> Result<i64, String> {
     parse_label("Q", "question", label)
 }
 
@@ -114,7 +114,7 @@ fn check_who(who: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn task_ref(mission: &Mission, seq: i64) -> Result<&Task, String> {
+pub(super) fn task_ref(mission: &Mission, seq: i64) -> Result<&Task, String> {
     mission
         .tasks
         .iter()
@@ -678,6 +678,17 @@ pub enum TaskCommands {
         by: String,
     },
     #[command(
+        about = "Move a task to another mission, which gives it the next task number there. The decisions that name the task move with it. A task with blocks is refused, because blocks stay in their mission, unless --force drops them. Prints one line per change. A local write"
+    )]
+    Mv {
+        mission: String,
+        task: String,
+        #[arg(help = "The mission the task moves to")]
+        to_mission: String,
+        #[arg(long, help = "Drop the blocks the task has, in either direction")]
+        force: bool,
+    },
+    #[command(
         about = "List the tasks of a mission, one per line: id, status, blocked-by, description. The columns are aligned with spaces; --porcelain prints them tab-separated"
     )]
     List {
@@ -731,6 +742,18 @@ pub enum DecisionCommands {
         )]
         adr: Option<String>,
     },
+    #[command(
+        about = "Move a decision to another mission, which gives it the next decision number there. N is the place of the decision in tsk decision list <mission>, counted from 1. The text, author, date and ADR stay; the task link is cleared, because a task belongs to its mission, unless --task names a task of the target. Prints one line per change. A local write"
+    )]
+    Mv {
+        mission: String,
+        #[arg(help = "The place of the decision in tsk decision list, from 1")]
+        n: usize,
+        #[arg(help = "The mission the decision moves to")]
+        to_mission: String,
+        #[arg(long, help = "ID of a task of the target mission, for example T-01")]
+        task: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -781,6 +804,15 @@ pub enum QuestionCommands {
             help = "Print tab-separated columns, the stable form for scripts, instead of aligned columns"
         )]
         porcelain: bool,
+    },
+    #[command(
+        about = "Move a question to another mission, which gives it the next question number there. The text, status, answer and dates stay. Prints one line. A local write"
+    )]
+    Mv {
+        mission: String,
+        question: String,
+        #[arg(help = "The mission the question moves to")]
+        to_mission: String,
     },
 }
 
@@ -843,6 +875,16 @@ pub fn run_task_with(store: &dyn LedgerStore, action: TaskCommands) -> Result<()
         TaskCommands::Unblock { mission, task, by } => {
             change(store, |all| task_unblock(all, &mission, &task, &by))?;
         }
+        TaskCommands::Mv {
+            mission,
+            task,
+            to_mission,
+            force,
+        } => {
+            let all = store.missions_load()?;
+            let moved = super::mv::task_mv(&all, &mission, &task, &to_mission, force)?;
+            super::mv::save_moved(store, moved)?;
+        }
         TaskCommands::List { mission, porcelain } => {
             let all = store.missions_load()?;
             let found = mission_of(&all, &mission)?;
@@ -879,6 +921,16 @@ pub fn run_decision_with(store: &dyn LedgerStore, action: DecisionCommands) -> R
                     &date,
                 )
             })?;
+        }
+        DecisionCommands::Mv {
+            mission,
+            n,
+            to_mission,
+            task,
+        } => {
+            let all = store.missions_load()?;
+            let moved = super::mv::decision_mv(&all, &mission, n, &to_mission, task.as_deref())?;
+            super::mv::save_moved(store, moved)?;
         }
         DecisionCommands::List {
             mission,
@@ -922,6 +974,15 @@ pub fn run_question_with(store: &dyn LedgerStore, action: QuestionCommands) -> R
             change(store, |all| {
                 question_answer(all, &mission, &question, &text, &by, &date)
             })?;
+        }
+        QuestionCommands::Mv {
+            mission,
+            question,
+            to_mission,
+        } => {
+            let all = store.missions_load()?;
+            let moved = super::mv::question_mv(&all, &mission, &question, &to_mission)?;
+            super::mv::save_moved(store, moved)?;
         }
         QuestionCommands::List { mission, porcelain } => {
             let all = store.missions_load()?;

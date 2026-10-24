@@ -240,6 +240,10 @@ fn one() -> i64 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mission {
     pub id: String,
+    /// The internal ID, from layout 10. A rename changes `id` and never this. Empty for a
+    /// mission read from a ledger below layout 10, which has none yet.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub uid: String,
     pub name: String,
     pub category: Category,
     pub status: Status,
@@ -306,7 +310,7 @@ pub fn valid_id(id: &str) -> bool {
         })
 }
 
-fn check_id(id: &str) -> Result<(), String> {
+pub fn check_id(id: &str) -> Result<(), String> {
     if valid_id(id) && id.len() <= 64 {
         Ok(())
     } else {
@@ -371,6 +375,7 @@ pub fn create(
     }
     Ok(Mission {
         id: id.to_string(),
+        uid: String::new(),
         name: name.to_string(),
         category,
         // An administrative mission has no end, so it starts in progress.
@@ -746,6 +751,8 @@ pub struct JsonDocument<'a> {
 #[derive(Serialize)]
 pub struct JsonMission<'a> {
     id: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    uid: &'a str,
     name: &'a str,
     category: &'a str,
     status: &'a str,
@@ -769,6 +776,7 @@ pub fn to_json<'a>(missions: &[Mission], mission: &'a Mission) -> JsonMission<'a
     let blockers = blocking(missions, mission);
     JsonMission {
         id: &mission.id,
+        uid: &mission.uid,
         name: &mission.name,
         category: mission.category.as_str(),
         status: mission.status.as_str(),

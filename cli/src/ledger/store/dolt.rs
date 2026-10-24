@@ -8,6 +8,7 @@
 //! until `tsk ledger migrate-docs` moves them.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::ledger::docs;
@@ -122,7 +123,12 @@ const ACTORS_QUERY: &str =
     "select name, kind, registered_at from actors order by registered_at, name";
 const INSTANCES_QUERY: &str = "select instance, kind, actor_name, registered_at from instances \
      order by registered_at, instance";
-const THREADS_QUERY: &str = "select thread_id, briefing_path, mission_id from threads";
+/// A thread names its mission by the internal ID. The query reads the code, so a renamed
+/// mission shows its new ID. A thread whose mission has no record keeps the ID it was
+/// started with.
+const THREADS_QUERY: &str = "select t.thread_id, t.briefing_path, \
+     coalesce((select coalesce(m.code, m.id) from missions m where m.id = t.mission_id), \
+     t.mission_id) as mission_id from threads t";
 
 /// What this process has found out about origin, so a command fetches each ref at most once.
 #[derive(Default)]
@@ -2435,7 +2441,7 @@ impl LedgerStore for DoltStore {
             "insert into threads (thread_id, briefing_path, mission_id) values ({}, {}, {});",
             lit(id),
             briefing_path.map_or("NULL".to_string(), lit),
-            mission_id.map_or("NULL".to_string(), lit)
+            thread_mission_key(mission_id)
         ));
         self.write(&db, &sql)
     }
@@ -2459,7 +2465,7 @@ impl LedgerStore for DoltStore {
         sql.push_str(&format!(
             "update threads set briefing_path = {}, mission_id = {} where thread_id = {};",
             briefing_path.map_or("NULL".to_string(), lit),
-            mission_id.map_or("NULL".to_string(), lit),
+            thread_mission_key(mission_id),
             lit(id)
         ));
         self.write(&db, &sql)
@@ -2518,7 +2524,10 @@ impl LedgerStore for DoltStore {
             Some((dir, version)) if dir == db.dir() => *version,
             _ => self.manifest_rows(&db)?.version,
         };
-        let column = if version >= dolt::THREAD_MISSION_LAYOUT_VERSION {
+        let column = if version >= dolt::CODE_LAYOUT_VERSION {
+            "coalesce((select coalesce(m.code, m.id) from missions m \
+             where m.id = threads.mission_id), threads.mission_id) as mission_id"
+        } else if version >= dolt::THREAD_MISSION_LAYOUT_VERSION {
             "mission_id"
         } else {
             "null as mission_id"
@@ -2804,6 +2813,36 @@ impl LedgerStore for DoltStore {
         self.write(&db, &sql)
     }
 
+    fn missions_save(&self, missions: &[Mission]) -> Result<(), String> {
+        let location = self.repo.location(&self.state_root)?;
+        let db = self.db()?;
+        let version = self.check_current(&db, &location)?;
+        let mut sql = String::new();
+        if version < dolt::LAYOUT_VERSION {
+            sql.push_str(&self.upgrade_script(&db, version)?);
+        }
+        for mission in missions {
+            sql.push_str(&save_sql(mission));
+        }
+        self.write(&db, &sql)
+    }
+
+    fn mission_rename(&self, from: &str, to: &str) -> Result<(), String> {
+        let location = self.repo.location(&self.state_root)?;
+        let db = self.db()?;
+        let version = self.check_current(&db, &location)?;
+        let mut sql = String::new();
+        if version < dolt::LAYOUT_VERSION {
+            sql.push_str(&self.upgrade_script(&db, version)?);
+        }
+        sql.push_str(&format!(
+            "update missions set code = {} where coalesce(code, id) = {};\n",
+            lit(to),
+            lit(from)
+        ));
+        self.write(&db, &sql)
+    }
+
     fn describe_thread(&self, id: &str) -> String {
         self.describe(&format!("thread {}", id))
     }
@@ -3035,6 +3074,16 @@ fn instance_rows(rows: &[serde_json::Value]) -> Vec<InstanceRow> {
         .collect()
 }
 
+/// What `threads.mission_id` holds for a thread of the mission with the code `code`: the
+/// internal ID of the mission, or the code itself for a mission that has no record. NULL for
+/// no mission. A ledger below layout 10 holds the code, which is also the internal ID.
+fn thread_mission_key(code: Option<&str>) -> String {
+    code.map_or("NULL".to_string(), |code| {
+        let code = lit(code);
+        format!("coalesce({}, {})", key_of_code(&code), code)
+    })
+}
+
 /// A nullable text column: NULL for an empty value.
 fn nullable(value: &str) -> String {
     if value.is_empty() {
@@ -3072,22 +3121,43 @@ fn items_sql(id: &str, table: &str, items: &[Item]) -> String {
     sql
 }
 
+/// The SQL for the internal ID of the mission with the code `code` (a SQL literal): a
+/// subselect that is NULL for a code with no record. A code that is null reads as the ID.
+fn key_of_code(code: &str) -> String {
+    format!(
+        "(select id from missions where coalesce(code, id) = {})",
+        code
+    )
+}
+
 /// The statements that make the tables hold `mission`: its row, and its outcomes, blockers
-/// and links, with the rows it no longer has removed. A value that did not change writes
-/// the same cell, so Dolt merges two clones that changed different fields.
+/// and links, with the rows it no longer has removed. A mission read from the ledger names
+/// its rows by the internal ID it was read with. A new mission gets a random one from
+/// `uuid()`, and the statements after its row find it by its code. A value that did not
+/// change writes the same cell, so Dolt merges two clones that changed different fields.
 fn save_sql(mission: &Mission) -> String {
-    let id = lit(&mission.id);
+    let code = lit(&mission.id);
+    let (row_id, id) = if mission.uid.is_empty() {
+        ("uuid()".to_string(), key_of_code(&code))
+    } else {
+        (lit(&mission.uid), lit(&mission.uid))
+    };
     let mut sql = format!(
-        "insert into missions (id, name, category, status, parent, purpose, decision_authority, \
-         next_objective, next_task, next_question, next_constraint, next_out_of_scope) values \
-         ({id}, {name}, '{category}', '{status}', {parent}, {purpose}, {authority}, \
+        "insert into missions (id, code, name, category, status, parent, purpose, \
+         decision_authority, next_objective, next_task, next_question, next_constraint, \
+         next_out_of_scope) values \
+         ({row_id}, {code}, {name}, '{category}', '{status}', NULL, {purpose}, {authority}, \
          {next}, {next_task}, {next_question}, {next_constraint}, {next_out_of_scope}) \
-         on duplicate key update name = values(name), category = values(category), \
-         status = values(status), parent = values(parent), purpose = values(purpose), \
+         on duplicate key update code = coalesce(missions.code, values(code)), \
+         name = values(name), category = values(category), \
+         status = values(status), purpose = values(purpose), \
          decision_authority = values(decision_authority), \
          next_objective = values(next_objective), next_task = values(next_task), \
          next_question = values(next_question), next_constraint = values(next_constraint), \
-         next_out_of_scope = values(next_out_of_scope);\n",
+         next_out_of_scope = values(next_out_of_scope);\n\
+         update missions set parent = {parent} where id = {id};\n",
+        row_id = row_id,
+        code = code,
         id = id,
         name = lit(&mission.name),
         category = mission.category.as_str(),
@@ -3095,7 +3165,7 @@ fn save_sql(mission: &Mission) -> String {
         parent = mission
             .parent
             .as_deref()
-            .map(lit)
+            .map(|parent| key_of_code(&lit(parent)))
             .unwrap_or_else(|| "NULL".to_string()),
         purpose = nullable(&mission.purpose),
         authority = nullable(&mission.decision_authority),
@@ -3146,7 +3216,11 @@ fn save_sql(mission: &Mission) -> String {
         ));
     }
 
-    let kept: Vec<String> = mission.blocked_by.iter().map(|b| lit(b)).collect();
+    let kept: Vec<String> = mission
+        .blocked_by
+        .iter()
+        .map(|b| key_of_code(&lit(b)))
+        .collect();
     sql.push_str(&format!(
         "delete from mission_blocks where mission_id = {}{};\n",
         id,
@@ -3185,7 +3259,26 @@ fn save_sql(mission: &Mission) -> String {
             rows.join(", ")
         ));
     }
-    // Tasks first: blocks and decisions point at them. A task is never removed.
+    // Rows the mission no longer holds go first, then the rows it holds are written. A
+    // decision points at a task, so decisions are written before a task is removed and
+    // after the tasks they name are written. Blocks go last, because they point at tasks
+    // that are gone or kept.
+    sql.push_str(&format!(
+        "delete from task_blocks where mission_id = {};\n",
+        id
+    ));
+    for (table, seqs) in [
+        (
+            "decisions",
+            mission.decisions.iter().map(|d| d.seq).collect::<Vec<_>>(),
+        ),
+        (
+            "questions",
+            mission.questions.iter().map(|q| q.seq).collect::<Vec<_>>(),
+        ),
+    ] {
+        sql.push_str(&delete_missing_sql(&id, table, &seqs));
+    }
     if !mission.tasks.is_empty() {
         let rows: Vec<String> = mission
             .tasks
@@ -3204,26 +3297,6 @@ fn save_sql(mission: &Mission) -> String {
             "insert into tasks (mission_id, seq, description, status) values {} \
              on duplicate key update description = values(description), status = values(status);\n",
             rows.join(", ")
-        ));
-    }
-    sql.push_str(&format!(
-        "delete from task_blocks where mission_id = {};\n",
-        id
-    ));
-    let blocks: Vec<String> = mission
-        .tasks
-        .iter()
-        .flat_map(|t| {
-            let id = &id;
-            t.blocked_by
-                .iter()
-                .map(move |by| format!("({}, {}, {})", id, t.seq, by))
-        })
-        .collect();
-    if !blocks.is_empty() {
-        sql.push_str(&format!(
-            "replace into task_blocks (mission_id, task_seq, blocked_by_seq) values {};\n",
-            blocks.join(", ")
         ));
     }
     if !mission.decisions.is_empty() {
@@ -3278,7 +3351,44 @@ fn save_sql(mission: &Mission) -> String {
             rows.join(", ")
         ));
     }
+    sql.push_str(&delete_missing_sql(
+        &id,
+        "tasks",
+        &mission.tasks.iter().map(|t| t.seq).collect::<Vec<_>>(),
+    ));
+    let blocks: Vec<String> = mission
+        .tasks
+        .iter()
+        .flat_map(|t| {
+            let id = &id;
+            t.blocked_by
+                .iter()
+                .map(move |by| format!("({}, {}, {})", id, t.seq, by))
+        })
+        .collect();
+    if !blocks.is_empty() {
+        sql.push_str(&format!(
+            "replace into task_blocks (mission_id, task_seq, blocked_by_seq) values {};\n",
+            blocks.join(", ")
+        ));
+    }
     sql
+}
+
+/// The statement that removes the rows of `table` for the mission `id` (a SQL expression)
+/// whose number is not in `seqs`.
+fn delete_missing_sql(id: &str, table: &str, seqs: &[i64]) -> String {
+    let kept: Vec<String> = seqs.iter().map(|seq| seq.to_string()).collect();
+    format!(
+        "delete from {} where mission_id = {}{};\n",
+        table,
+        id,
+        if kept.is_empty() {
+            String::new()
+        } else {
+            format!(" and seq not in ({})", kept.join(", "))
+        }
+    )
 }
 
 /// Read every mission with its outcomes, blockers and links, and with its tasks,
@@ -3313,13 +3423,28 @@ fn read_missions_with(
     } else {
         ", constraints_text, out_of_scope"
     });
+    // From layout 10 a mission has an internal `id` that every other table names it by, and
+    // a `code`, the ID a person types. A `code` that is null reads as the `id`. Below it
+    // the two are the same.
+    let with_code = version >= dolt::CODE_LAYOUT_VERSION;
+    let mut keys: Vec<String> = Vec::new();
     for row in rows(&format!(
-        "select id, name, category, status, parent, purpose, decision_authority, {} \
+        "select id, {}name, category, status, parent, purpose, decision_authority, {} \
          from missions order by id",
+        if with_code { "code, " } else { "" },
         columns
     ))? {
-        let id = text(&row, "id").unwrap_or_default();
+        let key = text(&row, "id").unwrap_or_default();
+        let id = if with_code {
+            text(&row, "code")
+                .filter(|code| !code.is_empty())
+                .unwrap_or_else(|| key.clone())
+        } else {
+            key.clone()
+        };
+        keys.push(key.clone());
         missions.push(Mission {
+            uid: key,
             name: text(&row, "name").unwrap_or_default(),
             category: Category::parse(&text(&row, "category").unwrap_or_default())
                 .map_err(|_| bad("category", &id))?,
@@ -3344,9 +3469,25 @@ fn read_missions_with(
             id,
         });
     }
-    let slot = |missions: &mut Vec<Mission>, id: &str| -> Option<usize> {
-        missions.iter().position(|m| m.id == id)
-    };
+    // The code of each mission by its internal ID, and each mission's place by it.
+    let code_of: HashMap<String, String> = keys
+        .iter()
+        .cloned()
+        .zip(missions.iter().map(|m| m.id.clone()))
+        .collect();
+    let index: HashMap<String, usize> = keys
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(at, key)| (key, at))
+        .collect();
+    for mission in &mut missions {
+        mission.parent = mission
+            .parent
+            .take()
+            .map(|parent| code_of.get(&parent).cloned().unwrap_or(parent));
+    }
+    let slot = |_: &mut Vec<Mission>, key: &str| -> Option<usize> { index.get(key).copied() };
     for row in rows(
         "select mission_id, seq, outcome, met from objective_outcomes order by mission_id, seq",
     )? {
@@ -3384,10 +3525,14 @@ fn read_missions_with(
     )? {
         let id = text(&row, "mission_id").unwrap_or_default();
         if let Some(at) = slot(&mut missions, &id) {
-            missions[at]
-                .blocked_by
-                .push(text(&row, "blocked_by_id").unwrap_or_default());
+            let by = text(&row, "blocked_by_id").unwrap_or_default();
+            let by = code_of.get(&by).cloned().unwrap_or(by);
+            missions[at].blocked_by.push(by);
         }
+    }
+    // The blockers read in the order of their internal IDs. The model holds them sorted.
+    for mission in &mut missions {
+        mission.blocked_by.sort();
     }
     for row in
         rows("select mission_id, path, role from mission_documents order by mission_id, path")?
@@ -3405,6 +3550,7 @@ fn read_missions_with(
         read_records(
             rows,
             &mut missions,
+            &index,
             version >= dolt::ADR_LAYOUT_VERSION,
             &bad,
         )?;
@@ -3412,6 +3558,7 @@ fn read_missions_with(
     for mission in &mut missions {
         mission.follow_list_counters();
     }
+    missions.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(missions)
 }
 
@@ -3419,10 +3566,11 @@ fn read_missions_with(
 fn read_records(
     rows: &mut dyn FnMut(&str) -> Result<Vec<serde_json::Value>, String>,
     missions: &mut [Mission],
+    index: &HashMap<String, usize>,
     with_adr: bool,
     bad: &dyn Fn(&str, &str) -> String,
 ) -> Result<(), String> {
-    let slot = |missions: &[Mission], id: &str| missions.iter().position(|m| m.id == id);
+    let slot = |_: &[Mission], key: &str| index.get(key).copied();
     for row in
         rows("select mission_id, seq, description, status from tasks order by mission_id, seq")?
     {

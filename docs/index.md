@@ -88,6 +88,7 @@ Architecture Decision Records capture why significant technical choices were mad
 - [0023-a-tsk-older-than-the-ledger-updates-itself.md](adr/0023-a-tsk-older-than-the-ledger-updates-itself.md): a command stopped by a newer ledger layout updates tsk and runs again; never from the hook commands; a loop guard and an opt-out. Releases: [v0.18.0](releases/v0.18.0.md).
 - [0024-a-thread-is-the-unit-of-continuation.md](adr/0024-a-thread-is-the-unit-of-continuation.md): a thread records where work stopped, names a mission or none, and there is no current mission in the ledger.
 - [0025-a-documents-hook-point-and-no-git-hooks-in-the-ledger-worktrees.md](adr/0025-a-documents-hook-point-and-no-git-hooks-in-the-ledger-worktrees.md): `.tsk/hooks/pre-docs-commit` is a generic hook point owned by `tsk`, run on `doc put` and before a push commits, with no dependency on any lint tool; git hooks are off in every git process of the ledger. Releases: [v0.26.1](releases/v0.26.1.md).
+- [0026-a-mission-has-an-internal-id-and-a-code.md](adr/0026-a-mission-has-an-internal-id-and-a-code.md): `missions.id` stays the key and becomes the internal ID, `missions.code` is the ID a person types, so a rename changes one cell; a changed primary key does not merge in Dolt, so the upgrade only adds a column. Releases: [v0.30.0](releases/v0.30.0.md).
 
 ## Knowledge base
 
