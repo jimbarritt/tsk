@@ -221,6 +221,17 @@ on every start; after, 7.0 s on the first and 0.58 s afterwards. The output is t
 Warnings keep their wording. A failed marketplace add warns once for each plugin, as
 before. A failed install skips that plugin's update, as before.
 
+### Update, 2026-10-24: tsk comes from the release
+
+Both hooks used to build `tsk` with `cargo install`: the repo script from the checkout
+whenever the installed version differed from the workspace version, and the plugin script
+from `TSK_SOURCE` or the crate. A resumed session does not pull `main`, so the repo script
+built an old checkout, and a build takes 40 to 60 s. Both hooks now call
+`plugin/hooks/install-tsk.sh`, which does nothing when the `tsk` first on the path is at or
+above `plugin/tsk-version`, and otherwise installs the latest release binary (see
+`CLAUDE.md` for the rules). `TSK_SOURCE` and the cargo branches are gone. The check costs
+one `tsk --version`, 5 ms, as before.
+
 The pause-thread skill runs `tsk thread binding --no-fetch` in place of `tsk thread
 binding`, and `tsk ledger status --local` in place of `tsk ledger status`. The binding is
 this session's own row, and the pause that follows checks the thread. The status asked

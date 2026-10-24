@@ -115,22 +115,25 @@ fi
 # this script runs the tsk session start itself, every time, rather than
 # depending on the plugin's hook. When the plugin's hook also runs, the
 # binary claims the event by session ID and source, and the second run exits
-# with no output. This repo builds tsk from its own source, so a running
-# container picks up a new tsk on its next session start.
+# with no output.
 TSK_MSG=""
 # tsk's ledger runs the dolt binary, so install it before tsk
 # runs. The installer prints a WARNING on failure and always exits 0.
 DOLT_MSG="$("$REPO_ROOT/plugin/hooks/install-dolt.sh" | tr '\n' ' ')"
-WORKSPACE_VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$REPO_ROOT/Cargo.toml" | head -n 1)"
-INSTALLED_VERSION="$(command -v tsk >/dev/null 2>&1 && tsk --version 2>/dev/null | awk '{print $NF}')"
-if [ "$INSTALLED_VERSION" != "$WORKSPACE_VERSION" ]; then
-  cargo install --path "$REPO_ROOT/cli" --locked >&2 || true
-fi
+# tsk comes from the latest release, not from this checkout, which a resumed session
+# can leave days behind. The installer does nothing when the tsk first on the path is at
+# or above plugin/tsk-version, so a development build from `just build-install` stays.
+TSK_INSTALL_MSG="$("$REPO_ROOT/plugin/hooks/install-tsk.sh" | tr '\n' ' ')"
+# The installer ran in a subshell, so a PATH change it made is lost. Find the binary again.
+for bin_dir in "${TSK_INSTALL_DIR:-}" /usr/local/bin "${HOME:-/nonexistent}/.local/bin"; do
+  [ -n "$bin_dir" ] && [ -x "$bin_dir/tsk" ] || continue
+  case ":$PATH:" in *":$bin_dir:"*) ;; *) PATH="$bin_dir:$PATH" ;; esac
+done
 if command -v tsk >/dev/null 2>&1; then
   TSK_OUTPUT="$(printf '%s' "$INPUT" | tsk thread session-start)"
   TSK_MSG="$(printf '%s' "$TSK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
 else
-  TSK_MSG="WARNING: tsk is not installed and \`cargo install --path cli --locked\` failed. Run it, then run \`tsk thread session-start </dev/null\`."
+  TSK_MSG="WARNING: tsk is not installed. Run \`plugin/hooks/install-tsk.sh\`, then run \`tsk thread session-start </dev/null\`."
 fi
 
 # The plugin steps end before the context is printed, so a warning reaches it.
@@ -140,7 +143,7 @@ fi
 PLUGIN_MSG="$(tr '\n' ' ' <"$PLUGIN_MSG_FILE" | sed 's/ *$//')"
 rm -f "$PLUGIN_LOG" "$PLUGIN_MSG_FILE"
 
-CONTEXT="$(printf '%s %s' "$TSK_MSG" "$PLUGIN_MSG $DOLT_MSG" | sed 's/^ *//; s/ *$//')"
+CONTEXT="$(printf '%s %s' "$TSK_MSG" "$TSK_INSTALL_MSG $PLUGIN_MSG $DOLT_MSG" | sed 's/^ *//; s/ *$//')"
 if [ -n "$CONTEXT" ]; then
   jq -n --arg context "$CONTEXT" '{
     hookSpecificOutput: {
