@@ -50,6 +50,42 @@ Not yet checked, and worth testing on Jim's machine: mise has a setting for macO
 
 How sure: steps 1 to 5 are from memory of IntelliJ and mise behaviour, not run. Jim's result replaces this note.
 
+## Q2: which Java version
+
+Question: which version should the project use, and what is the latest stable version?
+
+Answer: Java 25, the current long-term support (LTS) release, released in September 2025. The next LTS is Java 29, due in September 2027. Java 26 was released in March 2026 and Java 27 is due in September 2026. Neither is an LTS release, and each stops getting updates within about six months, so neither suits a long-lived practice repo.
+
+Two exceptions:
+
+- Match the interview. Ask which Java version the company uses, or read the job advert. Java 17 and 21 are common in production code, and the language practised should not be newer than the language used on the day. With no information, Java 21 is the safe middle: it has records, `switch` patterns and sealed types, and interview platforms accept it.
+- Check the tools. Java 25 needs a recent Gradle (9.1 or later, from memory) and a recent IntelliJ. An older Gradle fails with an unsupported-version error. Check with `./gradlew --version`.
+
+How sure: from memory. The author's knowledge ends in June 2026, so the status of Java 26 and 27 is not confirmed. Confirm the versions mise offers with `mise ls-remote java`.
+
+Temurin is the Eclipse Adoptium build of OpenJDK. It is free and the usual default.
+
+## Q3: the mise command
+
+Question: what is the mise command for this?
+
+Answer, inside the repo directory:
+
+```bash
+mise use java@temurin-25
+```
+
+The command installs the JDK when it is missing and writes `.mise.toml` in the repo with `java = "temurin-25"`. Commit that file so the version is pinned for the project. Then check it:
+
+```bash
+mise where java      # the path to add in IntelliJ (Q1, step 2)
+java -version
+```
+
+If `mise use` cannot find `temurin-25`, list the names with `mise ls-remote java | grep temurin` and use the exact name printed.
+
+How sure: from memory, not run on Jim's machine.
+
 ## Open questions
 
 (Jim has more questions to add.)
