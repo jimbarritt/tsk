@@ -133,6 +133,7 @@ tsk thread detach                                                     remove thi
 tsk thread skip                                                       work without a thread; local to this clone, never pushed
 tsk thread stop [<thread-id>]                                         delete a thread and every cloud binding to it, push
 tsk thread list                                                       list threads, most recently paused first
+tsk thread title                                                      print the session title: <actor name> (<mission-id>), the name alone, or the mission ID alone; exit 1 with neither; read-only, never fetches
 tsk thread binding [--no-fetch]                                       print the current binding, and the actor when registered
 tsk actor register <name> --kind human|robot                          register this session or code worktree as an actor; local, tsk ledger push publishes
 tsk actor name                                                        print the actor this session or code worktree is registered as
@@ -157,6 +158,11 @@ with no mission ID has no mission and no tasks: its task ID must be empty, and
 `thread start <mission-id> <briefing-path>` and
 `thread pause <thread-id> <mission-link> <task-id> <whats-next>` still work, with a note on
 stderr. The path and the link are ignored. Do not use them.
+
+After `tsk thread set mission`, set the session title to the output of `tsk thread title`:
+with `set_session_title` from the `claude-code-remote` MCP server in a cloud session, or
+by asking me to run `/rename <title>` in a terminal. The start, resume and
+construct-robot skills set it the same way.
 
 ### Ledger
 

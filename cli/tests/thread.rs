@@ -2071,6 +2071,29 @@ impl Fixture {
 }
 
 #[test]
+fn thread_title_is_the_actor_name_and_the_mission_of_the_thread() {
+    let fx = Fixture::new();
+    let title = |fx: &Fixture| {
+        let output = fx.tsk(&["thread", "title"]);
+        (output.status.code(), stdout(&output))
+    };
+    // No actor and no binding: nothing to print.
+    assert_eq!(title(&fx), (Some(1), String::new()));
+
+    fx.start();
+    assert_eq!(title(&fx), (Some(0), "M-TEST-01\n".to_string()));
+
+    assert_success(&fx.register("alice", "robot"));
+    assert_eq!(title(&fx), (Some(0), "alice (M-TEST-01)\n".to_string()));
+
+    // A mission switch is a local write, and the title follows it at once.
+    assert_success(&fx.tsk(&["thread", "set", "mission", "--none"]));
+    assert_eq!(title(&fx), (Some(0), "alice\n".to_string()));
+    assert_success(&fx.tsk(&["thread", "set", "mission", "M-TEST-01"]));
+    assert_eq!(title(&fx), (Some(0), "alice (M-TEST-01)\n".to_string()));
+}
+
+#[test]
 fn actor_register_makes_the_actor_and_registers_this_worktree_as_it() {
     let fx = Fixture::new();
     let id = fx.start();
