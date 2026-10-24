@@ -317,6 +317,12 @@ impl LedgerStatus {
         !self.is_clean() || data + docs > 0
     }
 
+    /// The number of changes not committed plus the commits not pushed, both sides.
+    pub fn unpushed_count(&self) -> usize {
+        let (data, docs) = self.ahead();
+        self.data.changes.len() + self.docs.changes.len() + data + docs
+    }
+
     /// The `--porcelain` change lines: `data` or `docs`, then `clean` or `local changes`,
     /// then one line per change.
     pub fn changes_lines(&self) -> Vec<String> {

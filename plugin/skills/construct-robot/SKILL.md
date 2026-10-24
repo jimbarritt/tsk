@@ -40,11 +40,13 @@ stores it.
    tsk ledger push "Construct robot <name>"
    ```
 
-6. **Set the session title to the name.**
-   - In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` is set), call
-     `get_session` from the `claude-code-remote` MCP server with no `session_id` to
-     read this session's ID. Then call `set_session_title` with that ID and the name.
-   - In a terminal, no tool sets the title. Ask me to run `/rename <name>`.
+6. **Set the session title.** Run `tsk thread title`, which adds the mission when the session has a thread with one. Exit 1 means there is no
+   actor and no mission: skip this step. Exit 0 prints the title, `<robot name> (<mission
+   ID>)`, the name alone, or the mission ID alone.
+   - In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` is set), call `get_session` from
+     the `claude-code-remote` MCP server with no `session_id` to read this session's ID.
+     Then call `set_session_title` with that ID and the title.
+   - In a terminal, no tool sets the title. Ask me to run `/rename <title>`.
 
 7. **Tell me the name** and, in one sentence, what it says about you.
 

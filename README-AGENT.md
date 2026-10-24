@@ -66,8 +66,11 @@ mission, or none.
 
 - `tsk thread start <mission>` starts a thread and binds this session to it.
 - `tsk thread pause <thread> <T-nn> "<where things stand>"` records a continuation entry
-  and publishes. Run it before you run out of context and before `/clear`.
-- `tsk thread resume <thread>` binds this session to a thread and prints its latest entry.
+  and publishes. Run it before you run out of context and before `/clear`. With `--bound`
+  it takes the thread this session is bound to: `tsk thread pause --bound <T-nn> "<...>"`.
+  After `paused:<thread>` it prints `code: clean`, `code pushed: yes` and `ledger: pushed`.
+  Say the session is safe to clear only when all three print.
+- `tsk thread resume <thread>` binds this session to a thread and prints its latest entry, with the mission name and the task description.
 - `tsk thread list` shows every thread and who is bound to it.
 
 The session start hook prints the bound thread and its mission, or the mission list when
