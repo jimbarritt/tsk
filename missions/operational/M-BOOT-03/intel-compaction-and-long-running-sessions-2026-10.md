@@ -1,10 +1,12 @@
 # Intel: compaction and long-running sessions, October 2026
 
 Date: 2026-10-24. Raised by Jim, who sees compaction work better than before and asked for
-the latest. Linked to M-BOOT-02-01 (Continuation harness). It extends the section "Long-running
+the latest. Linked to M-BOOT-03 (Operation), whose objectives 4 and 5 are an unattended run that
+produces thread state and a second run that resumes it. It extends the section "Long-running
 agents managing their own context" in `missions/operational/M-BOOT-02/intel-index.md`
 (2026-09-16) and `docs/kb/agent-context-self-regulation-and-unattended-handoff.md` in the
-tsk repo.
+tsk repo. An earlier link to M-BOOT-02-01 (Continuation harness, a supervised interactive
+prototype) was replaced on 2026-10-24.
 
 Evidence classes: **official** (Anthropic documentation, fetched and read on 2026-10-24),
 **changelog** (the Claude Code changelog, newest entries to 2.1.310, 2026-10-23), **paper**
