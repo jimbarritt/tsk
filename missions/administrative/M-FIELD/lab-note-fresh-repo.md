@@ -283,3 +283,13 @@ Readings:
 - `tsk mission list` takes 0.95 s with 0.35 s of CPU on a one-mission ledger, so about 0.6 s is waiting. This matches the git start cost in M-PERF T-20 (entry 13).
 
 Open: which mission holds the brief, and whether the agent used `tsk` for all checks this time.
+
+### 2026-10-24, entry 15: installing the swe plugin
+
+Jim asked for the command to install the swe plugin, then whether installing inside a Claude session defaults to project scope.
+
+Facts checked in this session: `claude plugin install --help` prints `-s, --scope <scope>  Installation scope: user, project, or local (default: "user")`. So `claude plugin install` on its own installs for every repo on the machine. `tsk install-plugin` passes `--scope project` explicitly. `tsk install-plugin claude-cli --plugin tsk --plugin swe` installs both at project scope. Whether the `/plugin` menu inside a session asks for a scope was not tested.
+
+Jim's request: put this in the user guide that `tsk --help` becomes, as an optional instruction.
+
+Record: M-ADMIN-02 T-09 (reworded to include the optional swe step and the scope default).
