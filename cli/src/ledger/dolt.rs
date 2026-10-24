@@ -57,13 +57,18 @@ pub const LEGACY_DOCUMENTS_TABLE: &str =
     "create table documents (path varchar(1024) primary key, body longtext not null)";
 
 /// The mission tables, created with a new ledger and by the first mission write on a
-/// version 2 ledger. Foreign keys keep a record from naming a mission that does not exist.
+/// version 2 ledger. A mission has an internal `id`, which every other table names it by and
+/// which never changes, and a `code`, the ID a person types: a rename changes `code` and no
+/// other row. A mission made before layout 10 has its first ID as both. A new mission has a
+/// random `id`. A `code` that is null reads as the `id`. Foreign keys keep a record from
+/// naming a mission that does not exist.
 /// `next_objective` is the number the next objective outcome gets: it only grows, so a
 /// removed outcome's number is never reused. `next_constraint` and `next_out_of_scope`
 /// do the same for the two lists in [`LIST_SCHEMA`].
 pub const MISSION_SCHEMA: &[&str] = &[
     "create table missions (\
      id varchar(64) not null primary key, \
+     code varchar(64) null, \
      name varchar(255) not null, \
      category enum('operational','administrative') not null, \
      status enum('todo','in-progress','done') not null default 'todo', \
@@ -75,6 +80,7 @@ pub const MISSION_SCHEMA: &[&str] = &[
      next_question int not null default 1, \
      next_constraint int not null default 1, \
      next_out_of_scope int not null default 1, \
+     unique key missions_code_unique (code), \
      constraint missions_parent_fk foreign key (parent) references missions (id))",
     "create table objective_outcomes (\
      mission_id varchar(64) not null, \
@@ -162,9 +168,13 @@ pub const TASK_SCHEMA: &[&str] = &[
 /// `threads.mission_id`, a decision may name an ADR in `decisions.adr_path`, a
 /// mission's constraints and out-of-scope items are rows of their own, every session and
 /// worktree binding is a row of `bindings`, and the actors and the harness instances
-/// registered as them are rows of `actors` and `instances`.
-pub const LAYOUT_VERSION: i64 = 9;
-/// The layout version with the `actors` and `instances` tables.
+/// registered as them are rows of `actors` and `instances`, and a mission has a `code`
+/// that can change beside the internal `id` that cannot.
+pub const LAYOUT_VERSION: i64 = 10;
+/// The layout version with `missions.code`, the mission ID a person types. `missions.id`
+/// is then the internal ID of a mission, which a rename never changes.
+pub const CODE_LAYOUT_VERSION: i64 = 10;
+/// The layout version with the `actors` and `instances` tables, and no `missions.code`.
 pub const ACTORS_LAYOUT_VERSION: i64 = 9;
 /// The layout version with the `bindings` table in place of `cloud_session_bindings`.
 pub const BINDINGS_LAYOUT_VERSION: i64 = 8;
@@ -255,9 +265,22 @@ pub fn upgrade_sql_moving(from: i64, moved: &str) -> String {
             sql.push_str(";\n");
         }
     }
+    // No layout below 10 has `missions.code`. A missions table made above has it, and one
+    // that an older layout made gains it, with the ID as the code. The step only adds a
+    // column and an index, so two clones that upgrade on their own write the same change and
+    // Dolt merges them.
+    if (MISSIONS_LAYOUT_VERSION..CODE_LAYOUT_VERSION).contains(&from) {
+        sql.push_str(CODE_UPGRADE_SQL);
+    }
     sql.push_str(&version_sql());
     sql
 }
+
+/// The version 10 step: `missions.code` takes the ID of each mission, which is also its
+/// internal ID until the mission is renamed.
+const CODE_UPGRADE_SQL: &str = "alter table missions add column code varchar(64) null after id;\n\
+     update missions set code = id;\n\
+     alter table missions add unique key missions_code_unique (code);\n";
 
 /// The version 8 step: the old table's rows become cloud rows of `bindings`.
 const BINDINGS_UPGRADE_SQL: &str = "create table bindings (actor varchar(255) primary key, kind enum('cloud','worktree') not null, thread_id varchar(64) not null, registered_at varchar(32) not null);\n\
@@ -997,7 +1020,9 @@ mod tests {
         assert!(sql.contains("kind enum('cloud','worktree') not null"));
         assert!(sql.contains("create table actors (name varchar(200) primary key, kind enum('human','robot') not null"));
         assert!(sql.contains("create table instances (instance varchar(255) primary key, kind enum('cloud','worktree') not null, actor_name varchar(200) not null"));
-        assert!(sql.contains("('version', '9')"));
+        assert!(sql.contains("('version', '10')"));
+        assert!(sql.contains("id varchar(64) not null primary key, code varchar(64) null, name"));
+        assert!(sql.contains("unique key missions_code_unique (code)"));
         assert!(sql.contains("mission_id varchar(64) null"));
         assert!(sql.contains("briefing_path varchar(1024) null"));
         assert!(sql.contains("'repo_id'"));
@@ -1012,12 +1037,12 @@ mod tests {
         assert!(!from_four.contains("create table missions "));
         assert!(!from_four.contains("create table tasks "));
         assert!(from_four.contains("alter table decisions add column adr_path varchar(1024) null"));
-        assert!(from_four.ends_with("('version', '9');\n"));
+        assert!(from_four.ends_with("('version', '10');\n"));
         let from_five = upgrade_sql(5);
         assert!(!from_five.contains("alter table threads"));
         assert!(!from_five.contains("create table tasks "));
         assert!(from_five.contains("alter table decisions add column adr_path"));
-        assert!(from_five.ends_with("('version', '9');\n"));
+        assert!(from_five.ends_with("('version', '10');\n"));
         let from_six = upgrade_sql(6);
         assert!(!from_six.contains("alter table decisions"));
         assert!(!from_six.contains("alter table threads"));
@@ -1027,7 +1052,7 @@ mod tests {
         assert!(from_six.contains("drop column constraints_text"));
         assert!(from_six.contains("drop column out_of_scope"));
         assert!(!from_six.contains("create table missions "));
-        assert!(from_six.ends_with("('version', '9');\n"));
+        assert!(from_six.ends_with("('version', '10');\n"));
         let from_seven = upgrade_sql(7);
         assert!(from_seven.contains("create table bindings "));
         assert!(from_seven.contains(
@@ -1035,16 +1060,29 @@ mod tests {
         ));
         assert!(from_seven.contains("drop table cloud_session_bindings"));
         assert!(!from_seven.contains("mission_constraints"));
-        assert!(!from_seven.contains("alter table"));
-        assert!(from_seven.ends_with("('version', '9');\n"));
+        // The one alteration is the layout 10 column.
+        assert_eq!(from_seven.matches("alter table").count(), 2);
+        assert!(from_seven.contains("alter table missions add column code"));
+        assert!(from_seven.ends_with("('version', '10');\n"));
         let from_eight = upgrade_sql(8);
         assert_eq!(
             from_eight,
             format!(
-                "{};\n{};\nreplace into manifest (k, v) values ('version', '9');\n",
-                SCHEMA[4], SCHEMA[5]
+                "{};\n{};\n{}replace into manifest (k, v) values ('version', '10');\n",
+                SCHEMA[4], SCHEMA[5], CODE_UPGRADE_SQL
             )
         );
+        // From layout 9 only the code step runs, and it adds a column and an index.
+        assert_eq!(
+            upgrade_sql(9),
+            format!(
+                "{}replace into manifest (k, v) values ('version', '10');\n",
+                CODE_UPGRADE_SQL
+            )
+        );
+        assert!(CODE_UPGRADE_SQL.contains("add column code varchar(64) null after id"));
+        assert!(CODE_UPGRADE_SQL.contains("update missions set code = id"));
+        assert!(!CODE_UPGRADE_SQL.contains("drop"));
         assert!(from_eight.starts_with("create table actors "));
         assert!(from_eight.contains("create table instances "));
         // Every older step ends with the bindings step and then the actor tables.
@@ -1064,6 +1102,8 @@ mod tests {
         let from_two = upgrade_sql(2);
         assert!(from_two.contains("create table missions "));
         assert!(from_two.contains("create table questions "));
+        // The missions table is made with the column, so no step adds it.
+        assert!(!from_two.contains("add column code"));
         assert!(from_two.contains("alter table threads add column mission_id"));
         assert!(!from_two.contains("alter table decisions"));
         // Every table above is made in its newest shape, so nothing is moved or dropped.

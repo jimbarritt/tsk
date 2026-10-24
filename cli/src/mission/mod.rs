@@ -3,6 +3,7 @@
 //! the file and Dolt backends share them. A backend only loads and saves missions.
 
 pub mod model;
+pub mod mv;
 pub mod records;
 pub mod table;
 
@@ -73,6 +74,17 @@ pub enum MissionCommands {
     },
     #[command(about = "Remove a document link")]
     Unlink { id: String, path: String },
+    #[command(
+        about = "Rename a mission: only its ID changes, and every record, thread, block and parent follows. Linked documents named for the mission are renamed too. Prints one line per change, then one line for each record whose text names the old ID, which is not changed. A local write"
+    )]
+    Mv {
+        #[arg(help = "The mission ID now")]
+        from: String,
+        #[arg(help = "The new mission ID; it must not be the ID of a mission")]
+        to: String,
+        #[arg(long, help = "Print the lines and change nothing")]
+        dry_run: bool,
+    },
     #[command(
         about = "List missions, one per line: id, status, blocked-by, parent, name; or one mission with an id. The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records"
     )]
@@ -198,6 +210,7 @@ pub fn run_with(store: &dyn LedgerStore, action: MissionCommands) -> Result<(), 
             let path = check_docs_path(&path).unwrap_or(path);
             change(store, |missions| model::unlink(missions, &id, &path))?;
         }
+        MissionCommands::Mv { from, to, dry_run } => mv::mission_mv(store, &from, &to, dry_run)?,
         MissionCommands::List {
             id,
             json,

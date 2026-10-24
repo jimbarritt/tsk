@@ -66,7 +66,8 @@ missions/<category>/<id>/       a mission's research, intelligence and reports
 
 `tsk ledger doc get <path>` prints a document, `tsk ledger doc list [<prefix>]` lists
 them, `tsk ledger doc put <path> [<file>]` writes one (stdin when no file is given), and
-`tsk ledger doc rm <path>` removes one. The last two change the local store only. Run
+`tsk ledger doc mv <from> <to>` renames one and updates the mission links to it, and
+`tsk ledger doc rm <path>` removes one. The last three change the local store only. Run
 `tsk ledger push "<message>"` to send the change. Threads, bindings,
 continuation state entries and the external event queue are tables, which the
 `tsk thread` and `tsk events` commands read and write.
@@ -89,6 +90,11 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk ledger doc list [<prefix>]` | Lists document paths | None |
 | `tsk ledger doc put <path> [<file>]` | Writes a document from a file or stdin | Local store only |
 | `tsk ledger doc rm <path>` | Removes a document | Local store only |
+| `tsk ledger doc mv <from> <to>` | Renames a document and the mission links to it; one line per change | Local store only (0.30.0) |
+| `tsk mission mv <old> <new> [--dry-run]` | Renames a mission: its ID changes, and every record, thread, block and parent follows; linked documents named for it are renamed; one line per change | Local store only (0.30.0) |
+| `tsk task mv <mission> <task> <to>` | Moves a task and the decisions that name it to another mission; `--force` drops its blocks | Local store only (0.30.0) |
+| `tsk decision mv <mission> <n> <to> [--task <task>]` | Moves a decision, by its place in `tsk decision list`, to another mission | Local store only (0.30.0) |
+| `tsk question mv <mission> <question> <to>` | Moves a question to another mission | Local store only (0.30.0) |
 | `tsk ledger push "<message>"` | Commits everything in the ledger store, pulls the latest ledger and pushes to `tsk/ledger` | Commits and pushes |
 | `tsk thread start [<mission-id>]` | Mints and binds a thread, for a mission or with none | Writes and pushes |
 | `tsk thread set mission <mission-id> [<thread-id>]` | Attaches a mission to a thread, or changes it; `--none` removes it | Local store only (0.24.0) |

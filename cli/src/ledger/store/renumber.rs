@@ -152,13 +152,41 @@ pub fn prepare(
         let _ = db.run(["reset", "--hard", before.as_str()]);
         return Err(error);
     }
-    for rename in plan.renames {
+    let shown = codes_of(db, &plan.renames);
+    for mut rename in plan.renames {
+        if let Some(code) = shown.get(&rename.mission) {
+            rename.mission = code.clone();
+        }
         record(changes, rename);
     }
     Ok(Some(Prepared {
         before,
         fixup_sql: plan.fixup,
     }))
+}
+
+/// The mission code a person knows for each internal ID a renumbering names. An ID with no
+/// row, or no code, keeps its own text in the line.
+fn codes_of(db: &Dolt, renames: &[Renumbered]) -> BTreeMap<String, String> {
+    let ids: BTreeSet<&str> = renames.iter().map(|r| r.mission.as_str()).collect();
+    if ids.is_empty() {
+        return BTreeMap::new();
+    }
+    let list: Vec<String> = ids.iter().map(|id| lit(id)).collect();
+    let query = format!(
+        "select id, code from missions where id in ({})",
+        list.join(", ")
+    );
+    db.rows(&query)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|row| {
+            Some((
+                text(row, "id")?,
+                text(row, "code").filter(|c| !c.is_empty())?,
+            ))
+        })
+        .collect()
 }
 
 /// Put the local branch back where [`prepare`] found it, after a merge that failed.

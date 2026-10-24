@@ -156,6 +156,15 @@ pub enum DocCommands {
         #[arg(help = "Document path relative to the ledger root")]
         path: String,
     },
+    #[command(
+        about = "Rename a document in the local store and update the link of every mission that names its old path. Prints doc FROM -> TO and one link line for each mission. Exit status 1 when the document does not exist or the new path does. Does not push"
+    )]
+    Mv {
+        #[arg(help = "The document path now")]
+        from: String,
+        #[arg(help = "The new document path")]
+        to: String,
+    },
 }
 
 pub fn run(action: LedgerCommands) -> Result<(), String> {
@@ -344,6 +353,7 @@ fn run_doc(store: &dyn LedgerStore, action: DocCommands) -> Result<(), String> {
                 Err(no_such_document(&path))
             }
         }
+        DocCommands::Mv { from, to } => crate::mission::mv::doc_mv(store, &from, &to),
     }
 }
 

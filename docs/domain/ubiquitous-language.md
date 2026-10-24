@@ -366,6 +366,12 @@ missions, and links to documents. A mission is done when its status is set to `d
 tsk does not check its objectives. There is no current mission: a session's mission is
 the one its thread is bound to (Jim, 2026-10-15).
 
+A mission has two IDs (Jim, 2026-10-24). The **code** is the one a person types and sees,
+such as `M-NAMES`, and a rename changes it. The **internal ID** never changes, and every
+other record names the mission by it. Commands take and print the code. A mission made
+before layout 10 has its first code as its internal ID, and one made later has a random
+UUID. See ADR 0026.
+
 A task becomes a mission at the point it is delegated: handed to a different actor from
 the one that has the parent mission. That is when a briefing is needed, because the
 receiving actor does not have the owner's context. Assignment alone is not the test:
