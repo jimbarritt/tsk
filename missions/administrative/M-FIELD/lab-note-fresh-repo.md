@@ -77,3 +77,23 @@ Jim's finding: "`install-plugin` its not really explaining that it needs to be i
 Expected: the help and the output say that the command installs into the repo it runs in, and what it changes there.
 
 Record: M-ADMIN-02 T-13.
+
+### 2026-10-24, entry 6: install-plugin with no target, and outside a repo
+
+Jim ran `tsk install-plugin` with no argument. Output, exactly:
+
+```
+$ tsk install-plugin
+error: the following required arguments were not provided:
+  <TARGET>
+```
+
+Jim's finding: "it would be good if this told you what the available options are. Also install-plugin should have the check to see if we are in a git repo or not first. if not it should warn us and ask us if we want to install in global claude config. I'm not even sure if this is a valid configuration?"
+
+Facts checked in this session (0.26.0):
+
+- `--scope user` exists for claude-cli. `tsk install-plugin` skips the SessionStart hook at user scope: "skipped the SessionStart hook: a user-scope install is not about this repo". So the code allows it.
+- tsk needs a git repo. In a directory with no repo, `tsk mission list` stops with "not inside a git repository". The plugin's session start hook exits 0 and adds the warning "the ledger could not be fetched automatically at session start" to the context.
+- So a user-scope plugin is a valid Claude Code setting, but with it every session outside a tsk repo starts with that warning. Whether user scope should be offered is a decision for Jim.
+
+Records: M-ADMIN-02 T-14 (list the targets in the error) and T-15 (check for a git repo first, and offer user scope or stop).
