@@ -7,24 +7,30 @@ on, what it is for, what is decided, what is still open, and where a line of wor
 stopped so the next session picks it up. Work spread across many people and many
 sessions stays in one place that all of them read and write.
 
+tsk is open source, under the [MIT licence](LICENSE).
+
 **If you are an agent, read [README-AGENT.md](README-AGENT.md) first.**
 
-## The problem with ticket systems
+```bash
+brew install jimbarritt/tap/tsk
+tsk install-plugin claude-cli    # in your repo. Or: tsk install-plugin copilot-cli
+```
 
-A ticket system has one domain concept, the ticket, a concept from support work. Teams
-add labels, epics, projects and initiatives to it to approximate the concepts their own
-work needs, and the result models one axis only: a ticket moving through states over
-time. It records nothing about what the product is, what a change does to it, or why
-the work went the way it did.
+The full instructions are in [Install](#install).
 
-Agents add a second problem. An agent session runs for a bounded amount of context, then
-stops or compacts. Whatever it had not written down is gone. The next session starts
-from nothing, and so does the person who returns to the work after a week.
+## Contents
+
+- [Four dimensions of delivery](#four-dimensions-of-delivery)
+- [How tsk works](#how-tsk-works)
+- [Install](#install)
+- [Work on tsk itself](#work-on-tsk-itself)
+- [Documentation](#documentation)
 
 ## Four dimensions of delivery
 
-tsk rests on four dimensions of software delivery, and models each one explicitly.
-Other tools model parts of them.
+tsk is built on a [conceptual model](docs/domain/domain-model-overview.md) which
+defines four dimensions of software delivery. tsk models each one explicitly. Other tools
+model parts of them.
 
 - **Navigation.** Where am I, where am I going, where have I been. The route through the
   work, not only the list of destinations.
@@ -46,8 +52,9 @@ The records are:
 
 - A **mission**: an outcome to achieve, with its purpose, its constraints, what is out
   of scope, and who decides what. A mission states the outcome, not the method, and the
-  agent or the person who takes it works out the mechanism. This follows mission
-  command doctrine: the order states the objective, not the route.
+  agent or the person who takes it works out the mechanism. This is loosely based
+  on [military command doctrine](docs/domain/mission-model.md): the order states the
+  objective, not the route.
 - **Tasks**, **decisions** and **open questions**, each a numbered record of its mission.
   A decision records what was chosen and why, in one line. A question stays open until
   someone answers it.
@@ -56,6 +63,9 @@ The records are:
   The next session, agent or human, resumes the thread and continues.
 - **Documents**: research, reports and designs, as Markdown, linked to the mission they
   serve.
+- A **nexus**: a separate repo that contains the ledgers of several repos, for work you
+  cannot push a ledger to or that spans repos. See
+  [docs/domain/territory-and-nexus.md](docs/domain/territory-and-nexus.md).
 
 Everything is written and read through `tsk` commands, so it is queryable:
 
@@ -65,10 +75,11 @@ tsk question list           # every open question, across every mission
 tsk thread list             # every thread and who is working it
 ```
 
-Several people and agents work the same ledger at once. Each writes locally and
-publishes at the points that matter: when it claims work, when it pauses, when the
-session ends. Writes from different actors merge by row, and a push that collides on a
-number renumbers and prints each change.
+A ledger is the point of coordination for multiple people or agents running multiple
+sessions, which can be across different worktrees. Each writes locally and publishes at
+the points that matter: when it claims work, when it pauses, when the session ends.
+Writes from different actors merge by row, and a push that collides on a number
+renumbers and prints each change.
 
 ## Install
 
@@ -119,7 +130,7 @@ prints the missions. tsk tracks its own development in its own ledger.
 | [README-AGENT.md](README-AGENT.md) | What an agent needs to work with the ledger |
 | [docs/index.md](docs/index.md) | Full documentation index |
 | [docs/vision.md](docs/vision.md) | Why tsk exists and what it models |
-| [docs/user-guide/introducing-tsk.md](docs/user-guide/introducing-tsk.md) | The problem with ticket systems, and sessions, threads and missions |
+| [docs/user-guide/introducing-tsk.md](docs/user-guide/introducing-tsk.md) | The story behind why tsk exists |
 | [docs/user-guide/missions-threads-and-continuation.md](docs/user-guide/missions-threads-and-continuation.md) | How missions, threads and continuation state fit together |
 | [docs/user-guide/getting-started.md](docs/user-guide/getting-started.md) | The commands, building, publishing |
 | [docs/user-guide/installation.md](docs/user-guide/installation.md) | Prerequisites, installing, upgrading |
