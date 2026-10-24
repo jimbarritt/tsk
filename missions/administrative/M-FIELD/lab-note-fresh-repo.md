@@ -122,3 +122,19 @@ Findings:
 - This session expected `.tsk/config.toml` to be written as well. `git status` afterwards showed one untracked entry, `.claude/`, and no `.tsk/`. So the command writes only under `.claude/`. The expectation was wrong, and the output was right not to mention `.tsk/config.toml`.
 
 Record: M-ADMIN-02 T-17.
+
+### 2026-10-24, entry 8: an agent checked the ledger with ls and head
+
+Jim started a Claude Code session in `java-dojo` and asked whether the ledger was initialised. The agent listed files and ran `git status` on the ledger store, a Dolt directory, to look for the ledger. It also ran `tsk mission list` and `tsk thread list` with every command piped through `head`.
+
+The agent's own account, as Jim pasted it:
+
+"I also inspected the ledger through the filesystem with ls and a git status on a Dolt directory. The git status was meaningless there. I should have used tsk for all of it."
+
+"I piped every command through head, so I never saw an exit code. 'Run without error' was not verified. The empty mission list could also mean the command printed nothing."
+
+Reproduction in a scratch repo on 0.26.0 (this session): after `tsk ledger fetch` in a repo whose `origin` has no ledger yet, `tsk mission list`, `tsk question list` and `tsk decision list` print nothing and exit 0. `tsk ledger status` prints `Local   nothing to push`, `Origin  not published yet (tsk ledger push creates it)` and a `Server` line, and exits 0. So the right answer to "is the ledger initialised" was `tsk ledger status`, and the empty list is ambiguous: it is the same output as a failure that prints nothing.
+
+Why the agent did not use it: an agent in another repo sees the plugin skill and the session start context, not `README-AGENT.md`. Neither tells it how to check the ledger or to avoid `head`.
+
+Records: M-ADMIN-02 T-18 (agent rules in the skill and session start context), T-19 (an empty list says so), T-20 (a Ledger block in `tsk ledger status`).

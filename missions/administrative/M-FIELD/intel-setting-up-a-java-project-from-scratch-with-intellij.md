@@ -266,6 +266,16 @@ Points:
 
 How sure: from memory of the plugin; not run on Jim's machine.
 
+## Q12: the banner "Enable the IntelliJ IDEA MCP Server and connect it to Claude Code"
+
+IntelliJ showed a banner with three choices: Set up IntelliJ IDEA MCP, Open MCP Settings, Do not show again.
+
+Answer: IntelliJ can run a built-in MCP server (Model Context Protocol, the way Claude Code calls outside tools). A client such as Claude Code can then use IDE features: project search through the IDE index, file edits, inspections, refactorings and run configurations (from memory). The banner offers to enable the server and write the connection into Claude Code's configuration. It has nothing to do with tsk.
+
+For this repo: choose Do not show again, or close the banner. Jim practises Java by hand, and IDE-level access for Claude works against that unless rules limit it. The server runs locally and exposes IDE actions, some of which can run code or terminal commands, so read Settings, Tools, MCP Server before enabling it. It can be enabled there later.
+
+How sure: from memory; not run on Jim's machine.
+
 ## Open questions
 
 (Jim has more questions to add.)
