@@ -57,3 +57,15 @@ Cause: a stale copy from an earlier install. Fix for Jim: remove the cargo and `
 Findings: a new user with an old `tsk` meets error messages from the old version (`unrecognized subcommand 'status'`, `runs without tskd` in the old help) that look like defects in the new one. Entries 1 and 2 are from 0.2.1 until Jim shows otherwise; recheck both on 0.26.0.
 
 Record: M-ADMIN-02 T-11. T-09 and T-10 stay open until rechecked on 0.26.0.
+
+### 2026-10-24, entry 4: 0.26.0 installed, the help is too long
+
+After Jim removed the cargo and `~/.local/bin` copies, `which -a tsk` printed only `/opt/homebrew/bin/tsk` and `tsk --version` printed `tsk 0.26.0`.
+
+Jim's finding on the 0.26.0 help: "ok yes now the help is fully there but its a bit overhwleming. can we have it more in the form of a user guide?"
+
+Expected: a short guide that says what tsk is, how to start, and the few commands a person uses first, with the rest one step further away.
+
+Jim also asked for a check of the environment, so that a shadowed `tsk`, a missing `dolt` or an unaccepted Xcode licence shows up in one place.
+
+Records: M-ADMIN-02 T-09 (reworded to a user-guide help) and T-12 (`tsk doctor`). The shadowing finding in entry 3 is T-11, the first check of the doctor.
