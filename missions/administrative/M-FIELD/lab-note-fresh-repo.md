@@ -194,3 +194,33 @@ Reading:
 - The Stop hook publish worked on the first real use on a laptop.
 
 Records: M-PERF T-18 (unpublished ledger cost) and T-19 (server on by default).
+
+### 2026-10-24, entry 11: timings with the Dolt server on
+
+Jim set `TSK_DOLT_SERVER=on` and ran the same commands. Output, exactly:
+
+```
+$ time tsk ledger status --local    # starts the server
+Local   nothing to push
+Origin  not checked (--local)
+Server  running (pid 35472, idle stop 1800 s)
+Background publish: ok at 2026-10-24T09:31:49Z
+tsk ledger status --local  0.23s user 0.25s system 27% cpu 1.737 total
+$ time tsk ledger status --local    # server already running
+tsk ledger status --local  0.22s user 0.16s system 42% cpu 0.894 total
+$ time tsk ledger status
+Origin  up to date
+tsk ledger status  0.29s user 0.25s system 22% cpu 2.369 total
+```
+
+Comparison with entry 10 (server off):
+
+| Command | Server off | Server on |
+|---|---|---|
+| `ledger status --local`, first run | 1.94 s | 1.74 s (starts the server) |
+| `ledger status --local`, later run | 1.94 s | 0.89 s |
+| `ledger status` (one `ls-remote`) | 2.65 s | 2.37 s |
+
+Reading: the server saves about 1 s on a local command and about 0.3 s on a command that asks `origin`. It does not remove the local wait: 0.89 s elapsed against 0.38 s of CPU leaves about 0.5 s of waiting with no network call. On the cloud container the same command takes 0.1 s, so the extra time is specific to this laptop. Next measurement: `time tsk --version`, which starts the binary and touches no ledger. If it takes 0.3 s or more, the cost is process start on this machine and not the ledger code.
+
+The server supports M-PERF T-19 (on by default). The remaining local wait goes on M-PERF T-18.
