@@ -7,7 +7,7 @@ use crate::ledger::git::Git;
 use crate::ledger::location::mint_token;
 use crate::ledger::store::{BindingKind, BindingRow, LedgerStore, ThreadInfo};
 use crate::mission::model::Mission;
-use crate::mission::records::resolve_task;
+use crate::mission::records::{resolve_task, task_label};
 
 use super::binding::{bind_current, clear_skip, remove_marker, resolve, unbind_current, Binding};
 use super::clock::{now_secs, parse_utc, utc_now};
@@ -26,6 +26,38 @@ pub struct ResumeOutcome {
     pub thread_id: String,
     pub latest: String,
     pub warning: String,
+    /// The thread's mission as `(id, name)`: its name comes from the mission record.
+    pub mission: Option<(String, String)>,
+    /// The task of the latest entry as `(id, description)`, when the mission has it.
+    pub task: Option<(String, String)>,
+}
+
+/// What a bound thread's mission and latest entry say, resolved against the mission
+/// records, for the resume output and the session start context.
+pub struct Facts {
+    pub mission: Option<(String, String)>,
+    pub task: Option<(String, String)>,
+}
+
+/// The mission name and the task description of a thread's latest entry. The mission is
+/// the thread's own, else the one the entry names. Either is None when no record has it.
+pub fn facts_of(info: &ThreadInfo, latest: Option<&entry::Entry>, missions: &[Mission]) -> Facts {
+    let mission_id = thread_mission(info).or_else(|| latest.and_then(|e| e.mission_id.clone()));
+    let record = mission_id
+        .as_deref()
+        .and_then(|id| missions.iter().find(|m| m.id == id));
+    let task = record.and_then(|mission| {
+        let wanted = latest?.task_id.as_deref().filter(|t| !t.is_empty())?;
+        let found = mission
+            .tasks
+            .iter()
+            .find(|t| task_label(t.seq).eq_ignore_ascii_case(wanted))?;
+        Some((task_label(found.seq), found.description.clone()))
+    });
+    Facts {
+        mission: record.map(|m| (m.id.clone(), m.name.clone())),
+        task,
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -81,7 +113,7 @@ fn mint_id(
     ))
 }
 
-fn entries_of(store: &dyn LedgerStore, id: &str) -> Result<Vec<entry::StoredEntry>, String> {
+pub fn entries_of(store: &dyn LedgerStore, id: &str) -> Result<Vec<entry::StoredEntry>, String> {
     let lines = store.continuation_list(id)?;
     parse_store(&lines.join("\n"), &store.describe_thread(id))
 }
@@ -498,7 +530,17 @@ pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
     }
     clear_skip(session)?;
 
+    let missions = store.missions_load().unwrap_or_default();
+    let facts = match store.thread_info(id) {
+        Ok(info) => facts_of(&info, entries.last().map(|s| &s.entry), &missions),
+        Err(_) => Facts {
+            mission: None,
+            task: None,
+        },
+    };
     Ok(ResumeOutcome {
+        mission: facts.mission,
+        task: facts.task,
         thread_id: id.to_string(),
         latest: entries
             .last()
@@ -508,13 +550,81 @@ pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
     })
 }
 
+/// The resume JSON: `thread_id`, `latest` (as stored), `warning`, then `mission`
+/// (`{"id","name"}` or null) and `task` (`{"id","description"}` or null).
 pub fn render_resume(outcome: &ResumeOutcome) -> String {
+    #[derive(Serialize)]
+    struct Mission<'a> {
+        id: &'a str,
+        name: &'a str,
+    }
+    #[derive(Serialize)]
+    struct Task<'a> {
+        id: &'a str,
+        description: &'a str,
+    }
+    let mission = serde_json::to_string(
+        &outcome
+            .mission
+            .as_ref()
+            .map(|(id, name)| Mission { id, name }),
+    )
+    .unwrap_or_default();
+    let task = serde_json::to_string(
+        &outcome
+            .task
+            .as_ref()
+            .map(|(id, description)| Task { id, description }),
+    )
+    .unwrap_or_default();
     format!(
-        "{{\"thread_id\":{},\"latest\":{},\"warning\":{}}}",
+        "{{\"thread_id\":{},\"latest\":{},\"warning\":{},\"mission\":{},\"task\":{}}}",
         serde_json::Value::String(outcome.thread_id.clone()),
         outcome.latest,
-        serde_json::Value::String(outcome.warning.clone())
+        serde_json::Value::String(outcome.warning.clone()),
+        mission,
+        task
     )
+}
+
+/// The lines a pause prints after `paused:<thread-id>`, which stand in for the checks a
+/// person would run by hand: the code worktree, the code commit on origin, and the ledger.
+/// No line says it is safe when the check failed or could not run.
+pub fn pause_report(session: &Session) -> Vec<String> {
+    let code_git = &session.repo.git;
+    let dirty = code_git
+        .run(["status", "--porcelain"])
+        .map(|out| out.lines().filter(|l| !l.trim().is_empty()).count());
+    let code = match dirty {
+        Ok(0) => "code: clean".to_string(),
+        Ok(n) => format!(
+            "code: dirty ({} {})",
+            n,
+            if n == 1 { "file" } else { "files" }
+        ),
+        Err(e) => format!("code: unknown ({})", e.replace('\n', " ")),
+    };
+    let pushed = code_git
+        .run_line(["rev-parse", "--verify", "HEAD^{commit}"])
+        .and_then(|commit| on_an_origin_branch(code_git, &commit));
+    let code_pushed = match pushed {
+        Ok(true) => "code pushed: yes".to_string(),
+        Ok(false) => "code pushed: no".to_string(),
+        Err(e) => format!("code pushed: unknown ({})", e.replace('\n', " ")),
+    };
+    let ledger = match session.store.status_local() {
+        Ok(status) if !status.has_unpushed() => "ledger: pushed".to_string(),
+        Ok(status) => {
+            let n = status.unpushed_count();
+            format!(
+                "ledger: {} {} not pushed",
+                n,
+                if n == 1 { "change" } else { "changes" }
+            )
+        }
+        Err(e) => format!("ledger: unknown ({})", e.replace('\n', " ")),
+    };
+    vec![code, code_pushed, ledger]
 }
 
 pub fn detach(session: &Session) -> Result<String, String> {
@@ -976,10 +1086,12 @@ mod tests {
             thread_id: "1234abcd".to_string(),
             latest: "{\"whats_next\":\"x\",\"git\":{\"ledger\":{\"commit\":\"b\"}}}".to_string(),
             warning: String::new(),
+            mission: Some(("M-X".to_string(), "Example".to_string())),
+            task: None,
         };
         assert_eq!(
             render_resume(&outcome),
-            "{\"thread_id\":\"1234abcd\",\"latest\":{\"whats_next\":\"x\",\"git\":{\"ledger\":{\"commit\":\"b\"}}},\"warning\":\"\"}"
+            "{\"thread_id\":\"1234abcd\",\"latest\":{\"whats_next\":\"x\",\"git\":{\"ledger\":{\"commit\":\"b\"}}},\"warning\":\"\",\"mission\":{\"id\":\"M-X\",\"name\":\"Example\"},\"task\":null}"
         );
     }
 

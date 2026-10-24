@@ -13,7 +13,10 @@ use crate::mission::model::{Mission, Status};
 use crate::mission::records::task_line;
 
 use super::binding::{is_skipped, open_mission_lines, resolve, unbound_prompt};
-use super::ops::{latest_whats_next, thread_mission};
+use super::entry::Entry;
+use super::ops::{
+    entries_of, facts_of, latest_whats_next, takeover_warning, thread_mission, Facts,
+};
 use super::session::Session;
 
 pub const ENV_FILE_VAR: &str = "CLAUDE_ENV_FILE";
@@ -297,6 +300,41 @@ pub fn mission_context(mission: &Mission) -> String {
     text
 }
 
+/// What the session start says about the latest continuation entry of a bound thread that
+/// has a mission: the task and its description, what is next, who wrote it and when, and a
+/// warning when another actor wrote it. The agent writes the resume summary from it.
+pub fn latest_entry_context(entry: &Entry, facts: &Facts, warning: &str) -> String {
+    let task = match (
+        &facts.task,
+        entry.task_id.as_deref().filter(|t| !t.is_empty()),
+    ) {
+        (Some((id, description)), _) => format!("task {} ({})", id, description),
+        (None, Some(id)) => format!("task {}", id),
+        (None, None) => "no task".to_string(),
+    };
+    let next = entry.whats_next.as_deref().map_or("none", str::trim);
+    let stop = if next.ends_with(['.', '!', '?']) {
+        ""
+    } else {
+        "."
+    };
+    let mut text = format!(
+        "Its latest pause entry is on {}, written by {} at {}. What's next: {}{}",
+        task,
+        entry.written_by.as_deref().unwrap_or("an unknown actor"),
+        entry.timestamp.as_deref().unwrap_or("an unknown time"),
+        next,
+        stop
+    );
+    if !warning.is_empty() {
+        text.push_str(&format!(" WARNING: {}.", warning));
+    }
+    text.push_str(
+        " Write the resume summary from this and run no command until the person confirms the thread.",
+    );
+    text
+}
+
 /// What a version 1 ledger needs, which no other command can do.
 pub fn version_1_context(path: &Path) -> String {
     format!(
@@ -368,6 +406,17 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
             Some(mission_id) => {
                 if let Some(mission) = missions.iter().find(|m| m.id == mission_id) {
                     read_hint = mission_context(mission);
+                    let entries = entries_of(store, id).unwrap_or_default();
+                    if let (Some(last), Ok(info)) = (entries.last(), store.thread_info(id)) {
+                        let facts = facts_of(&info, Some(&last.entry), &missions);
+                        let current = session.written_by().unwrap_or_default();
+                        let prior = last.entry.written_by.iter().cloned().collect();
+                        let warning = takeover_warning(id, &prior, &current);
+                        push_part(
+                            &mut read_hint,
+                            &latest_entry_context(&last.entry, &facts, &warning),
+                        );
+                    }
                 }
             }
             None if store.thread_exists(id).unwrap_or(false) => {

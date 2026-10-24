@@ -287,12 +287,12 @@ mod tests {
         assert!(matches!(
             Cli::try_parse_from(["tsk", "thread", "pause", "1234abcd", "", "-next: tests"]).unwrap().command,
             Some(Commands::Thread { action: thread::ThreadCommands::Pause { task_id, whats_next, legacy_whats_next: None, .. } })
-                if task_id.is_empty() && whats_next == "-next: tests"
+                if task_id.is_empty() && whats_next.as_deref() == Some("-next: tests")
         ));
         assert!(matches!(
             Cli::try_parse_from(["tsk", "thread", "pause", "1234abcd", "m.md", "T-01", "-next: tests"]).unwrap().command,
             Some(Commands::Thread { action: thread::ThreadCommands::Pause { task_id, whats_next, legacy_whats_next: Some(last), .. } })
-                if task_id == "m.md" && whats_next == "T-01" && last == "-next: tests"
+                if task_id == "m.md" && whats_next.as_deref() == Some("T-01") && last == "-next: tests"
         ));
         assert!(matches!(
             Cli::try_parse_from(["tsk", "thread", "skip"])
