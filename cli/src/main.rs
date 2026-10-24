@@ -20,6 +20,13 @@ enum Commands {
         #[command(subcommand)]
         action: thread::ThreadCommands,
     },
+    #[command(
+        about = "Register this session or worktree as an actor (a human or a robot, by name), print its actor, and list the actors"
+    )]
+    Actor {
+        #[command(subcommand)]
+        action: actor::ActorCommands,
+    },
     #[command(about = "Fetch, locate and push the ledger branch")]
     Ledger {
         #[command(subcommand)]
@@ -143,6 +150,7 @@ fn is_hook_command(cli: &Cli) -> bool {
 fn run_cli(cli: Cli) -> Result<i32, String> {
     match cli.command {
         Some(Commands::Thread { action }) => thread::run(action),
+        Some(Commands::Actor { action }) => actor::run(action),
         Some(Commands::Ledger { action }) => ledger::run(action).map(|()| 0),
         Some(Commands::Events { action }) => events::run(action),
         Some(Commands::Mission { action }) => mission::run(action).map(|()| 0),
@@ -168,6 +176,8 @@ mod mission;
 
 mod thread;
 
+mod actor;
+
 mod events;
 
 mod install_plugin;
@@ -187,6 +197,43 @@ mod nexus_cmd;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn actor_subcommands_parse() {
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "actor", "register", "alice", "--kind", "robot"])
+                .unwrap()
+                .command,
+            Some(Commands::Actor {
+                action: actor::ActorCommands::Register { name, kind }
+            }) if name == "alice" && kind == "robot"
+        ));
+        assert!(Cli::try_parse_from(["tsk", "actor", "register", "alice"]).is_err());
+        assert!(
+            Cli::try_parse_from(["tsk", "actor", "register", "alice", "--kind", "cat"]).is_err()
+        );
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "actor", "name"])
+                .unwrap()
+                .command,
+            Some(Commands::Actor {
+                action: actor::ActorCommands::Name
+            })
+        ));
+        assert!(Cli::try_parse_from(["tsk", "actor", "name", "alice"]).is_err());
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "actor", "list", "--json"])
+                .unwrap()
+                .command,
+            Some(Commands::Actor {
+                action: actor::ActorCommands::List {
+                    json: true,
+                    porcelain: false
+                }
+            })
+        ));
+        assert!(Cli::try_parse_from(["tsk", "actor"]).is_err());
+    }
 
     #[test]
     fn thread_subcommands_parse() {
