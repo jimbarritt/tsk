@@ -314,3 +314,13 @@ Readings:
 Fix for `java-dojo`: `tsk install-plugin claude-cli --plugin tsk --plugin swe`, then restart `claude`.
 
 Finding for `tsk doctor` (M-ADMIN-02 T-12): the plugin check lists the entry for this repo's path and flags entries older than the binary expects, with the path of each.
+
+### 2026-10-24, entry 17: a thread pause took 24 seconds
+
+Jim's words: "It took 24s to pause the thread note that it will be useful to comapre to the pasue plan."
+
+The pause plan is `docs/arch/2026-10-20-session-start-and-pause.md` and ADR 0019 (amended for the synchronous pause). Its budget for `thread pause` is 2 s. The measured pause in the cloud container was 1.42 s (0.88 s after the 0.22.0 work), with two to three git network round trips. On Jim's laptop one round trip to GitHub costs 1.6 s (entry 10), so a pause with a push is expected to take 3 to 6 s there. 24 s is about five times that.
+
+Not known yet: whether the 24 s is `tsk thread pause` alone or the `/tsk:pause-thread` skill, which includes the agent's own time to write the entry; whether the Dolt server was on; which repo and ledger state (published ledger, custom refs). Needed from Jim: `time tsk thread pause <thread> <T-nn> "<text>"` run directly, with the server on and then off.
+
+Record: M-PERF T-21.
