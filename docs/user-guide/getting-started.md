@@ -58,6 +58,16 @@ tsk ledger push "Add the research"               # commit and push the change
 ```
 
 `doc put` and `doc rm` change the local worktree only. `tsk ledger push` sends the change.
+
+A repo can check its documents. If an executable `pre-docs-commit` script exists,
+`tsk` runs it after `doc put` (with that path) and before `tsk ledger push` commits (with
+every changed document). The script is the file `TSK_DOCS_HOOK` names, else
+`<state>/repos/<clone-id>/hooks/pre-docs-commit`, else `~/.config/tsk/hooks/pre-docs-commit`,
+else `.tsk/hooks/pre-docs-commit` in the repo. `tsk config docs-hook` prints which one
+applies. A non-zero exit stops the command and shows the script's output.
+After a failed `doc put` the document is written locally: correct it and put it again.
+`TSK_SKIP_DOC_CHECK=1` skips the hook. The hook is not a git hook: the git hooks of the
+code repo never run for the ledger. See [the ledger layout](../domain/ledger-layout.md#the-documents-hook-point).
 It pushes the documents branch first and the Dolt data second, so a record never names a
 document the remote lacks. If the documents push fails, the Dolt data stays unpushed and
 the next `tsk ledger push` tries both again. `doc path` exits 1 when the document does not

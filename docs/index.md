@@ -86,6 +86,7 @@ Architecture Decision Records capture why significant technical choices were mad
 - [0022-numbers-are-per-mission-and-renumbered-at-push.md](adr/0022-numbers-are-per-mission-and-renumbered-at-push.md): short numbers per mission, minted locally; a publish that merges renumbers the publisher's own colliding rows and prints each change. Releases: [v0.19.0](releases/v0.19.0.md).
 - [0023-a-tsk-older-than-the-ledger-updates-itself.md](adr/0023-a-tsk-older-than-the-ledger-updates-itself.md): a command stopped by a newer ledger layout updates tsk and runs again; never from the hook commands; a loop guard and an opt-out. Releases: [v0.18.0](releases/v0.18.0.md).
 - [0024-a-thread-is-the-unit-of-continuation.md](adr/0024-a-thread-is-the-unit-of-continuation.md): a thread records where work stopped, names a mission or none, and there is no current mission in the ledger.
+- [0025-a-documents-hook-point-and-no-git-hooks-in-the-ledger-worktrees.md](adr/0025-a-documents-hook-point-and-no-git-hooks-in-the-ledger-worktrees.md): `.tsk/hooks/pre-docs-commit` is a generic hook point owned by `tsk`, run on `doc put` and before a push commits, with no dependency on any lint tool; git hooks are off in every git process of the ledger. Releases: [v0.26.1](releases/v0.26.1.md).
 
 ## Knowledge base
 
