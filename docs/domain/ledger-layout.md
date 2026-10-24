@@ -1639,7 +1639,14 @@ Standard output on success:
    `This thread works mission <id> (<status>): <name>.` and
    `Its open tasks follow, one per line: id, status, blocked-by, description, tab-separated.`
    and the lines `tsk task list` prints for the tasks that are not done. With none, it
-   ends `It has no open tasks.`
+   ends `It has no open tasks.` When the thread also has a continuation entry, one more
+   sentence follows: `Its latest pause entry is on task <id> (<description>), written by
+   <actor> at <timestamp>. What's next: <text>`, then `WARNING: thread <id> is already
+   associated with other actor(s): <actor>.` when another actor wrote it, then `Write the
+   resume summary from this and run no command until the person confirms the thread.`
+   The mission name, the task description and the entry are read from the local ledger store,
+   with no further network call. A thread with no mission, or with no entry, gets the
+   shorter text it had before.
 2. When the ledger store holds commits that are not on the remote ledger branch, a
    warning that starts `WARNING: the ledger worktree holds a commit that is not on
    <remote>'s <ref>, so it was left as it is rather than reset:`, lists the commits
@@ -1705,8 +1712,8 @@ what the harness expects until then.
 | Script | Stdout on success | Other exits | Replaced by |
 |---|---|---|---|
 | `thread-start.sh` | `started:<thread-id>` | `resume-required:<thread-id>` and exit 2 when a binding exists | `tsk thread start [<mission-id>]` |
-| `thread-append-handover.sh` | `paused:<thread-id>` | | `tsk thread pause <thread-id> <task-id> <whats-next>` |
-| `thread-resume.sh` | `{"thread_id":"...","latest":{...},"warning":"..."}` (`latest` is `{}` with no entry; `warning` is empty unless another actor wrote to the thread) | | `tsk thread resume <thread-id>` |
+| `thread-append-handover.sh` | `paused:<thread-id>`, then `code: clean` or `code: dirty (N files)`, `code pushed: yes` or `no`, and `ledger: pushed` or `ledger: N changes not pushed` | | `tsk thread pause <thread-id> <task-id> <whats-next>` |
+| `thread-resume.sh` | `{"thread_id":"...","latest":{...},"warning":"...","mission":{"id","name"}|null,"task":{"id","description"}|null}` (`latest` is `{}` with no entry; `warning` is empty unless another actor wrote to the thread; `mission` is null with no mission record; `task` is null when the latest entry names no task the mission has) | | `tsk thread resume <thread-id>` |
 | `thread-detach.sh` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread detach` |
 | `thread-stop.sh` | `stopped:<thread-id>` | | `tsk thread stop [<thread-id>]` |
 | `thread-list.sh` | one compact JSON object per line: `id`, `mission_id` (`null` for a thread with no mission), `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry), `actors` (an array of `{"actor", "kind", "name"}`, one for each session or worktree bound to the thread, oldest binding first; `kind` is `cloud` or `worktree`; `name` is the actor the instance registered as, or `null`; empty when none is bound) | | `tsk thread list` |

@@ -11,18 +11,7 @@ suggest an automated trigger for it.
 
 ## Steps
 
-1. **Resolve the current thread ID.** Run:
-
-   ```bash
-   tsk thread binding --no-fetch
-   ```
-
-   This prints `cloud:<thread-id>` or `worktree:<thread-id>`, read from the ledger store
-   with no network call. The pause that follows checks the thread. If it exits 1
-   (no binding), there is no thread to pause. Say so and stop. Do not start
-   one implicitly.
-
-2. **Compose the continuation state entry's two judgement fields**, from what you
+1. **Compose the continuation state entry's two judgement fields**, from what you
    already know about the thread (usually already on hand from thread state,
    not freshly decided). The mission comes from the thread.
    - `<task-id>`: the task in progress when the thread paused, for example `T-05`. It
@@ -36,42 +25,47 @@ suggest an automated trigger for it.
      enough that a different actor, reading only this line, knows what to do
      next.
 
-3. **Run the command.**
+2. **Run one command.**
 
    ```bash
-   tsk thread pause "<thread-id>" "<task-id>" "<whats-next>"
+   tsk thread pause --bound "<task-id>" "<whats-next>"
    ```
 
-   It captures the ledger commit, the code commit and branch, and the timestamp
-   itself. Do not pass those, and do not compute them yourself. It exits 1 when
-   `HEAD` is not on any branch on origin: push the code first, then run it again.
+   `--bound` pauses the thread this session or code worktree is bound to, read from the
+   ledger store with no network call, so no lookup is needed first. If the command exits 1
+   and reports that nothing is bound, there is no thread to pause. Say so and stop. Do not start
+   one implicitly. When the thread ID is already known, `tsk thread pause "<thread-id>"
+   "<task-id>" "<whats-next>"` does the same.
+
+   The command captures the ledger commit, the code commit and branch, and the
+   timestamp itself. Do not pass those, and do not compute them yourself. It exits 1
+   when `HEAD` is not on any branch on origin: push the code first, then run it again.
 
    The pause is a publish point. It pushes the handover entry together with every record
    you wrote since the last push. Records are written freely and published at thread
    start, thread pause, the end of the session and when asked, so this is the call that
    carries a session's progress to origin.
 
-4. **Verify clean and pushed, in the code worktree and the ledger, before saying
-   anything is safe.** A successful `paused:<thread-id>` above only confirms the
-   handover entry itself was pushed. It says nothing about other work from the
-   session, uncommitted in the code worktree or still pending in the ledger
-   store. Check both:
+3. **Read the output.** After `paused:<thread-id>` the command prints three lines that
+   check the hand-off, so no separate check is needed:
 
-   ```bash
-   # code worktree: nothing uncommitted, HEAD on a branch origin holds
-   git status --porcelain
-   git branch -r --contains HEAD
-
-   # ledger: shows records and documents not pushed (no network call), then pushes them
-   tsk ledger status --local
-   tsk ledger push "Flush ledger before clear"
+   ```
+   paused:<thread-id>
+   code: clean                  or  code: dirty (N files)
+   code pushed: yes             or  code pushed: no
+   ledger: pushed               or  ledger: N changes not pushed
    ```
 
-   Pass only if `git status --porcelain` is empty, `git branch -r --contains HEAD`
-   lists a branch, and `tsk ledger push` exits 0. If anything is uncommitted or
-   unpushed, stop: commit and push what belongs pushed, or report the mismatch
-   plainly. Do not tell me it is safe to `/clear` on an unverified guess.
+   A line that reads `unknown (...)` means the check could not run. Treat it as not
+   passed.
 
-5. **Confirm.** Only once step 4 passes, tell me the thread is paused, name the
-   ledger commit and the code commit it recorded, and say it is safe to `/clear`.
-   On any error at any step, report it and do not tell me it is safe to clear.
+4. **Confirm only when all three pass.** If `code: clean`, `code pushed: yes` and
+   `ledger: pushed` all print, tell me the thread is paused, name the thread ID and what
+   is next, and say it is safe to `/clear`.
+
+   If any line differs, do not say it is safe. Commit and push what belongs pushed (for
+   a dirty code worktree or `code pushed: no`), or run `tsk ledger push "<describe the
+   update>"` (for `ledger: N changes not pushed`), then run the pause again, or report
+   the mismatch to me plainly. A `paused:<thread-id>` line alone only confirms that the
+   handover entry was pushed. It does not cover other work from the session. On any
+   error, report it and do not tell me it is safe to clear.
