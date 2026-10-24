@@ -247,6 +247,25 @@ Result: Jim could not edit the existing entry in Project Structure. He added a s
 
 How sure: checked on Jim's machine. Whether `Contents/Home` exists on disk was not checked.
 
+## Q11: GitHub Copilot inline completion in IntelliJ
+
+Question: how to configure Copilot so it offers inline completion in IntelliJ.
+
+Answer: install the GitHub Copilot plugin and sign in. A Copilot subscription on the GitHub account is required.
+
+1. Settings (Cmd+,), Plugins, Marketplace, search for GitHub Copilot, Install, restart the IDE.
+2. Tools, GitHub Copilot, Login to GitHub. IntelliJ shows a device code. Paste it on the GitHub page that the link opens and authorise.
+3. Type in a Java file. Completions appear as grey text. Tab accepts, Esc dismisses, Option+] and Option+[ step through alternatives. The shortcuts are from memory. Settings, Keymap, search for "Copilot" shows the real ones.
+
+Switches: the Copilot icon in the status bar turns completions on or off, globally or for the current language. Settings, Languages & Frameworks, GitHub Copilot has the same options per language.
+
+Points:
+
+- IdeaVim (Q9): Tab accepts a suggestion in insert mode, so it does not clash with Vim keys. IdeaVim asks about any clashing Ctrl key.
+- The repo is for practising Java by hand for an interview. Completions are best off while practising and on for other work. The status bar toggle does this in one click.
+
+How sure: from memory of the plugin; not run on Jim's machine.
+
 ## Open questions
 
 (Jim has more questions to add.)
