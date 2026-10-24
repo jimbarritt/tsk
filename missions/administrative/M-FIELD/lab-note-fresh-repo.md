@@ -242,3 +242,26 @@ Trace in the cloud container (not Jim's laptop): `strace -f -e trace=execve` sho
 Hypothesis: on macOS `/usr/bin/git` is a shim that looks up the real `git` through `xcode-select` on every call, so six starts cost about 0.5 s. Test for Jim: `which -a git` and `time git rev-parse --git-common-dir`, and the same with `/opt/homebrew/bin/git` if it exists. Result still to come.
 
 Record: M-PERF T-20.
+
+### 2026-10-24, entry 13: a git start takes 40 to 60 ms on this laptop
+
+Jim ran the `git` timings inside `java-dojo`. Output, exactly:
+
+```
+$ which -a git
+/usr/bin/git
+$ time git rev-parse --git-common-dir
+.git
+git rev-parse --git-common-dir  0.01s user 0.01s system 38% cpu 0.063 total
+$ time git rev-parse --git-common-dir
+.git
+git rev-parse --git-common-dir  0.01s user 0.01s system 51% cpu 0.040 total
+$ ls /opt/homebrew/bin/git
+"/opt/homebrew/bin/git": No such file or directory (os error 2)
+```
+
+Reading: the only `git` is Apple's `/usr/bin/git`, and a start takes 40 to 63 ms for a command that does almost no work (0.02 s of CPU). The container takes a few milliseconds. Six `git` starts in `tsk ledger status --local` (entry 12) then cost about 0.25 to 0.4 s, which explains most but not all of the 0.5 s wait. The rest may be more `git` starts on a custom-refs repo than the six counted in the container, or the server socket.
+
+Not tested: whether Homebrew `git` starts faster than the Apple shim.
+
+Record: M-PERF T-20 (updated with the measurement).
