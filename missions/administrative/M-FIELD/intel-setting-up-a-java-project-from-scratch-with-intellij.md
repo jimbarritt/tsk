@@ -189,6 +189,27 @@ Jim's choice: Gradle 9.8.0, picked in the wizard dropdown. It is newer than the 
 
 How sure: the Gradle and Java compatibility is from memory. Jim's `./gradlew --version` output decides.
 
+## Q8: the generated .gitignore does not ignore the whole .idea directory
+
+Jim noticed the generated `.gitignore` has an IntelliJ section that lists only `.idea/modules.xml`, `.idea/jarRepositories.xml`, `.idea/compiler.xml`, `.idea/libraries/`, `*.iws`, `*.iml` and `*.ipr`. The project is up and running (Jim, 2026-10-24).
+
+Answer: `.idea` has two kinds of file. The template ignores the ones IntelliJ regenerates from the Gradle build. It leaves the ones JetBrains says can be shared, such as `misc.xml`, `gradle.xml`, code style settings, inspection profiles and shared run configurations. IntelliJ also writes `.idea/.gitignore`, which ignores `workspace.xml`, `shelf/` and similar personal files.
+
+For a solo practice repo, ignore the whole directory. The shared files contain absolute paths from the machine, such as `/Users/jmdb/...`, and nobody else needs them. IntelliJ rebuilds the settings from `build.gradle.kts` when the repo is opened. Add this line to `.gitignore`:
+
+```
+.idea/
+```
+
+If `.idea` is already committed, untrack it and keep the files:
+
+```bash
+git rm -r --cached .idea
+git commit -m "Stop tracking .idea"
+```
+
+How sure: from memory of the JetBrains guidance and the template. Jim can confirm with `cat .idea/.gitignore` and `git status`.
+
 ## Open questions
 
 (Jim has more questions to add.)
