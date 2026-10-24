@@ -402,6 +402,27 @@ pub fn mission_mv(
     dry_run: bool,
 ) -> Result<(), String> {
     let missions = store.missions_load()?;
+    // With a mission prefix, the new ID gets it when it lacks it, and a numbered ID has to be
+    // a part of the mission that is the parent of the mission.
+    let prefix = store.mission_prefix()?;
+    let parent = model::find(&missions, from)?.parent.clone();
+    let placed = super::prefix::place(
+        &missions,
+        prefix.as_deref(),
+        to,
+        parent.as_deref(),
+        Some(from),
+    )?;
+    if prefix.is_some() && placed.parent != parent {
+        return Err(format!(
+            "error: {} is a part of {}, and {} has the parent {}",
+            placed.id,
+            placed.parent.as_deref().unwrap_or("-"),
+            from,
+            parent.as_deref().unwrap_or("none")
+        ));
+    }
+    let to = placed.id.as_str();
     let mut plan = plan_rename(&missions, from, to, &|path| {
         store.doc_exists(path).unwrap_or(false)
     })?;

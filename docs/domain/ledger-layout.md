@@ -743,6 +743,17 @@ Rules:
 
 - A mission ID matches `^M-[A-Z0-9]+(-[A-Z0-9]+)*$` and is at most 64 characters. A name is
   one line of at most 255 characters.
+- A ledger can have a mission prefix (ADR 0027): 3 or 4 capital letters, the manifest key
+  `mission_prefix`. `tsk mission prefix` prints it, or sets it with an argument, and exits
+  1 with no argument when the ledger has none. With a prefix, `create` and `mv` add it after
+  `M-` to an ID that lacks it, and print the resulting ID on stdout when they added it. An
+  ID that starts with `M-<prefix>-`, or is `M-<prefix>`, is not changed. A trailing group of
+  digits marks a part of a mission: `M-TSK-BOOT-01` has to be a part of the mission
+  `M-TSK-BOOT`, which has to exist. `create` makes it the parent when none is given, and
+  refuses a different parent. `mv` refuses a number whose mission is not the parent the
+  mission has, or is the mission being renamed. With no prefix none of this applies, and
+  `create` prints a note on stderr when the ledger already has missions. Setting the prefix
+  renames no mission, and two clones that set the same value merge.
 - `set` takes the fields `name`, `status`, `purpose` and `decision-authority`. The value
   comes from the argument, or from stdin when the argument is `-`. Stdin text is stored
   exactly, except that `name` and `status` drop the final line break. `set constraints` and

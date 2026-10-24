@@ -9195,3 +9195,130 @@ fn doc_mv_renames_the_file_and_every_link_to_it() {
         "other/kept.md"
     );
 }
+
+// --- The mission prefix (ADR 0027) ---
+
+#[test]
+fn a_mission_prefix_namespaces_new_ids_and_a_number_marks_a_part() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&a, &["ledger", "fetch"]);
+
+    // No prefix: an ID is used as typed, and the command says how to set one.
+    let none = fx.tsk(&a, &["mission", "prefix"]);
+    assert_exit(&none, 1);
+    assert!(
+        stderr(&none).contains("no mission prefix"),
+        "{}",
+        stderr(&none)
+    );
+    let first = fx.tsk(&a, &["mission", "create", "M-OLD", "Old"]);
+    assert_success(&first);
+    assert_eq!(stderr(&first).matches("mission prefix").count(), 0);
+    let second = fx.tsk(&a, &["mission", "create", "M-OLDER", "Older"]);
+    assert_success(&second);
+    assert!(
+        stderr(&second).contains("no mission prefix"),
+        "{}",
+        stderr(&second)
+    );
+    assert_eq!(stdout(&second), "");
+
+    // A prefix is 3 or 4 capital letters.
+    for bad in ["tsk", "TS", "TSKXY", "TS1"] {
+        let refused = fx.tsk(&a, &["mission", "prefix", bad]);
+        assert_exit(&refused, 1);
+        assert!(stderr(&refused).contains("is not a mission prefix"));
+    }
+    assert_eq!(fx.ok(&a, &["mission", "prefix", "TSK"]), "TSK\n");
+    assert_eq!(fx.ok(&a, &["mission", "prefix"]), "TSK\n");
+    assert_eq!(fx.ok(&a, &["mission", "prefix", "TSK"]), "TSK\n");
+    fx.ok(&a, &["ledger", "push", "Set the prefix"]);
+    fx.ok(&b, &["ledger", "fetch"]);
+    assert_eq!(fx.ok(&b, &["mission", "prefix"]), "TSK\n");
+
+    // The prefix is added when it is missing, and the new ID is printed.
+    let boot = fx.tsk(&a, &["mission", "create", "M-BOOT", "Boot"]);
+    assert_success(&boot);
+    assert_eq!(stdout(&boot), "M-TSK-BOOT\n");
+    assert!(
+        stderr(&boot).contains("prefix was added"),
+        "{}",
+        stderr(&boot)
+    );
+    let named = fx.tsk(&a, &["mission", "create", "M-TSK-NAMES", "Names"]);
+    assert_success(&named);
+    assert_eq!(stdout(&named), "");
+    let ids = fx.ok(&a, &["mission", "list", "--porcelain"]);
+    assert!(
+        ids.contains("M-TSK-BOOT\t") && ids.contains("M-TSK-NAMES\t"),
+        "{}",
+        ids
+    );
+    assert!(ids.contains("M-OLD\t"), "{}", ids);
+
+    // A number is a part of a mission that exists, which becomes its parent.
+    let part = fx.tsk(&a, &["mission", "create", "M-BOOT-01", "Part"]);
+    assert_success(&part);
+    assert_eq!(stdout(&part), "M-TSK-BOOT-01\n");
+    assert_eq!(fx.record(&a, "M-TSK-BOOT-01")["parent"], "M-TSK-BOOT");
+    let nothing = fx.tsk(&a, &["mission", "create", "M-TSK-ADMIN-03", "Series"]);
+    assert_exit(&nothing, 1);
+    assert!(
+        stderr(&nothing).contains("part of M-TSK-ADMIN"),
+        "{}",
+        stderr(&nothing)
+    );
+    let wrong = fx.tsk(
+        &a,
+        &[
+            "mission",
+            "create",
+            "M-TSK-BOOT-02",
+            "Wrong parent",
+            "--parent",
+            "M-TSK-NAMES",
+        ],
+    );
+    assert_exit(&wrong, 1);
+    assert!(
+        stderr(&wrong).contains("its parent is M-TSK-NAMES"),
+        "{}",
+        stderr(&wrong)
+    );
+
+    // A rename takes the prefix too, and a number needs the parent the mission has.
+    let moved = fx.ok(&a, &["mission", "mv", "M-OLD", "M-LAB"]);
+    assert!(
+        moved.starts_with("mission M-OLD -> M-TSK-LAB\n"),
+        "{}",
+        moved
+    );
+    let refused = fx.tsk(&a, &["mission", "mv", "M-OLDER", "M-TSK-BOOT-02"]);
+    assert_exit(&refused, 1);
+    assert!(
+        stderr(&refused).contains("has the parent none"),
+        "{}",
+        stderr(&refused)
+    );
+    assert!(fx
+        .ok(&a, &["mission", "list", "--porcelain"])
+        .contains("M-OLDER\t"));
+
+    // Two clones that set the same prefix on their own merge.
+    let fx2 = Fixture::new();
+    let (c, d) = (fx2.a(), fx2.b());
+    fx2.ok(&c, &["ledger", "fetch"]);
+    fx2.ok(&c, &["mission", "create", "M-ONE", "One"]);
+    fx2.ok(&c, &["ledger", "push", "Base"]);
+    fx2.ok(&d, &["ledger", "fetch"]);
+    fx2.ok(&c, &["mission", "prefix", "AAA"]);
+    fx2.ok(&d, &["mission", "prefix", "AAA"]);
+    fx2.ok(&c, &["ledger", "push", "C sets the prefix"]);
+    fx2.ok(&d, &["ledger", "push", "D sets the prefix"]);
+    assert_eq!(fx2.ok(&d, &["mission", "prefix"]), "AAA\n");
+}

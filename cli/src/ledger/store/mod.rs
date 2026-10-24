@@ -340,6 +340,11 @@ pub trait LedgerStore {
     /// Write several missions in one local change, as [`mission_save`](Self::mission_save)
     /// writes one. A task, decision or question a mission no longer holds is removed.
     fn missions_save(&self, missions: &[Mission]) -> Result<(), String>;
+    /// The mission prefix of the ledger, its manifest key `mission_prefix`, or `None` when it
+    /// has none.
+    fn mission_prefix(&self) -> Result<Option<String>, String>;
+    /// Set the mission prefix of the ledger, in the local store.
+    fn set_mission_prefix(&self, prefix: &str) -> Result<(), String>;
     /// Change the code of the mission `from` to `to`, and nothing else: every other row
     /// names the mission by its internal ID. The first call on a Dolt ledger below version
     /// 10 upgrades it.

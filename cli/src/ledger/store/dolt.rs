@@ -2827,6 +2827,30 @@ impl LedgerStore for DoltStore {
         self.write(&db, &sql)
     }
 
+    fn mission_prefix(&self) -> Result<Option<String>, String> {
+        let location = self.repo.location(&self.state_root)?;
+        let db = self.db()?;
+        self.check_current(&db, &location)?;
+        Ok(db
+            .rows("select v from manifest where k = 'mission_prefix'")?
+            .first()
+            .and_then(|row| text(row, "v"))
+            .filter(|prefix| !prefix.is_empty()))
+    }
+
+    fn set_mission_prefix(&self, prefix: &str) -> Result<(), String> {
+        let location = self.repo.location(&self.state_root)?;
+        let db = self.db()?;
+        self.check_current(&db, &location)?;
+        self.write(
+            &db,
+            &format!(
+                "replace into manifest (k, v) values ('mission_prefix', {});\n",
+                lit(prefix)
+            ),
+        )
+    }
+
     fn mission_rename(&self, from: &str, to: &str) -> Result<(), String> {
         let location = self.repo.location(&self.state_root)?;
         let db = self.db()?;
