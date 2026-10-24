@@ -23,7 +23,7 @@ Jim's finding: "tsk --help - it should list install and in the usage section the
 
 Expected: the help lists the install command and says how to install tsk in a repo.
 
-Record: M-ADMIN-02 T-09.
+Record: M-TSK-ADHOC T-09.
 
 ### 2026-10-24, entry 2: tsk ledger status
 
@@ -36,7 +36,7 @@ error: unrecognized subcommand 'status'
 
 Expected: the ledger status. The 0.26.0 source has `tsk ledger status`, so the installed binary is probably older than the latest release. Open: the output of `tsk --version` on the laptop, and whether the Homebrew formula follows each release.
 
-Record: M-ADMIN-02 T-10.
+Record: M-TSK-ADHOC T-10.
 
 ### 2026-10-24, entry 3: an old tsk shadowed the Homebrew install
 
@@ -56,7 +56,7 @@ Cause: a stale copy from an earlier install. Fix for Jim: remove the cargo and `
 
 Findings: a new user with an old `tsk` meets error messages from the old version (`unrecognized subcommand 'status'`, `runs without tskd` in the old help) that look like defects in the new one. Entries 1 and 2 are from 0.2.1 until Jim shows otherwise; recheck both on 0.26.0.
 
-Record: M-ADMIN-02 T-11. T-09 and T-10 stay open until rechecked on 0.26.0.
+Record: M-TSK-ADHOC T-11. T-09 and T-10 stay open until rechecked on 0.26.0.
 
 ### 2026-10-24, entry 4: 0.26.0 installed, the help is too long
 
@@ -68,7 +68,7 @@ Expected: a short guide that says what tsk is, how to start, and the few command
 
 Jim also asked for a check of the environment, so that a shadowed `tsk`, a missing `dolt` or an unaccepted Xcode licence shows up in one place.
 
-Records: M-ADMIN-02 T-09 (reworded to a user-guide help) and T-12 (`tsk doctor`). The shadowing finding in entry 3 is T-11, the first check of the doctor.
+Records: M-TSK-ADHOC T-09 (reworded to a user-guide help) and T-12 (`tsk doctor`). The shadowing finding in entry 3 is T-11, the first check of the doctor.
 
 ### 2026-10-24, entry 5: install-plugin does not say it works on a repo
 
@@ -76,7 +76,7 @@ Jim's finding: "`install-plugin` its not really explaining that it needs to be i
 
 Expected: the help and the output say that the command installs into the repo it runs in, and what it changes there.
 
-Record: M-ADMIN-02 T-13.
+Record: M-TSK-ADHOC T-13.
 
 ### 2026-10-24, entry 6: install-plugin with no target, and outside a repo
 
@@ -96,7 +96,7 @@ Facts checked in this session (0.26.0):
 - tsk needs a git repo. In a directory with no repo, `tsk mission list` stops with "not inside a git repository". The plugin's session start hook exits 0 and adds the warning "the ledger could not be fetched automatically at session start" to the context.
 - So a user-scope plugin is a valid Claude Code setting, but with it every session outside a tsk repo starts with that warning. Whether user scope should be offered is a decision for Jim.
 
-Records: M-ADMIN-02 T-14 (list the targets in the error) and T-15 (check for a git repo first, and offer user scope or stop).
+Records: M-TSK-ADHOC T-14 (list the targets in the error) and T-15 (check for a git repo first, and offer user scope or stop).
 
 ### 2026-10-24, entry 7: install-plugin on the Java repo
 
@@ -121,7 +121,7 @@ Findings:
 - The last line says to commit `.claude/settings.json` "so cloud sessions install the plugin". Jim works on a laptop. The line does not say that committing is only needed for cloud sessions.
 - This session expected `.tsk/config.toml` to be written as well. `git status` afterwards showed one untracked entry, `.claude/`, and no `.tsk/`. So the command writes only under `.claude/`. The expectation was wrong, and the output was right not to mention `.tsk/config.toml`.
 
-Record: M-ADMIN-02 T-17.
+Record: M-TSK-ADHOC T-17.
 
 ### 2026-10-24, entry 8: an agent checked the ledger with ls and head
 
@@ -137,7 +137,7 @@ Reproduction in a scratch repo on 0.26.0 (this session): after `tsk ledger fetch
 
 Why the agent did not use it: an agent in another repo sees the plugin skill and the session start context, not `README-AGENT.md`. Neither tells it how to check the ledger or to avoid `head`.
 
-Records: M-ADMIN-02 T-18 (agent rules in the skill and session start context), T-19 (an empty list says so), T-20 (a Ledger block in `tsk ledger status`).
+Records: M-TSK-ADHOC T-18 (agent rules in the skill and session start context), T-19 (an empty list says so), T-20 (a Ledger block in `tsk ledger status`).
 
 ### 2026-10-24, entry 9: tsk ledger status takes 6.8 seconds
 
@@ -292,7 +292,7 @@ Facts checked in this session: `claude plugin install --help` prints `-s, --scop
 
 Jim's request: put this in the user guide that `tsk --help` becomes, as an optional instruction.
 
-Record: M-ADMIN-02 T-09 (reworded to include the optional swe step and the scope default).
+Record: M-TSK-ADHOC T-09 (reworded to include the optional swe step and the scope default).
 
 ### 2026-10-24, entry 16: plugin list on the laptop
 
@@ -313,7 +313,7 @@ Readings:
 
 Fix for `java-dojo`: `tsk install-plugin claude-cli --plugin tsk --plugin swe`, then restart `claude`.
 
-Finding for `tsk doctor` (M-ADMIN-02 T-12): the plugin check lists the entry for this repo's path and flags entries older than the binary expects, with the path of each.
+Finding for `tsk doctor` (M-TSK-ADHOC T-12): the plugin check lists the entry for this repo's path and flags entries older than the binary expects, with the path of each.
 
 ### 2026-10-24, entry 17: a thread pause took 24 seconds
 
@@ -366,7 +366,7 @@ Fix options from the report: 1) tsk runs its own commits with hooks disabled; 2)
 
 Interim for Jim: lint the two documents, or list them in `.swe-ignore`, so the hook passes; or switch the hook off for the push.
 
-Record: M-ADMIN-02 T-21.
+Record: M-TSK-ADHOC T-21.
 
 ### 2026-10-24, entry 20: the bulk import test (GitHub issue #4)
 
