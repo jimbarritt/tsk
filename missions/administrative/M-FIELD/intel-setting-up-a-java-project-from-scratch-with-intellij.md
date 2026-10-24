@@ -102,6 +102,25 @@ Fix: run `mise use java@temurin-25` in the repo. The command installs the JDK an
 
 How sure: the cause is inferred from the error text and mise's usual config order. Jim's output decides it.
 
+## Result on Jim's machine: Java 25 under mise (checked, 2026-10-24)
+
+After `mise use java@temurin-25` in `~/projects/java-dojo`, Jim ran the checks. Output, exactly:
+
+```
+$ mise where java
+/Users/jmdb/.local/share/mise/installs/java/temurin-25.0.5+8.0.LTS
+$ java --version
+openjdk 25.0.5 2026-10-20 LTS
+OpenJDK Runtime Environment Temurin-25.0.5+8 (build 25.0.5+8-LTS)
+OpenJDK 64-Bit Server VM Temurin-25.0.5+8 (build 25.0.5+8-LTS, mixed mode, sharing)
+$ javac --version
+javac 25.0.5
+```
+
+The terminal uses Temurin 25.0.5, an LTS build dated 2026-10-20. The path to add in IntelliJ (Q1, step 2) is `/Users/jmdb/.local/share/mise/installs/java/temurin-25.0.5+8.0.LTS`. The directory name contains a `+`, which IntelliJ accepts. After a patch update (`25.0.6` for example) the directory name changes and the SDK must be added again.
+
+Next step: add the SDK in IntelliJ by that path, set the project SDK and the Gradle JVM, then check that `./gradlew --version` prints the same Java.
+
 ## Open questions
 
 (Jim has more questions to add.)
