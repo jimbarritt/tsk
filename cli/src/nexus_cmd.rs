@@ -143,7 +143,8 @@ fn register_repo(
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
     let repo = Repo::discover(&cwd)?;
-    let entry = new_entry(&repo, id, ledger, ledger_refs, local)?;
+    let prefix = ledger_prefix(&cwd)?;
+    let entry = new_entry(&repo, id, ledger, ledger_refs, local, prefix)?;
     let state_root = state_root_from_env()?;
     let outcome = register(&state_root, &nexus, &entry, &territory, &mut || {
         eprintln!("note: the nexus's default branch moved before the push; fetching again and retrying once")
@@ -155,12 +156,31 @@ fn register_repo(
     Ok(())
 }
 
+/// The mission prefix of this repo's ledger. A repo cannot register without one: the prefix
+/// keeps mission IDs apart between the repos of a nexus.
+fn ledger_prefix(cwd: &Path) -> Result<String, String> {
+    let none = "run tsk mission prefix <PREFIX> first: it chooses 3 or 4 capital letters and checks that no other repo in the nexus uses them";
+    match crate::ledger::store::open(cwd).and_then(|store| store.mission_prefix()) {
+        Ok(Some(prefix)) => Ok(prefix),
+        Ok(None) => Err(format!(
+            "error: this repo's ledger has no mission prefix, and a repo cannot register in a nexus without one: {}",
+            none
+        )),
+        Err(e) => Err(format!(
+            "error: could not read the mission prefix of this repo's ledger ({}); a repo cannot register in a nexus without one: {}",
+            e.trim_start_matches("error: "),
+            none
+        )),
+    }
+}
+
 fn new_entry(
     repo: &Repo,
     id: Option<String>,
     ledger: LedgerChoice,
     ledger_refs: Option<String>,
     local: bool,
+    prefix: String,
 ) -> Result<NewEntry, String> {
     let (name, url, machine) = if local {
         let machine = machine_name().ok_or_else(|| {
@@ -206,6 +226,7 @@ fn new_entry(
         local: machine,
         ledger: ledger.as_str().to_string(),
         ledger_refs,
+        prefix: Some(prefix),
     })
 }
 
@@ -398,6 +419,7 @@ mod tests {
             local: None,
             ledger: "nexus".to_string(),
             ledger_refs: None,
+            prefix: None,
         }
     }
 

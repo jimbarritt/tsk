@@ -52,6 +52,11 @@ yourself. The command does all of it.
      Ask me which territory to use, then run again with it. Do not guess.
    - Exit 1, stderr says an id or URL is already used by another entry: report it and
      ask me for an ID. Do not retry with an invented one.
+   - Exit 1, stderr says the ledger has no mission prefix: the repo cannot register
+     without one. Ask me for 3 or 4 capital letters, or propose one from the name and
+     purpose of the repo. Run `tsk mission prefix <PREFIX>`, which refuses a prefix another
+     repo in the nexus uses, then run the registration again.
+   - Exit 1, stderr says the prefix is already used by another repo: ask me for another.
    - Exit 1, stderr names `--local`: the repo has no origin URL that other machines can
      match. Ask me whether to register it for this machine only, then run again with
      `--local`.

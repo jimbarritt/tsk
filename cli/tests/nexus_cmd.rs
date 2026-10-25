@@ -20,6 +20,22 @@ impl Fixture {
         }
         git(root, &["init", "--quiet", "-b", "main", "work-api"]);
         git(&fixture.work(), &["remote", "add", "origin", ORIGIN_URL]);
+        // The ledger of the repo needs a mission prefix before the repo can register. A
+        // local bare repo stands in for the origin URL, so the ledger can be made offline.
+        git(
+            root,
+            &["init", "--quiet", "--bare", "-b", "main", "origin.git"],
+        );
+        git(
+            &fixture.work(),
+            &[
+                "config",
+                &format!("url.{}.insteadOf", root.join("origin.git").display()),
+                ORIGIN_URL,
+            ],
+        );
+        assert_success(&fixture.tsk(&["ledger", "fetch"]));
+        assert_success(&fixture.tsk(&["mission", "prefix", "WRK"]));
         git(
             root,
             &["init", "--quiet", "--bare", "-b", "main", "nexus.git"],
@@ -342,7 +358,7 @@ fn register_repo_adds_the_origin_entry_commits_and_pushes() {
     assert_eq!(doc["territories"][0]["repos"][0]["note"], "keep");
     assert_eq!(
         doc["territories"][0]["repos"][1],
-        serde_json::json!({"id": "work-api", "url": ORIGIN_URL, "ledger": "nexus"})
+        serde_json::json!({"id": "work-api", "url": ORIGIN_URL, "ledger": "nexus", "prefix": "WRK"})
     );
     assert!(fx.nexus_json().ends_with("}\n"));
     assert_eq!(
@@ -404,9 +420,104 @@ fn register_repo_matches_an_existing_ssh_form_of_the_origin() {
 
     let output = fx.register(&[]);
 
+    // The entry has no prefix yet, so registering records the prefix of the ledger on it.
     assert_success(&output);
-    assert!(stdout(&output).starts_with("already registered"));
+    assert!(
+        stdout(&output).starts_with("registered"),
+        "{}",
+        stdout(&output)
+    );
+    assert_eq!(fx.nexus_commits(), before + 1);
+    let repos = fx.nexus_doc()["territories"][0]["repos"].clone();
+    assert_eq!(repos.as_array().unwrap().len(), 1);
+    assert_eq!(repos[0]["url"], "git@example.test:Acme/work-api.git");
+    assert_eq!(repos[0]["prefix"], "WRK");
+
+    // With the prefix on the entry, a second run changes nothing.
+    let again = fx.register(&[]);
+    assert_success(&again);
+    assert!(
+        stdout(&again).starts_with("already registered"),
+        "{}",
+        stdout(&again)
+    );
+    assert_eq!(fx.nexus_commits(), before + 1);
+}
+
+#[test]
+fn register_repo_needs_a_prefix_and_refuses_one_another_repo_has() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(
+        r#"{"version":1,"territories":[{"id":"work","repos":[
+          {"id":"billing","url":"https://example.test/acme/billing","prefix":"WRK"}
+        ]}]}"#,
+    );
+    fx.attach();
+    let before = fx.nexus_commits();
+
+    // Another repo in the nexus has WRK.
+    let taken = fx.tsk(&["mission", "prefix", "WRK"]);
+    assert_eq!(taken.status.code(), Some(1));
+    assert!(
+        stderr(&taken).contains("already used by the repo \"billing\""),
+        "{}",
+        stderr(&taken)
+    );
+    assert_failure_mentioning(&fx.register(&[]), "already used by the repo \"billing\"");
     assert_eq!(fx.nexus_commits(), before);
+
+    // A free prefix registers, and is written to the entry.
+    assert_success(&fx.tsk(&["mission", "prefix", "API"]));
+    assert_success(&fx.register(&[]));
+    assert_eq!(
+        fx.nexus_doc()["territories"][0]["repos"][1]["prefix"],
+        "API"
+    );
+    // The repo can set its own prefix again: its own entry does not count.
+    assert_success(&fx.tsk(&["mission", "prefix", "API"]));
+}
+
+#[test]
+fn register_repo_without_a_mission_prefix_is_refused() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(ONE_TERRITORY);
+    fx.attach();
+    // A second repo whose ledger has no prefix.
+    let other = fx.root.path().join("other");
+    git(fx.root.path(), &["init", "--quiet", "-b", "main", "other"]);
+    git(
+        &other,
+        &["remote", "add", "origin", "https://example.test/acme/other"],
+    );
+    git(
+        &other,
+        &[
+            "config",
+            &format!(
+                "url.{}.insteadOf",
+                fx.root.path().join("origin.git").display()
+            ),
+            "https://example.test/acme/other",
+        ],
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_tsk"))
+        .args(["nexus", "register-repo"])
+        .current_dir(&other)
+        .envs(git_env())
+        .env("HOME", fx.root.path().join("home"))
+        .env("XDG_STATE_HOME", fx.root.path().join("state"))
+        .env("XDG_CONFIG_HOME", fx.root.path().join("config"))
+        .env("TSK_MACHINE_NAME", "laptop")
+        .env("GIT_CEILING_DIRECTORIES", fx.root.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("a repo cannot register in a nexus without one"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(stderr(&output).contains("tsk mission prefix <PREFIX>"));
 }
 
 #[test]
@@ -457,7 +568,7 @@ fn register_repo_needs_a_territory_when_the_nexus_has_more_than_one() {
     let doc = fx.nexus_doc();
     assert_eq!(
         doc["territories"][1]["repos"][0],
-        serde_json::json!({"id": "api", "url": ORIGIN_URL, "ledger": "repo"})
+        serde_json::json!({"id": "api", "url": ORIGIN_URL, "ledger": "repo", "prefix": "WRK"})
     );
     assert_eq!(doc["territories"][0]["repos"].as_array().unwrap().len(), 2);
 }
@@ -494,7 +605,7 @@ fn register_repo_local_names_this_machine_and_writes_the_repo_id() {
     assert_success(&output);
     assert_eq!(
         fx.nexus_doc()["territories"][0]["repos"][1],
-        serde_json::json!({"id": "work-api", "local": "laptop", "ledger": "nexus"})
+        serde_json::json!({"id": "work-api", "local": "laptop", "ledger": "nexus", "prefix": "WRK"})
     );
     assert_eq!(
         std::fs::read_to_string(fx.repo_id_file()).unwrap(),

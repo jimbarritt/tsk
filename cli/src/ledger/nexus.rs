@@ -22,6 +22,10 @@ pub struct Entry {
     /// config and discovery decide.
     #[serde(default)]
     pub ledger_refs: Option<String>,
+    /// The mission prefix of the repo's ledger, written at registration. Absent for an entry
+    /// registered before prefixes were recorded.
+    #[serde(default)]
+    pub prefix: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -260,6 +264,42 @@ pub fn place(
     })
 }
 
+/// The id of another repo in the attached nexus that uses the mission prefix `prefix`, or
+/// `None` when the prefix is free or no nexus is attached. The repo's own entry does not
+/// count.
+pub fn prefix_holder(
+    repo: &Repo,
+    state_root: &Path,
+    config_file: Option<&Path>,
+    prefix: &str,
+) -> Result<Option<String>, String> {
+    let nexus_url = match config_file {
+        Some(file) => config::read_nexus_url(file)?,
+        None => None,
+    };
+    let Some(nexus_url) = nexus_url else {
+        return Ok(None);
+    };
+    let index = load_index(state_root, &nexus_url)?;
+    let cached = repo.read_repo_id()?;
+    let origin = repo.raw_origin_url()?;
+    let machine = machine_name();
+    let own = select_entry(
+        &index,
+        cached.as_deref(),
+        origin.as_deref(),
+        machine.as_deref(),
+    )
+    .map(|entry| entry.id.as_str());
+    let holder = index
+        .entries()
+        .filter(|entry| entry.prefix.as_deref() == Some(prefix))
+        .map(|entry| entry.id.as_str())
+        .find(|id| Some(*id) != own)
+        .map(str::to_string);
+    Ok(holder)
+}
+
 /// The refs mode in force for a repo, and where it came from, with no check against an
 /// existing ledger.
 pub fn choose(
@@ -483,6 +523,7 @@ mod tests {
             local: None,
             ledger: Some("repo".into()),
             ledger_refs: None,
+            prefix: None,
         };
         assert_eq!(
             entry_location(&repo, nexus).unwrap(),
@@ -505,6 +546,7 @@ mod tests {
             local: None,
             ledger: Some("nexus".into()),
             ledger_refs: None,
+            prefix: None,
         };
         assert!(entry_location(&entry, "n")
             .unwrap_err()

@@ -7,7 +7,7 @@ Date: 2026-10-24
 Accepted. Decided by Jim on 2026-10-24 (M-TSK-ADHOC): where the prefix is stored and who
 chooses it, what a trailing number means, and what `tsk mission create` does with an ID
 that lacks the prefix. Built in 0.31.0 (M-TSK-ADHOC T-31), except the check in a nexus
-(decision 4), which is T-32. ADR 0026 (a mission has an internal ID and a
+(decision 4), which Jim settled on 2026-10-25 and 0.36.0 built (T-32). ADR 0026 (a mission has an internal ID and a
 code) stands: a rename of every mission to the new form uses `tsk mission mv`.
 
 ## Context
@@ -37,9 +37,12 @@ no parent). `tsk` checked neither.
 3. **An agent infers it once.** When a ledger has no `mission_prefix`, the agent that needs
    one chooses 3 to 4 capital letters from the name and purpose of the repo, and stores it.
    A person can overwrite it with a command.
-4. **A nexus checks it.** When a ledger is registered in a nexus, `tsk` refuses a prefix
-   that another ledger in `nexus.json` already has. Only the nexus can see other ledgers, so
-   it is the only place a clash can be found.
+4. **A nexus checks it.** A repo cannot register in a nexus until its ledger has a prefix.
+   Registration writes the prefix to the `nexus.json` entry, and refuses a prefix that
+   another entry has. `tsk mission prefix <PREFIX>` makes the same check against the
+   attached nexus, so a prefix is chosen where it is known to be free. Only the nexus can
+   see other ledgers, so it is the only place a clash can be found. Two nexuses can still
+   have the same prefix.
 5. **`tsk mission create` adds the prefix when it is missing.** `M-BOOT` becomes
    `M-TSK-BOOT`, and the command prints the resulting ID. An ID that has the prefix is not
    changed. `tsk mission mv` does the same for the new ID. A ledger with no prefix has no
