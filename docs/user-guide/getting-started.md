@@ -22,9 +22,9 @@ research and reports. Agents do not edit either by hand.
 
 ```bash
 tsk mission list                     # every mission: id, status, blocked-by, parent, name
-tsk mission list M-BOOT-04 --json    # one mission in full
-tsk task list M-BOOT-04              # its tasks
-tsk decision list M-BOOT-04          # its decisions
+tsk mission list M-TSK-BOOT-04 --json    # one mission in full
+tsk task list M-TSK-BOOT-04              # its tasks
+tsk decision list M-TSK-BOOT-04          # its decisions
 tsk question list                    # open questions, all missions
 ```
 
@@ -49,11 +49,11 @@ files. `tsk ledger fetch` checks it out beside the database, at
 
 ```bash
 tsk ledger doc list missions/                    # list the documents under a prefix
-tsk ledger doc get missions/operational/M-BOOT-04/research.md
-tsk ledger doc put missions/operational/M-BOOT-04/research.md notes.md   # or pipe the body on stdin
+tsk ledger doc get missions/operational/M-TSK-BOOT-04/research.md
+tsk ledger doc put missions/operational/M-TSK-BOOT-04/research.md notes.md   # or pipe the body on stdin
 tsk ledger doc rm missions/operational/old.md
-tsk ledger doc path missions/operational/M-BOOT-04/research.md   # the file's absolute path, to open it elsewhere
-tsk mission link M-BOOT-04 missions/operational/M-BOOT-04/research.md --role intelligence
+tsk ledger doc path missions/operational/M-TSK-BOOT-04/research.md   # the file's absolute path, to open it elsewhere
+tsk mission link M-TSK-BOOT-04 missions/operational/M-TSK-BOOT-04/research.md --role intelligence
 tsk ledger push "Add the research"               # commit and push the change
 ```
 
@@ -80,7 +80,7 @@ except `tsk ledger fetch` stops and says so.
 **2. Start a thread for a mission:**
 
 ```bash
-tsk thread start M-BOOT-04
+tsk thread start M-TSK-BOOT-04
 ```
 
 The mission has a record (see `tsk mission list`). With no mission ID the thread has no
