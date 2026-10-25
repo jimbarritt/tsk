@@ -228,6 +228,18 @@ reset both to origin's state. It prints `discarded`. It leaves thread bindings a
 **Use `tsk ledger discard`, never `dolt reset`, `dolt clean` or `git reset` against the
 ledger.** Check `tsk ledger status` first: a discard cannot be undone.
 
+**Rules for an agent.** These hold in every repo:
+
+- Check whether the ledger exists and what it holds with `tsk ledger status`. Its `Ledger`
+  block names the ledger store, the refs in use and the counts of missions, tasks, threads
+  and actors. The `Origin` line says whether origin has the ledger yet.
+- Do not run `ls`, `find`, `cat` or `git` against the ledger store. It is a Dolt database,
+  not a directory of files, and a `tsk` command reads it.
+- Do not pipe `tsk` output through `head`, `tail` or another command. The pipe hides the
+  exit code. Run the command alone and read its exit code and its output. `--porcelain`
+  and `--json` give a script the stable form.
+- An empty `list` prints one line on stderr and exits 0. It is not a failure.
+
 Outside a git repository the `ledger`, `mission`, `task`, `decision`, `question`,
 `thread` (except the `session-start` and `guard` hooks) and `events` commands stop with
 `error: not inside a git repository. Run tsk from inside the repository whose ledger you want.`
@@ -270,6 +282,8 @@ tsk mission objective add <id> <outcome>      # prints n; also done, undone, rem
 tsk mission link <id> <path> --role <intelligence|report|design>   # and unlink
 tsk mission prefix [<PREFIX>]                 # print or set the ledger's mission prefix, 3 or 4 capitals
 tsk mission mv <old-id> <new-id> [--dry-run] [--rewrite]  # rename: only the ID changes; linked documents named for it are renamed; --rewrite also replaces the old ID in record text
+tsk mission show <id>                       # one mission as plain text for a person: the data of list <id> --json, no new field
+tsk doctor                                  # check the environment (tsk on PATH, dolt, jq, git, origin, ledger refs, plugin, Dolt server); prints the fix for each fault; exit 1 when any fails
 tsk mission rewrite <old-id> <new-id> [--dry-run]  # replace an old ID, as a whole word, in the text of every mission (names, purposes, objectives, constraints, out-of-scope items, tasks, decisions, questions, answers); <new-id> must be a mission
 tsk mission list [<id>] [--json] [--porcelain]
 ```

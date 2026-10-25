@@ -5,6 +5,16 @@
 
 /// Print `lines`, which are tab-separated: as they are with `porcelain`, otherwise
 /// aligned by [`align`].
+/// Print the lines. When there are none and the output is for a person, print `empty` on
+/// stderr, so an empty result is not mistaken for a failure. `--porcelain` prints nothing.
+pub fn print_lines_or(lines: Vec<String>, porcelain: bool, empty: &str) {
+    if lines.is_empty() && !porcelain {
+        eprintln!("{}", empty);
+        return;
+    }
+    print_lines(lines, porcelain);
+}
+
 pub fn print_lines(lines: Vec<String>, porcelain: bool) {
     let lines = if porcelain { lines } else { align(&lines) };
     for line in lines {

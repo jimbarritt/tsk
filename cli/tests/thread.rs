@@ -1705,9 +1705,10 @@ fn session_start_fetches_exports_the_path_and_prints_the_unbound_prompt() {
     assert!(wt.join(".dolt").is_dir());
     let context = session_context(&output);
     assert!(context.starts_with(&format!(
-        "The ledger was fetched and materialised at {} (also exported as $TSK_LEDGER_WT). No thread binding",
+        "The ledger was fetched and materialised at {} (also exported as $TSK_LEDGER_WT). Rules for the ledger:",
         wt.display()
     )));
+    assert!(context.contains("`tsk ledger status`"));
     assert!(!context.contains("index.md"));
     assert!(context.ends_with("run `tsk thread skip` instead."));
     assert!(context.contains("No thread binding was found for this session or worktree."));

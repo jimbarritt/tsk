@@ -378,7 +378,12 @@ fn without_uid(mut record: serde_json::Value) -> serde_json::Value {
 
 fn no_server_line(text: String) -> String {
     text.split_inclusive('\n')
-        .filter(|line| !line.starts_with("Server "))
+        .filter(|line| {
+            !line.starts_with("Server ")
+                && !line.starts_with("Ledger ")
+                && !line.starts_with("        refs ")
+                && !line.starts_with("        holds ")
+        })
         .collect()
 }
 
@@ -3556,6 +3561,68 @@ mod cases {
         format!("Origin  {}", text)
     }
 
+    pub fn status_ends_with_a_ledger_block_that_says_where_the_ledger_is_and_what_it_holds() {
+        let fx = Fixture::new();
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        fx.ok(&a, &["mission", "create", "M-ONE", "One"]);
+        fx.ok(&a, &["task", "add", "M-ONE", "First"]);
+        fx.ok(&a, &["task", "add", "M-ONE", "Second"]);
+        let text = fx.ok(&a, &["ledger", "status"]);
+        let lines: Vec<&str> = text.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| l.starts_with("Ledger  store "))
+            .unwrap_or_else(|| panic!("no Ledger block: {}", text));
+        assert!(lines[at].ends_with("ledger-db"), "{}", text);
+        assert!(
+            lines[at + 1].starts_with("        refs branches (")
+                && lines[at + 1]
+                    .contains("data refs/heads/tsk/ledger, documents refs/heads/tsk/docs"),
+            "{}",
+            text
+        );
+        assert_eq!(
+            lines[at + 2],
+            "        holds 1 mission, 2 tasks, 0 threads, 0 actors"
+        );
+        // The porcelain form has no Ledger block.
+        assert!(!fx
+            .ok(&a, &["ledger", "status", "--porcelain"])
+            .contains("Ledger"));
+    }
+
+    pub fn an_empty_list_says_so_for_a_person_and_stays_empty_for_porcelain() {
+        let fx = Fixture::new();
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        for (args, needle) in [
+            (vec!["mission", "list"], "no missions yet"),
+            (vec!["question", "list"], "no open questions"),
+            (vec!["decision", "list"], "no decisions yet"),
+        ] {
+            let out = fx.tsk(&a, &args);
+            assert_exit(&out, 0);
+            assert_eq!(stdout(&out), "", "{:?}", args);
+            assert!(stderr(&out).contains(needle), "{}", stderr(&out));
+            let mut porcelain = args.clone();
+            porcelain.push("--porcelain");
+            let out = fx.tsk(&a, &porcelain);
+            assert_exit(&out, 0);
+            assert_eq!(stdout(&out), "");
+            assert_eq!(stderr(&out), "");
+        }
+        fx.ok(&a, &["mission", "create", "M-ONE", "One"]);
+        let out = fx.tsk(&a, &["task", "list", "M-ONE"]);
+        assert_exit(&out, 0);
+        assert_eq!(stdout(&out), "");
+        assert!(
+            stderr(&out).contains("no tasks in M-ONE yet"),
+            "{}",
+            stderr(&out)
+        );
+    }
+
     pub fn status_prints_local_and_origin_in_plain_columns() {
         // A ledger that origin does not hold yet.
         let fresh = Fixture::new();
@@ -4852,6 +4919,8 @@ conformance!(
     status_works_offline_and_discard_then_changes_nothing,
     status_and_discard_need_a_ledger_store,
     status_prints_local_and_origin_in_plain_columns,
+    status_ends_with_a_ledger_block_that_says_where_the_ledger_is_and_what_it_holds,
+    an_empty_list_says_so_for_a_person_and_stays_empty_for_porcelain,
     a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real,
     a_question_takes_dates_with_on_and_refuses_one_that_is_not_real,
     an_open_question_is_edited_and_an_answered_one_is_not,

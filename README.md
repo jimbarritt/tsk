@@ -89,12 +89,24 @@ On macOS or Linux with [Homebrew](https://brew.sh):
 brew install jimbarritt/tap/tsk
 ```
 
-Then, in the repo you work in:
+Then, in the git repo you work in. The command stops outside a git repo, because tsk
+works per repo.
 
 ```bash
+tsk doctor                       # check the environment; it prints the fix for each fault
 tsk install-plugin claude-cli    # or: tsk install-plugin copilot-cli
 claude                           # or: copilot
 ```
+
+To add the `swe` plugin (Software English checks) in the same step, run
+`tsk install-plugin claude-cli --plugin tsk --plugin swe`. It installs at project scope,
+for this repo only. `claude plugin install` on its own defaults to user scope, which
+applies to every repo on the machine.
+
+A copy of `tsk` from an earlier install, for example `~/.cargo/bin/tsk` after
+`cargo install`, shadows a new one when it comes first on `PATH`. A stale copy lacks the
+commands of later releases. `tsk doctor` lists every `tsk` on `PATH` with its version and
+names the one that runs. `tsk self-update` prints the same note.
 
 That is the whole setup. The plugin installs into Claude Code or GitHub Copilot CLI,
 and at the start of every session it fetches the ledger and prints the missions, with a

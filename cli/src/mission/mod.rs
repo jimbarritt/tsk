@@ -6,6 +6,7 @@ pub mod model;
 pub mod mv;
 pub mod prefix;
 pub mod records;
+pub mod show;
 pub mod table;
 
 use std::io::Read;
@@ -110,6 +111,13 @@ pub enum MissionCommands {
         to: String,
         #[arg(long, help = "Print the lines and change nothing")]
         dry_run: bool,
+    },
+    #[command(
+        about = "Print one mission as plain text for a person: purpose, decision authority, objectives, constraints, out of scope, blockers, tasks, decisions, open and answered questions, and linked documents. The data of mission list <id> --json, with no new field"
+    )]
+    Show {
+        #[arg(help = "The mission ID")]
+        id: String,
     },
     #[command(
         about = "List missions, one per line: id, status, blocked-by, parent, name; or one mission with an id. The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records"
@@ -251,6 +259,7 @@ pub fn run_with(store: &dyn LedgerStore, action: MissionCommands) -> Result<(), 
             let path = check_docs_path(&path).unwrap_or(path);
             change(store, |missions| model::unlink(missions, &id, &path))?;
         }
+        MissionCommands::Show { id } => show::run(store, &id)?,
         MissionCommands::Prefix { prefix } => prefix::run(store, prefix.as_deref())?,
         MissionCommands::Mv {
             from,
@@ -363,7 +372,11 @@ fn list(
             .into_iter()
             .map(|mission| model::list_line(&missions, mission))
             .collect();
-        table::print_lines(lines, porcelain);
+        let empty = match id {
+            Some(_) => "no mission to show",
+            None => "no missions yet: create one with tsk mission create, or run tsk thread start",
+        };
+        table::print_lines_or(lines, porcelain, empty);
     }
     Ok(())
 }

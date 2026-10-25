@@ -4,8 +4,62 @@ use clap::{Parser, Subcommand};
 // CLI argument schema
 // ---------------------------------------------------------------------------
 
+/// The text of `tsk --help`. It names every command, grouped by what a person does, and
+/// does not use clap's flat list. A test checks that every command is named.
+const HELP_TEMPLATE: &str = "\
+tsk: work with a clear context
+
+tsk keeps the missions, tasks, decisions and questions of a repo in a ledger that every
+session and robot reads and writes. The ledger is a Dolt database that tsk publishes to
+the git remote of the repo. tsk works per repo.
+
+{usage-heading} {usage}
+
+Start:
+  1. Install tsk: brew install jimbarritt/tap/tsk, or download a release archive.
+  2. Run tsk doctor to check the environment.
+  3. In the repo that will use tsk, run tsk install-plugin claude-cli (or copilot-cli).
+  4. Optional: install the swe plugin, which checks Software English, in the same step:
+       tsk install-plugin claude-cli --plugin tsk --plugin swe
+     This installs at project scope, for this repo only. claude plugin install on its own
+     defaults to user scope, which applies to every repo on the machine.
+
+Set up and maintain:
+  install-plugin  Install and update the tsk plugin through a coding agent's CLI
+  doctor          Check the environment and print the fix for each fault
+  self-update     Upgrade tsk to the latest release
+  config          Read and write the user config and the repo config
+  nexus           Attach the nexus and list the repos it indexes
+
+Daily work:
+  mission         Create, change, show and list missions
+  task            Add, change, block and list the tasks of a mission
+  decision        Record and list the decisions of a mission
+  question        Ask, answer and list the questions of a mission
+  thread          Start, pause, resume and stop the thread this session works on
+  actor           Register this session as an actor and list the actors
+
+Ledger:
+  ledger          Fetch, push and inspect the ledger; read and write its documents
+  events          Append to and read the external event queue
+
+Guides:
+  guide           Print guides for agents, such as importing an existing plan
+
+Run tsk <command> --help for the detail of a command. The documents are in docs/index.md
+in https://github.com/jimbarritt/tsk.
+
+{options}
+";
+
 #[derive(Parser)]
-#[command(name = "tsk", about = "tsk — work with a clear context", version = env!("CARGO_PKG_VERSION"), arg_required_else_help = true)]
+#[command(
+    name = "tsk",
+    about = "tsk: work with a clear context",
+    version = env!("CARGO_PKG_VERSION"),
+    arg_required_else_help = true,
+    help_template = HELP_TEMPLATE
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -81,6 +135,10 @@ enum Commands {
         about = "Add the plugin marketplace, then install and update the tsk plugin through a coding agent's CLI"
     )]
     InstallPlugin(install_plugin::InstallPluginArgs),
+    #[command(
+        about = "Check the environment and print what is wrong, with the fix for each: the tsk files on PATH, dolt, jq, git and the origin remote, the ledger refs, the plugin version, the Xcode licence on macOS and the Dolt server. Exit 0 when every check passes, 1 when any fails"
+    )]
+    Doctor,
     #[command(
         name = "self-update",
         about = "Upgrade tsk to the latest release, by the method it was installed with (Homebrew, Cargo or a release binary)",
@@ -160,13 +218,22 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
         Some(Commands::Config { action }) => config::run(action).map(|()| 0),
         Some(Commands::Nexus { action }) => nexus_cmd::run(action).map(|()| 0),
         Some(Commands::InstallPlugin(args)) => install_plugin::run(args).map(|()| 0),
-        Some(Commands::SelfUpdate(args)) => self_update::run(args).map(|()| 0),
+        Some(Commands::Doctor) => doctor::run(),
+        Some(Commands::SelfUpdate(args)) => self_update::run(args).map(|()| {
+            if let Some(note) = doctor::shadow_note(&doctor::tsk_on_path(std::env::var_os("PATH")))
+            {
+                eprintln!("{}", note);
+            }
+            0
+        }),
         Some(Commands::Guide { action }) => guide::run(action).map(|()| 0),
         None => Ok(0),
     }
 }
 
 mod config;
+
+mod doctor;
 
 mod gitenv;
 
@@ -467,7 +534,8 @@ mod tests {
         ] {
             assert!(Cli::try_parse_from(&args).is_ok(), "{:?}", args);
         }
-        assert!(Cli::try_parse_from(["tsk", "mission", "show", "M-X"]).is_err());
+        assert!(Cli::try_parse_from(["tsk", "mission", "show", "M-X"]).is_ok());
+        assert!(Cli::try_parse_from(["tsk", "mission", "show"]).is_err());
         assert!(Cli::try_parse_from(["tsk", "mission", "link", "M-X", "a.md"]).is_err());
     }
 
@@ -633,7 +701,21 @@ mod tests {
             }
             _ => panic!("install-plugin did not parse"),
         }
-        assert!(Cli::try_parse_from(["tsk", "install-plugin"]).is_err());
+        let missing = match Cli::try_parse_from(["tsk", "install-plugin"]) {
+            Err(e) => e,
+            Ok(_) => panic!("install-plugin parsed with no target"),
+        };
+        assert_eq!(
+            missing.kind(),
+            clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+        let text = missing.to_string();
+        assert!(
+            text.contains("claude-cli") && text.contains("copilot-cli"),
+            "{}",
+            text
+        );
+        assert!(text.contains("tsk install-plugin claude-cli"), "{}", text);
         assert!(Cli::try_parse_from(["tsk", "install-plugin", "codex"]).is_err());
         assert!(
             Cli::try_parse_from(["tsk", "install-plugin", "claude-cli", "--scope", "team"])
@@ -780,4 +862,24 @@ mod tests {
     }
 
     // --- TUI scroll helpers ---
+
+    #[test]
+    fn the_top_level_help_names_every_command() {
+        use clap::CommandFactory;
+        let help = Cli::command().render_help().to_string();
+        for command in Cli::command().get_subcommands() {
+            let name = command.get_name();
+            if name == "help" {
+                continue;
+            }
+            assert!(
+                help.contains(&format!("\n  {}", name)),
+                "tsk --help does not name {}:\n{}",
+                name,
+                help
+            );
+        }
+        assert!(help.contains("tsk install-plugin claude-cli --plugin tsk --plugin swe"));
+        assert!(help.contains("user scope"));
+    }
 }
