@@ -2,6 +2,7 @@ use std::collections::hash_map::RandomState;
 use std::ffi::OsString;
 use std::hash::{BuildHasher, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use super::git::Git;
 use super::refs::{LedgerRefs, RefsSource};
@@ -121,13 +122,39 @@ pub const NOT_IN_REPO: &str =
 pub struct Repo {
     pub git: Git,
     pub common_dir: PathBuf,
+    /// The git directory of this checkout: `common_dir` for the main one, a directory under
+    /// it for a linked code worktree.
+    pub git_dir: PathBuf,
 }
+
+/// The repositories found in this process, by the directory asked from. A command asks
+/// for the same directory more than once, and each ask is a start of `git`.
+static DISCOVERED: Mutex<Vec<(PathBuf, Repo)>> = Mutex::new(Vec::new());
 
 impl Repo {
     pub fn discover(dir: &Path) -> Result<Repo, String> {
+        let known = DISCOVERED
+            .lock()
+            .ok()
+            .and_then(|found| found.iter().find(|(asked, _)| asked == dir).map(|(_, r)| r.clone()));
+        if let Some(repo) = known {
+            return Ok(repo);
+        }
+        let repo = Repo::ask_git(dir)?;
+        if let Ok(mut found) = DISCOVERED.lock() {
+            found.push((dir.to_path_buf(), repo.clone()));
+        }
+        Ok(repo)
+    }
+
+    fn ask_git(dir: &Path) -> Result<Repo, String> {
         let git = Git::new(dir);
-        let (args, output) =
-            git.output(["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+        let (args, output) = git.output([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+            "--git-dir",
+        ])?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if stderr.contains("not a git repository") {
@@ -135,12 +162,15 @@ impl Repo {
             }
             return Err(super::git::failure_message(&args, &output));
         }
-        let common_dir = String::from_utf8_lossy(&output.stdout)
-            .trim_end_matches(['\n', '\r'])
-            .to_string();
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut lines = text.lines();
+        let (Some(common_dir), Some(git_dir)) = (lines.next(), lines.next()) else {
+            return Err(super::git::failure_message(&args, &output));
+        };
         Ok(Repo {
             git,
-            common_dir: PathBuf::from(common_dir),
+            common_dir: PathBuf::from(common_dir.trim_end_matches('\r')),
+            git_dir: PathBuf::from(git_dir.trim_end_matches('\r')),
         })
     }
 
