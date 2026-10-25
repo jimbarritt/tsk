@@ -11,7 +11,7 @@ Evidence classes: **observed** (output of a tool call in this session on 2026-10
 
 ## Summary
 
-- A notification wakes an idle session, 6 to 7 seconds after the event (observed, see the idle
+- A notification wakes an idle session, 6 to 12 seconds after the event (observed, see the idle
   wake test below).
 - A robot can start its own watch. A shell script polls, and a notification reaches the robot when
   the script exits (Bash in background mode) or for each output line (Monitor). The robot arms the
@@ -86,10 +86,10 @@ file. The robot wrote a second line when a turn began.
 |---|---|---|---|
 | Bash background command exits | 07:43:13 | 07:43:20 | 7 s |
 | Monitor event 1 | 07:46:13 | 07:46:19 | 6 s |
-| Monitor event 2, and the stream ends | 07:52:13 | see the log line below | |
+| Monitor event 2, and the stream ends | 07:52:13 | 07:52:25 | 12 s |
 
 Result: a notification from a watch wakes an idle session, for a background command and for a
-Monitor. The delay was 6 to 7 seconds. The session had no user message in that time. Each
+Monitor. The delay was 6 to 12 seconds. The session had no user message in that time. Each
 notification started its own turn, so each one costs a model turn.
 
 The log file, as written:
