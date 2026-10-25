@@ -502,12 +502,19 @@ pub fn worktree_side(
 ) -> Result<WorktreeSide, String> {
     let (base, remote) = match fetched {
         Ok(Some(tip)) => {
-            let base = wt
-                .run_line(["merge-base", "HEAD", tip.as_str()])
-                .unwrap_or_else(|_| "HEAD".to_string());
             let range = format!("HEAD...{}", tip);
             let counts = wt.run_line(["rev-list", "--left-right", "--count", range.as_str()])?;
             let (ahead, behind) = parse_counts(&counts)?;
+            // The merge base is `HEAD` when the tip holds everything `HEAD` does, and the tip
+            // when `HEAD` holds everything the tip does. Only a divergence needs the question.
+            let base = if ahead == 0 {
+                "HEAD".to_string()
+            } else if behind == 0 {
+                tip.clone()
+            } else {
+                wt.run_line(["merge-base", "HEAD", tip.as_str()])
+                    .unwrap_or_else(|_| "HEAD".to_string())
+            };
             (base, RemoteState::from_counts(ahead, behind))
         }
         Ok(None) => ("HEAD".to_string(), RemoteState::Unpublished),

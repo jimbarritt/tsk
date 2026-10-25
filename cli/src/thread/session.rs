@@ -19,11 +19,7 @@ impl Session {
         let cwd = std::env::current_dir()
             .map_err(|e| format!("error: could not read the current directory: {}", e))?;
         let repo = Repo::discover(&cwd)?;
-        let git_dir = PathBuf::from(repo.git.run_line([
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-dir",
-        ])?);
+        let git_dir = repo.git_dir.clone();
         let cloud_session = std::env::var(CLOUD_SESSION_VAR)
             .ok()
             .filter(|v| !v.is_empty());

@@ -134,7 +134,27 @@ fn is_creation_only(pending: &[String]) -> bool {
     matches!(pending, [only] if only.split_once(' ').map(|(_, message)| message) == Some(DOCS_CREATION_MESSAGE))
 }
 
+/// The worktrees this process has found to belong to a clone, as (worktree, git common
+/// directory). A command checks the same worktree more than once.
+static CHECKED: std::sync::Mutex<Vec<(PathBuf, PathBuf)>> = std::sync::Mutex::new(Vec::new());
+
 pub fn ensure_worktree_of_repo(wt: &Git, common_dir: &Path) -> Result<(), String> {
+    let known = |found: &Vec<(PathBuf, PathBuf)>| {
+        found
+            .iter()
+            .any(|(dir, common)| dir == wt.dir() && common == common_dir)
+    };
+    if CHECKED.lock().is_ok_and(|found| known(&found)) {
+        return Ok(());
+    }
+    check_worktree_of_repo(wt, common_dir)?;
+    if let Ok(mut found) = CHECKED.lock() {
+        found.push((wt.dir().to_path_buf(), common_dir.to_path_buf()));
+    }
+    Ok(())
+}
+
+fn check_worktree_of_repo(wt: &Git, common_dir: &Path) -> Result<(), String> {
     let wt_common = wt
         .run_line(["rev-parse", "--path-format=absolute", "--git-common-dir"])
         .ok()
