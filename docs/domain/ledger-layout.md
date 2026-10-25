@@ -1134,10 +1134,14 @@ not: it needs only the clone ID.
 | `local` | no | A machine name. The entry is visible only on that machine, and is found only through the cached repo ID. Used with no `url`. |
 | `ledger` | no | `"repo"` or `"nexus"`. Absent means `"repo"`. |
 | `ledger_refs` | no | `"branches"` or `"custom"`: which refs hold the ledger (see [Which mode a repo uses](#which-mode-a-repo-uses)). Absent leaves the choice to the repo config and discovery. Any other value stops with an error. |
+| `prefix` | no | The mission prefix of the repo's ledger (3 to 4 capital letters), written at registration. Two entries in one nexus cannot have the same prefix. Absent for an entry registered before 0.36.0; registering again records it. |
 
 `tsk nexus register-repo`, run in the managed repo, adds its entry. It fetches the
 nexus's default branch, adds the entry to `nexus.json`, and commits and pushes it with the
 machine's own git credentials. On a rejected push it fetches again and retries once.
+The ledger of the repo needs a mission prefix first (`tsk mission prefix <PREFIX>`); without
+one the command stops. It refuses a prefix that another entry has, and writes the prefix to
+the new entry. When the repo's entry exists without a prefix, registering again records it.
 
 - Without `--local`, the entry's `url` is the repo's raw `remote.origin.url`. An origin
   that does not normalise (a local path, for example) stops with an error.

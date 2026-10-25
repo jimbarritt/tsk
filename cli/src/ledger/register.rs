@@ -15,6 +15,8 @@ pub struct NewEntry {
     pub local: Option<String>,
     pub ledger: String,
     pub ledger_refs: Option<String>,
+    /// The mission prefix of the repo's ledger. Written to the entry when given.
+    pub prefix: Option<String>,
 }
 
 impl NewEntry {
@@ -30,6 +32,9 @@ impl NewEntry {
         entry.insert("ledger".to_string(), json!(self.ledger));
         if let Some(refs) = &self.ledger_refs {
             entry.insert("ledger_refs".to_string(), json!(refs));
+        }
+        if let Some(prefix) = &self.prefix {
+            entry.insert("prefix".to_string(), json!(prefix));
         }
         Value::Object(entry)
     }
@@ -95,11 +100,95 @@ fn describe(entry: &Value) -> String {
     }
 }
 
+/// The entry of another repo that already has the mission prefix `prefix`, as its id.
+pub fn prefix_holder(doc: &Value, prefix: &str, own_id: &str) -> Option<String> {
+    doc.get("territories")?
+        .as_array()?
+        .iter()
+        .flat_map(|t| {
+            t.get("repos")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .filter(|e| e["prefix"].as_str() == Some(prefix))
+        .filter_map(|e| e["id"].as_str())
+        .find(|id| *id != own_id)
+        .map(str::to_string)
+}
+
+fn prefix_taken(prefix: &str, holder: &str) -> String {
+    format!(
+        "error: the mission prefix {} is already used by the repo \"{}\" in the nexus. Choose another with tsk mission prefix <PREFIX>",
+        prefix, holder
+    )
+}
+
+/// When the entry for this repo is already listed, record its prefix: set it when the entry
+/// has none, and refuse a different one. Returns the territory when it changed the entry.
+fn record_prefix(doc: &mut Value, entry: &NewEntry) -> Result<Option<String>, String> {
+    let Some(prefix) = entry.prefix.as_deref() else {
+        return Ok(None);
+    };
+    let Some(territories) = doc.get_mut("territories").and_then(Value::as_array_mut) else {
+        return Ok(None);
+    };
+    for t in territories.iter_mut() {
+        let territory_id = t["id"].as_str().unwrap_or("").to_string();
+        let Some(repos) = t.get_mut("repos").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for existing in repos.iter_mut() {
+            let url_match = match (&entry.url, existing["url"].as_str()) {
+                (Some(new), Some(old)) => same_url(new, old),
+                _ => false,
+            };
+            let local_match = entry.url.is_none()
+                && existing["url"].is_null()
+                && entry.local.is_some()
+                && existing["local"].as_str() == entry.local.as_deref()
+                && existing["id"].as_str() == Some(entry.id.as_str());
+            let same =
+                url_match && existing["id"].as_str() == Some(entry.id.as_str()) || local_match;
+            if !same {
+                continue;
+            }
+            match existing["prefix"].as_str() {
+                Some(held) if held == prefix => return Ok(None),
+                Some(held) => {
+                    return Err(format!(
+                        "error: the nexus entry \"{}\" has the mission prefix {}, and the ledger has {}",
+                        entry.id, held, prefix
+                    ))
+                }
+                None => {
+                    if let Some(object) = existing.as_object_mut() {
+                        object.insert("prefix".to_string(), json!(prefix));
+                        return Ok(Some(territory_id));
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
 pub fn add_entry(
     doc: &mut Value,
     entry: &NewEntry,
     territory: &TerritoryChoice,
 ) -> Result<Edit, String> {
+    if let Some(prefix) = entry.prefix.as_deref() {
+        if let Some(holder) = prefix_holder(doc, prefix, &entry.id) {
+            return Err(prefix_taken(prefix, &holder));
+        }
+        if let Some(territory) = record_prefix(doc, entry)? {
+            return Ok(Edit::Added {
+                territory,
+                created: false,
+            });
+        }
+    }
     let invalid = || {
         format!(
             "error: {} in the nexus is not a JSON object with a territories array",
@@ -357,6 +446,7 @@ mod tests {
             local: None,
             ledger: "nexus".to_string(),
             ledger_refs: None,
+            prefix: None,
         }
     }
 
@@ -378,6 +468,7 @@ mod tests {
             local: Some(machine.to_string()),
             ledger: "nexus".to_string(),
             ledger_refs: None,
+            prefix: None,
         }
     }
 

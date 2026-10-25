@@ -273,7 +273,12 @@ pub fn run_with(store: &dyn LedgerStore, action: MissionCommands) -> Result<(), 
         }
         MissionCommands::Rm { id, force } => rm::mission_rm_run(store, &id, force)?,
         MissionCommands::Show { id } => show::run(store, &id)?,
-        MissionCommands::Prefix { prefix } => prefix::run(store, prefix.as_deref())?,
+        MissionCommands::Prefix { prefix } => {
+            if let Some(prefix) = prefix.as_deref() {
+                prefix::check_nexus(prefix)?;
+            }
+            prefix::run(store, prefix.as_deref())?
+        }
         MissionCommands::Mv {
             from,
             to,

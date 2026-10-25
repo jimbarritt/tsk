@@ -102,6 +102,24 @@ pub fn place(
 
 /// Read or set the prefix: `tsk mission prefix [<PREFIX>]`. Setting changes the IDs of
 /// missions made from then on and renames none. It prints the prefix.
+/// Refuse a prefix that another repo in the attached nexus uses. Nothing is checked when no
+/// nexus is attached. The prefix is also checked when the repo registers.
+pub fn check_nexus(prefix: &str) -> Result<(), String> {
+    check_prefix(prefix)?;
+    let cwd = std::env::current_dir()
+        .map_err(|e| format!("error: could not read the current directory: {}", e))?;
+    let repo = crate::ledger::location::Repo::discover(&cwd)?;
+    let state_root = crate::ledger::location::state_root_from_env()?;
+    let config_file = crate::config::config_file_from_env();
+    match crate::ledger::nexus::prefix_holder(&repo, &state_root, config_file.as_deref(), prefix)? {
+        Some(holder) => Err(format!(
+            "error: the mission prefix {} is already used by the repo \"{}\" in the nexus. Choose another",
+            prefix, holder
+        )),
+        None => Ok(()),
+    }
+}
+
 pub fn run(store: &dyn LedgerStore, prefix: Option<&str>) -> Result<(), String> {
     match prefix {
         Some(prefix) => {
