@@ -9074,6 +9074,90 @@ fn mission_rewrite_replaces_an_old_id_in_every_kind_of_text() {
 }
 
 #[test]
+fn rm_commands_refuse_referred_records_and_force_removes_them() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let (fx, thread) = Fixture::mv_ledger();
+    let a = fx.a();
+    let refused = |args: &[&str], needle: &str| {
+        let out = fx.tsk(&a, args);
+        assert_exit(&out, 1);
+        assert!(stderr(&out).starts_with("error: "), "{}", stderr(&out));
+        assert!(stderr(&out).contains(needle), "{}", stderr(&out));
+        assert_eq!(stdout(&out), "");
+    };
+    // T-02 is blocked by T-01, and the first decision names T-01.
+    refused(
+        &["task", "rm", "M-OLD", "T-01"],
+        "referred to by other records",
+    );
+    refused(&["task", "rm", "M-OLD", "T-02"], "T-02 is blocked by T-01");
+    let out = fx.ok(&a, &["task", "rm", "M-OLD", "T-01", "--force"]);
+    assert!(out.contains("removed task M-OLD T-01"), "{}", out);
+    let after = json(&fx.ok(&a, &["mission", "list", "M-OLD", "--json"]));
+    assert_eq!(after["tasks"].as_array().unwrap().len(), 1);
+    assert!(after["tasks"][0]["blocked_by"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(after["decisions"][0]["task"].is_null());
+
+    assert!(fx
+        .ok(&a, &["decision", "rm", "M-OLD", "1"])
+        .contains("removed decision M-OLD 1"));
+    assert_eq!(
+        json(&fx.ok(&a, &["mission", "list", "M-OLD", "--json"]))["decisions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    fx.ok(&a, &["question", "rm", "M-OLD", "Q-01"]);
+    refused(&["question", "rm", "M-OLD", "Q-01"], "no question Q-01");
+
+    // The mission has a child, tasks, blocks, links and a thread.
+    refused(&["mission", "rm", "M-OLD"], "has child missions: M-KID");
+    fx.ok(&a, &["mission", "rm", "M-KID"]);
+    refused(&["mission", "rm", "M-OLD"], "1 task");
+    let out = fx.ok(&a, &["mission", "rm", "M-OLD", "--force"]);
+    assert!(
+        out.contains(&format!("detached thread {} from M-OLD", thread)),
+        "{}",
+        out
+    );
+    assert!(
+        out.contains("unlinked document missions/M-OLD-notes.md"),
+        "{}",
+        out
+    );
+    assert!(
+        out.contains("dropped block: M-OTHER is blocked by M-OLD"),
+        "{}",
+        out
+    );
+    assert!(out.ends_with("removed mission M-OLD\n"), "{}", out);
+    let list = fx.ok(&a, &["mission", "list", "--porcelain"]);
+    assert!(
+        !list.contains("M-OLD") && !list.contains("M-KID"),
+        "{}",
+        list
+    );
+    assert!(list.contains("M-OTHER"), "{}", list);
+    // The documents stay, and the ledger pushes and fetches.
+    assert!(fx
+        .ok(&a, &["ledger", "doc", "get", "missions/M-OLD-notes.md"])
+        .contains("notes"));
+    fx.ok(&a, &["ledger", "push", "Remove M-OLD"]);
+    let b = fx.b();
+    fx.ok(&b, &["ledger", "fetch"]);
+    assert!(!fx
+        .ok(&b, &["mission", "list", "--porcelain"])
+        .contains("M-OLD"));
+}
+
+#[test]
 fn mission_mv_moves_the_briefing_path_of_a_thread_made_from_a_document() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");

@@ -366,6 +366,10 @@ tsk question edit <mission> <q> "<text>"      # rewrites an open question; an an
 tsk question answer <mission> <q> "<text>" --by <who> [--on YYYY-MM-DD]
 tsk question list [<mission>] [--porcelain]   # open questions, all missions when none is given
 tsk question mv <mission> <q> <to-mission>
+tsk task rm <mission> <T-nn> [--force]      # refused while a block or a decision refers to it; --force drops the blocks and clears the decisions' task
+tsk decision rm <mission> <n>                # n is the place in decision list, from 1
+tsk question rm <mission> <Q-nn>             # open or answered
+tsk mission rm <id> [--force]                # refused with child missions; with tasks, decisions, questions, threads, blocks or linked documents unless --force removes them with it (documents and threads are kept)
 ```
 
 `mv` moves a record to another mission, which gives it the next number there. The number it

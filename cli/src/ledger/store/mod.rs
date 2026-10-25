@@ -349,6 +349,10 @@ pub trait LedgerStore {
     /// names the mission by its internal ID. The first call on a Dolt ledger below version
     /// 10 upgrades it.
     fn mission_rename(&self, from: &str, to: &str) -> Result<(), String>;
+    /// Delete the mission with the code `code` and every row that names it: outcomes,
+    /// constraints, out-of-scope items, links, blocks in both directions, tasks, decisions
+    /// and questions. A local write; Dolt history keeps the rows.
+    fn mission_remove(&self, code: &str) -> Result<(), String>;
 
     // --- Descriptions for error messages ---
 

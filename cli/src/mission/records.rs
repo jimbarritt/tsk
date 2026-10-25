@@ -689,6 +689,18 @@ pub enum TaskCommands {
         force: bool,
     },
     #[command(
+        about = "Remove a task. Refused while a block or a decision refers to it, unless --force drops the blocks and clears the task of the decisions. Dolt history keeps what was removed. A local write"
+    )]
+    Rm {
+        mission: String,
+        task: String,
+        #[arg(
+            long,
+            help = "Drop the blocks of the task and clear it from the decisions"
+        )]
+        force: bool,
+    },
+    #[command(
         about = "List the tasks of a mission, one per line: id, status, blocked-by, description. The columns are aligned with spaces; --porcelain prints them tab-separated"
     )]
     List {
@@ -741,6 +753,14 @@ pub enum DecisionCommands {
             help = "Only the decisions that name this ADR (a path from the repository root)"
         )]
         adr: Option<String>,
+    },
+    #[command(
+        about = "Remove a decision. N is the place of the decision in tsk decision list <mission>, counted from 1. Dolt history keeps what was removed. A local write"
+    )]
+    Rm {
+        mission: String,
+        #[arg(help = "The place of the decision in tsk decision list, from 1")]
+        n: usize,
     },
     #[command(
         about = "Move a decision to another mission, which gives it the next decision number there. N is the place of the decision in tsk decision list <mission>, counted from 1. The text, author, date and ADR stay; the task link is cleared, because a task belongs to its mission, unless --task names a task of the target. Prints one line per change. A local write"
@@ -805,6 +825,10 @@ pub enum QuestionCommands {
         )]
         porcelain: bool,
     },
+    #[command(
+        about = "Remove a question, open or answered. Dolt history keeps what was removed. A local write"
+    )]
+    Rm { mission: String, question: String },
     #[command(
         about = "Move a question to another mission, which gives it the next question number there. The text, status, answer and dates stay. Prints one line. A local write"
     )]
@@ -885,6 +909,15 @@ pub fn run_task_with(store: &dyn LedgerStore, action: TaskCommands) -> Result<()
             let moved = super::mv::task_mv(&all, &mission, &task, &to_mission, force)?;
             super::mv::save_moved(store, moved)?;
         }
+        TaskCommands::Rm {
+            mission,
+            task,
+            force,
+        } => {
+            let all = store.missions_load()?;
+            let removed = super::rm::task_rm(&all, &mission, &task, force)?;
+            super::rm::save_removed(store, removed)?;
+        }
         TaskCommands::List { mission, porcelain } => {
             let all = store.missions_load()?;
             let found = mission_of(&all, &mission)?;
@@ -939,6 +972,11 @@ pub fn run_decision_with(store: &dyn LedgerStore, action: DecisionCommands) -> R
             let moved = super::mv::decision_mv(&all, &mission, n, &to_mission, task.as_deref())?;
             super::mv::save_moved(store, moved)?;
         }
+        DecisionCommands::Rm { mission, n } => {
+            let all = store.missions_load()?;
+            let removed = super::rm::decision_rm(&all, &mission, n)?;
+            super::rm::save_removed(store, removed)?;
+        }
         DecisionCommands::List {
             mission,
             adr,
@@ -991,6 +1029,11 @@ pub fn run_question_with(store: &dyn LedgerStore, action: QuestionCommands) -> R
             let all = store.missions_load()?;
             let moved = super::mv::question_mv(&all, &mission, &question, &to_mission)?;
             super::mv::save_moved(store, moved)?;
+        }
+        QuestionCommands::Rm { mission, question } => {
+            let all = store.missions_load()?;
+            let removed = super::rm::question_rm(&all, &mission, &question)?;
+            super::rm::save_removed(store, removed)?;
         }
         QuestionCommands::List { mission, porcelain } => {
             let all = store.missions_load()?;
