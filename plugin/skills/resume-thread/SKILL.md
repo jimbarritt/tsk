@@ -70,7 +70,9 @@ refuse.
    `tsk mission list <latest.mission_id>` for the name and `tsk task list
    <latest.mission_id>` for the task text.
 
-5. **Set the session title.** Run `tsk thread title`. Exit 1 means there is no
+5. **Set the session title.** If the session start context has a `Session title:` line,
+   call `set_session_title` once with the `session_id` and `title` it names, and go to
+   step 6. Else run `tsk thread title`. Exit 1 means there is no
    actor and no mission: skip this step. Exit 0 prints the title, `<mission ID>: <robot
    name>`, the name alone, or the mission ID alone.
    - In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` is set), call `get_session` from

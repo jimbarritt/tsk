@@ -15,9 +15,10 @@ use crate::mission::records::task_line;
 use super::binding::{is_skipped, open_mission_lines, resolve, unbound_prompt};
 use super::entry::Entry;
 use super::ops::{
-    entries_of, facts_of, latest_whats_next, takeover_warning, thread_mission, Facts,
+    entries_of, facts_of, latest_whats_next, session_title, takeover_warning, thread_mission,
+    Facts,
 };
-use super::session::Session;
+use super::session::{Session, CLOUD_SESSION_VAR};
 
 pub const ENV_FILE_VAR: &str = "CLAUDE_ENV_FILE";
 pub const LEDGER_WT_VAR: &str = "TSK_LEDGER_WT";
@@ -238,6 +239,19 @@ pub fn actor_context(label: &str) -> String {
     format!("Actor: {}.", label)
 }
 
+/// What the session start says about the session title in a cloud session: the two values
+/// for one `set_session_title` call. The tool takes the ID with the prefix `session_`; the
+/// environment holds the same ID with the prefix `cse_`. Nothing is said outside a cloud
+/// session or for a title that cannot be named.
+pub fn title_context(cloud_session: Option<&str>, title: Option<&str>) -> Option<String> {
+    let id = cloud_session?.strip_prefix("cse_")?;
+    let title = title?;
+    Some(format!(
+        "Session title: call set_session_title once, with session_id session_{} and title \"{}\".",
+        id, title
+    ))
+}
+
 /// What the session start says about the thread: the binding to resume, or the prompt
 /// that asks which mission to work.
 pub fn thread_message(binding: Option<&str>, unbound_prompt: &str) -> String {
@@ -431,6 +445,17 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
     } else {
         unbound_prompt(&open_mission_lines(&missions))
     };
+    let title_mission = binding.as_ref().and_then(|binding| {
+        store
+            .thread_info(binding.thread_id())
+            .ok()
+            .and_then(|info| thread_mission(&info))
+    });
+    let title_actor = crate::actor::current(session)
+        .ok()
+        .flatten()
+        .map(|actor| actor.name);
+    let title = session_title(title_actor.as_deref(), title_mission.as_deref());
     let mut thread_text =
         thread_message(binding.as_ref().map(|b| b.to_string()).as_deref(), &prompt);
     if let Some(no_mission) = no_mission {
@@ -439,6 +464,12 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
     }
     if let Some(actor) = crate::actor::current(session).ok().flatten() {
         push_part(&mut thread_text, &actor_context(&actor.label()));
+    }
+    if binding.is_some() {
+        let cloud = std::env::var(CLOUD_SESSION_VAR).ok();
+        if let Some(note) = title_context(cloud.as_deref(), title.as_deref()) {
+            push_part(&mut thread_text, &note);
+        }
     }
     let mut context = fetched_context(
         &outcome.path,
@@ -472,7 +503,7 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.28";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.29";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -685,6 +716,17 @@ mod tests {
         );
         assert_eq!(thread_message(None, UNBOUND_PROMPT), UNBOUND_PROMPT);
         assert_eq!(thread_message(None, "Pick."), "Pick.");
+    }
+
+    #[test]
+    fn title_context_gives_both_values_of_one_set_session_title_call() {
+        assert_eq!(
+            title_context(Some("cse_01AbC"), Some("M-X: Robot")).as_deref(),
+            Some("Session title: call set_session_title once, with session_id session_01AbC and title \"M-X: Robot\".")
+        );
+        assert_eq!(title_context(None, Some("M-X: Robot")), None);
+        assert_eq!(title_context(Some("other_01AbC"), Some("M-X")), None);
+        assert_eq!(title_context(Some("cse_01AbC"), None), None);
     }
 
     #[test]
