@@ -1870,9 +1870,18 @@ fn session_start_names_a_cloud_binding() {
         .expect("failed to run tsk");
 
     assert_success(&output);
-    assert!(session_context(&output).ends_with(
+    let context = session_context(&output);
+    assert!(context.contains(
         "An existing thread binding was found: cloud:5555eeee. Run /tsk:resume-thread 5555eeee next."
     ));
+    // The cloud ID `cse_two` becomes the `session_two` that `set_session_title` takes.
+    assert!(
+        context.ends_with(
+            "Session title: call set_session_title once, with session_id session_two and title \"M-TEST-01\"."
+        ),
+        "{}",
+        context
+    );
 }
 
 #[test]
