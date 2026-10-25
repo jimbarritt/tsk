@@ -94,6 +94,22 @@ pub enum MissionCommands {
         to: String,
         #[arg(long, help = "Print the lines and change nothing")]
         dry_run: bool,
+        #[arg(
+            long,
+            help = "Also replace the old ID with the new one in the text of every mission, as tsk mission rewrite does, in place of the mentions lines"
+        )]
+        rewrite: bool,
+    },
+    #[command(
+        about = "Replace an ID with another, as a whole word, in the text of every mission: names, purposes, objectives, constraints, out-of-scope items, tasks, decisions, questions and answers. Prints one line for each text it changed. The old ID can be that of a mission renamed earlier; the new one has to be a mission. Documents are not changed. A local write"
+    )]
+    Rewrite {
+        #[arg(help = "The ID to replace")]
+        from: String,
+        #[arg(help = "The ID of a mission that replaces it")]
+        to: String,
+        #[arg(long, help = "Print the lines and change nothing")]
+        dry_run: bool,
     },
     #[command(
         about = "List missions, one per line: id, status, blocked-by, parent, name; or one mission with an id. The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records"
@@ -236,7 +252,13 @@ pub fn run_with(store: &dyn LedgerStore, action: MissionCommands) -> Result<(), 
             change(store, |missions| model::unlink(missions, &id, &path))?;
         }
         MissionCommands::Prefix { prefix } => prefix::run(store, prefix.as_deref())?,
-        MissionCommands::Mv { from, to, dry_run } => mv::mission_mv(store, &from, &to, dry_run)?,
+        MissionCommands::Mv {
+            from,
+            to,
+            dry_run,
+            rewrite,
+        } => mv::mission_mv(store, &from, &to, dry_run, rewrite)?,
+        MissionCommands::Rewrite { from, to, dry_run } => mv::rewrite(store, &from, &to, dry_run)?,
         MissionCommands::List {
             id,
             json,

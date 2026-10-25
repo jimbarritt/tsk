@@ -354,6 +354,120 @@ fn mention_lines(missions: &[Mission], code: &str) -> Vec<String> {
     lines
 }
 
+/// The text with `from` replaced by `to` where it stands as a whole word, or `None` when it
+/// does not.
+fn replace_code(text: &str, from: &str, to: &str) -> Option<String> {
+    let id_char = |c: char| c.is_ascii_alphanumeric() || c == '-';
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for (at, _) in text.match_indices(from) {
+        if at < last {
+            continue;
+        }
+        let before = text[..at].chars().next_back();
+        let after = text[at + from.len()..].chars().next();
+        if before.is_some_and(id_char) || after.is_some_and(id_char) {
+            continue;
+        }
+        out.push_str(&text[last..at]);
+        out.push_str(to);
+        last = at + from.len();
+    }
+    if last == 0 && !text.starts_with(to) && out.is_empty() {
+        return None;
+    }
+    out.push_str(&text[last..]);
+    (out != text).then_some(out)
+}
+
+/// What a rewrite changed: the missions to save, and one `rewrote <mission> <record>` line
+/// for each text it changed.
+pub struct Rewritten {
+    pub missions: Vec<Mission>,
+    pub lines: Vec<String>,
+}
+
+/// Replace the ID `from` with `to`, as a whole word, in the text of every mission: its name,
+/// purpose, decision authority, objective outcomes, constraints, out-of-scope items, task
+/// descriptions, decision texts, question texts and answers. A mission with no change is
+/// not returned. The text of a document is not touched.
+pub fn rewrite_ids(missions: &[Mission], from: &str, to: &str) -> Rewritten {
+    let mut changed = Vec::new();
+    let mut lines = Vec::new();
+    for original in missions {
+        let mut mission = original.clone();
+        let id = mission.id.clone();
+        let mut touched = false;
+        let mut one = |what: String, text: &mut String| {
+            if let Some(new) = replace_code(text, from, to) {
+                *text = new;
+                touched = true;
+                lines.push(format!("rewrote {} {}", id, what));
+            }
+        };
+        one("name".to_string(), &mut mission.name);
+        one("purpose".to_string(), &mut mission.purpose);
+        one(
+            "decision-authority".to_string(),
+            &mut mission.decision_authority,
+        );
+        for o in &mut mission.objective {
+            one(format!("objective {}", o.seq), &mut o.outcome);
+        }
+        for c in &mut mission.constraints {
+            one(format!("constraint {}", c.seq), &mut c.text);
+        }
+        for o in &mut mission.out_of_scope {
+            one(format!("out-of-scope {}", o.seq), &mut o.text);
+        }
+        for t in &mut mission.tasks {
+            one(task_label(t.seq), &mut t.description);
+        }
+        for (at, d) in mission.decisions.iter_mut().enumerate() {
+            one(format!("decision {}", at + 1), &mut d.text);
+        }
+        for q in &mut mission.questions {
+            one(question_label(q.seq), &mut q.text);
+            if let Some(answer) = q.answer.as_mut() {
+                one(format!("{} answer", question_label(q.seq)), answer);
+            }
+        }
+        if touched {
+            changed.push(mission);
+        }
+    }
+    Rewritten {
+        missions: changed,
+        lines,
+    }
+}
+
+/// `tsk mission rewrite <from> <to>`: rewrite the ID `from` in the text of every mission, and
+/// print one line for each text it changed. The mission `to` has to exist. `from` may be a
+/// mission that was renamed earlier. With `dry_run` it prints the lines and changes nothing.
+pub fn rewrite(store: &dyn LedgerStore, from: &str, to: &str, dry_run: bool) -> Result<(), String> {
+    let missions = store.missions_load()?;
+    model::find(&missions, to)?;
+    if from == to {
+        return Err(format!(
+            "error: {} is both the old ID and the new one",
+            from
+        ));
+    }
+    let rewritten = rewrite_ids(&missions, from, to);
+    for line in &rewritten.lines {
+        println!("{}", line);
+    }
+    if dry_run {
+        eprintln!("note: dry run, nothing changed");
+    } else if rewritten.missions.is_empty() {
+        eprintln!("note: no text names {}", from);
+    } else {
+        store.missions_save(&rewritten.missions)?;
+    }
+    Ok(())
+}
+
 /// Plan the rename of the mission with the code `from` to `to`. `exists` says whether a
 /// document is on the documents branch. Fails when `to` is not a mission ID, is the ID of
 /// a mission, or is the path of a document that a rename would overwrite.
@@ -400,6 +514,7 @@ pub fn mission_mv(
     from: &str,
     to: &str,
     dry_run: bool,
+    rewrite_text: bool,
 ) -> Result<(), String> {
     let missions = store.missions_load()?;
     // With a mission prefix, the new ID gets it when it lacks it, and a numbered ID has to be
@@ -439,6 +554,16 @@ pub fn mission_mv(
     for (offset, link) in links.iter().enumerate() {
         plan.lines.insert(at + offset, link.clone());
     }
+    if rewrite_text {
+        // The mentions lines give way to the lines of the rewrite, which names each mission
+        // by the ID it will have.
+        plan.lines.retain(|line| !line.starts_with("mentions "));
+        let mut view = missions.clone();
+        if let Some(mission) = view.iter_mut().find(|m| m.id == from) {
+            mission.id = to.to_string();
+        }
+        plan.lines.extend(rewrite_ids(&view, from, to).lines);
+    }
     if dry_run {
         for line in &plan.lines {
             println!("{}", line);
@@ -474,6 +599,12 @@ pub fn mission_mv(
         }
         if !changed.is_empty() {
             store.missions_save(&changed)?;
+        }
+    }
+    if rewrite_text {
+        let rewritten = rewrite_ids(&store.missions_load()?, from, to);
+        if !rewritten.missions.is_empty() {
+            store.missions_save(&rewritten.missions)?;
         }
     }
     for line in &plan.lines {
@@ -878,5 +1009,71 @@ mod tests {
             vec!["link M-B m/M-C.md".to_string()]
         );
         assert!(other_links(&all, "M-B", &docs).contains(&"link M-A m/M-C.md".to_string()));
+    }
+
+    #[test]
+    fn an_id_is_replaced_as_a_whole_word_only() {
+        let r = |t: &str| replace_code(t, "M-A", "M-TSK-A");
+        assert_eq!(r("Do M-A now").as_deref(), Some("Do M-TSK-A now"));
+        assert_eq!(
+            r("M-A and M-A, M-A.").as_deref(),
+            Some("M-TSK-A and M-TSK-A, M-TSK-A.")
+        );
+        assert_eq!(r("(M-A)").as_deref(), Some("(M-TSK-A)"));
+        assert_eq!(r("M-A-2 is another"), None);
+        assert_eq!(r("M-AB"), None);
+        assert_eq!(r("XM-A"), None);
+        assert_eq!(r("M-TSK-A"), None);
+        assert_eq!(r("nothing"), None);
+        assert_eq!(r("M-A").as_deref(), Some("M-TSK-A"));
+    }
+
+    #[test]
+    fn a_rewrite_changes_every_kind_of_text_and_names_each() {
+        let mut all = world();
+        let mut a = all[0].clone();
+        a.purpose = "See M-B.".to_string();
+        a.constraints.push(model::Item {
+            seq: 1,
+            text: "Not M-B".to_string(),
+        });
+        a.out_of_scope.push(model::Item {
+            seq: 1,
+            text: "Not M-B either".to_string(),
+        });
+        a.objective.push(model::Outcome {
+            seq: 1,
+            outcome: "After M-B".to_string(),
+            met: false,
+        });
+        a.decisions[1].text = "Wait for M-B".to_string();
+        a.tasks[0].description = "Tell M-B".to_string();
+        all = with(&all, a);
+        all = with(
+            &all,
+            records::question_answer(&all, "M-A", "Q-01", "Ask M-B", "Jim", "2026-10-24").unwrap(),
+        );
+        let mut b = all[1].clone();
+        b.name = "M-B itself".to_string();
+        all = with(&all, b);
+        let done = rewrite_ids(&all, "M-B", "M-TSK-B");
+        assert_eq!(
+            done.lines,
+            vec![
+                "rewrote M-A purpose",
+                "rewrote M-A objective 1",
+                "rewrote M-A constraint 1",
+                "rewrote M-A out-of-scope 1",
+                "rewrote M-A T-01",
+                "rewrote M-A decision 2",
+                "rewrote M-A Q-01 answer",
+                "rewrote M-B name",
+            ]
+        );
+        assert_eq!(done.missions.len(), 2);
+        assert_eq!(done.missions[0].decisions[1].text, "Wait for M-TSK-B");
+        assert_eq!(done.missions[1].name, "M-TSK-B itself");
+        // A mission with no text that names it is not returned.
+        assert!(rewrite_ids(&all, "M-NONE", "M-X").missions.is_empty());
     }
 }
