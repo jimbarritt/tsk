@@ -1418,3 +1418,62 @@ fn the_tsk_installer_warns_when_it_cannot_write_the_directory() {
     );
     assert!(out.starts_with("WARNING: installing tsk into"), "{}", out);
 }
+
+/// The code block under "## 3. Add the setup script" in the cloud environment guide.
+fn guide_setup_script() -> String {
+    let guide = std::fs::read_to_string(
+        workspace()
+            .join("docs")
+            .join("user-guide")
+            .join("new-cloud-environment.md"),
+    )
+    .unwrap();
+    let section = guide
+        .split("## 3. Add the setup script")
+        .nth(1)
+        .expect("the guide has a step 3");
+    let start = section.find("```bash\n").expect("step 3 has a bash block") + "```bash\n".len();
+    let end = start + section[start..].find("\n```").expect("the block ends");
+    format!("{}\n", &section[start..end])
+}
+
+#[test]
+fn the_cloud_environment_guide_shows_the_setup_script_of_ops_cloud() {
+    let file = std::fs::read_to_string(
+        workspace()
+            .join("ops")
+            .join("cloud")
+            .join("setup-environment.sh"),
+    )
+    .unwrap();
+    assert_eq!(
+        guide_setup_script(),
+        file,
+        "docs/user-guide/new-cloud-environment.md step 3 and ops/cloud/setup-environment.sh differ"
+    );
+}
+
+#[test]
+fn the_setup_script_needs_the_dolt_version_that_the_dolt_installer_pins() {
+    let script = std::fs::read_to_string(
+        workspace()
+            .join("ops")
+            .join("cloud")
+            .join("setup-environment.sh"),
+    )
+    .unwrap();
+    let installer = std::fs::read_to_string(
+        workspace()
+            .join("plugin")
+            .join("hooks")
+            .join("install-dolt.sh"),
+    )
+    .unwrap();
+    let pinned = |text: &str| {
+        text.lines()
+            .find_map(|line| line.strip_prefix("DOLT_VERSION="))
+            .map(|v| v.trim_matches('"').to_string())
+            .expect("DOLT_VERSION is set")
+    };
+    assert_eq!(pinned(&script), pinned(&installer));
+}
