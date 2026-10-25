@@ -8937,6 +8937,50 @@ fn mission_mv_changes_the_code_and_every_record_follows() {
 /// and not the internal ID of a mission. A rename moves the document, so the thread follows
 /// the new path and reads the new code in `thread list` and `thread title`.
 #[test]
+fn mission_rewrite_replaces_an_old_id_in_every_kind_of_text() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let (fx, _thread) = Fixture::mv_ledger();
+    let a = fx.a();
+    fx.ok(&a, &["mission", "mv", "M-OLD", "M-NEW"]);
+    fx.ok(
+        &a,
+        &[
+            "mission",
+            "constraint",
+            "add",
+            "M-OTHER",
+            "Keep M-OLD in step",
+        ],
+    );
+    // M-OTHER holds a task that names M-OLD, and a constraint. M-OLD-2 is another ID.
+    fx.ok(&a, &["task", "add", "M-OTHER", "See M-OLD-2"]);
+    let dry = fx.ok(&a, &["mission", "rewrite", "M-OLD", "M-NEW", "--dry-run"]);
+    assert!(dry.contains("rewrote M-OTHER constraint 1"), "{}", dry);
+    assert!(dry.contains("rewrote M-OTHER T-01"), "{}", dry);
+    assert!(!dry.contains("T-02"), "{}", dry);
+    let before = json(&fx.ok(&a, &["mission", "list", "M-OTHER", "--json"]));
+    assert!(before["constraints"].to_string().contains("M-OLD"));
+    fx.ok(&a, &["mission", "rewrite", "M-OLD", "M-NEW"]);
+    let after = json(&fx.ok(&a, &["mission", "list", "M-OTHER", "--json"]));
+    assert!(after["constraints"]
+        .to_string()
+        .contains("Keep M-NEW in step"));
+    assert!(after["tasks"]
+        .to_string()
+        .contains("Wait for M-NEW, then go"));
+    assert!(after["tasks"].to_string().contains("See M-OLD-2"));
+    // A second run finds nothing to change.
+    let again = fx.ok(&a, &["mission", "rewrite", "M-OLD", "M-NEW"]);
+    assert!(!again.contains("rewrote"), "{}", again);
+    let gone = fx.tsk(&a, &["mission", "rewrite", "M-OLD", "M-GONE"]);
+    assert_exit(&gone, 1);
+    assert!(stderr(&gone).contains("M-GONE"), "{}", stderr(&gone));
+}
+
+#[test]
 fn mission_mv_moves_the_briefing_path_of_a_thread_made_from_a_document() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");

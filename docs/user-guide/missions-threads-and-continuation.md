@@ -92,7 +92,8 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk ledger doc rm <path>` | Removes a document | Local store only |
 | `tsk ledger doc mv <from> <to>` | Renames a document and the mission links to it; one line per change | Local store only (0.30.0) |
 | `tsk mission prefix [<PREFIX>]` | Prints the mission prefix of the ledger, or sets it: 3 or 4 capital letters that `create` and `mv` add to an ID; a number at the end of an ID marks a part of a mission | Setting is local only (0.31.0) |
-| `tsk mission mv <old> <new> [--dry-run]` | Renames a mission: its ID changes, and every record, thread, block and parent follows; linked documents named for it are renamed; one line per change | Local store only (0.30.0) |
+| `tsk mission mv <old> <new> [--dry-run] [--rewrite]` | Renames a mission: its ID changes, and every record, thread, block and parent follows; linked documents named for it are renamed; one line per change. `--rewrite` also replaces the old ID in record text | Local store only (0.30.0) |
+| `tsk mission rewrite <old> <new> [--dry-run]` | Replaces the ID `<old>` with `<new>`, as a whole word, in the text of every mission: names, purposes, objectives, constraints, out-of-scope items, tasks, decisions, questions and answers. Prints one `rewrote <mission> <record>` line for each change. `<old>` can be the ID of a mission renamed earlier. Documents are not changed | Local store only (0.32.0) |
 | `tsk task mv <mission> <task> <to>` | Moves a task and the decisions that name it to another mission; `--force` drops its blocks | Local store only (0.30.0) |
 | `tsk decision mv <mission> <n> <to> [--task <task>]` | Moves a decision, by its place in `tsk decision list`, to another mission | Local store only (0.30.0) |
 | `tsk question mv <mission> <question> <to>` | Moves a question to another mission | Local store only (0.30.0) |
