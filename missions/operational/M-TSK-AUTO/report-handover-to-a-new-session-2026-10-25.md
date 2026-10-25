@@ -48,7 +48,7 @@ tokens of context at the end.
 
 ## What worked
 
-- **Instructions by first message.** The message held the steps, the exact command for the
+- **Instructions by first message.** The message contained the steps, the exact command for the
   association, a check that detects a misspelt name, and the context a reader needs. The new
   session followed it in order and used its own judgment where the message was silent: it
   checked that no rename was in progress before it wrote, because the message said to.
@@ -58,7 +58,7 @@ tokens of context at the end.
 - **Cost.** A new session starts with a context of about 88 thousand tokens (the repo's
   `CLAUDE.md` and the tools) against 637 thousand for the old one.
 - **The ledger as the memory.** The new session needed nothing from the old conversation. Every fact it
-  used came from the ledger, the repo or the first message.
+  used was in the ledger, the repo or the first message.
 
 ## What went wrong
 
@@ -88,7 +88,7 @@ tokens of context at the end.
   because a person said when to do it and answered the first question.
 - A good first message has four parts: the steps in order, the exact commands where a wrong word
   does harm (the actor name), a check that detects the harm, and the context that is not in the
-  ledger. Anything in the ledger should come from the ledger, not from the message.
+  ledger. The message should state only what the ledger does not have.
 - A handover should be a command and not a prompt written by hand. The command would write the
   pause entry, create the session, and give it the association step and the title. A hand-written
   message depends on the sender's memory, which is the failure above.
