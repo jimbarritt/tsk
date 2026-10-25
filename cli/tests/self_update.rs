@@ -185,6 +185,85 @@ fn self_update_replaces_a_release_binary_with_the_latest_release() {
     assert_eq!(leftovers, vec!["tsk".to_string()]);
 }
 
+/// A copy of the built binary in the cargo bin directory of the fixture, and a `cargo` on
+/// the path that appends its arguments to a log and exits with `code`.
+fn cargo_installed(fx: &Fixture, code: i32) -> (PathBuf, PathBuf, PathBuf) {
+    let bin_dir = fx.root.path().join("home").join("cargo").join("bin");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    let bin = bin_dir.join("tsk");
+    std::fs::copy(env!("CARGO_BIN_EXE_tsk"), &bin).unwrap();
+    let fake = fx.root.path().join("fake");
+    std::fs::create_dir_all(&fake).unwrap();
+    let log = fx.root.path().join("cargo.log");
+    let script = fake.join("cargo");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\necho \"$@\" >> '{}'\nexit {}\n",
+            log.display(),
+            code
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (bin, fake, log)
+}
+
+fn with_path(mut command: Command, first: &Path) -> Command {
+    let path = format!(
+        "{}:{}",
+        first.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    command.env("PATH", path);
+    command
+}
+
+#[test]
+fn self_update_takes_the_release_archive_for_a_binary_under_the_cargo_bin_directory() {
+    let fx = Fixture::new(&["v0.1.0", "v99.0.0"], &["99.0.0"]);
+    let (bin, fake, log) = cargo_installed(&fx, 1);
+    let output = with_path(fx.command(&bin, &["self-update"]), &fake)
+        .stdin(Stdio::null())
+        .output_retry();
+    assert!(output.status.success(), "{}", err(&output));
+    assert!(
+        out(&output).contains("-> 99.0.0 (release binary)"),
+        "{}",
+        out(&output)
+    );
+    assert_eq!(version_of(&bin), "tsk 99.0.0");
+    assert!(
+        !log.exists(),
+        "cargo ran: {}",
+        std::fs::read_to_string(&log).unwrap()
+    );
+}
+
+#[test]
+fn self_update_falls_back_to_cargo_install_when_the_archive_cannot_be_installed() {
+    let fx = Fixture::new(&["v99.0.0"], &[]);
+    let (bin, fake, log) = cargo_installed(&fx, 0);
+    let output = with_path(fx.command(&bin, &["self-update"]), &fake)
+        .stdin(Stdio::null())
+        .output_retry();
+    assert!(output.status.success(), "{}", err(&output));
+    assert!(
+        out(&output).contains("-> 99.0.0 (Cargo)"),
+        "{}",
+        out(&output)
+    );
+    assert!(
+        err(&output).contains("falling back to cargo install"),
+        "{}",
+        err(&output)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap().trim(),
+        "install tsk-bin --locked --version 99.0.0"
+    );
+}
+
 #[test]
 fn self_update_reports_a_failed_download_and_leaves_the_binary() {
     let fx = Fixture::new(&["v99.0.0"], &[]);

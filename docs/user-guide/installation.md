@@ -187,10 +187,10 @@ upgrades by the method the running binary was installed with:
 | Install method | How tsk detects it | What `self-update` runs |
 |---|---|---|
 | Homebrew | The binary path contains `/Cellar/`, `/homebrew/` or `/linuxbrew/`. | `brew upgrade jimbarritt/tap/tsk` |
-| Cargo | The binary is under `$CARGO_HOME/bin` or `~/.cargo/bin`. | `cargo install tsk-bin --locked --version <latest>` |
+| Cargo | The binary is under `$CARGO_HOME/bin` or `~/.cargo/bin`. | Downloads the release archive and replaces the binary, as for a release binary. When the archive cannot be installed, it prints the error and runs `cargo install tsk-bin --locked --version <latest>`. |
 | Release binary | Any other path. | Downloads the archive for the platform from the GitHub release, then replaces the running binary. |
 
-The release binary method needs `curl` and `tar`. It writes the new binary next to the old
+The release binary method, and the archive step of the Cargo method, need `curl` and `tar`. It writes the new binary next to the old
 one and renames it over the old one. When the directory is not writable, the command names
 the path and asks you to rerun it with sufficient permissions, for example with `sudo`.
 
@@ -220,8 +220,8 @@ A ledger that a newer tsk has upgraded stops an older tsk with `unsupported ledg
 N`. From 0.18.0, tsk handles that itself. It prints `warning: this ledger is at layout N
 and this tsk (X) supports up to M. Updating tsk now.` to stderr, runs the update above,
 and runs the same command again with the updated binary. The command keeps its stdin and
-stdout and its exit status. A Cargo install compiles during this, which takes about a
-minute.
+stdout and its exit status. A Cargo install downloads the release archive, and compiles only when the archive
+cannot be installed, which takes about a minute.
 
 - `TSK_AUTO_UPDATED=1` marks the second run. If that run still meets an unsupported layout,
   it stops with the original error and `tsk was updated but still does not support layout

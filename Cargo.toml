@@ -3,7 +3,7 @@ members = ["cli"]
 resolver = "2"
 
 [workspace.package]
-version = "0.32.0"
+version = "0.32.1"
 homepage = "https://github.com/jimbarritt/tsk"
 repository = "https://github.com/jimbarritt/tsk"
 license = "MIT"
