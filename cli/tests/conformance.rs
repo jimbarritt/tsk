@@ -7325,6 +7325,30 @@ const NOTHING_NEW: NetOps = NetOps {
 };
 
 #[test]
+fn a_status_of_an_unpublished_ledger_makes_two_network_calls() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new();
+    let a = fx.a();
+    fx.ok(&a, &["ledger", "fetch"]);
+
+    // The combined fetch fails because origin lacks the refs, and one question to origin
+    // says so. Neither ref is fetched again, and the question is not repeated.
+    let (_, ops) = fx.counted_ok(&a, &["ledger", "status"]);
+    assert_eq!(
+        ops,
+        NetOps {
+            asks: 1,
+            ls_remote: 1,
+            fetch: 1,
+            push: 0,
+        }
+    );
+}
+
+#[test]
 fn a_refresh_with_nothing_new_asks_origin_once_and_fetches_nothing() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");

@@ -150,6 +150,8 @@ struct Synced {
     brought: Option<(Option<String>, Option<String>)>,
     /// The heads are those of the record of the last fetch, not an answer from origin.
     trusted: bool,
+    /// A push was rejected, so the heads no longer say what origin holds.
+    heads_old: bool,
 }
 
 impl DoltStore {
@@ -242,6 +244,7 @@ impl DoltStore {
     fn ledger_tip_fetched(&self, location: &LedgerLocation) -> Result<Option<String>, String> {
         match self.take_brought_ledger() {
             Some(commit) => Ok(Some(commit)),
+            None if self.absent_on_origin(|heads| &heads.ledger) => Ok(None),
             None => fetch_tip(&self.repo.git, location),
         }
     }
@@ -250,8 +253,19 @@ impl DoltStore {
     fn docs_tip_fetched(&self, docs: &LedgerLocation) -> Result<Option<String>, String> {
         match self.take_brought_docs() {
             Some(commit) => Ok(Some(commit)),
+            None if self.absent_on_origin(|heads| &heads.docs) => Ok(None),
             None => fetch_tip(&self.repo.git, docs),
         }
+    }
+
+    /// True when origin itself named no commit for the ref in this process, and no push has
+    /// been rejected since. A fetch of the ref would fail, and the `ls-remote` that follows
+    /// a failed fetch would say the same: two more connections for an unpublished ledger.
+    fn absent_on_origin(&self, head: impl Fn(&RemoteHeads) -> &Option<String>) -> bool {
+        let synced = self.synced.borrow();
+        !synced.heads_old
+            && !synced.trusted
+            && matches!(&synced.heads, Some(Some(heads)) if head(heads).is_none())
     }
 
     /// The commit the combined fetch brought for the ledger ref, once.
@@ -1109,7 +1123,11 @@ impl DoltStore {
                     std::thread::sleep(transport::retry_wait());
                 }
                 // Origin moved since: what an earlier fetch brought is out of date.
-                self.synced.borrow_mut().brought = None;
+                {
+                    let mut synced = self.synced.borrow_mut();
+                    synced.brought = None;
+                    synced.heads_old = true;
+                }
                 if self.store_transport(db) == Transport::FileRemote {
                     self.fetch_file_remote(db, location)?;
                 } else {
