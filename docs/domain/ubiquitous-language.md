@@ -71,7 +71,7 @@ is whichever session the human uses. Where one session switches between
 threads, with `/tsk:switch-thread`, the session binding is the attention.
 
 This is also why thread identity cannot be borrowed from a session's own platform
-identifier. Confirmed empirically (M-BOOT-02, 2026-09-16): a Claude Code cloud
+identifier. Confirmed empirically (M-TSK-BOOT-02, 2026-09-16): a Claude Code cloud
 session's session ID survives `/clear`, but the same command on the CLI produces a new
 one. An identifier that is stable on one platform and not another cannot serve as a
 thread's identity across both. Thread identity is tsk's own, minted once when the
@@ -86,15 +86,15 @@ a kind, and later a role, skills or a focus. An actor is a record of its own (th
 an existing name is that actor returning. Construction is the creation of a new robot: the
 `tsk:construct-robot` skill chooses its name and registers it. Construction is the
 robot's birth (Jim, 2026-10-24). A human actor's name is the person's name. A
-robot gives itself one, in the style of the Culture ships of Iain M. Banks (M-NAMES; the
+robot gives itself one, in the style of the Culture ships of Iain M. Banks (M-TSK-NAMES; the
 style is defined in the ledger document
-`missions/operational/M-NAMES/in-the-style-of-culture-ships.md`). The name is not a
+`missions/operational/M-TSK-NAMES/in-the-style-of-culture-ships.md`). The name is not a
 thread name and not a mission name: an interactive session runs more than one mission
 over its life, so the identity sits with the actor (Jim, 2026-10-24). The first registered
 robot was the cloud session that built the field, Still Here After The Compaction.
 
 Open: whether two harness instances may be one actor at the same time (the model allows
-it, nothing checks it), and the clash rule from M-NAMES Q-02.
+it, nothing checks it), and the clash rule from M-TSK-NAMES Q-02.
 
 Related: operating context (`docs/kb/agent-context-self-regulation-and-unattended-handoff.md`
 in the tsk repo) describes how a session started and who or what supervises it:
@@ -142,7 +142,7 @@ or changes one later. Each continuation records the mission current when it was
 written, so a thread can cover work across several missions over its life. A mission
 can have several threads, at once or over time, and a thread can have several
 actors. Tasks never belong to a thread: they belong to a mission, so a thread that needs
-ad hoc tasks takes an administrative mission such as M-ADMIN-02. Most threads are one
+ad hoc tasks takes an administrative mission such as M-TSK-ADHOC. Most threads are one
 to one with a mission; the model does not force it.
 
 The four cases: `tsk thread skip` (no thread, nothing persists); a thread without a
@@ -216,7 +216,7 @@ data rather than a line of development, which is why it is kept apart from the
 [artefacts](#artefact) instead of sitting beside them.
 
 Today the ledger is a Dolt database synced over the branch `refs/heads/tsk/ledger`, with
-its documents as Markdown files on a second branch, `refs/heads/tsk/docs` (M-DOLT,
+its documents as Markdown files on a second branch, `refs/heads/tsk/docs` (M-TSK-DOLT,
 2026-10-12; M-TSK-SCHEMA T-01, 2026-10-15). Before that it was files on the one branch;
 that history is on `archive/tsk-ledger-files`. A separate branch, not a directory
 committed on `main`, is itself a decision
@@ -232,10 +232,10 @@ appears in the other's diff.
 
 Supersedes "data ref", which named a mechanism rather than the thing, and which stopped
 being accurate the moment ADR 0008 moved the store off a custom git ref and onto a
-branch. Renamed everywhere it appeared, including mission M-BOOT-04's title, 2026-09-17.
+branch. Renamed everywhere it appeared, including mission M-TSK-BOOT-04's title, 2026-09-17.
 
 Rejected: account (the mission briefing template already uses "your account" for the
-actor's own report), record (M-BOOT-02's run record uses that word), chronicle (says
+actor's own report), record (M-TSK-BOOT-02's run record uses that word), chronicle (says
 nothing ledger does not), data branch and bootstrap branch (name the mechanism, so they
 rot when the mechanism changes, exactly as "data ref" did).
 
@@ -336,9 +336,9 @@ started at.
    a task. See Mission for the test.
 
 Discovered, not assigned. A task can start at one step and advance to a higher one as work
-on it reveals more than was visible when it was scoped. Case in point: M-BOOT-02's T-14
+on it reveals more than was visible when it was scoped. Case in point: M-TSK-BOOT-02's T-14
 was raised as a short bugfix, then found during its own investigation to need the scope
-of a delegated mission, M-BOOT-02-02.
+of a delegated mission, M-TSK-BOOT-02-02.
 
 Distinct from [Scale](#scale) despite the similar name: Scale is the continuous zoom
 dimension across Navigation, Delta, Product and Scale itself; this is four distinct
@@ -390,7 +390,7 @@ under `missions/<category>/`, and documents keep that layout):
 
 The category does not change a mission's structure or how it is executed. An
 administrative mission has no end point, which is why its status stays `in-progress`,
-and why it is the place for ad hoc tasks (M-ADMIN-02).
+and why it is the place for ad hoc tasks (M-TSK-ADHOC).
 
 Rejected: work package, replaced by mission. Rejected: classifying a mission or its
 objective as standing, attainable or maintained.

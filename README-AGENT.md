@@ -42,6 +42,7 @@ tsk mission objective done <mission> <n>
 tsk ledger doc put <path> [<file>]               # body on stdin or from a file
 tsk mission link <mission> <path> --role intelligence|report|design
 tsk mission mv <old-id> <new-id>                 # rename; --dry-run prints the lines and changes nothing
+tsk mission rewrite <old-id> <new-id>            # replace an old ID in the text of every mission; --dry-run first
 tsk task mv <mission> <T-nn> <to-mission>        # also decision mv, question mv and ledger doc mv
 ```
 
