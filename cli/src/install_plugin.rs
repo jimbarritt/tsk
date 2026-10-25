@@ -72,7 +72,21 @@ impl Scope {
     }
 }
 
+pub const TARGETS_HELP: &str = "Targets:
+  claude-cli   Claude Code. Installs the plugins at project scope and writes the SessionStart hook to .claude/settings.json
+  copilot-cli  GitHub Copilot CLI. Installs the plugins per user
+
+Run the command inside the git repository that will use tsk. Examples:
+  tsk install-plugin claude-cli
+  tsk install-plugin claude-cli --plugin tsk --plugin swe
+  tsk install-plugin copilot-cli";
+
 #[derive(Debug, Args)]
+#[command(
+    arg_required_else_help = true,
+    after_help = TARGETS_HELP,
+    long_about = "Add the plugin marketplace, then install and update the tsk plugin through a coding agent's CLI.\n\nRun it inside the git repository that will use tsk. It writes the SessionStart hook to .claude/settings.json in that repository and needs a git repository. Outside one it stops and says so."
+)]
 pub struct InstallPluginArgs {
     #[arg(
         value_enum,
@@ -301,6 +315,14 @@ pub fn merge_hook(existing: Option<&str>) -> Result<Option<String>, String> {
     let mut text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
     text.push('\n');
     Ok(Some(text))
+}
+
+/// The root of the git repository the command runs in, or an error that names the fix.
+fn install_root() -> Result<PathBuf, String> {
+    repo_root().map_err(|_| {
+        "error: tsk works per repo, and this directory is not in a git repository: run tsk install-plugin inside the repo that will use tsk"
+            .to_string()
+    })
 }
 
 fn repo_root() -> Result<PathBuf, String> {
@@ -535,26 +557,61 @@ pub fn install(args: &InstallPluginArgs, report: &mut dyn FnMut(String)) -> Resu
 }
 
 pub fn run(args: InstallPluginArgs) -> Result<(), String> {
+    let root = install_root()?;
+    println!("installing into the repo {}", root.display());
     install(&args, &mut |line| println!("{}", line))?;
-    if args.target != Target::ClaudeCli {
-        return Ok(());
-    }
-    if args.claude_scope() == Scope::User {
+    let hook = if args.target != Target::ClaudeCli {
+        None
+    } else if args.claude_scope() == Scope::User {
         println!("skipped the SessionStart hook: a user-scope install is not about this repo");
-        return Ok(());
-    }
-    if args.no_hook {
-        return Ok(());
-    }
-    let (line, wrote) = write_hook(&repo_root()?)?;
-    println!("{}", line);
-    if wrote {
-        println!(
-            "commit {} so cloud sessions install the plugin",
-            SETTINGS_PATH
-        );
+        None
+    } else if args.no_hook {
+        None
+    } else {
+        let (line, _) = write_hook(&root)?;
+        println!("{}", line);
+        Some(line)
+    };
+    for line in summary(&args, hook.as_deref()) {
+        println!("{}", line);
     }
     Ok(())
+}
+
+/// The lines that end the output: what is installed, what changed in the repo and what to do
+/// next.
+pub fn summary(args: &InstallPluginArgs, hook: Option<&str>) -> Vec<String> {
+    let plugins = args.plugins.join(", ");
+    let mut lines = vec![String::new(), "Done.".to_string()];
+    match args.target {
+        Target::CopilotCli => {
+            lines.push(format!(
+                "- {} installed in GitHub Copilot CLI, per user.",
+                plugins
+            ));
+            lines.push("- Run copilot in this repo to start.".to_string());
+        }
+        Target::ClaudeCli => {
+            lines.push(format!(
+                "- {} installed at {} scope.",
+                plugins,
+                args.claude_scope().as_str()
+            ));
+            match hook {
+                Some(line) => {
+                    lines.push(format!("- {}.", line));
+                    lines.push(format!(
+                        "- Commit {} only if you use Claude Code cloud sessions: the hook installs the plugin in each cloud session.",
+                        SETTINGS_PATH
+                    ));
+                }
+                None => lines.push(format!("- {} is unchanged.", SETTINGS_PATH)),
+            }
+            lines.push("- Run claude in this repo to start.".to_string());
+        }
+    }
+    lines.push("- The ledger is created on the first tsk ledger push.".to_string());
+    lines
 }
 
 #[cfg(test)]
@@ -871,6 +928,44 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(bad.path().join(SETTINGS_PATH)).unwrap(),
             "{oops"
+        );
+    }
+
+    #[test]
+    fn the_summary_says_what_is_installed_what_changed_and_what_to_do_next() {
+        let claude = summary(
+            &args(Scope::Project, &["tsk", "swe"]),
+            Some("wrote the SessionStart hook to .claude/settings.json"),
+        )
+        .join("\n");
+        assert!(
+            claude.contains("tsk, swe installed at project scope."),
+            "{}",
+            claude
+        );
+        assert!(claude.contains("wrote the SessionStart hook"), "{}", claude);
+        assert!(
+            claude.contains("only if you use Claude Code cloud sessions"),
+            "{}",
+            claude
+        );
+        assert!(
+            claude.contains("Run claude in this repo to start."),
+            "{}",
+            claude
+        );
+        assert!(claude.contains("first tsk ledger push"), "{}", claude);
+        let none = summary(&args(Scope::Project, &["tsk"]), None).join("\n");
+        assert!(
+            none.contains(".claude/settings.json is unchanged."),
+            "{}",
+            none
+        );
+        let copilot = summary(&copilot_args(&["tsk"]), None).join("\n");
+        assert!(
+            copilot.contains("Run copilot in this repo to start."),
+            "{}",
+            copilot
         );
     }
 }

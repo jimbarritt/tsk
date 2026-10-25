@@ -159,9 +159,14 @@ fn install_plugin_runs_the_four_steps_through_the_override_binary() {
     assert_eq!(fx.logged(), DEFAULT_STEPS);
     let text = stdout(&output);
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 6);
+    assert_eq!(lines.len(), 13);
+    assert!(
+        lines[0].starts_with("installing into the repo "),
+        "{}",
+        text
+    );
     assert_eq!(
-        lines[1],
+        lines[2],
         "install tsk@jimbarritt-claude-plugins at project scope: claude plugin install tsk@jimbarritt-claude-plugins --scope project -y"
     );
 }
@@ -258,7 +263,7 @@ fn install_plugin_names_the_failed_step_and_shows_its_stderr() {
         err
     );
     assert_eq!(fx.logged().len(), 3);
-    assert_eq!(stdout(&output).lines().count(), 2);
+    assert_eq!(stdout(&output).lines().count(), 3);
 }
 
 const COPILOT_STEPS: [&str; 4] = [
@@ -282,10 +287,15 @@ fn copilot_cli_runs_the_four_steps_through_the_override_binary() {
     assert_success(&output);
     assert_eq!(fx.logged(), COPILOT_STEPS);
     let text = stdout(&output);
-    assert_eq!(text.lines().count(), 4);
+    assert_eq!(text.lines().count(), 10);
+    assert!(
+        text.contains("- tsk installed in GitHub Copilot CLI, per user."),
+        "{}",
+        text
+    );
     assert!(!fx.settings().exists());
     assert_eq!(
-        text.lines().nth(1).unwrap(),
+        text.lines().nth(2).unwrap(),
         "install tsk@tsk: copilot plugin install tsk@tsk"
     );
 }
@@ -408,9 +418,9 @@ fn copilot_cli_treats_already_registered_and_installed_as_success() {
     assert_eq!(fx.logged(), COPILOT_STEPS);
     let text = stdout(&output);
     let lines: Vec<&str> = text.lines().collect();
-    assert!(lines[0].ends_with("(already done, continuing)"), "{}", text);
     assert!(lines[1].ends_with("(already done, continuing)"), "{}", text);
-    assert!(!lines[2].contains("already"));
+    assert!(lines[2].ends_with("(already done, continuing)"), "{}", text);
+    assert!(!lines[3].contains("already"));
 }
 
 const HOOK_TEXT: &str = r#"{
@@ -444,12 +454,24 @@ fn claude_cli_writes_the_hook_into_an_empty_repo() {
     assert_eq!(std::fs::read_to_string(fx.settings()).unwrap(), HOOK_TEXT);
     let text = stdout(&output);
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 6);
+    assert_eq!(lines.len(), 13);
     assert_eq!(
-        lines[4],
+        lines[5],
         "wrote the SessionStart hook to .claude/settings.json"
     );
-    assert!(lines[5].starts_with("commit .claude/settings.json"));
+    assert_eq!(lines[8], "- tsk installed at project scope.");
+    assert!(
+        lines[10].starts_with(
+            "- Commit .claude/settings.json only if you use Claude Code cloud sessions"
+        ),
+        "{}",
+        text
+    );
+    assert_eq!(lines[11], "- Run claude in this repo to start.");
+    assert_eq!(
+        lines[12],
+        "- The ledger is created on the first tsk ledger push."
+    );
 }
 
 #[test]
@@ -464,11 +486,12 @@ fn a_second_run_leaves_the_hook_alone() {
     assert_success(&output);
     assert_eq!(std::fs::read_to_string(fx.settings()).unwrap(), HOOK_TEXT);
     let text = stdout(&output);
-    assert_eq!(
-        text.lines().last().unwrap(),
-        "hook already present: .claude/settings.json"
+    assert!(
+        text.contains("hook already present: .claude/settings.json"),
+        "{}",
+        text
     );
-    assert!(!text.contains("commit .claude"));
+    assert!(!text.contains("wrote the SessionStart hook"), "{}", text);
 }
 
 #[test]
@@ -484,7 +507,13 @@ fn no_hook_writes_no_settings_file() {
 
     assert_success(&output);
     assert!(!fx.settings().exists());
-    assert_eq!(stdout(&output).lines().count(), 4);
+    let text = stdout(&output);
+    assert_eq!(text.lines().count(), 11);
+    assert!(
+        text.contains("- .claude/settings.json is unchanged."),
+        "{}",
+        text
+    );
 }
 
 #[test]
@@ -537,4 +566,29 @@ fn an_existing_settings_file_keeps_its_other_keys() {
     let text = std::fs::read_to_string(fx.settings()).unwrap();
     let at = |key: &str| text.find(&format!("\n  \"{}\"", key)).unwrap();
     assert!(at("model") < at("env") && at("env") < at("hooks"));
+}
+
+#[test]
+fn install_plugin_outside_a_git_repo_stops_and_names_the_fix() {
+    let fx = Fixture::new();
+    let claude = fx.fake_claude(None);
+    let outside = fx.root.path().join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_tsk"))
+        .args(["install-plugin", "claude-cli"])
+        .current_dir(&outside)
+        .env("HOME", fx.root.path().join("home"))
+        .env("PATH", fx.path_with_git(&fx.empty_dir()))
+        .env("TSK_CLAUDE_BIN", &claude)
+        .env("GIT_CEILING_DIRECTORIES", fx.root.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("tsk works per repo"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(stderr(&output).contains("inside the repo that will use tsk"));
+    assert!(fx.logged().is_empty());
 }

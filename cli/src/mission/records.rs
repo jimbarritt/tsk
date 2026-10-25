@@ -11,7 +11,7 @@ use crate::thread::clock;
 
 use super::change;
 use super::model::{self, Decision, Mission, Question, QuestionStatus, Status, Task};
-use super::table::print_lines;
+use super::table::print_lines_or;
 
 pub const TASK_FIELDS: &[&str] = &["status", "description"];
 
@@ -889,7 +889,14 @@ pub fn run_task_with(store: &dyn LedgerStore, action: TaskCommands) -> Result<()
             let all = store.missions_load()?;
             let found = mission_of(&all, &mission)?;
             let lines = found.tasks.iter().map(|t| task_line(found, t)).collect();
-            print_lines(lines, porcelain);
+            print_lines_or(
+                lines,
+                porcelain,
+                &format!(
+                    "no tasks in {} yet: add one with tsk task add {} \"<description>\"",
+                    found.id, found.id
+                ),
+            );
         }
     }
     Ok(())
@@ -938,9 +945,10 @@ pub fn run_decision_with(store: &dyn LedgerStore, action: DecisionCommands) -> R
             porcelain,
         } => {
             let all = store.missions_load()?;
-            print_lines(
+            print_lines_or(
                 decision_rows(&all, mission.as_deref(), adr.as_deref())?,
                 porcelain,
+                "no decisions yet: record one with tsk decision add",
             );
         }
     }
@@ -1000,7 +1008,11 @@ pub fn run_question_with(store: &dyn LedgerStore, action: QuestionCommands) -> R
                         .map(move |q| question_line(found, q))
                 })
                 .collect();
-            print_lines(lines, porcelain);
+            print_lines_or(
+                lines,
+                porcelain,
+                "no open questions: add one with tsk question add",
+            );
         }
     }
     Ok(())

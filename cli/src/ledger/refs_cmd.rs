@@ -32,6 +32,22 @@ pub fn show() -> Result<(), String> {
     refs::check_store(&repo, &state_root, &location)
 }
 
+/// One line for `tsk ledger status`: the mode in force, where it came from and the refs.
+pub fn summary() -> Result<String, String> {
+    let repo = repo_here()?;
+    let state_root = state_root_from_env()?;
+    let config_file = crate::config::config_file_from_env();
+    let (placement, choice) = nexus::choose(&repo, &state_root, config_file.as_deref())?;
+    let location = placement.base.with_refs(choice.refs, choice.source);
+    Ok(format!(
+        "refs {} ({}): data {}, documents {}",
+        choice.refs.as_str(),
+        choice.source.label(),
+        location.ref_name(),
+        location.docs_ref_name()
+    ))
+}
+
 /// Write the repo config, and move a ledger store that was never published to the refs of
 /// the new mode. A ledger that origin holds cannot move.
 pub fn set(mode: LedgerRefs) -> Result<(), String> {

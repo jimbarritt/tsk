@@ -15,8 +15,7 @@ use crate::mission::records::task_line;
 use super::binding::{is_skipped, open_mission_lines, resolve, unbound_prompt};
 use super::entry::Entry;
 use super::ops::{
-    entries_of, facts_of, latest_whats_next, session_title, takeover_warning, thread_mission,
-    Facts,
+    entries_of, facts_of, latest_whats_next, session_title, takeover_warning, thread_mission, Facts,
 };
 use super::session::{Session, CLOUD_SESSION_VAR};
 
@@ -181,6 +180,7 @@ pub fn fetched_context(
         path.display(),
         LEDGER_WT_VAR,
     );
+    push_part(&mut context, AGENT_RULES);
     if !read_hint.is_empty() {
         push_part(&mut context, read_hint);
     }
@@ -202,6 +202,9 @@ fn push_part(context: &mut String, part: &str) {
 
 /// Said when the session start leaves uncommitted changes of the ledger store in place.
 pub const LOCAL_CHANGES_NOTE: &str = "The ledger store holds local changes that are not pushed (records or documents written since the last push). The refresh left them as they are. The next thread start, pause or stop pushes them with its own change, or run `tsk ledger push`.";
+
+/// Said at every session start, for an agent in any repo.
+pub const AGENT_RULES: &str = "Rules for the ledger: check it with `tsk ledger status`. Do not run `ls`, `find` or `git` against the ledger store. Do not pipe `tsk` output through `head` or `tail`: read its exit code.";
 
 /// Said when the ledger holds mission records and the thread is not bound to one.
 pub const MISSION_LIST_HINT: &str = "Run `tsk mission list` to see the missions.";
@@ -503,7 +506,7 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.29";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.30";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -683,11 +686,15 @@ mod tests {
         let context = fetched_context(&path, MISSION_LIST_HINT, &no_pending(), "Next.");
         assert_eq!(
             context,
-            "The ledger was fetched and materialised at /s/ledger (also exported as $TSK_LEDGER_WT). Run `tsk mission list` to see the missions. Next."
+            "The ledger was fetched and materialised at /s/ledger (also exported as $TSK_LEDGER_WT). ".to_string()
+                + AGENT_RULES
+                + " Run `tsk mission list` to see the missions. Next."
         );
         assert_eq!(
             fetched_context(&path, "", &no_pending(), "Next."),
-            "The ledger was fetched and materialised at /s/ledger (also exported as $TSK_LEDGER_WT). Next."
+            "The ledger was fetched and materialised at /s/ledger (also exported as $TSK_LEDGER_WT). ".to_string()
+                + AGENT_RULES
+                + " Next."
         );
     }
 

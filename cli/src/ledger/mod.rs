@@ -243,6 +243,9 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
                         println!("{}", line);
                     }
                 }
+                for line in ledger_block(store.as_ref()) {
+                    println!("{}", line);
+                }
             }
             Ok(())
         }
@@ -255,6 +258,35 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             unreachable!("handled before the store opens")
         }
     }
+}
+
+/// The `Ledger` block of `tsk ledger status`: the ledger store path, the refs in use and
+/// what the store holds. A part that cannot be read is left out.
+fn ledger_block(store: &dyn LedgerStore) -> Vec<String> {
+    let mut lines = Vec::new();
+    let label = |text: String| format!("{:<8}{}", "Ledger", text);
+    let pad = |text: String| format!("{:<8}{}", "", text);
+    match store.path() {
+        Ok(path) => lines.push(label(format!("store {}", path.display()))),
+        Err(_) => return lines,
+    }
+    if let Ok(text) = refs_cmd::summary() {
+        lines.push(pad(text));
+    }
+    let count = |n: usize, noun: &str| format!("{} {}{}", n, noun, if n == 1 { "" } else { "s" });
+    if let Ok(missions) = store.missions_load() {
+        let tasks: usize = missions.iter().map(|m| m.tasks.len()).sum();
+        let threads = store.thread_ids().map(|t| t.len()).unwrap_or(0);
+        let actors = store.actors_list().map(|a| a.len()).unwrap_or(0);
+        lines.push(pad(format!(
+            "holds {}, {}, {}, {}",
+            count(missions.len(), "mission"),
+            count(tasks, "task"),
+            count(threads, "thread"),
+            count(actors, "actor")
+        )));
+    }
+    lines
 }
 
 /// The `Server` line of `tsk ledger status`: whether the local Dolt server runs, and the
