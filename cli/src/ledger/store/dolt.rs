@@ -2885,6 +2885,33 @@ impl LedgerStore for DoltStore {
         self.write(&db, &sql)
     }
 
+    fn mission_remove(&self, code: &str) -> Result<(), String> {
+        let location = self.repo.location(&self.state_root)?;
+        let db = self.db()?;
+        let version = self.check_current(&db, &location)?;
+        let mut sql = String::new();
+        if version < dolt::LAYOUT_VERSION {
+            sql.push_str(&self.upgrade_script(&db, version)?);
+        }
+        let key = key_of_code(&lit(code));
+        for statement in [
+            "delete from task_blocks where mission_id = {key}",
+            "delete from decisions where mission_id = {key}",
+            "delete from tasks where mission_id = {key}",
+            "delete from questions where mission_id = {key}",
+            "delete from objective_outcomes where mission_id = {key}",
+            "delete from mission_constraints where mission_id = {key}",
+            "delete from mission_out_of_scope where mission_id = {key}",
+            "delete from mission_documents where mission_id = {key}",
+            "delete from mission_blocks where mission_id = {key} or blocked_by_id = {key}",
+            "delete from missions where id = {key}",
+        ] {
+            sql.push_str(&statement.replace("{key}", &key));
+            sql.push_str(";\n");
+        }
+        self.write(&db, &sql)
+    }
+
     fn describe_thread(&self, id: &str) -> String {
         self.describe(&format!("thread {}", id))
     }

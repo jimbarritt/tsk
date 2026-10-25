@@ -44,6 +44,7 @@ tsk mission link <mission> <path> --role intelligence|report|design
 tsk mission mv <old-id> <new-id>                 # rename; --dry-run prints the lines and changes nothing
 tsk mission rewrite <old-id> <new-id>            # replace an old ID in the text of every mission; --dry-run first
 tsk task mv <mission> <T-nn> <to-mission>        # also decision mv, question mv and ledger doc mv
+tsk task rm <mission> <T-nn>                     # also decision rm, question rm and mission rm; a refusal says what it needs
 ```
 
 Every write changes the local ledger store only. A write never waits for the network.

@@ -6,6 +6,7 @@ pub mod model;
 pub mod mv;
 pub mod prefix;
 pub mod records;
+pub mod rm;
 pub mod show;
 pub mod table;
 
@@ -111,6 +112,17 @@ pub enum MissionCommands {
         to: String,
         #[arg(long, help = "Print the lines and change nothing")]
         dry_run: bool,
+    },
+    #[command(
+        about = "Remove a mission. Refused while the mission has child missions, and, unless --force, while it holds tasks, decisions or questions, has threads, blocks or blockers, or links documents. --force removes the records with it, drops the blocks, unlinks the documents and detaches the threads; documents and threads are kept. Dolt history keeps what was removed. A local write"
+    )]
+    Rm {
+        id: String,
+        #[arg(
+            long,
+            help = "Remove the records of the mission and drop its references"
+        )]
+        force: bool,
     },
     #[command(
         about = "Print one mission as plain text for a person: purpose, decision authority, objectives, constraints, out of scope, blockers, tasks, decisions, open and answered questions, and linked documents. The data of mission list <id> --json, with no new field"
@@ -259,6 +271,7 @@ pub fn run_with(store: &dyn LedgerStore, action: MissionCommands) -> Result<(), 
             let path = check_docs_path(&path).unwrap_or(path);
             change(store, |missions| model::unlink(missions, &id, &path))?;
         }
+        MissionCommands::Rm { id, force } => rm::mission_rm_run(store, &id, force)?,
         MissionCommands::Show { id } => show::run(store, &id)?,
         MissionCommands::Prefix { prefix } => prefix::run(store, prefix.as_deref())?,
         MissionCommands::Mv {

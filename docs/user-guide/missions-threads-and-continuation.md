@@ -97,6 +97,11 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk task mv <mission> <task> <to>` | Moves a task and the decisions that name it to another mission; `--force` drops its blocks | Local store only (0.30.0) |
 | `tsk decision mv <mission> <n> <to> [--task <task>]` | Moves a decision, by its place in `tsk decision list`, to another mission | Local store only (0.30.0) |
 | `tsk question mv <mission> <question> <to>` | Moves a question to another mission | Local store only (0.30.0) |
+| `tsk task rm <mission> <task> [--force]` | Removes a task. Refused while a block or a decision refers to it; `--force` drops the blocks and clears the task of the decisions | Local store only (0.35.0) |
+| `tsk decision rm <mission> <n>` | Removes a decision, by its place in `tsk decision list <mission>`, from 1 | Local store only (0.35.0) |
+| `tsk question rm <mission> <question>` | Removes a question, open or answered | Local store only (0.35.0) |
+| `tsk mission rm <id> [--force]` | Removes a mission. Always refused while it has child missions. Refused while it holds tasks, decisions or questions, has threads, blocks or blockers, or links documents, unless `--force` removes the records with it, drops the blocks, unlinks the documents and detaches the threads. Documents and threads are kept | Local store only (0.35.0) |
+| `tsk mission show <id>` | Prints one mission as plain text | Read only (0.34.0) |
 | `tsk ledger push "<message>"` | Commits everything in the ledger store, pulls the latest ledger and pushes to `tsk/ledger` | Commits and pushes |
 | `tsk thread start [<mission-id>]` | Mints and binds a thread, for a mission or with none | Writes and pushes |
 | `tsk thread set mission <mission-id> [<thread-id>]` | Attaches a mission to a thread, or changes it; `--none` removes it | Local store only (0.24.0) |
