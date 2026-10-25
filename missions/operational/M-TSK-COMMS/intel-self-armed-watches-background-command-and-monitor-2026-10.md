@@ -11,6 +11,8 @@ Evidence classes: **observed** (output of a tool call in this session on 2026-10
 
 ## Summary
 
+- A notification wakes an idle session, 6 to 7 seconds after the event (observed, see the idle
+  wake test below).
 - A robot can start its own watch. A shell script polls, and a notification reaches the robot when
   the script exits (Bash in background mode) or for each output line (Monitor). The robot arms the
   watch itself, so no sender needs to reach the receiver.
@@ -73,17 +75,49 @@ What this needs that the other routes do not: no sign-in to Remote Control, no U
 reach, and no new session. The cost is a poll for as long as the receiver is alive, and a re-arm
 every 30 minutes for a Monitor.
 
+## Idle wake test
+
+Observed, 2026-10-25. Jim left the session idle for about half an hour. Before the turn ended, the
+robot armed three events: a Bash background command that exits at +5 minutes, and a Monitor that
+prints a line at +8 minutes and another at +14 minutes. Each script appended its own timestamp to a
+file. The robot wrote a second line when a turn began.
+
+| Event | Source fired (UTC) | New turn started (UTC) | Delay |
+|---|---|---|---|
+| Bash background command exits | 07:43:13 | 07:43:20 | 7 s |
+| Monitor event 1 | 07:46:13 | 07:46:19 | 6 s |
+| Monitor event 2, and the stream ends | 07:52:13 | see the log line below | |
+
+Result: a notification from a watch wakes an idle session, for a background command and for a
+Monitor. The delay was 6 to 7 seconds. The session had no user message in that time. Each
+notification started its own turn, so each one costs a model turn.
+
+The log file, as written:
+
+```
+bash-background fired 2026-10-25T07:43:13Z
+woken by bash-background notification, turn started 2026-10-25T07:43:20Z
+monitor event 1 2026-10-25T07:46:13Z
+woken by monitor event 1, turn started 2026-10-25T07:46:19Z
+monitor event 2 2026-10-25T07:52:13Z
+woken by monitor event 2 and stream end, turn started 2026-10-25T07:52:25Z
+```
+
+Not tested: a session that has been idle long enough for its container to be reclaimed (the
+longest idle time here was about 14 minutes), and a notification that arrives while a user is
+typing.
+
 ## Open questions
 
-- Does a notification from a watch wake an idle session, or only reach a session that is mid-turn?
-  The robot that tested it was mid-turn when the notification came. Test with a session that is
-  idle.
 - Is the Monitor tool in the terminal CLI as well as in the cloud? Observed, 2026-10-25: the tool's
   description ("Start a background monitor that streams events...") is a string inside the
   `claude` executable of the cloud container, `/opt/claude-code/bin/claude`, version 2.1.310. The
   terminal CLI of that version therefore contains the tool. Not checked: whether it is enabled at
   run time on a laptop (a flag, a setting or the account could gate it), and which version Jim's
   laptop has. Check with `claude --version` and by asking a laptop session to list its tools.
+- Cost: each notification starts a turn. A watch that prints often costs a turn for each line, so a
+  watch must print only the events a robot acts on, and the poll should batch (Monitor batches lines
+  within 200 ms into one notification).
 - Should tsk provide the poll, for example a command that prints one line for each new message,
   so the watch needs no shell loop, and so the format of a message is tsk's and not each robot's?
 - What happens to a watch when the container is reclaimed after inactivity? It ends with the
