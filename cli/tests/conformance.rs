@@ -8835,8 +8835,21 @@ fn mission_mv_changes_the_code_and_every_record_follows() {
     let (a, b) = (fx.a(), fx.b());
     let internal = fx.internal_id(&a, "M-OLD");
     assert_eq!(internal.len(), 36, "{}", internal);
+    // Another mission links the document that is named for M-OLD.
+    fx.ok(
+        &a,
+        &[
+            "mission",
+            "link",
+            "M-OTHER",
+            "missions/M-OLD-notes.md",
+            "--role",
+            "report",
+        ],
+    );
     let lines = "mission M-OLD -> M-NEW\n\
                  doc missions/M-OLD-notes.md -> missions/M-NEW-notes.md\n\
+                 link M-OTHER missions/M-NEW-notes.md\n\
                  mentions M-OTHER T-01\n";
 
     // A dry run prints the lines and changes nothing.
@@ -8890,6 +8903,10 @@ fn mission_mv_changes_the_code_and_every_record_follows() {
     );
     // The others that name it follow, and a text that names it is left as written.
     assert_eq!(fx.record(&a, "M-OTHER")["blocked_by"][0]["id"], "M-NEW");
+    assert_eq!(
+        fx.record(&a, "M-OTHER")["documents"],
+        serde_json::json!([{"path": "missions/M-NEW-notes.md", "role": "report"}])
+    );
     assert_eq!(fx.record(&a, "M-KID")["parent"], "M-NEW");
     assert_eq!(
         fx.record(&a, "M-OTHER")["tasks"][0]["description"],

@@ -433,6 +433,12 @@ pub fn mission_mv(
         plan.lines
             .insert(at + offset, format!("thread {} {} -> {}", id, old, new));
     }
+    // A document can be linked by another mission too. Its link follows the file.
+    let links = other_links(&missions, from, &plan.docs);
+    let at = at + threads.len();
+    for (offset, link) in links.iter().enumerate() {
+        plan.lines.insert(at + offset, link.clone());
+    }
     if dry_run {
         for line in &plan.lines {
             println!("{}", line);
@@ -451,21 +457,43 @@ pub fn mission_mv(
         store.thread_set_mission(id, Some(to), Some(new))?;
     }
     if !plan.docs.is_empty() {
-        let mut renamed = store.missions_load()?;
-        if let Some(mission) = renamed.iter_mut().find(|m| m.id == to) {
+        // Every mission that links a moved document, the renamed one and any other, follows it.
+        let mut changed: Vec<Mission> = Vec::new();
+        for mut mission in store.missions_load()? {
+            let mut touched = false;
             for document in &mut mission.documents {
                 if let Some((_, new)) = plan.docs.iter().find(|(old, _)| *old == document.path) {
                     document.path = new.clone();
+                    touched = true;
                 }
             }
-            document_sort(mission);
-            store.mission_save(mission)?;
+            if touched {
+                document_sort(&mut mission);
+                changed.push(mission);
+            }
+        }
+        if !changed.is_empty() {
+            store.missions_save(&changed)?;
         }
     }
     for line in &plan.lines {
         println!("{}", line);
     }
     Ok(())
+}
+
+/// One `link <mission> <new path>` line for each mission other than `from` that links a
+/// document the rename moves, in mission order.
+fn other_links(missions: &[Mission], from: &str, docs: &[(String, String)]) -> Vec<String> {
+    let mut lines = Vec::new();
+    for mission in missions.iter().filter(|m| m.id != from) {
+        for document in &mission.documents {
+            if let Some((_, new)) = docs.iter().find(|(old, _)| *old == document.path) {
+                lines.push(format!("link {} {}", mission.id, new));
+            }
+        }
+    }
+    lines
 }
 
 /// The threads whose briefing is a document the rename moves, as `(thread, old path, new
@@ -829,5 +857,26 @@ mod tests {
             .err()
             .unwrap()
             .contains("m/M-C.md, which exists"));
+    }
+
+    #[test]
+    fn a_document_that_another_mission_links_gets_a_link_line() {
+        let mut all = world();
+        let doc = |path: &str| model::Document {
+            path: path.to_string(),
+            role: model::Role::Report,
+        };
+        let mut a = all[0].clone();
+        a.documents.push(doc("m/M-A.md"));
+        let mut b = all[1].clone();
+        b.documents.push(doc("m/M-A.md"));
+        b.documents.push(doc("m/other.md"));
+        all = with(&with(&all, a), b);
+        let docs = vec![("m/M-A.md".to_string(), "m/M-C.md".to_string())];
+        assert_eq!(
+            other_links(&all, "M-A", &docs),
+            vec!["link M-B m/M-C.md".to_string()]
+        );
+        assert!(other_links(&all, "M-B", &docs).contains(&"link M-A m/M-C.md".to_string()));
     }
 }
