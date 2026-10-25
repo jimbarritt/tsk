@@ -496,8 +496,9 @@ fn current_exe() -> Result<PathBuf, String> {
     Ok(std::fs::canonicalize(&exe).unwrap_or(exe))
 }
 
-/// Installs `version` by the method the running binary was installed with. Returns
-/// the method used.
+/// Installs `version`. A Homebrew binary upgrades with brew. Any other binary takes the
+/// release archive for its platform, and a binary under the cargo bin directory falls back
+/// to `cargo install` when the archive fails. Returns the method used.
 fn install(version: Version) -> Result<Method, String> {
     let exe = current_exe()?;
     let cargo_home = std::env::var_os("CARGO_HOME").map(PathBuf::from);
@@ -506,17 +507,28 @@ fn install(version: Version) -> Result<Method, String> {
     eprintln!("installed as: {}", method.label());
     match method {
         Method::Homebrew => run_streaming("brew", &["upgrade", BREW_FORMULA])?,
-        Method::Cargo => run_streaming(
-            "cargo",
-            &[
-                "install",
-                CRATE_NAME,
-                "--locked",
-                "--version",
-                &version.to_string(),
-            ],
-        )?,
         Method::ReleaseBinary => install_release_binary(&exe, version)?,
+        // The release archive installs with no compile. `cargo install` builds the crate,
+        // which takes about 25 s, so it is the fallback for an archive that cannot be
+        // installed (no archive for the platform, or no release asset yet).
+        Method::Cargo => {
+            if let Err(e) = install_release_binary(&exe, version) {
+                eprintln!("{}", e);
+                eprintln!("falling back to cargo install");
+                run_streaming(
+                    "cargo",
+                    &[
+                        "install",
+                        CRATE_NAME,
+                        "--locked",
+                        "--version",
+                        &version.to_string(),
+                    ],
+                )?;
+                return Ok(Method::Cargo);
+            }
+            return Ok(Method::ReleaseBinary);
+        }
     }
     Ok(method)
 }
