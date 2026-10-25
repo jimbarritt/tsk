@@ -280,6 +280,14 @@ What would change the recommendation:
 - A finding that the model treats an event row as an instruction in auto mode. Then the
   binary must own the read mark and the allowlist, and the body must be shown as quoted data.
 
+## Note from Jim
+
+Jim, 2026-10-25, on the decision not to go on with gossip:
+
+> There's something about having the whole history of the conversation as well.
+
+The comparison table in section 6 has no row for the history of the conversation between robots.
+
 ## Not established
 
 - Whether two cloud sessions of one account share a network segment or a host. Only one
