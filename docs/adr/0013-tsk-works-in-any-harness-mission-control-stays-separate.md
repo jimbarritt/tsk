@@ -4,7 +4,7 @@ Date: 2026-10-06
 
 ## Status
 
-Accepted. Replaces three M-BOOT-06 decisions of 2026-09-25: that Mission Control folds
+Accepted. Replaces three M-TSK-BOOT-06 decisions of 2026-09-25: that Mission Control folds
 back into tsk, that its command becomes `tsk --mission-control`, and that tsk reads
 Mission Control's status files.
 
@@ -15,7 +15,7 @@ terminal multiplexer such as tmux or Herdr, an agent app such as Orca, or Missio
 Control. tsk ships as the `tsk` binary and a Claude Code plugin. ADR 0011 puts all logic
 in the binary, and gives each harness a thin adapter that calls it.
 
-M-BOOT-06 builds Mission Control in `jimbarritt/tsk-mission-control`: a tmux layout with
+M-TSK-BOOT-06 builds Mission Control in `jimbarritt/tsk-mission-control`: a tmux layout with
 a list of Claude sessions, a status indicator per session, token totals and an nvim per
 session. Its briefing planned three later steps. Mission Control folds back into tsk.
 Its command becomes the flag `tsk --mission-control`. Its list becomes a view in the tsk

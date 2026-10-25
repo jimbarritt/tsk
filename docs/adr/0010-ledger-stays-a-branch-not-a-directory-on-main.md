@@ -66,11 +66,11 @@ keep live rather than fold into either.
 
 - No change to the mechanism in place. `tsk/bootstrap`, ADR 0008 and ADR 0009's
   worktree, and the fetch/push scripts are unaffected.
-- `M-BOOT-04`, "the official ledger", inherits this decision as a constraint on its own
+- `M-TSK-BOOT-04`, "the official ledger", inherits this decision as a constraint on its own
   design: the ledger tree layout, manifest format, and push/pull protocol it defines are
   scoped to a separate branch, not a directory on `main`. Whether the *official* ledger
   (as opposed to this bootstrap scaffolding) uses `refs/heads/*` or something else is
-  still M-BOOT-04's own question; this ADR settles branch-versus-directory, not the exact
+  still M-TSK-BOOT-04's own question; this ADR settles branch-versus-directory, not the exact
   ref.
 - The external-substrate option, "tsk metadata in the nexus, not the repo," is unaffected
   by this decision and remains open future work, tracked where it already was.

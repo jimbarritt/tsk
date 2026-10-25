@@ -4,13 +4,13 @@ Date: 2026-10-24
 
 ## Status
 
-Accepted. Decided by Jim on 2026-10-24 (M-ADMIN-02 T-25): a mission gets an internal ID
+Accepted. Decided by Jim on 2026-10-24 (M-TSK-ADHOC T-25): a mission gets an internal ID
 now, because renames could happen often. The form below replaces the first design, which
 keyed every table by a new `uid`. Built in 0.30.0. ADR 0022 (numbers per mission) stands.
 
 ## Context
 
-Every table named a mission by its ID, the text a person types, such as `M-NAMES`. A
+Every table named a mission by its ID, the text a person types, such as `M-TSK-NAMES`. A
 rename was then a change of the primary key of the mission and of a column in ten more
 tables, and in the threads. Jim wants renames to be cheap and safe, for example to put a
 repo prefix on every mission ID.
@@ -57,6 +57,6 @@ table name the mission by it. A test with real Dolt found that this cannot be pu
   mission mv` prints each record that mentions it.
 - A thread that stores the path of its briefing document, and no mission, reads its mission
   from the file name. `tsk mission mv` moves that path with the document and sets the mission
-  of the thread, so the thread follows this and later renames (0.30.2, M-ADMIN-02 T-30).
+  of the thread, so the thread follows this and later renames (0.30.2, M-TSK-ADHOC T-30).
 - The new mission ID has to pass the rule of `tsk mission create` (`M-` and capitals and
-  digits in groups). A different ID scheme needs that rule changed first (M-ADMIN-02 T-28).
+  digits in groups). A different ID scheme needs that rule changed first (M-TSK-ADHOC T-28).

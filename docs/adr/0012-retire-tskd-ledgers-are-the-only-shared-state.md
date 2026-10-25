@@ -14,7 +14,7 @@ and serves it over a Unix socket with JSON-RPC (ADR 0002, ADR 0003). The TUI rea
 it by polling (ADR 0006). It also serialises writes: every write goes through one
 process, so writes never run concurrently.
 
-M-BOOT-04 moves missions, threads, continuation state and the external event queue
+M-TSK-BOOT-04 moves missions, threads, continuation state and the external event queue
 into ledgers held in git. A ledger is a branch, either `refs/heads/tsk/ledger` in the
 managed repo or a namespaced branch in the nexus (`ledger-layout.md`). The nexus
 records each managed repo in `nexus.json` and where its ledger lives. The `tsk` binary

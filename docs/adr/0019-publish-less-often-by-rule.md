@@ -4,7 +4,7 @@ Date: 2026-10-21
 
 ## Status
 
-Accepted. Decided by Jim on 2026-10-18 and 2026-10-20 (mission M-PERF, task T-08). Built
+Accepted. Decided by Jim on 2026-10-18 and 2026-10-20 (mission M-TSK-PERF, task T-08). Built
 in 0.24.0. ADR 0014 (Dolt is the store) and ADR 0017 (the ledger is a file remote carried
 by plain git) stand. This ADR changes when `tsk` pushes, and nothing about how.
 
@@ -97,7 +97,7 @@ open too.
 
 ## Amendment, 2026-10-22: thread pause stays synchronous
 
-Decided by Jim on 2026-10-22 (M-PERF T-15). Recorded here by M-TIDY T-11.
+Decided by Jim on 2026-10-22 (M-TSK-PERF T-15). Recorded here by M-TSK-TIDY T-11.
 
 `tsk thread pause` pushes before it returns. Its budget is 2 s, not 1 s. A `git push`
 through the cloud proxy costs 1.2 to 1.4 s whatever its size, so 1 s cannot be met while

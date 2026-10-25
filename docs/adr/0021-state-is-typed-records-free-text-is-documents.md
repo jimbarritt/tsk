@@ -5,8 +5,8 @@ Date: 2026-10-23
 ## Status
 
 Accepted. Decided by Jim on 2026-10-15 to 2026-10-17 in mission M-TSK-SCHEMA, and
-confirmed on 2026-10-20 (M-PERF Q-01). Built from 0.14.0 (ledger layout 8). Extracted
-from the decision records in M-TIDY T-11. ADR 0014 (Dolt is the store) stands. ADR 0007
+confirmed on 2026-10-20 (M-TSK-PERF Q-01). Built from 0.14.0 (ledger layout 8). Extracted
+from the decision records in M-TSK-TIDY T-11. ADR 0014 (Dolt is the store) stands. ADR 0007
 (an event log as the source of truth, Markdown as a read-only projection) is replaced for
 missions and tasks: the source of truth is the typed records. Its idea of a read-only
 projection survives as M-TSK-SCHEMA T-14.
@@ -45,7 +45,7 @@ across missions without parsing Markdown.
    of a choice. An ADR is a document in the code repository that explains an
    architectural choice. A decision can name an ADR by its path (`decision add --adr`),
    and `decision list --adr` finds the decisions that name one.
-8. **Documents stay on their own branch, not in Dolt rows** (M-PERF Q-01). After the
+8. **Documents stay on their own branch, not in Dolt rows** (M-TSK-PERF Q-01). After the
    round-trip work of 0.18.0, the second branch costs nothing on a read and only one push
    when a document changed. Rows would merge a whole document as one cell, so two actors
    who edit one document would conflict where git merges their lines.

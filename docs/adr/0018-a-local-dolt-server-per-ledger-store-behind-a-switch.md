@@ -131,7 +131,7 @@ Jim raised the default idle stop from 120 s to 1800 s (30 minutes) on 2026-10-22
 working session should never see a restart of the server between two turns. A server that
 nobody uses still ends after 30 minutes. `TSK_DOLT_SERVER_IDLE_SECS` overrides the default,
 and the test fixtures set about 3 s so that servers do not pile up. The choice is to be
-revisited (an M-TIDY task). Nothing else about the idle mechanism changed.
+revisited (an M-TSK-TIDY task). Nothing else about the idle mechanism changed.
 
 ## Consequences
 
@@ -169,7 +169,7 @@ revisited (an M-TIDY task). Nothing else about the idle mechanism changed.
 
 ### Amendment, 0.29.0: the server is on by default
 
-Date: 2026-10-24. The field test on a Mac (lab note entries 10 and 11 of M-PERF) and the
+Date: 2026-10-24. The field test on a Mac (lab note entries 10 and 11 of M-TSK-PERF) and the
 container measurements support the flip that the Consequences section left open. On the
 Mac, `tsk mission list` takes 0.95 s with the server off because each command starts a
 `dolt sql` process, and `ledger status --local` falls from 1.94 s to 0.89 s with the

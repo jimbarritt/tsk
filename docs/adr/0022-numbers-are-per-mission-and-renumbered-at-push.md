@@ -4,15 +4,15 @@ Date: 2026-10-23
 
 ## Status
 
-Accepted. Decided by Jim on 2026-10-18 (M-TIDY, the review's questions). Built in 0.19.0
-(M-TIDY T-09). Extracted from the decision records in M-TIDY T-11. ADR 0017 (the ledger
+Accepted. Decided by Jim on 2026-10-18 (M-TSK-TIDY, the review's questions). Built in 0.19.0
+(M-TSK-TIDY T-09). Extracted from the decision records in M-TSK-TIDY T-11. ADR 0017 (the ledger
 is a Dolt file remote carried by plain git) stands: the renumbering runs inside its
 publish.
 
 ## Context
 
-People and agents refer to work by short numbers: `T-03` in `M-PERF`, `Q-02` in
-`M-NAMES`. A clone mints the next number for its own new rows without asking origin,
+People and agents refer to work by short numbers: `T-03` in `M-TSK-PERF`, `Q-02` in
+`M-TSK-NAMES`. A clone mints the next number for its own new rows without asking origin,
 because a write never waits for origin (ADR 0019). Two clones that each add a task to the
 same mission before either publishes mint the same number. Before 0.19.0 the publish then
 stopped with a merge conflict, and a person had to resolve it by hand.

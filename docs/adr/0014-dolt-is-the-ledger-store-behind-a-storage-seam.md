@@ -30,7 +30,7 @@ Two things changed on 2026-10-09:
 `persistence-and-sync.md` rejected Dolt on 2026-09-14 for three reasons: a Go core
 reached from Rust, SQL tables against an append-only NDJSON design, and a per-actor
 log that avoids write contention. The first is answered by calling the `dolt` binary as
-tsk already calls `git` (M-BOOT-04 T-01). The second is withdrawn by Jim's direction.
+tsk already calls `git` (M-TSK-BOOT-04 T-01). The second is withdrawn by Jim's direction.
 The third was a design, not a measured problem: the one recorded concurrency gap is a
 missing lock on same-clone writes, which neither design fixes.
 
@@ -71,7 +71,7 @@ is not taken now. The reasons are in `tsk-market-position-analysis.md` under
 
 ## Consequences
 
-- A new mission, M-DOLT, builds the seam and the Dolt backend. Its first open question
+- A new mission, M-TSK-DOLT, builds the seam and the Dolt backend. Its first open question
   is scope: move every record at once, or move the JSONL records first and keep
   briefings as files until the seam holds both.
 - The `SessionStart` hook installs the `dolt` binary as it installs `tsk`. Measured:
