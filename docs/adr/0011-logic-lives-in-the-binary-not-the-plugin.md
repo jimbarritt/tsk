@@ -9,9 +9,9 @@ Accepted.
 ## Context
 
 tsk ships as two artefacts: the `tsk` binary, and the Claude Code plugin in `plugin/`,
-which holds the hooks and skills that run the harness in a session. Before M-BOOT-04 the
+which holds the hooks and skills that run the harness in a session. Before M-TSK-BOOT-04 the
 harness logic lived in bash scripts under `ops/local/` and in the hooks that called them.
-M-BOOT-04 moves that logic into the binary.
+M-TSK-BOOT-04 moves that logic into the binary.
 
 The same behaviour written twice, once in the binary and once in a hook or skill, drifts.
 The binary has unit and end-to-end tests. A hook script and a skill have none. A

@@ -4,8 +4,8 @@ Date: 2026-10-23
 
 ## Status
 
-Accepted. Decided by Jim on 2026-10-18 (M-TIDY, the review's questions). Built in 0.18.0
-(M-TIDY T-10). Extracted from the decision records in M-TIDY T-11.
+Accepted. Decided by Jim on 2026-10-18 (M-TSK-TIDY, the review's questions). Built in 0.18.0
+(M-TSK-TIDY T-10). Extracted from the decision records in M-TSK-TIDY T-11.
 
 ## Context
 

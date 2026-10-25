@@ -16,7 +16,7 @@ store could be swapped back.
 
 Two things changed by 2026-10-18:
 
-- Jim decided that tsk is committed to Dolt (M-TIDY, question Q-01). The ledger of this
+- Jim decided that tsk is committed to Dolt (M-TSK-TIDY, question Q-01). The ledger of this
   repo moved to Dolt on 2026-10-12, and no ledger of any user holds live data in files.
 - The 2026-10-17 architecture and performance review measured the price. Every feature
   since M-TSK-SCHEMA T-02 was built twice, once for each backend, with a conformance case

@@ -4,7 +4,7 @@ Date: 2026-10-22
 
 ## Status
 
-Accepted. Decided by Jim on 2026-10-22 (mission M-PERF). Built in 0.25.0. It changes
+Accepted. Decided by Jim on 2026-10-22 (mission M-TSK-PERF). Built in 0.25.0. It changes
 decision 8 of [ADR 0019](0019-publish-less-often-by-rule.md), which had the `Stop` hook
 ask the agent to run `tsk ledger push`. Nothing else in ADR 0019 changes.
 
@@ -94,4 +94,4 @@ wanted later, it can use the same one-shot child.
 - **The default idle stop of the Dolt server is 1800 s** from 0.25.0 (see the amendment
   in [ADR 0018](0018-a-local-dolt-server-per-ledger-store-behind-a-switch.md)). A working
   session should never see a restart of the server, and a forgotten server still ends
-  after 30 minutes. The choice is to be revisited (an M-TIDY task).
+  after 30 minutes. The choice is to be revisited (an M-TSK-TIDY task).

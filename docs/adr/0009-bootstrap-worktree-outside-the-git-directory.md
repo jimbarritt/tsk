@@ -17,7 +17,7 @@ maintain and no way for it to leak into `main`.
 
 That reasoning holds, and the mechanism underneath it was never faulty: pushes
 from that worktree landed on `refs/heads/tsk/bootstrap` correctly throughout. The
-location failed for a different reason, observed during M-BOOT-02-01 on
+location failed for a different reason, observed during M-TSK-BOOT-02-01 on
 2026-09-17.
 
 1. **It reads as tampering with git internals.** A path containing `/.git/`
@@ -93,7 +93,7 @@ rather than destroying it.
   `push-bootstrap-ref.sh`. The `SessionStart` hook calls the fetch at every
   session start, so that reset runs unattended. `push-bootstrap-ref.sh` is now
   idempotent and recovers the state whenever it runs; guarding the fetch path is
-  tracked as M-BOOT-02-01 T-11.
+  tracked as M-TSK-BOOT-02-01 T-11.
 - Anything holding the old path is stale. `$TSK_BOOTSTRAP_WT` is re-exported by
   the `SessionStart` hook each session, so it corrects itself.
 - The deeper question of storing mission metadata separately from the main
@@ -101,5 +101,5 @@ rather than destroying it.
 
 ## References
 
-Decided with Jim during M-BOOT-02-01, 2026-09-17. Refines
+Decided with Jim during M-TSK-BOOT-02-01, 2026-09-17. Refines
 [ADR 0008](0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md).

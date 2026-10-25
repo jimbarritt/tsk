@@ -5,7 +5,7 @@ Date: 2026-10-23
 ## Status
 
 Accepted. Decided by Jim on 2026-10-15 and 2026-10-16 (M-TSK-SCHEMA, the schema
-decisions and T-10). Extracted from the decision records in M-TIDY T-11. ADR 0021 (state
+decisions and T-10). Extracted from the decision records in M-TSK-TIDY T-11. ADR 0021 (state
 is typed records) stands.
 
 ## Context
