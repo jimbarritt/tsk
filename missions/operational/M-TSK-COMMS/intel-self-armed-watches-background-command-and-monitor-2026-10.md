@@ -78,9 +78,12 @@ every 30 minutes for a Monitor.
 - Does a notification from a watch wake an idle session, or only reach a session that is mid-turn?
   The robot that tested it was mid-turn when the notification came. Test with a session that is
   idle.
-- Is the Monitor tool in the terminal CLI as well as in the cloud? The cloud container runs the
-  Claude Code CLI (version 2.1.310) and has the tool, which suggests it is. Whether a given laptop
-  version has it was not checked.
+- Is the Monitor tool in the terminal CLI as well as in the cloud? Observed, 2026-10-25: the tool's
+  description ("Start a background monitor that streams events...") is a string inside the
+  `claude` executable of the cloud container, `/opt/claude-code/bin/claude`, version 2.1.310. The
+  terminal CLI of that version therefore contains the tool. Not checked: whether it is enabled at
+  run time on a laptop (a flag, a setting or the account could gate it), and which version Jim's
+  laptop has. Check with `claude --version` and by asking a laptop session to list its tools.
 - Should tsk provide the poll, for example a command that prints one line for each new message,
   so the watch needs no shell loop, and so the format of a message is tsk's and not each robot's?
 - What happens to a watch when the container is reclaimed after inactivity? It ends with the
