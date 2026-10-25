@@ -27,7 +27,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 
 - [installation.md](user-guide/installation.md): prerequisites, installing and upgrading the `tsk` binary, installing the plugin with `tsk install-plugin claude-cli`, and CI.
 - [new-nexus-on-a-clean-machine.md](user-guide/new-nexus-on-a-clean-machine.md): step by step, a new nexus, tsk and the plugin on a clean machine, `tsk nexus add`, `list` and `register-repo`, and a repo's ledger held in the nexus.
-- [new-cloud-environment.md](user-guide/new-cloud-environment.md): step by step, a Claude cloud environment on claude.ai/code with the `tsk` binary, the plugin and the ledger ready in every session.
+- [new-cloud-environment.md](user-guide/new-cloud-environment.md): step by step, a Claude cloud environment on claude.ai/code with the `tsk` binary, the plugin and the ledger ready in every session, and the setup script `ops/cloud/setup-environment.sh` that installs `tsk`, `dolt` and `just` with checksums.
 - [checking-ledger-documents.md](user-guide/checking-ledger-documents.md): run a check, such as a prose lint, on ledger documents when they are written and pushed, with a script of your own in one of four places, including for a repo you do not control.
 - [getting-started.md](user-guide/getting-started.md): the `tsk ledger`, `tsk thread`, `tsk events` and `tsk nexus` commands, tests, building, publishing.
 - [state-models.md](user-guide/state-models.md): historical. Task and thread state models of the retired daemon design.
