@@ -23,6 +23,7 @@ this repository. They hold the minimum logic: see
 | `stop-thread` | `tsk thread stop` |
 | `register-repo` | `tsk nexus register-repo` |
 | `construct-robot` | `tsk actor list`, then `tsk actor register --kind robot` with a name the robot chooses in the style of the Culture ships, `tsk ledger push`, and the session title |
+| `regenerate-cloud-instance` | `tsk thread pause`, `tsk ledger push`, then `create_session` for a new cloud session that resumes the thread and joins the same robot, and a `to archive-` prefix on the old session's title |
 
 | Hook | Runs |
 |---|---|
