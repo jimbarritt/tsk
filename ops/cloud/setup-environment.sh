@@ -32,17 +32,14 @@ install_bin() {
   mv -f "$BIN/$2.new" "$BIN/$2"
 }
 
-# tsk: the prebuilt binary from the latest GitHub release. The release publishes no
-# checksum file. The Homebrew formula in jimbarritt/homebrew-tap holds the SHA-256 of
-# each archive, written by the release workflow, so it is the expected value.
-latest="$(curl -sSfLI -o /dev/null -w '%{url_effective}' https://github.com/jimbarritt/tsk/releases/latest)"
-TSK_VERSION="${latest##*/v}"
+# tsk: the prebuilt binary of the version in the Homebrew formula. The release publishes no
+# checksum file. The Homebrew formula in jimbarritt/homebrew-tap holds the version and the
+# SHA-256 of each archive, written by the release workflow a few minutes after it publishes
+# a release, so the formula names the newest release that has a checksum. A session start
+# installs a newer tsk when the plugin needs one.
 formula="$(curl -sSfL https://raw.githubusercontent.com/jimbarritt/homebrew-tap/main/Formula/tsk.rb)"
-formula_version="$(printf '%s\n' "$formula" | sed -n 's/^ *version "\(.*\)"$/\1/p' | head -n 1)"
-if [ "$formula_version" != "$TSK_VERSION" ]; then
-  echo "the Homebrew formula is at $formula_version and the latest release is $TSK_VERSION: run this script again in a few minutes" >&2
-  exit 1
-fi
+TSK_VERSION="$(printf '%s\n' "$formula" | sed -n 's/^ *version "\(.*\)"$/\1/p' | head -n 1)"
+[ -n "$TSK_VERSION" ] || { echo "no version in the Homebrew formula" >&2; exit 1; }
 TSK_SHA256="$(printf '%s\n' "$formula" | awk -v t="$TSK_TARGET.tar.gz" 'index($0, t) { found = 1; next } found && /sha256/ { gsub(/[" ]/, "", $2); print $2; exit }')"
 [ -n "$TSK_SHA256" ] || { echo "no checksum for $TSK_TARGET in the Homebrew formula" >&2; exit 1; }
 curl -sSfL "https://github.com/jimbarritt/tsk/releases/download/v$TSK_VERSION/tsk-$TSK_VERSION-$TSK_TARGET.tar.gz" -o "$tmp/tsk.tar.gz"
