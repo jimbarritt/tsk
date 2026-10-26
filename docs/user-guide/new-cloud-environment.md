@@ -98,17 +98,14 @@ install_bin() {
   mv -f "$BIN/$2.new" "$BIN/$2"
 }
 
-# tsk: the prebuilt binary from the latest GitHub release. The release publishes no
-# checksum file. The Homebrew formula in jimbarritt/homebrew-tap holds the SHA-256 of
-# each archive, written by the release workflow, so it is the expected value.
-latest="$(curl -sSfLI -o /dev/null -w '%{url_effective}' https://github.com/jimbarritt/tsk/releases/latest)"
-TSK_VERSION="${latest##*/v}"
+# tsk: the prebuilt binary of the version in the Homebrew formula. The release publishes no
+# checksum file. The Homebrew formula in jimbarritt/homebrew-tap holds the version and the
+# SHA-256 of each archive, written by the release workflow a few minutes after it publishes
+# a release, so the formula names the newest release that has a checksum. A session start
+# installs a newer tsk when the plugin needs one.
 formula="$(curl -sSfL https://raw.githubusercontent.com/jimbarritt/homebrew-tap/main/Formula/tsk.rb)"
-formula_version="$(printf '%s\n' "$formula" | sed -n 's/^ *version "\(.*\)"$/\1/p' | head -n 1)"
-if [ "$formula_version" != "$TSK_VERSION" ]; then
-  echo "the Homebrew formula is at $formula_version and the latest release is $TSK_VERSION: run this script again in a few minutes" >&2
-  exit 1
-fi
+TSK_VERSION="$(printf '%s\n' "$formula" | sed -n 's/^ *version "\(.*\)"$/\1/p' | head -n 1)"
+[ -n "$TSK_VERSION" ] || { echo "no version in the Homebrew formula" >&2; exit 1; }
 TSK_SHA256="$(printf '%s\n' "$formula" | awk -v t="$TSK_TARGET.tar.gz" 'index($0, t) { found = 1; next } found && /sha256/ { gsub(/[" ]/, "", $2); print $2; exit }')"
 [ -n "$TSK_SHA256" ] || { echo "no checksum for $TSK_TARGET in the Homebrew formula" >&2; exit 1; }
 curl -sSfL "https://github.com/jimbarritt/tsk/releases/download/v$TSK_VERSION/tsk-$TSK_VERSION-$TSK_TARGET.tar.gz" -o "$tmp/tsk.tar.gz"
@@ -154,9 +151,8 @@ date -u +%Y-%m-%dT%H:%M:%SZ > "$SETUP_DIR/last-run"
 "$BIN/just" --version
 ```
 
-The script reads the latest release from the redirect of
-`github.com/jimbarritt/tsk/releases/latest` and downloads the prebuilt `tsk` for the
-machine. It installs `tsk` into `/usr/local/bin`, which is on `PATH`, and installs `dolt`
+The script reads the version in the Homebrew formula and downloads the prebuilt `tsk` of
+that version for the machine. It installs `tsk` into `/usr/local/bin`, which is on `PATH`, and installs `dolt`
 2.5.0 and `just` 1.59.0 beside it. It sets a Dolt identity when none is set. It needs no
 Rust toolchain. Each file is written to a temporary name and renamed, so a running copy is
 not overwritten.
@@ -165,8 +161,9 @@ Every download is checked against a SHA-256 before it is installed:
 
 - **`tsk`:** the release publishes no checksum file. The Homebrew formula in
   `jimbarritt/homebrew-tap` has the SHA-256 of each archive, written by the release
-  workflow, and the script reads the value from there. When the formula is one release
-  behind, which lasts a few minutes after a release, the script stops and says so.
+  workflow, and the script reads the version and the value from there. The formula is one
+  release behind for a few minutes after a release, so the script installs that version.
+  A session start installs a newer `tsk` when the plugin needs one.
 - **`dolt`:** it publishes no checksum file. The SHA-256 of the 2.5.0 archive for each
   architecture is pinned in the script.
 - **`just`:** the PyPI package `rust-just` is a prebuilt wheel that contains the `just`
@@ -199,7 +196,6 @@ The stamp shows reuse only when the cache keeps the container's filesystem.
 |---|---|---|
 | `tsk: command not found` or `dolt is not installed` | The setup script failed. | Run the setup script's commands in the session and read the error. |
 | A download in the setup script fails | A GitHub download host is blocked by the network access level. | Add the hosts in step 2 under Custom, or use Full. |
-| The script stops with `the Homebrew formula is at X and the latest release is Y` | The release workflow has not yet written the formula for the new release. | Run the script again in a few minutes. |
 | The script stops with `checksum mismatch for <name>` | A download is corrupt or incomplete, or a pinned value is out of date. | Run the script again. If it repeats, check that the version in the script is the one whose checksum is pinned. |
 | The script stops at the `just` step with a pip error | `pip` or `python3` is missing, or `pypi.org` and `files.pythonhosted.org` are blocked. | Allow those hosts in step 2, or install `just` another way. |
 | The `SessionStart` context reports `WARNING: adding the ... marketplace failed` | `github.com` is blocked, or the marketplace repo is not readable. | Allow `github.com`. Confirm `jimbarritt/claude-plugins` is readable from the session. |
