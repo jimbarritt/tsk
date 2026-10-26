@@ -476,7 +476,9 @@ The plugin provides `/tsk:start-thread`, `/tsk:pause-thread`, `/tsk:resume-threa
 `tsk thread` commands above.
 
 Other skills: `/tsk:construct-robot` names this session as a robot, `/tsk:register-repo`
-registers the repo in the nexus, and `/tsk:self-update` updates the `tsk` binary.
+registers the repo in the nexus, `/tsk:self-update` updates the `tsk` binary, and
+`/tsk:regenerate-cloud-instance` replaces a cloud session with a new one on the same thread
+and robot.
 
 ### Switching threads
 
