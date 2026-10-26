@@ -23,12 +23,21 @@ tell me.
 
    - `tsk thread binding` prints the thread ID, for example `cloud:01d143d5`. With no
      binding, tell me and stop.
-   - `tsk actor name` prints the robot name. With `no actor registered`, the new session
-     gets no name to reuse: go on and say so in step 5.
+   - `tsk actor name` prints the robot name. With `no actor registered`, the name may
+     still be in the session title: a robot can be named in the title and not be
+     registered as an actor.
    - `tsk thread title` prints the current title.
 
-   Read this session's ID and repository from `get_session` of the `claude-code-remote`
-   MCP server, called with no `session_id`.
+   Read this session's ID, repository and title from `get_session` of the
+   `claude-code-remote` MCP server, called with no `session_id`.
+
+   Choose the robot name in this order:
+   1. The name `tsk actor name` prints.
+   2. The name in the session title of `get_session`. The title has the form `<mission
+      ID>: <robot name>`, or is the robot name alone. Take the text after the first `: `.
+      Take the whole title when it has no `: ` and is not a mission ID (a mission ID
+      starts with `M-` and has no spaces). Mark the name as unregistered.
+   3. No name. The new session constructs one: go on and say so in step 5.
 
 2. **Pause the thread.** The new session resumes from the latest continuation state entry.
    Run the `/tsk:pause-thread` steps, then:
@@ -51,7 +60,8 @@ tell me.
    This session replaces cloud session <this session ID>. Do these in order.
    1. Run /tsk:resume-thread <thread ID>.
    2. Run: tsk actor register "<robot name>" --kind robot
-      The name is in use, so the session joins that actor. Do not choose a new name.
+      This registers the name, or joins the actor that has it. Do not choose a new name.
+      Then run: tsk ledger push "Register robot <robot name>"
    3. Set the session title to "<title>" with set_session_title.
    Then tell me the thread, the robot name and what is next.
    ```
@@ -67,7 +77,8 @@ tell me.
    is the title from step 1. Do not archive the session. I archive it when the new session
    has resumed the thread.
 
-5. **Tell me** the new session's ID, the thread ID, the robot name (or that there was none)
+5. **Tell me** the new session's ID, the thread ID, the robot name (or that there was
+   none, or that it came from the session title and was not registered in this session)
    and the new title of this session. Say that this session stays open until I archive it,
    and that two sessions on one thread write to the same ledger, so I stop work in this one
    now.
@@ -77,6 +88,7 @@ tell me.
 - The new session runs the `SessionStart` hook, which installs the latest plugin and `tsk`.
   This is the reason to regenerate.
 - The robot name is the actor name. A second `tsk actor register` of an existing name joins
-  that actor and constructs nothing.
+  that actor and constructs nothing. Registering a name that no actor has makes the actor,
+  so the new session registers the name whether or not the old session did.
 - `archive_session` of the MCP server releases the container and makes the session read
   only. Call it only when I ask.
