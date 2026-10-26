@@ -475,6 +475,9 @@ The plugin provides `/tsk:start-thread`, `/tsk:pause-thread`, `/tsk:resume-threa
 `/tsk:detach-thread`, `/tsk:stop-thread` and `/tsk:switch-thread`. Each wraps the
 `tsk thread` commands above.
 
+Other skills: `/tsk:construct-robot` names this session as a robot, `/tsk:register-repo`
+registers the repo in the nexus, and `/tsk:self-update` updates the `tsk` binary.
+
 ### Switching threads
 
 No single command switches threads. To switch: `tsk thread binding` to find the current
