@@ -122,26 +122,37 @@ resumed.
 
 ## Can a session archive itself?
 
-Question from Jim, 2026-10-27. Not enabled and not tested. Answered from the tool schema, the
-documentation pages and the session records.
+Question from Jim, 2026-10-27. Answer: yes. Jim tested it on 2026-10-27 and a session can call
+`archive_session` on its own ID. The schema, the documentation pages and the session records
+read for this report did not settle the question, so the test is the evidence.
 
 - **Tool schema.** `archive_session` of the `claude-code-remote` server takes a `session_id`. It
   moves the session to a read-only archived state and releases its container. Its description says
   to use it "when a child session has finished its work or is stuck ... and a human has already
-  acknowledged they're done with the session." The parameter is any session ID. The schema does
-  not exclude the caller's own ID.
-- **Documentation.** The tool `read_documentation` lists ten pages: GitHub access, connectors,
-  environment secrets, network, dependencies, setup script, session resources, session
-  permissions and Remote Control. None covers archiving. The pages `session.resources` and
-  `session.permissions` were read: neither mentions it. The question has no documented answer.
-- **Records.** No session record read here shows a session archiving itself. The old session was
-  archived without its own tool call.
-- **Effect if it worked.** Archiving releases the container that runs the turn. What happens to
-  the turn in progress, and whether the call returns, is not documented.
-- **The skill.** The skill says to call `archive_session` only when Jim asks. The reason is the
-  condition in the tool description: a human has acknowledged.
-- **To settle it.** Run the call from a throwaway session on its own ID, with Jim's approval, and
-  record the result.
+  acknowledged they're done with the session."
+- **Documentation.** The tool `read_documentation` lists ten pages. None covers archiving. The
+  pages `session.resources` and `session.permissions` do not mention it.
+- **Records.** The old session was archived without its own tool call, by a caller that its
+  record does not show.
+- **Not yet tested here.** What happens to the turn in progress when a session archives itself
+  is not recorded in this report.
+
+### Condition for the skill to archive
+
+The skill must archive the old session only after the new session reports that it is healthy.
+The reason is that the new session can fail to start. If the environment's setup script fails,
+the session does not start, and nothing resumes the thread. An old session archived before
+that point leaves the thread with no live session and the old container released.
+
+A new session is healthy when all of these hold:
+- it started and ran its first turn;
+- `tsk thread resume` printed the thread, with exit 0;
+- the robot name is registered and pushed;
+- its title is set.
+
+The old session has to learn this from the new session, for example from `get_session` of the new
+session and a message the new session sends. Until then the old session stays open. The task for
+this is M-TSK-ADHOC T-38, which waits for about one week of use of the skill as it stands.
 
 ## Follow-ups to record
 
@@ -149,6 +160,6 @@ documentation pages and the session records.
 - Decide who archives the old session (Jim by hand, or the skill once the new session reports
   that it resumed), and record the decision.
 - `tsk actor deregister` (M-TSK-NAMES T-12), so the old session leaves the thread.
-- Test whether a session can archive itself, if Jim wants the skill to finish the handover.
+- Archive the old session from the skill after the new session reports that it is healthy (M-TSK-ADHOC T-38). Never archive on the start of the new session.
 - Record the notification marker on the seed prompt in the harness notes, with a test that a
   fresh session runs the steps.
