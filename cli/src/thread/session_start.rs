@@ -506,7 +506,7 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.35";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.36";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {

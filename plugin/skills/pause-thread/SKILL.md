@@ -63,9 +63,13 @@ suggest an automated trigger for it.
    `ledger: pushed` all print, tell me the thread is paused, name the thread ID and what
    is next, and say it is safe to `/clear`.
 
-   If any line differs, do not say it is safe. Commit and push what belongs pushed (for
-   a dirty code worktree or `code pushed: no`), or run `tsk ledger push "<describe the
-   update>"` (for `ledger: N changes not pushed`), then run the pause again, or report
-   the mismatch to me plainly. A `paused:<thread-id>` line alone only confirms that the
-   handover entry was pushed. It does not cover other work from the session. On any
-   error, report it and do not tell me it is safe to clear.
+   If any line differs, do not say it is safe.
+   - For a dirty code worktree or `code pushed: no`: commit and push what belongs pushed,
+     then run the pause again, or report the mismatch to me plainly.
+   - For a `ledger:` line other than `ledger: pushed`: report it to me as an error. Run no
+     ledger command by hand. The pause pushes every record itself and exits 1 when the
+     push fails.
+
+   A `paused:<thread-id>` line alone only confirms that the handover entry was pushed. It
+   does not cover other work from the session in the code worktree. On any error, report
+   it and do not tell me it is safe to clear.

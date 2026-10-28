@@ -40,14 +40,9 @@ tell me.
    3. No name. The new session constructs one: go on and say so in step 5.
 
 2. **Pause the thread.** The new session resumes from the latest continuation state entry.
-   Run the `/tsk:pause-thread` steps, then:
-
-   ```bash
-   tsk ledger push "Pause <thread ID> before regenerate"
-   ```
-
-   Exit 1: report stderr and stop. The new session reads the ledger from origin, so an
-   unpushed pause is lost.
+   Run the `/tsk:pause-thread` steps. The pause pushes the ledger itself: run no ledger
+   command by hand. Exit 1, or a `ledger:` line other than `ledger: pushed`: report it and
+   stop. The new session reads the ledger from origin, so an unpushed pause is lost.
 
 3. **Start the new session.** Call `create_session` of the `claude-code-remote` MCP server.
    Leave `environment_id` out: the new session inherits this one. Set:
