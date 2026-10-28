@@ -48,8 +48,11 @@ Markdown. From 0.21.0 a new ledger's ref holds a Dolt file remote: a directory o
 `manifest`, table files and `.tsk-transport`, which `tsk` keeps as a linked worktree beside
 the ledger store and moves with plain `git fetch` and `git push` (ADR 0017). Dolt never
 starts git. A ledger made before 0.21.0 holds Dolt's git blobstore (transport `git-remote`)
-until someone runs `tsk ledger migrate-transport` once. This repo's ref is in that older
-layout until then. Every clone moves to the new layout on its next fetch.
+until someone runs `tsk ledger migrate-transport` once. Every clone moves to the new layout
+on its next fetch. This repo's ref is in the new layout: its `.tsk-transport` reads
+`file-remote`. A clone needs `tsk` 0.21.0 or later to read it. The layout version stayed
+at 8, so a binary from 0.18.0 to 0.20.x does not update itself for this change: run
+`tsk self-update` by hand.
 
 This repo keeps its ledger on branches because it is used from Claude Code cloud
 sessions, and the cloud proxy refuses to push a custom ref. `.tsk/config.toml` in the
