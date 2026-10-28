@@ -109,6 +109,7 @@ Background theory and research grounding for key domain concepts.
 - [session-names-and-culture-ship-names.md](kb/session-names-and-culture-ship-names.md): how Culture ships are named, with a sample of ship names, and how Claude Code names, lists and addresses sessions: `--name`, `/rename`, the `sessionTitle` hook output, `SendMessage` and cloud sessions. Lists what is not established.
 - [typesafe-jev-classifier.md](kb/typesafe-jev-classifier.md): research note on Jev, TypeSafe AI's non-generative decision model, its LangChain harness and evals integrations, and the classifier-in-the-loop pattern it is one data point for.
 - [spicedb.md](kb/spicedb.md): SpiceDB, an open source authorization database modelled on Google's Zanzibar, set against the permissions a post would hold in tsk, with what the pages read leave out.
+- [adversarial-and-sceptic-review-agents.md](kb/adversarial-and-sceptic-review-agents.md): adversarial and sceptical review agents for AI-generated code: LLM-as-judge and self-preference, same-vendor and cross-vendor review, review products and their measured accuracy, sceptical roles in large multi-agent runs, test gaming, and the deterministic and inference split of swe. Ends with a possible review stage in tsk.
 
 ### Orchestration ecosystem
 
