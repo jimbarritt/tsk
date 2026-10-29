@@ -40,6 +40,11 @@ pub enum ActorCommands {
     )]
     Name,
     #[command(
+        name = "git-identity",
+        about = "Write the registered robot's git identity to the repo's local git config, when [attribution] identity is robot: user.name, user.email, gpg.format, user.signingkey and commit.gpgsign. The key comes from TSK_ROBOT_SIGNING_KEY. With the default identity, or a human actor, nothing is written. tsk actor register runs it after a registration"
+    )]
+    GitIdentity,
+    #[command(
         about = "List the actors, one per line: name, kind, and the sessions and worktrees registered as it (- for none, comma-separated otherwise). The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records"
     )]
     List {
@@ -267,8 +272,15 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
                 "{}",
                 render_registered(&outcome, &name, kind, instance_kind)
             );
+            if let Err(error) = crate::attribution::apply(&session) {
+                eprintln!(
+                    "warning: the registration stands, and the git identity is not set: {}",
+                    error.trim_start_matches("error: ")
+                );
+            }
             Ok(0)
         }
+        ActorCommands::GitIdentity => crate::attribution::run_git_identity(),
         ActorCommands::Name => {
             let session = Session::discover()?;
             match current(&session)? {

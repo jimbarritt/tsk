@@ -102,14 +102,14 @@ Verified. I did not check what GitHub shows for commits signed before the revoca
 
 ## 6. What a robot session does
 
-This step is planned (tasks T-04 and T-05 of M-TSK-ATTRIB) and is not built yet.
-
 The feature is optional. It runs only when `[attribution] identity = "robot"` is set (see
 "Choose the setting" below). With `identity = "default"`, or with no setting, tsk writes no
 git config and the cloud environment's identity stays.
 
 When a robot registers (`/tsk:construct-robot` or `tsk actor register`) and the identity is
-`robot`, tsk writes these keys to the repo's local git config:
+`robot`, tsk writes these keys to the repo's local git config. `tsk thread session-start`
+writes them again when a cloud session starts, because a new container has no local git
+config. `tsk actor git-identity` writes them on request.
 
 | Key | Value |
 |---|---|
@@ -122,11 +122,11 @@ When a robot registers (`/tsk:construct-robot` or `tsk actor register`) and the 
 The repo's local config takes precedence over the cloud environment's global config, which
 names Claude and Anthropic's key. tsk never prints the key. The command exits 1 and names
 the problem when no actor is registered or `TSK_ROBOT_SIGNING_KEY` is unset. It accepts the
-key with real line breaks, or with `\n` in place of them.
+key with real line breaks, or with `\n` in place of them. `tsk actor register` and the session
+start do not fail on this: they print a warning, and commits keep the default author.
+A human actor gets no change.
 
 ## Choose the setting
-
-This section describes planned behaviour, with step 6.
 
 ```toml
 [attribution]
@@ -144,6 +144,7 @@ email = "robots@jimbarritt.com"
 - Precedence: the variable `TSK_ATTRIBUTION_EMAIL`, then the repo config, then the user
   config.
 - `tsk config attribution` prints the values and where each came from.
+  `tsk config attribution robot --email <address>` writes them to `.tsk/config.toml`.
 - The default identity leaves the `Co-Authored-By: Claude` and `Claude-Session` trailers
   in place. The cloud session adds them (tasks T-09 and T-10).
 
