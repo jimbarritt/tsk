@@ -131,7 +131,7 @@ data second. A ledger is a Dolt database. The files backend was removed in 0.16.
 refreshes the ledger store to origin's latest, so calling it merely to resolve a path
 is a write operation. `tsk ledger path` has no side effects.
 
-**Never fetch, update or push the ledger by hand. Use `tsk ledger fetch` and
+**Never fetch, update or push the ledger by hand (ADR 0028). Use `tsk ledger fetch` and
 `tsk ledger push`** (or `just ledger-fetch` and `just ledger-push`). Do not run
 `dolt push`, `dolt pull`, `dolt commit` or `dolt add` against the ledger store, and do
 not run `git fetch`, `git rebase`, `git reset` or `git push` against `tsk/ledger`
