@@ -11,7 +11,7 @@ and 8 check the result.
 | Field | Value |
 |---|---|
 | Author name and committer name | The registered actor name, for example `Credit Where It's Due`. |
-| Author email and committer email | `robots@jimbarritt.com` for every robot. |
+| Author email and committer email | The `email` setting, the same for every robot in the repo. This repo sets `robots@jimbarritt.com`. |
 | Signature | An SSH signature made with one shared robot signing key. |
 | Badge | Verified, because the committer email and the signing key belong to the same GitHub account. |
 
@@ -104,13 +104,17 @@ Verified. I did not check what GitHub shows for commits signed before the revoca
 
 This step is planned (tasks T-04 and T-05 of M-TSK-ATTRIB) and is not built yet.
 
-When a robot registers (`/tsk:construct-robot` or `tsk actor register`), tsk writes these
-keys to the repo's local git config:
+The feature is optional. It runs only when `[attribution] identity = "robot"` is set (see
+"Choose the setting" below). With `identity = "default"`, or with no setting, tsk writes no
+git config and the cloud environment's identity stays.
+
+When a robot registers (`/tsk:construct-robot` or `tsk actor register`) and the identity is
+`robot`, tsk writes these keys to the repo's local git config:
 
 | Key | Value |
 |---|---|
 | `user.name` | The registered actor name. |
-| `user.email` | `robots@jimbarritt.com` |
+| `user.email` | The `email` setting. This repo sets `robots@jimbarritt.com`. |
 | `gpg.format` | `ssh` |
 | `user.signingkey` | A file that tsk writes from `TSK_ROBOT_SIGNING_KEY`, with mode 0600, outside the repo. |
 | `commit.gpgsign` | `true` |
@@ -119,6 +123,29 @@ The repo's local config takes precedence over the cloud environment's global con
 names Claude and Anthropic's key. tsk never prints the key. The command exits 1 and names
 the problem when no actor is registered or `TSK_ROBOT_SIGNING_KEY` is unset. It accepts the
 key with real line breaks, or with `\n` in place of them.
+
+## Choose the setting
+
+This section describes planned behaviour, with step 6.
+
+```toml
+[attribution]
+identity = "robot"
+email = "robots@jimbarritt.com"
+```
+
+- `identity` is `default` or `robot`. Unset means `default`.
+- `email` has no built-in value. With `identity = "robot"` and no email, the command exits
+  1 and names the missing setting.
+- Put the keys in the repo config, `.tsk/config.toml`, to choose for everyone who clones
+  the repo. This repo does that.
+- Put the keys in the user config, `~/.config/tsk/config.toml`, to choose for one person on
+  one machine.
+- Precedence: the variable `TSK_ATTRIBUTION_EMAIL`, then the repo config, then the user
+  config.
+- `tsk config attribution` prints the values and where each came from.
+- The default identity leaves the `Co-Authored-By: Claude` and `Claude-Session` trailers
+  in place. The cloud session adds them (tasks T-09 and T-10).
 
 ## 7. Check a robot commit locally
 
