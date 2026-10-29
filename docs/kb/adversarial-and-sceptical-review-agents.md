@@ -1,10 +1,10 @@
-# Adversarial and sceptic review agents: gate with tests, then review across vendors
+# Adversarial and sceptical review agents: gate with tests, then review across vendors
 
 Status: research note, read 2026-10-28. Tests, compilers and other deterministic checks stop
 bad AI-generated code more reliably than a second model does. A model reviewer adds most
 where no rule applies, and a reviewer from another vendor removes one bias.
 
-Raised by Jim, 2026-10-28, who asked how adversarial and sceptic agents can review code
+Raised by Jim, 2026-10-28, who asked how adversarial and sceptical agents can review code
 that agents write, and then asked for the terms to be defined first, with their provenance.
 
 Sources: the research notes behind this document, and the pages linked below. Each fact
@@ -33,7 +33,7 @@ This document uses ten terms. They relate in one way:
 
 - **Adversarial** names the class. A check is adversarial when its objective opposes the
   objective of the agent that produced the work.
-- **Red team**, **devil's advocate**, **sceptic agent**, **critic**, **verifier** and
+- **Red team**, **devil's advocate**, **sceptical agent**, **critic**, **verifier** and
   **judge** are roles in that class. Each role takes the producer's output and returns
   something different: an attack, an objection, a critique, an accept or reject, or a score.
 - **Debate** is a protocol in which two or more agents take opposed roles in turn, before
@@ -49,7 +49,7 @@ This document uses ten terms. They relate in one way:
 | Adversarial | The class | | Goodfellow et al. 2014, arXiv:1406.2661; Szegedy et al. 2013, arXiv:1312.6199 |
 | Red team | Role | An attack that makes the target fail | Ganguli et al. 2022, arXiv:2209.07858; Perez et al. 2022, arXiv:2202.03286 |
 | Devil's advocate | Role | The case against a proposal | Catholic Encyclopedia, "Advocatus Diaboli", 1907 |
-| Sceptic agent | Role | Doubt of a claim, with reasons | No canonical source found |
+| Sceptical agent | Role | Doubt of a claim, with reasons | No canonical source found |
 | Critic | Role | Feedback on an output | Widrow, Gupta and Maitra 1973; Barto, Sutton and Anderson 1983; McAleese et al. 2024 |
 | Verifier | Role | Accept or reject, or a rank | Cobbe et al. 2021, arXiv:2110.14168 |
 | LLM-as-a-judge | Role | A score or a preference | Zheng et al. 2023, arXiv:2306.05685 |
@@ -171,16 +171,16 @@ keeps the office under a new title and removes its adversarial duty
 ([Wikipedia](https://en.wikipedia.org/wiki/Devil%27s_advocate), search).
 
 **Canonical reference for this document:** the 1907 Catholic Encyclopedia entry for the
-role, and *Divinus perfectionis Magister* for its 1983 reform. The sceptic role in an agent
+role, and *Divinus perfectionis Magister* for its 1983 reform. The sceptical role in an agent
 system descends from this role by name. No paper read claims a direct lineage.
 
-### Sceptic agent
+### Sceptical agent
 
 **As used here:** an agent instructed to doubt the claims of another agent and to state
 why. It is the devil's advocate role given to a model.
 
-**Provenance.** No canonical source uses "sceptic agent" or "skeptic agent" as a defined
-term. The research papers spell it "skeptic". Uses found:
+**Provenance.** No canonical source uses "sceptical agent", "sceptic agent" or "skeptic agent" as a
+defined term. The research papers write "Skeptic" as a role name. Uses found:
 
 - Zhao et al. 2025, "Cognitive Inception: Agentic Reasoning against Visual Deceptions by
   Injecting Skepticism" ([arXiv:2511.17672](https://arxiv.org/abs/2511.17672), abstract
@@ -197,8 +197,9 @@ term. The research papers spell it "skeptic". Uses found:
   ([arXiv:2405.09935](https://arxiv.org/abs/2405.09935), title verified). One agent in a
   scoring panel criticises the arguments of the others (from a search summary).
 
-**Canonical reference:** none. This document uses "sceptic" as the British spelling of an
-informal label.
+**Canonical reference:** none. This document writes "sceptical agent" for an informal label.
+"Sceptic" is the British spelling of "skeptic", but it sounds the same as "septic". A paper
+that names the role "Skeptic" keeps its own spelling.
 
 ### Critic
 
@@ -588,7 +589,7 @@ vendor-neutral answer to how well these tools work.
 
 ## Tests, oracles and CI stopped bad work in large runs
 
-Terms: sceptic agent, devil's advocate, critic, judge, deterministic.
+Terms: sceptical agent, devil's advocate, critic, judge, deterministic.
 
 Cursor's "Scaling long-running autonomous coding" describes planners that explore and create
 tasks, workers that complete tasks without coordinating with each other, and a judge agent
@@ -838,7 +839,7 @@ the deterministic tier that already exists.
   returned no content. The 2001 and 2003 Kahneman papers were not read.
 - Whether "generation-verification gap" or "LLM-as-a-judge" was used before Song et al. 2024
   and Zheng et al. 2023.
-- A canonical source for "sceptic agent" or "skeptic agent". None was found. The appendix of
+- A canonical source for "sceptical agent", "sceptic agent" or "skeptic agent". None was found. The appendix of
   arXiv:2606.10307 was not read.
 - The figures marked "figure not re-checked" or "from search" in the evidence sections.
 - The expansion of ACH, the severity labels of Claude Code Review, the OpenAI harness
