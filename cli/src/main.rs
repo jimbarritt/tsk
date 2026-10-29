@@ -196,7 +196,8 @@ fn is_hook_command(cli: &Cli) -> bool {
         Some(Commands::Thread {
             action: thread::ThreadCommands::SessionStart { .. } | thread::ThreadCommands::Guard
         }) | Some(Commands::Ledger {
-            action: ledger::LedgerCommands::BackgroundPushRun { .. }
+            action: ledger::LedgerCommands::Guard
+                | ledger::LedgerCommands::BackgroundPushRun { .. }
                 | ledger::LedgerCommands::Push {
                     background: true,
                     ..

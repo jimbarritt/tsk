@@ -76,7 +76,12 @@ reason attached, and a skill step can still contradict it.
   ledger. A review of a plugin change checks this with a search of `plugin/` for both.
 - Text for an agent says "ledger store" and names `tsk` commands. It names the backend only
   where a maintainer needs it.
-- The rule is held by instruction and review. The `tsk` plugin has no `PreToolUse` hook that
-  stops a `git` or `dolt` command against the ledger store. A hook that denies a `Bash`
-  command naming the ledger store path or a ledger ref is a possible control. This ADR does
-  not decide it.
+- The rule is held by instruction, review and a hook. The `PreToolUse` hook `tsk ledger guard`
+  (0.36.5, plugin 0.3.37) denies a `Bash` call that runs `git` or `dolt` against a ledger ref,
+  a ledger branch or a path in the ledger store, and an `Edit`, `Write`, `MultiEdit` or
+  `NotebookEdit` call on a file in the ledger store. It reads the words of the command and not
+  its effect, so it stops the plain forms and not a determined bypass, such as a script that
+  builds the path at run time. It allows every `tsk` command and every `git` command in the
+  code worktree. It fails open: a malformed input, a missing `tsk` or a `tsk` older than 0.36.5
+  allows the call. `TSK_LEDGER_GUARD=off` in the environment of the agent switches it off for a
+  maintainer who runs `dolt` by hand.

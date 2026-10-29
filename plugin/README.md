@@ -29,6 +29,7 @@ this repository. They hold the minimum logic: see
 |---|---|
 | `SessionStart` | `hooks/session-start.sh`: `tsk thread session-start` |
 | `Stop` | `hooks/stop.sh`: `tsk thread guard`. Asks for a thread when none is bound. When the ledger store holds unpushed changes it publishes them in the background (`tsk ledger push --background`) and prints nothing; a failure shows as a warning on the next `tsk` command |
+| `PreToolUse` | `hooks/pre-tool-use.sh`: `tsk ledger guard`. Denies a `Bash` call that runs `git` or `dolt` against the ledger store, its refs (`tsk/ledger`, `tsk/docs`, `refs/tsk/*`) or its branches, and an `Edit`, `Write` or `NotebookEdit` call on a file in the ledger store (ADR 0028). Allows every `tsk` command. Fails open: a missing or older `tsk` allows the call. `TSK_LEDGER_GUARD=off` in the environment that starts the agent switches it off |
 | `SessionEnd` | `hooks/session-end.sh`: `tsk ledger push "End of session"` under a timeout when `tsk ledger status --local` shows unpushed work. Best effort, always exits 0 |
 
 Records are published at thread start, thread pause or stop, the end of the session and
