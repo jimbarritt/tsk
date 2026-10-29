@@ -1,3 +1,7 @@
 # This repo is used from Claude Code cloud sessions, whose proxy refuses to push a custom ref.
 [ledger]
 refs = "branches"
+
+[attribution]
+email = "robots@jimbarritt.com"
+identity = "robot"

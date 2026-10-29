@@ -467,6 +467,16 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
     }
     if let Some(actor) = crate::actor::current(session).ok().flatten() {
         push_part(&mut thread_text, &actor_context(&actor.label()));
+        // A new container has no repo-local git identity: write it again from the settings.
+        if let Err(error) = crate::attribution::apply(session) {
+            push_part(
+                &mut thread_text,
+                &format!(
+                    "WARNING: the git identity of the robot is not set, so commits keep the default author: {}",
+                    error.trim_start_matches("error: ")
+                ),
+            );
+        }
     }
     if binding.is_some() {
         let cloud = std::env::var(CLOUD_SESSION_VAR).ok();

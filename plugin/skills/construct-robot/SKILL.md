@@ -34,6 +34,13 @@ stores it.
    already in use and this session joined that actor. Tell me, and stop. Exit 1: report
    stderr and stop.
 
+   When `[attribution] identity` is `robot` (`tsk config attribution` prints it), the
+   command also writes the robot's git identity to the repo's local git config, so commits
+   name the robot as author and are signed. A `warning: the registration stands, and the
+   git identity is not set` line means it could not: tell me what it says, and carry on.
+   `tsk actor git-identity` runs the step again, for example after the key
+   `TSK_ROBOT_SIGNING_KEY` is set. With the default identity nothing is written.
+
 5. **Publish the registration.** A name is a claim, as a task is:
 
    ```bash

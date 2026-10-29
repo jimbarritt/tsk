@@ -40,6 +40,20 @@ pub enum ConfigCommands {
         )]
         mode: Option<String>,
     },
+    #[command(
+        name = "attribution",
+        about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml",
+        long_about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml.\n\nidentity is default or robot, default when unset. default writes no git config. robot makes tsk actor git-identity write the registered robot's name, the email, and the SSH signing settings to the repo's local git config. email has no built-in value. identity is read from .tsk/config.toml, then the user config. email is read from the environment variable TSK_ATTRIBUTION_EMAIL, then .tsk/config.toml, then the user config. The private key comes from TSK_ROBOT_SIGNING_KEY."
+    )]
+    Attribution {
+        #[arg(
+            value_parser = ["default", "robot"],
+            help = "The identity to write to .tsk/config.toml; omit it to leave the identity as it is"
+        )]
+        identity: Option<String>,
+        #[arg(long, help = "The email to write to .tsk/config.toml")]
+        email: Option<String>,
+    },
     LedgerRefs {
         #[arg(
             value_parser = ["branches", "custom"],
@@ -313,6 +327,9 @@ fn ledger_server(mode: Option<String>) -> Result<(), String> {
 }
 
 pub fn run(action: ConfigCommands) -> Result<(), String> {
+    if let ConfigCommands::Attribution { identity, email } = action {
+        return crate::attribution::run_config(identity, email);
+    }
     if let ConfigCommands::LedgerServer { mode } = action {
         return ledger_server(mode);
     }
@@ -332,6 +349,7 @@ pub fn run(action: ConfigCommands) -> Result<(), String> {
     match action {
         ConfigCommands::DocsHook => unreachable!("handled above"),
         ConfigCommands::LedgerRefs { .. } => unreachable!("handled above"),
+        ConfigCommands::Attribution { .. } => unreachable!("handled above"),
         ConfigCommands::LedgerServer { .. } => unreachable!("handled above"),
         ConfigCommands::AttachNexus { url } => attach_and_report(&file, &url),
         ConfigCommands::Show => {
