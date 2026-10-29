@@ -1477,3 +1477,132 @@ fn the_setup_script_needs_the_dolt_version_that_the_dolt_installer_pins() {
     };
     assert_eq!(pinned(&script), pinned(&installer));
 }
+
+#[test]
+fn the_plugin_registers_the_pre_tool_use_guard_for_claude() {
+    let claude: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace().join("plugin/hooks/hooks.json")).unwrap(),
+    )
+    .unwrap();
+    let entry = &claude["hooks"]["PreToolUse"][0];
+    let matcher = entry["matcher"].as_str().unwrap();
+    for tool in ["Bash", "Edit", "Write", "NotebookEdit"] {
+        assert!(matcher.split('|').any(|t| t == tool), "{}", matcher);
+    }
+    let command = entry["hooks"][0]["command"].as_str().unwrap();
+    assert!(command.ends_with("hooks/pre-tool-use.sh\""), "{}", command);
+    let script = std::fs::read_to_string(workspace().join("plugin/hooks/pre-tool-use.sh")).unwrap();
+    assert!(script.contains("tsk ledger guard"), "{}", script);
+}
+
+/// Runs `tsk ledger guard` with a hook input and returns its stdout and exit status.
+fn run_guard(input: &str, envs: &[(&str, &str)]) -> (bool, String) {
+    let state = tempfile::tempdir().unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+    command
+        .args(["ledger", "guard"])
+        .env("XDG_STATE_HOME", state.path())
+        .env("HOME", state.path())
+        .env_remove("TSK_LEDGER_GUARD")
+        .env_remove("TSK_LEDGER_WT")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let mut child = command.spawn().unwrap();
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    (
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+    )
+}
+
+#[test]
+fn the_guard_denies_git_against_a_ledger_ref_and_allows_tsk() {
+    let denied = "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git fetch origin refs/heads/tsk/ledger\"},\"cwd\":\"/work\"}";
+    let (ok, out) = run_guard(denied, &[]);
+    assert!(ok);
+    let value: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(value["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+    assert_eq!(value["hookSpecificOutput"]["permissionDecision"], "deny");
+    assert!(value["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap()
+        .contains("ADR 0028"));
+
+    let allowed = "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"tsk ledger push \\\"Claim M-X T-01\\\"\"},\"cwd\":\"/work\"}";
+    assert_eq!(run_guard(allowed, &[]), (true, String::new()));
+}
+
+#[test]
+fn the_guard_denies_a_write_in_the_ledger_store_and_the_switch_allows_it() {
+    let state = tempfile::tempdir().unwrap();
+    let path = state.path().join("tsk/repos/x/docs/a.md");
+    let input = serde_json::json!({
+        "tool_name": "Write",
+        "tool_input": {"file_path": path},
+        "cwd": "/work",
+    })
+    .to_string();
+    let envs = [("XDG_STATE_HOME", state.path().to_str().unwrap())];
+    let (ok, out) = run_guard(&input, &envs);
+    assert!(ok);
+    assert!(out.contains("\"deny\""), "{}", out);
+    let mut off = envs.to_vec();
+    off.push(("TSK_LEDGER_GUARD", "off"));
+    assert_eq!(run_guard(&input, &off), (true, String::new()));
+}
+
+#[test]
+fn the_guard_allows_a_malformed_input() {
+    assert_eq!(run_guard("not json", &[]), (true, String::new()));
+}
+
+/// The PreToolUse script with a stand-in `tsk`.
+fn pre_tool_use_hook(tsk_script: Option<&str>) -> (Option<i32>, String) {
+    let root = tempfile::tempdir().unwrap();
+    let bin = root.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    if let Some(text) = tsk_script {
+        write_script(&bin.join("tsk"), text);
+    }
+    let script = workspace().join("plugin/hooks/pre-tool-use.sh");
+    let output = Command::new("/bin/bash")
+        .arg(script)
+        .env("PATH", bin.display().to_string())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    (
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+    )
+}
+
+#[test]
+fn the_pre_tool_use_script_prints_the_decision_and_exits_0() {
+    let (code, out) = pre_tool_use_hook(Some("#!/bin/sh\necho '{\"deny\":true}'\nexit 0\n"));
+    assert_eq!(code, Some(0));
+    assert_eq!(out, "{\"deny\":true}\n");
+}
+
+#[test]
+fn the_pre_tool_use_script_fails_open() {
+    // No tsk, and a tsk that does not know the command: a non-zero exit would block the call.
+    assert_eq!(pre_tool_use_hook(None), (Some(0), String::new()));
+    let (code, out) = pre_tool_use_hook(Some(
+        "#!/bin/sh\necho 'unrecognized subcommand' >&2\nexit 2\n",
+    ));
+    assert_eq!((code, out), (Some(0), String::new()));
+}

@@ -133,10 +133,12 @@ static DISCOVERED: Mutex<Vec<(PathBuf, Repo)>> = Mutex::new(Vec::new());
 
 impl Repo {
     pub fn discover(dir: &Path) -> Result<Repo, String> {
-        let known = DISCOVERED
-            .lock()
-            .ok()
-            .and_then(|found| found.iter().find(|(asked, _)| asked == dir).map(|(_, r)| r.clone()));
+        let known = DISCOVERED.lock().ok().and_then(|found| {
+            found
+                .iter()
+                .find(|(asked, _)| asked == dir)
+                .map(|(_, r)| r.clone())
+        });
         if let Some(repo) = known {
             return Ok(repo);
         }

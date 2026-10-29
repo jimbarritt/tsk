@@ -4,6 +4,7 @@ pub mod docs;
 pub mod dolt;
 pub mod fetch;
 pub mod git;
+pub mod guard;
 pub mod location;
 pub mod manifest;
 pub mod migrate_docs;
@@ -47,6 +48,10 @@ pub enum LedgerCommands {
         )]
         background: bool,
     },
+    #[command(
+        about = "The PreToolUse hook check of ADR 0028: reads the hook input on stdin and prints a deny decision for a tool call that edits a file in the ledger store, or runs git or dolt against the ledger store, its refs or its branches. Prints nothing otherwise and always exits 0. TSK_LEDGER_GUARD=off in the environment of the hook switches it off"
+    )]
+    Guard,
     #[command(
         name = "background-push-run",
         hide = true,
@@ -168,6 +173,9 @@ pub enum DocCommands {
 }
 
 pub fn run(action: LedgerCommands) -> Result<(), String> {
+    if let LedgerCommands::Guard = action {
+        return guard::run();
+    }
     crate::config::refuse_files_backend_from_env()?;
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
@@ -253,6 +261,7 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
         LedgerCommands::MigrateDocs { .. }
         | LedgerCommands::MigrateTransport
+        | LedgerCommands::Guard
         | LedgerCommands::BackgroundPushRun { .. }
         | LedgerCommands::Server { .. } => {
             unreachable!("handled before the store opens")
