@@ -254,12 +254,14 @@ mod tests {
             description: "First".to_string(),
             status: model::Status::Done,
             blocked_by: vec![],
+            uid: String::new(),
         });
         b.tasks.push(model::Task {
             seq: 2,
             description: "Second".to_string(),
             status: model::Status::Todo,
             blocked_by: vec![1],
+            uid: String::new(),
         });
         b.decisions.push(model::Decision {
             seq: 1,
@@ -268,6 +270,7 @@ mod tests {
             decided_on: "2026-10-25".to_string(),
             task: Some(2),
             adr: Some("docs/adr/0001-x.md".to_string()),
+            uid: String::new(),
         });
         b.questions.push(model::Question {
             seq: 1,
@@ -277,6 +280,7 @@ mod tests {
             answered_by: Some("Jim".to_string()),
             answered_on: Some("2026-10-25".to_string()),
             asked_on: "2026-10-24".to_string(),
+            uid: String::new(),
         });
         b.documents.push(model::Document {
             path: "missions/x.md".to_string(),

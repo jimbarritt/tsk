@@ -283,6 +283,7 @@ mod tests {
             description: format!("t{}", seq),
             status: model::Status::Todo,
             blocked_by,
+            uid: String::new(),
         }
     }
 
@@ -294,6 +295,7 @@ mod tests {
             decided_on: "2026-10-25".to_string(),
             task,
             adr: None,
+            uid: String::new(),
         }
     }
 
@@ -357,6 +359,7 @@ mod tests {
             answered_by: None,
             answered_on: None,
             asked_on: "2026-10-25".to_string(),
+            uid: String::new(),
         }];
         assert!(question_rm(std::slice::from_ref(&b), "M-B", "Q-02").is_err());
         let done = question_rm(&[b], "M-B", "Q-01").unwrap();

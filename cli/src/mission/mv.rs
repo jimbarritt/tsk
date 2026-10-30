@@ -92,6 +92,8 @@ pub fn task_mv(
         description: moved.description,
         status: moved.status,
         blocked_by: Vec::new(),
+        // A moved record is a new row under the new mission: it gets a uid of its own.
+        uid: String::new(),
     });
     target.next_task = new_seq + 1;
     lines.push(format!(
@@ -116,6 +118,7 @@ pub fn task_mv(
         target.decisions.push(Decision {
             seq: new,
             task: Some(new_seq),
+            uid: String::new(),
             ..decision
         });
         lines.push(format!(
@@ -184,6 +187,7 @@ pub fn decision_mv(
     target.decisions.push(Decision {
         seq: new,
         task: link,
+        uid: String::new(),
         ..found.clone()
     });
     let mut lines = vec![format!(
@@ -239,6 +243,7 @@ pub fn question_mv(
     );
     target.questions.push(Question {
         seq: new_seq,
+        uid: String::new(),
         ..found
     });
     target.next_question = new_seq + 1;

@@ -148,6 +148,7 @@ tsk actor name                                                        print the 
 tsk actor list [--porcelain|--json]                                   list the actors: name, kind, uid, and the instances that ran as each; --json adds the URN and the name history
 tsk session actor [--session <urn>]                                   list the actors of this session: role, name, kind, uid
 tsk ledger id                                                         print the ledger's URN, urn:tsk:ledger:<ledger-id>
+                                                                      (tsk mission list <id> --json prints a urn for the mission and for each task, decision and question)
 tsk actor git-identity                                                write the registered robot's git identity to the repo's local git config when [attribution] identity is robot; needs TSK_ROBOT_SIGNING_KEY
 tsk config attribution [default|robot] [--email <address>]            print the [attribution] settings and where each came from, or write them to .tsk/config.toml
 tsk session find <urn|id>                                             print the harness instance and the actor of a recorded session; exit 1 when none matches
