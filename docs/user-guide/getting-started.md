@@ -204,13 +204,17 @@ just publish         # publish tsk-bin to crates.io
 A push to `main` releases when the workspace version in `Cargo.toml` has no `v<version>`
 tag yet. The workflow `.github/workflows/release.yml`:
 
-1. Creates the tag `v<version>` on the pushed commit and the GitHub release
+1. Verifies the commit. `plugin/tsk-version` must not be above the workspace version, and
+   `cargo test --workspace --locked` must pass with `dolt` installed. A failure stops the
+   release before it creates a tag, and nothing is published. A missing `dolt` is also a
+   failure, because the ledger tests pass without running when it is missing.
+2. Creates the tag `v<version>` on the pushed commit and the GitHub release
    `tsk <version>`.
-2. Writes the notes: `docs/releases/v<version>.md` when that file exists, then the
+3. Writes the notes: `docs/releases/v<version>.md` when that file exists, then the
    subject of every commit since the previous `v*` tag, then the compare link GitHub
    generates.
-3. Calls `.github/workflows/publish-crates.yml`, which publishes `tsk-bin` to crates.io.
-4. Calls `.github/workflows/binaries.yml`, which builds `tsk` for macOS (arm64 and
+4. Calls `.github/workflows/publish-crates.yml`, which publishes `tsk-bin` to crates.io.
+5. Calls `.github/workflows/binaries.yml`, which builds `tsk` for macOS (arm64 and
    x86_64) and Linux (x86_64 and arm64), attaches one archive per platform to the
    release, and writes `Formula/tsk.rb` in `jimbarritt/homebrew-tap`.
    Run it from the Actions tab with a tag to build an earlier release.
@@ -220,7 +224,9 @@ To release:
 1. Bump the workspace version with `just bump <version>` (requires cargo-edit:
    `cargo install cargo-edit`).
 2. Optional: write a summary in `docs/releases/v<version>.md`.
-3. Commit and push to `main`.
+3. Run `cargo test --workspace --locked` and read its exit status. Do not pipe it into
+   another command, which replaces the status with its own.
+4. Commit and push to `main`.
 
 A push that leaves the version unchanged releases nothing.
 

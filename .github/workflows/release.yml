@@ -6,15 +6,18 @@ name: Release
 #
 # 1. Reads the workspace version from Cargo.toml. When the tag `v<version>` already
 #    exists, it stops: the push is not a release.
-# 2. Creates the tag on the pushed commit and the GitHub release `tsk <version>`. The
+# 2. Verifies the commit: `plugin/tsk-version` is not above the workspace version, the
+#    build uses the locked dependencies, and the whole test suite passes with `dolt`
+#    installed. A failure stops the release before it creates a tag.
+# 3. Creates the tag on the pushed commit and the GitHub release `tsk <version>`. The
 #    notes are `docs/releases/v<version>.md` when that file exists, then the subject of
 #    every commit since the previous `v*` tag, then the compare link GitHub generates.
-# 3. Calls publish-crates.yml to publish tsk-bin to crates.io, in the environment
+# 4. Calls publish-crates.yml to publish tsk-bin to crates.io, in the environment
 #    `release`.
-# 4. Calls binaries.yml to build the binaries, attach them to the release and write
+# 5. Calls binaries.yml to build the binaries, attach them to the release and write
 #    the Homebrew formula in jimbarritt/homebrew-tap, in the environment `release`.
 #
-# A release created with GITHUB_TOKEN starts no other workflow, so steps 3 and 4 call
+# A release created with GITHUB_TOKEN starts no other workflow, so steps 4 and 5 call
 # the workflows directly rather than waiting for a `release` trigger.
 
 on:
@@ -26,20 +29,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
+      version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
-      created: ${{ steps.create.outputs.created }}
+      new: ${{ steps.version.outputs.new }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
-      - name: Read the workspace version
+      - name: Read the workspace version and look for its tag
         id: version
         run: |
           version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
@@ -49,13 +49,74 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+            echo "v$version already exists, nothing to release"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  verify:
+    needs: version
+    if: needs.version.outputs.new == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check plugin/tsk-version is not above the workspace version
+        run: |
+          required="$(tr -d '[:space:]' < plugin/tsk-version)"
+          highest="$(printf '%s\n%s\n' "$required" "$VERSION" | sort -V | tail -n 1)"
+          if [ "$highest" != "$VERSION" ]; then
+            echo "::error::plugin/tsk-version is $required, above the workspace version $VERSION"
+            exit 1
+          fi
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Install dolt
+        run: |
+          bash plugin/hooks/install-dolt.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          # The ledger tests print a note and pass when dolt is missing, so a missing dolt
+          # must stop the run here.
+          if ! command -v dolt >/dev/null 2>&1; then
+            echo "::error::dolt is not installed, so the ledger tests would be skipped"
+            exit 1
+          fi
+          dolt version
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          git config --global user.name tsk-ci
+          git config --global user.email tsk-ci@localhost
+
+      - name: Run the tests
+        run: cargo test --workspace --locked
+
+  release:
+    needs: [version, verify]
+    if: needs.version.outputs.new == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ needs.version.outputs.tag }}
+      created: ${{ steps.create.outputs.created }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Create the tag and the release
         id: create
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
             echo "$TAG already exists, nothing to release"
