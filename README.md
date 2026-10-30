@@ -1,5 +1,11 @@
 # tsk - work with a clear context
 
+**The objective of tsk is to scale humans.** The less supervision the work needs, the more
+work one human delegates to agents, and the more one human produces.
+
+Reducing context bloat is an optimisation. It can serve a separate objective: to reduce
+overall token costs.
+
 tsk is about navigating software delivery, for people and agents together.
 
 It keeps track of where you and your agents are: which piece of work each of you is
@@ -104,7 +110,7 @@ for this repo only. `claude plugin install` on its own defaults to user scope, w
 applies to every repo on the machine.
 
 A copy of `tsk` from an earlier install, for example `~/.cargo/bin/tsk` after
-`cargo install`, shadows a new one when it comes first on `PATH`. A stale copy lacks the
+`cargo install`, shadows a new one when it precedes the new one on `PATH`. A stale copy lacks the
 commands of later releases. `tsk doctor` lists every `tsk` on `PATH` with its version and
 names the one that runs. `tsk self-update` prints the same note.
 
