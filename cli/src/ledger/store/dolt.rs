@@ -3406,6 +3406,17 @@ fn key_of_code(code: &str) -> String {
 /// its rows by the internal ID it was read with. A new mission gets a random one from
 /// `uuid()`, and the statements after its row find it by its code. A value that did not
 /// change writes the same cell, so Dolt merges two clones that changed different fields.
+/// The `uid` of a record row being written: its own, or a new one for a record the store
+/// has not written yet. An existing row keeps its uid, because the `on duplicate key update`
+/// of the insert does not name the column.
+fn uid_sql(uid: &str) -> String {
+    if uid.is_empty() {
+        "uuid()".to_string()
+    } else {
+        lit(uid)
+    }
+}
+
 fn save_sql(mission: &Mission) -> String {
     let code = lit(&mission.id);
     let (row_id, id) = if mission.uid.is_empty() {
@@ -3556,16 +3567,17 @@ fn save_sql(mission: &Mission) -> String {
             .iter()
             .map(|t| {
                 format!(
-                    "({}, {}, {}, '{}')",
+                    "({}, {}, {}, '{}', {})",
                     id,
                     t.seq,
                     lit(&t.description),
-                    t.status.as_str()
+                    t.status.as_str(),
+                    uid_sql(&t.uid)
                 )
             })
             .collect();
         sql.push_str(&format!(
-            "insert into tasks (mission_id, seq, description, status) values {} \
+            "insert into tasks (mission_id, seq, description, status, uid) values {} \
              on duplicate key update description = values(description), status = values(status);\n",
             rows.join(", ")
         ));
@@ -3576,19 +3588,20 @@ fn save_sql(mission: &Mission) -> String {
             .iter()
             .map(|d| {
                 format!(
-                    "({}, {}, {}, {}, {}, {}, {})",
+                    "({}, {}, {}, {}, {}, {}, {}, {})",
                     id,
                     d.seq,
                     lit(&d.text),
                     lit(&d.decided_by),
                     lit(&d.decided_on),
                     d.task.map_or("NULL".to_string(), |t| t.to_string()),
-                    d.adr.as_deref().map_or("NULL".to_string(), lit)
+                    d.adr.as_deref().map_or("NULL".to_string(), lit),
+                    uid_sql(&d.uid)
                 )
             })
             .collect();
         sql.push_str(&format!(
-            "insert into decisions (mission_id, seq, text, decided_by, decided_on, task_seq, adr_path) values {} \
+            "insert into decisions (mission_id, seq, text, decided_by, decided_on, task_seq, adr_path, uid) values {} \
              on duplicate key update text = values(text), decided_by = values(decided_by), \
              decided_on = values(decided_on), task_seq = values(task_seq), \
              adr_path = values(adr_path);\n",
@@ -3602,7 +3615,7 @@ fn save_sql(mission: &Mission) -> String {
             .iter()
             .map(|q| {
                 format!(
-                    "({}, {}, {}, '{}', {}, {}, {}, {})",
+                    "({}, {}, {}, '{}', {}, {}, {}, {}, {})",
                     id,
                     q.seq,
                     lit(&q.text),
@@ -3610,12 +3623,13 @@ fn save_sql(mission: &Mission) -> String {
                     opt(&q.answer),
                     opt(&q.answered_by),
                     opt(&q.answered_on),
-                    lit(&q.asked_on)
+                    lit(&q.asked_on),
+                    uid_sql(&q.uid)
                 )
             })
             .collect();
         sql.push_str(&format!(
-            "insert into questions (mission_id, seq, text, status, answer, answered_by, answered_on, asked_on) values {} \
+            "insert into questions (mission_id, seq, text, status, answer, answered_by, answered_on, asked_on, uid) values {} \
              on duplicate key update text = values(text), status = values(status), \
              answer = values(answer), answered_by = values(answered_by), \
              answered_on = values(answered_on), asked_on = values(asked_on);\n",
@@ -3823,6 +3837,7 @@ fn read_missions_with(
             &mut missions,
             &index,
             version >= dolt::ADR_LAYOUT_VERSION,
+            version >= dolt::RECORD_UIDS_LAYOUT_VERSION,
             &bad,
         )?;
     }
@@ -3839,12 +3854,16 @@ fn read_records(
     missions: &mut [Mission],
     index: &HashMap<String, usize>,
     with_adr: bool,
+    with_uid: bool,
     bad: &dyn Fn(&str, &str) -> String,
 ) -> Result<(), String> {
     let slot = |_: &[Mission], key: &str| index.get(key).copied();
-    for row in
-        rows("select mission_id, seq, description, status from tasks order by mission_id, seq")?
-    {
+    // A ledger below layout 13 has no `uid` column on the three tables.
+    let uid = if with_uid { "uid" } else { "null as uid" };
+    for row in rows(&format!(
+        "select mission_id, seq, description, status, {} from tasks order by mission_id, seq",
+        uid
+    ))? {
         let id = text(&row, "mission_id").unwrap_or_default();
         if let Some(at) = slot(missions, &id) {
             missions[at].tasks.push(Task {
@@ -3853,6 +3872,7 @@ fn read_records(
                 status: Status::parse(&text(&row, "status").unwrap_or_default())
                     .map_err(|_| bad("task status", &id))?,
                 blocked_by: Vec::new(),
+                uid: text(&row, "uid").unwrap_or_default(),
             });
         }
     }
@@ -3876,9 +3896,9 @@ fn read_records(
         "null as adr_path"
     };
     for row in rows(&format!(
-        "select mission_id, seq, text, decided_by, decided_on, task_seq, {} from decisions \
+        "select mission_id, seq, text, decided_by, decided_on, task_seq, {}, {} from decisions \
          order by mission_id, seq",
-        adr
+        adr, uid
     ))? {
         let id = text(&row, "mission_id").unwrap_or_default();
         if let Some(at) = slot(missions, &id) {
@@ -3889,13 +3909,15 @@ fn read_records(
                 decided_on: date(&row, "decided_on").unwrap_or_default(),
                 task: integer(&row, "task_seq"),
                 adr: text(&row, "adr_path").filter(|p| !p.is_empty()),
+                uid: text(&row, "uid").unwrap_or_default(),
             });
         }
     }
-    for row in rows(
-        "select mission_id, seq, text, status, answer, answered_by, answered_on, asked_on \
+    for row in rows(&format!(
+        "select mission_id, seq, text, status, answer, answered_by, answered_on, asked_on, {} \
          from questions order by mission_id, seq",
-    )? {
+        uid
+    ))? {
         let id = text(&row, "mission_id").unwrap_or_default();
         if let Some(at) = slot(missions, &id) {
             missions[at].questions.push(Question {
@@ -3907,6 +3929,7 @@ fn read_records(
                 answered_by: text(&row, "answered_by"),
                 answered_on: date(&row, "answered_on"),
                 asked_on: date(&row, "asked_on").unwrap_or_default(),
+                uid: text(&row, "uid").unwrap_or_default(),
             });
         }
     }

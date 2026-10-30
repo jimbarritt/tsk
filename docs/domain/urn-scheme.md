@@ -33,7 +33,9 @@ decided when an ADR names them.
 | Ledger | `urn:tsk:ledger:<ledger-id>` | the ledger's own identifier | decided, M-TSK-ADHOC 2026-10-30, built in 0.39.0 |
 | Thread | `urn:tsk:thread:<ledger-id>:<thread-id>` | the ledger, then the thread ID | decided, built in 0.39.0 |
 | Mission | `urn:tsk:mission:<ledger-id>:<mission-id>` | the ledger, then the internal ID `missions.id`, never the code | decided, built in 0.39.0 |
-| Task, decision, question | none yet | | open |
+| Task | `urn:tsk:task:<ledger-id>:<uid>` | the ledger, then the task's uid | decided, built in 0.40.0 |
+| Decision | `urn:tsk:decision:<ledger-id>:<uid>` | the ledger, then the decision's uid | decided, built in 0.40.0 |
+| Question | `urn:tsk:question:<ledger-id>:<uid>` | the ledger, then the question's uid | decided, built in 0.40.0 |
 | Document | none | | not planned |
 
 The harness names in use are `claude-cloud`, `claude-cli`, `copilot-cli` and `pi`
@@ -55,9 +57,14 @@ The harness names in use are `claude-cloud`, `claude-cli`, `copilot-cli` and `pi
 - **Mission** carries the ledger and the internal ID, because the code a person types is
   renamed by `tsk mission mv` (ADR 0026) and a mission code is unique only within a ledger.
 - **Task, decision and question** are numbered per mission, and a publish that merges can
-  renumber a clone's own new rows (ADR 0022). A URN on the number would change under a
-  reader. A stable name needs a uid per row, filled at upgrade. Until that is decided, these
-  have no URN.
+  renumber a clone's own new rows (ADR 0022), so the number is not the name. Each row has a
+  `uid` (layout 13): a UUID minted when the row is first written, derived from the mission
+  and the number at the upgrade for a row that already existed, so two clones that upgrade
+  on their own write the same value. A renumbering keeps the uid, and the URN follows the
+  row. A record moved to another mission with `tsk task mv`, `decision mv` or `question mv`
+  is a new row and gets a uid of its own: the old URN names a record that no longer exists.
+  The column has no unique key, because a moved record is written under its new mission
+  before the old row is removed.
 - **Document** is named by its path inside a ledger, and `tsk ledger doc mv` updates every
   link that names the old path. A URN would need a uid per document in a record. Not planned.
 
@@ -72,7 +79,8 @@ The harness names in use are `claude-cloud`, `claude-cli`, `copilot-cli` and `pi
 - The session start context: the thread, the session URN, the instance URN and the actors
   (ADR 0030 decision 8).
 - The `--json` output of a record prints its URN beside its ID: `tsk actor list`, `tsk
-  thread list` and `tsk mission list` from 0.39.0, and `tsk ledger id` prints the ledger's.
+  thread list` and `tsk mission list` from 0.39.0, a task, a decision and a question in `tsk
+  mission list <id> --json` from 0.40.0, and `tsk ledger id` prints the ledger's.
 - A link from one ledger to a record of another, which a nexus-level view needs, uses the
   thread or mission URN with the ledger in it.
 
@@ -87,7 +95,4 @@ unknown session of a known instance.
 
 ## Open points
 
-- **Task, decision and question uids.** Whether each row gets a uid column, so a claim, a
-  trailer or a cross-ledger link keeps pointing at the right row after a renumber. The cost
-  is one column per table and the upgrade that fills it.
 - **Document URNs.** Not planned. Reopen if a link from outside a ledger needs one.

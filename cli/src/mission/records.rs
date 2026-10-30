@@ -152,6 +152,7 @@ pub fn task_add(missions: &[Mission], id: &str, description: &str) -> Result<Mis
         description: description.to_string(),
         status: Status::Todo,
         blocked_by: Vec::new(),
+        uid: String::new(),
     });
     mission.next_task = seq + 1;
     Ok(mission)
@@ -353,6 +354,7 @@ pub fn decision_add(
         decided_on: today.to_string(),
         task,
         adr: adr.map(str::to_string),
+        uid: String::new(),
     });
     Ok(mission)
 }
@@ -381,6 +383,7 @@ pub fn question_add(
         answered_by: None,
         answered_on: None,
         asked_on: today.to_string(),
+        uid: String::new(),
     });
     mission.next_question = seq + 1;
     Ok(mission)
@@ -558,6 +561,9 @@ pub struct JsonBlocker {
 #[derive(Serialize)]
 pub struct JsonTask<'a> {
     id: String,
+    /// `urn:tsk:task:<ledger-id>:<uid>`; absent below layout 13.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    urn: Option<String>,
     description: &'a str,
     status: &'a str,
     blocked: bool,
@@ -566,6 +572,9 @@ pub struct JsonTask<'a> {
 
 #[derive(Serialize)]
 pub struct JsonDecision<'a> {
+    /// `urn:tsk:decision:<ledger-id>:<uid>`; absent below layout 13.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    urn: Option<String>,
     text: &'a str,
     decided_by: &'a str,
     decided_on: &'a str,
@@ -576,6 +585,9 @@ pub struct JsonDecision<'a> {
 #[derive(Serialize)]
 pub struct JsonQuestion<'a> {
     id: String,
+    /// `urn:tsk:question:<ledger-id>:<uid>`; absent below layout 13.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    urn: Option<String>,
     text: &'a str,
     status: &'a str,
     asked_on: &'a str,
@@ -584,7 +596,12 @@ pub struct JsonQuestion<'a> {
     answered_on: Option<&'a str>,
 }
 
-pub fn json_tasks(mission: &Mission) -> Vec<JsonTask<'_>> {
+/// `urn:tsk:<kind>:<ledger-id>:<uid>` for a record that has a uid in a ledger that has an ID.
+fn record_urn(kind: &str, ledger_id: Option<&str>, uid: &str) -> Option<String> {
+    crate::urn::record_urn(kind, ledger_id?, uid)
+}
+
+pub fn json_tasks<'a>(mission: &'a Mission, ledger_id: Option<&str>) -> Vec<JsonTask<'a>> {
     mission
         .tasks
         .iter()
@@ -592,6 +609,7 @@ pub fn json_tasks(mission: &Mission) -> Vec<JsonTask<'_>> {
             let blockers = task_blocking(mission, task);
             JsonTask {
                 id: task_label(task.seq),
+                urn: record_urn("task", ledger_id, &task.uid),
                 description: &task.description,
                 status: task.status.as_str(),
                 blocked: !blockers.is_empty(),
@@ -608,11 +626,12 @@ pub fn json_tasks(mission: &Mission) -> Vec<JsonTask<'_>> {
         .collect()
 }
 
-pub fn json_decisions(mission: &Mission) -> Vec<JsonDecision<'_>> {
+pub fn json_decisions<'a>(mission: &'a Mission, ledger_id: Option<&str>) -> Vec<JsonDecision<'a>> {
     mission
         .decisions
         .iter()
         .map(|d| JsonDecision {
+            urn: record_urn("decision", ledger_id, &d.uid),
             text: &d.text,
             decided_by: &d.decided_by,
             decided_on: &d.decided_on,
@@ -622,12 +641,13 @@ pub fn json_decisions(mission: &Mission) -> Vec<JsonDecision<'_>> {
         .collect()
 }
 
-pub fn json_questions(mission: &Mission) -> Vec<JsonQuestion<'_>> {
+pub fn json_questions<'a>(mission: &'a Mission, ledger_id: Option<&str>) -> Vec<JsonQuestion<'a>> {
     mission
         .questions
         .iter()
         .map(|q| JsonQuestion {
             id: question_label(q.seq),
+            urn: record_urn("question", ledger_id, &q.uid),
             text: &q.text,
             status: q.status.as_str(),
             asked_on: &q.asked_on,

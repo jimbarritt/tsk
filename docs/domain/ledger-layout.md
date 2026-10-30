@@ -112,7 +112,7 @@ A `mission_id` column in any table below holds the internal ID of a mission, `mi
 
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `k` varchar(64), primary key; `v` text | The manifest keys as rows: `version`, `repo_id` for a nexus ledger, `mission_prefix` when set, and `ledger_id` (version 12), a UUID that names the ledger in `urn:tsk:ledger:<ledger-id>`. The `version` row is `12`. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The manifest keys as rows: `version`, `repo_id` for a nexus ledger, `mission_prefix` when set, and `ledger_id` (version 12), a UUID that names the ledger in `urn:tsk:ledger:<ledger-id>`. The `version` row is `13`. |
 | `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the internal ID of the mission the thread works (the code itself for a mission with no record), and is null for a thread with no mission. Every command reads it through `missions.code`, so a renamed mission shows its new ID. `briefing_path` is the mission's briefing document, stored only when the mission has no record. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
 | `thread_bindings` | `instance` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `thread_id` varchar(64); `registered_at` varchar(32) | One row per bound harness instance, of either kind (version 12, ADR 0030; `bindings`, with the column `actor`, from version 8 to 11, and `cloud_session_bindings` below 8). The key of a cloud session is the session ID (`cse_...`). The key of a local code worktree is `<clone-id>/<worktree-name>`: the ID in `.git/tsk-clone-id`, a slash, and `main` for the main worktree or the name of the linked worktree. A bind sets or replaces the instance's row. `thread stop` deletes every row that names the stopped thread. There is no foreign key to `threads`. |
@@ -536,7 +536,8 @@ Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::di
 
 ### Manifest version
 
-The `version` row of the `manifest` table is `12` for a ledger with `thread_bindings`,
+The `version` row of the `manifest` table is `13` for a ledger whose `tasks`, `decisions` and
+`questions` have a `uid` column, `12` for a ledger with `thread_bindings`,
 `actors.uid`, `actor_names`, `session_actors` and the manifest key `ledger_id` (ADR 0030),
 `11` for a ledger with the `sessions` table and the bindings still in `bindings`, `10` for a
 ledger with `missions.code` and no `sessions` table, `9` for a ledger with the `actors` and
@@ -547,7 +548,7 @@ and out of scope are tables of their own with the bindings still in `cloud_sessi
 `mission_id`, `4` for a ledger with the mission, task, decision and question tables and the
 older `threads` table, `3` for a ledger with the mission tables only, and `2` for a
 ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
-backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 and 12. Version 1 is a ledger that still keeps its
+backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 and 13. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger is refused by every command except `tsk ledger fetch`,
@@ -669,6 +670,16 @@ documents in a `documents` table.
   Dolt merges them. `tsk ledger status` labels the upgrade and does not show the copied
   rows as changes. A session start never upgrades: on a ledger below 12 it records the
   session and no actors.
+
+- A version 12 ledger works for everything it did before: a task, a decision and a question
+  have no uid, the JSON output has no `urn` for them, and a read upgrades nothing. The first
+  write of any kind that upgrades it adds the column `uid` varchar(36) to `tasks`,
+  `decisions` and `questions`, and fills it from the MD5 of the kind, the mission ID and the
+  number, in the same local Dolt change as the write. Every value is a function of what the
+  ledger holds, so two clones that upgrade on their own write the same change and Dolt merges
+  them. A row written later gets a uid from `uuid()` at its first insert, and an update of the
+  row does not name the column, so a renumbering (ADR 0022) keeps it. The column has no unique
+  key.
 
 ### Migration from the file ledger
 

@@ -181,6 +181,10 @@ pub struct Task {
     /// The sequence numbers of the tasks of this mission this one waits for, sorted.
     /// Whether one of them still blocks is derived, never stored.
     pub blocked_by: Vec<i64>,
+    /// The uid of the task (layout 13). Empty for a task not yet written: the store gives it
+    /// one at the first write. A renumbering never changes it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub uid: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,6 +199,9 @@ pub struct Decision {
     /// before this field existed reads as none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adr: Option<String>,
+    /// The uid of the decision (layout 13). Empty until the first write.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub uid: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -230,6 +237,9 @@ pub struct Question {
     pub answered_by: Option<String>,
     pub answered_on: Option<String>,
     pub asked_on: String,
+    /// The uid of the question (layout 13). Empty until the first write.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub uid: String,
 }
 
 fn one() -> i64 {
@@ -821,9 +831,9 @@ pub fn to_json<'a>(
                 role: d.role.as_str(),
             })
             .collect(),
-        tasks: super::records::json_tasks(mission),
-        decisions: super::records::json_decisions(mission),
-        questions: super::records::json_questions(mission),
+        tasks: super::records::json_tasks(mission, ledger_id),
+        decisions: super::records::json_decisions(mission, ledger_id),
+        questions: super::records::json_questions(mission, ledger_id),
     }
 }
 
