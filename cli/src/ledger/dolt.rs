@@ -43,12 +43,14 @@ pub const SCHEMA: &[&str] = &[
     "create table manifest (k varchar(64) primary key, v text)",
     "create table threads (thread_id varchar(64) primary key, briefing_path varchar(1024) null, mission_id varchar(64) null)",
     "create table continuation_entries (thread_id varchar(64), seq int, entry longtext not null, primary key (thread_id, seq))",
-    "create table bindings (actor varchar(255) primary key, kind enum('cloud','worktree') not null, thread_id varchar(64) not null, registered_at varchar(32) not null)",
-    "create table actors (name varchar(200) primary key, kind enum('human','robot') not null, registered_at varchar(32) not null)",
+    "create table thread_bindings (instance varchar(255) primary key, kind enum('cloud','worktree') not null, thread_id varchar(64) not null, registered_at varchar(32) not null)",
+    "create table actors (name varchar(200) primary key, kind enum('human','robot') not null, registered_at varchar(32) not null, uid varchar(36) null, unique key actors_uid_unique (uid))",
     "create table instances (instance varchar(255) primary key, kind enum('cloud','worktree') not null, actor_name varchar(200) not null, registered_at varchar(32) not null)",
     "create table external_events (position bigint primary key, envelope longtext not null)",
     "create table watermark (id int primary key, processed_through bigint not null, updated_at varchar(32) not null)",
     "create table sessions (session varchar(255) primary key, instance varchar(255) not null, kind enum('cloud','worktree') not null, started_at varchar(32) not null)",
+    "create table actor_names (actor_uid varchar(36) not null, name varchar(200) not null, from_at varchar(32) not null, until_at varchar(32) null, primary key (actor_uid, from_at))",
+    "create table session_actors (session varchar(255) not null, actor_uid varchar(36) not null, role enum('primary','supporting') not null, joined_at varchar(32) not null, primary key (session, actor_uid))",
 ];
 
 /// The table a version 1 ledger holds its documents in. A new ledger does not create it.
@@ -171,8 +173,14 @@ pub const TASK_SCHEMA: &[&str] = &[
 /// worktree binding is a row of `bindings`, and the actors and the harness instances
 /// registered as them are rows of `actors` and `instances`, and a mission has a `code`
 /// that can change beside the internal `id` that cannot, and every session a harness instance
-/// runs is a row of `sessions`.
-pub const LAYOUT_VERSION: i64 = 11;
+/// runs is a row of `sessions`, and (layout 12, ADR 0030) the binding of a harness instance to
+/// its thread is a row of `thread_bindings`, an actor has a `uid` and a name history in
+/// `actor_names`, a session's actors are rows of `session_actors`, and the manifest holds the
+/// `ledger_id`.
+pub const LAYOUT_VERSION: i64 = 12;
+/// The layout version of ADR 0030: `thread_bindings` in place of `bindings`, `actors.uid`,
+/// `actor_names`, `session_actors` and the manifest key `ledger_id`.
+pub const SESSION_ACTORS_LAYOUT_VERSION: i64 = 12;
 /// The layout version with the `sessions` table, which maps a session URN to the harness
 /// instance it ran in.
 pub const SESSIONS_LAYOUT_VERSION: i64 = 11;
@@ -284,8 +292,69 @@ pub fn upgrade_sql_moving(from: i64, moved: &str) -> String {
             sql.push_str(";\n");
         }
     }
+    // Layout 12 (ADR 0030). An `actors` table made above, from version 8 or lower, has `uid`;
+    // one that layouts 9 to 11 made gains it. Every lower layout then gets the same rows:
+    // a uid for each actor from its name, the binding rows under the new table, the name
+    // history, a primary actor for each recorded session, and the ledger ID from the root
+    // commit. Every value is a function of what the ledger holds, so two clones that upgrade
+    // on their own write the same change and Dolt merges them.
+    if (ACTORS_LAYOUT_VERSION..SESSION_ACTORS_LAYOUT_VERSION).contains(&from) {
+        sql.push_str(
+            "alter table actors add column uid varchar(36) null;\n\
+             alter table actors add unique key actors_uid_unique (uid);\n",
+        );
+    }
+    if from < SESSION_ACTORS_LAYOUT_VERSION {
+        sql.push_str(&session_actors_upgrade_sql());
+    }
     sql.push_str(&version_sql());
     sql
+}
+
+/// A UUID-shaped string (8-4-4-4-12 hexadecimal) from the MD5 of the SQL expression `expr`,
+/// as a SQL expression. The same input gives the same UUID on every clone.
+fn uuid_of_sql(expr: &str) -> String {
+    format!(
+        "lower(concat(substr(md5({e}), 1, 8), '-', substr(md5({e}), 9, 4), '-', \
+         substr(md5({e}), 13, 4), '-', substr(md5({e}), 17, 4), '-', substr(md5({e}), 21, 12)))",
+        e = expr
+    )
+}
+
+/// The version 12 step. The tables of [`SCHEMA`] that no older layout has are created, and
+/// the rows that follow from the older tables are written.
+fn session_actors_upgrade_sql() -> String {
+    let mut sql = String::new();
+    sql.push_str(&format!(
+        "update actors set uid = {} where uid is null;\n",
+        uuid_of_sql("concat('urn:tsk:actor-name:', name)")
+    ));
+    for statement in SESSION_ACTORS_SCHEMA {
+        sql.push_str(statement);
+        sql.push_str(";\n");
+    }
+    sql.push_str(
+        "insert into thread_bindings (instance, kind, thread_id, registered_at) \
+         select actor, kind, thread_id, registered_at from bindings;\n\
+         drop table bindings;\n\
+         insert into actor_names (actor_uid, name, from_at, until_at) \
+         select uid, name, registered_at, null from actors;\n\
+         insert into session_actors (session, actor_uid, role, joined_at) \
+         select s.session, a.uid, 'primary', s.started_at from sessions s \
+         join instances i on i.instance = s.instance join actors a on a.name = i.actor_name;\n",
+    );
+    sql.push_str(&ledger_id_from_root_sql());
+    sql
+}
+
+/// The statement that records the ledger ID for a ledger that has none: a UUID from the
+/// hash of the root commit, which every clone of the ledger shares.
+pub fn ledger_id_from_root_sql() -> String {
+    format!(
+        "insert ignore into manifest (k, v) select 'ledger_id', {} from dolt_log \
+         order by date asc, commit_hash asc limit 1;\n",
+        uuid_of_sql("concat('urn:tsk:ledger-root:', commit_hash)")
+    )
 }
 
 /// The version 10 step: `missions.code` takes the ID of each mission, which is also its
@@ -305,6 +374,10 @@ const ACTORS_SCHEMA: &[&str] = &[SCHEMA[4], SCHEMA[5]];
 
 /// The version 11 step: the `sessions` table of [`SCHEMA`], which no older layout has.
 const SESSIONS_SCHEMA: &[&str] = &[SCHEMA[8]];
+
+/// The version 12 step: the `thread_bindings`, `actor_names` and `session_actors` tables of
+/// [`SCHEMA`], which no older layout has.
+const SESSION_ACTORS_SCHEMA: &[&str] = &[SCHEMA[3], SCHEMA[9], SCHEMA[10]];
 
 /// [`upgrade_sql_moving`] for a ledger that has no mission text to move.
 pub fn upgrade_sql(from: i64) -> String {
@@ -349,9 +422,9 @@ fn version_sql() -> String {
     )
 }
 
-/// Statements that create every table and the manifest rows (`version`, and `repo_id`
-/// for a nexus ledger), separated by `;\n`.
-pub fn init_sql(repo_id: Option<&str>) -> String {
+/// Statements that create every table and the manifest rows (`version`, `repo_id` for a
+/// nexus ledger, and `ledger_id`), separated by `;\n`.
+pub fn init_sql(repo_id: Option<&str>, ledger_id: &str) -> String {
     let mut sql = String::new();
     for statement in SCHEMA
         .iter()
@@ -372,7 +445,28 @@ pub fn init_sql(repo_id: Option<&str>) -> String {
             lit(id)
         ));
     }
+    sql.push_str(&format!(
+        "insert into manifest (k, v) values ('ledger_id', {});\n",
+        lit(ledger_id)
+    ));
     sql
+}
+
+/// A new UUID (version 4 form) for a record this clone makes: an actor, or a new ledger.
+pub fn mint_uuid() -> String {
+    let hex = crate::ledger::location::mint_token(32, "uuid");
+    let mut chars: Vec<char> = hex.chars().collect();
+    chars[12] = '4';
+    chars[16] = ['8', '9', 'a', 'b'][(chars[16] as usize) % 4];
+    let h: String = chars.into_iter().collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    )
 }
 
 /// A SQL string literal that cannot carry an injection: the text is hex-encoded and
@@ -1007,12 +1101,14 @@ mod tests {
 
     #[test]
     fn init_sql_creates_every_table_and_the_manifest_rows() {
-        let sql = init_sql(Some("work-api"));
+        let sql = init_sql(Some("work-api"), "11111111-2222-4333-8444-555555555555");
         for table in [
             "manifest",
             "threads",
             "continuation_entries",
-            "bindings",
+            "thread_bindings",
+            "actor_names",
+            "session_actors",
             "external_events",
             "watermark",
             "missions",
@@ -1033,16 +1129,18 @@ mod tests {
         assert!(!sql.contains("create table documents"));
         assert!(!sql.contains("cloud_session_bindings"));
         assert!(sql.contains("kind enum('cloud','worktree') not null"));
-        assert!(sql.contains("create table actors (name varchar(200) primary key, kind enum('human','robot') not null"));
+        assert!(sql.contains("create table actors (name varchar(200) primary key, kind enum('human','robot') not null, registered_at varchar(32) not null, uid varchar(36) null, unique key actors_uid_unique (uid))"));
+        assert!(!sql.contains("create table bindings "));
         assert!(sql.contains("create table instances (instance varchar(255) primary key, kind enum('cloud','worktree') not null, actor_name varchar(200) not null"));
         assert!(sql.contains("create table sessions (session varchar(255) primary key, instance varchar(255) not null, kind enum('cloud','worktree') not null, started_at varchar(32) not null)"));
-        assert!(sql.contains("('version', '11')"));
+        assert!(sql.contains("('version', '12')"));
         assert!(sql.contains("id varchar(64) not null primary key, code varchar(64) null, name"));
         assert!(sql.contains("unique key missions_code_unique (code)"));
         assert!(sql.contains("mission_id varchar(64) null"));
         assert!(sql.contains("briefing_path varchar(1024) null"));
         assert!(sql.contains("'repo_id'"));
-        assert!(!init_sql(None).contains("repo_id"));
+        assert!(!init_sql(None, "11111111-2222-4333-8444-555555555555").contains("repo_id"));
+        assert!(init_sql(None, "11111111-2222-4333-8444-555555555555").contains("ledger_id"));
     }
 
     #[test]
@@ -1053,12 +1151,12 @@ mod tests {
         assert!(!from_four.contains("create table missions "));
         assert!(!from_four.contains("create table tasks "));
         assert!(from_four.contains("alter table decisions add column adr_path varchar(1024) null"));
-        assert!(from_four.ends_with("('version', '11');\n"));
+        assert!(from_four.ends_with("('version', '12');\n"));
         let from_five = upgrade_sql(5);
         assert!(!from_five.contains("alter table threads"));
         assert!(!from_five.contains("create table tasks "));
         assert!(from_five.contains("alter table decisions add column adr_path"));
-        assert!(from_five.ends_with("('version', '11');\n"));
+        assert!(from_five.ends_with("('version', '12');\n"));
         let from_six = upgrade_sql(6);
         assert!(!from_six.contains("alter table decisions"));
         assert!(!from_six.contains("alter table threads"));
@@ -1068,7 +1166,7 @@ mod tests {
         assert!(from_six.contains("drop column constraints_text"));
         assert!(from_six.contains("drop column out_of_scope"));
         assert!(!from_six.contains("create table missions "));
-        assert!(from_six.ends_with("('version', '11');\n"));
+        assert!(from_six.ends_with("('version', '12');\n"));
         let from_seven = upgrade_sql(7);
         assert!(from_seven.contains("create table bindings "));
         assert!(from_seven.contains(
@@ -1076,33 +1174,46 @@ mod tests {
         ));
         assert!(from_seven.contains("drop table cloud_session_bindings"));
         assert!(!from_seven.contains("mission_constraints"));
-        // The one alteration is the layout 10 column.
+        // The one alteration is the layout 10 column: a layout 7 ledger makes `actors` with
+        // its `uid`.
         assert_eq!(from_seven.matches("alter table").count(), 2);
         assert!(from_seven.contains("alter table missions add column code"));
-        assert!(from_seven.ends_with("('version', '11');\n"));
+        assert!(from_seven.ends_with("('version', '12');\n"));
+        let step_twelve = session_actors_upgrade_sql();
+        let uid_alter = "alter table actors add column uid varchar(36) null;\n\
+             alter table actors add unique key actors_uid_unique (uid);\n";
         let from_eight = upgrade_sql(8);
+        // A layout 8 ledger makes `actors` in its newest shape, with `uid`, so no alter.
         assert_eq!(
             from_eight,
             format!(
-                "{};\n{};\n{}{};\nreplace into manifest (k, v) values ('version', '11');\n",
-                SCHEMA[4], SCHEMA[5], CODE_UPGRADE_SQL, SCHEMA[8]
+                "{};\n{};\n{}{};\n{}replace into manifest (k, v) values ('version', '12');\n",
+                SCHEMA[4], SCHEMA[5], CODE_UPGRADE_SQL, SCHEMA[8], step_twelve
             )
         );
-        // From layout 9 the code step and the sessions step run. The code step adds a column
-        // and an index.
+        // From layout 9 the code step, the sessions step, the uid column and the layout 12
+        // step run. The code step adds a column and an index.
         assert_eq!(
             upgrade_sql(9),
             format!(
-                "{}{};\nreplace into manifest (k, v) values ('version', '11');\n",
-                CODE_UPGRADE_SQL, SCHEMA[8]
+                "{}{};\n{}{}replace into manifest (k, v) values ('version', '12');\n",
+                CODE_UPGRADE_SQL, SCHEMA[8], uid_alter, step_twelve
             )
         );
-        // From layout 10 only the sessions step runs.
+        // From layout 10 the sessions step, the uid column and the layout 12 step run.
         assert_eq!(
             upgrade_sql(10),
             format!(
-                "{};\nreplace into manifest (k, v) values ('version', '11');\n",
-                SCHEMA[8]
+                "{};\n{}{}replace into manifest (k, v) values ('version', '12');\n",
+                SCHEMA[8], uid_alter, step_twelve
+            )
+        );
+        // From layout 11 the uid column and the layout 12 step run.
+        assert_eq!(
+            upgrade_sql(11),
+            format!(
+                "{}{}replace into manifest (k, v) values ('version', '12');\n",
+                uid_alter, step_twelve
             )
         );
         assert!(CODE_UPGRADE_SQL.contains("add column code varchar(64) null after id"));
@@ -1195,5 +1306,44 @@ mod tests {
         assert!(flag(&row, "b"));
         assert!(!flag(&row, "c"));
         assert!(!flag(&row, "missing"));
+    }
+}
+
+#[cfg(test)]
+mod uuid_tests {
+    use super::*;
+
+    #[test]
+    fn a_minted_uuid_has_the_version_4_form() {
+        let uuid = mint_uuid();
+        assert_eq!(uuid.len(), 36);
+        let parts: Vec<&str> = uuid.split('-').collect();
+        assert_eq!(
+            parts.iter().map(|p| p.len()).collect::<Vec<_>>(),
+            vec![8, 4, 4, 4, 12]
+        );
+        assert!(parts[2].starts_with('4'));
+        assert!("89ab".contains(&parts[3][..1]));
+        assert_ne!(mint_uuid(), uuid);
+    }
+
+    #[test]
+    fn the_upgrade_to_twelve_moves_the_bindings_and_fills_the_uids_from_names() {
+        let sql = upgrade_sql(11);
+        assert!(sql.contains("alter table actors add column uid varchar(36) null"));
+        assert!(sql.contains(
+            "update actors set uid = lower(concat(substr(md5(concat('urn:tsk:actor-name:', name))"
+        ));
+        assert!(sql.contains("create table thread_bindings"));
+        assert!(sql.contains("select actor, kind, thread_id, registered_at from bindings"));
+        assert!(sql.contains("drop table bindings"));
+        assert!(sql.contains("insert into actor_names"));
+        assert!(sql.contains("insert into session_actors"));
+        assert!(sql.contains("insert ignore into manifest (k, v) select 'ledger_id'"));
+        assert!(sql.ends_with("replace into manifest (k, v) values ('version', '12');\n"));
+        // A ledger below 9 makes `actors` in its newest shape, so no alter follows.
+        let old = upgrade_sql(8);
+        assert!(!old.contains("alter table actors add column uid"));
+        assert!(old.contains("create table thread_bindings"));
     }
 }

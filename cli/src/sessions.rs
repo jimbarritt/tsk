@@ -7,7 +7,7 @@
 use clap::Subcommand;
 use serde::Serialize;
 
-use crate::ledger::store::{LedgerStore, SessionRow};
+use crate::ledger::store::{ActorRole, LedgerStore, SessionRow};
 use crate::mission::table::print_lines;
 use crate::thread::clock::utc_now;
 use crate::thread::session::{instance_urn, Session};
@@ -36,6 +36,17 @@ pub enum SessionCommands {
             help = "Print tab-separated columns, the stable form for scripts, instead of aligned columns"
         )]
         porcelain: bool,
+    },
+    #[command(
+        about = "Print the actors of this session, one per line: role (primary or supporting), name, kind, uid; the primary first. Prints no actor registered when the session has none. --session names another session by its URN"
+    )]
+    Actor {
+        #[arg(
+            long,
+            value_name = "URN",
+            help = "The session, by URN; the current session when omitted"
+        )]
+        session: Option<String>,
     },
 }
 
@@ -92,15 +103,20 @@ pub fn row_for(
     }))
 }
 
-/// Record the session at session start. A session that is already recorded changes nothing.
+/// Record the session at session start, and remember its URN for the later commands of the
+/// session. A session that is already recorded changes nothing in the ledger.
 pub fn record(
     session: &Session,
     format: HookFormat,
     hook_session_id: Option<&str>,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     match row_for(session, format, hook_session_id, &utc_now())? {
-        Some(row) => session.store.session_add(&row),
-        None => Ok(()),
+        Some(row) => {
+            session.remember_session_urn(&row.session)?;
+            session.store.session_add(&row)?;
+            Ok(Some(row.session))
+        }
+        None => Ok(None),
     }
 }
 
@@ -115,17 +131,32 @@ pub struct JsonSession {
     pub started_at: String,
 }
 
-/// The sessions with the instance URN and the actor of each instance, in the order given.
+/// The sessions with the instance URN and the primary actor of each, in the order given. A
+/// session with no actor row of its own shows the actor its instance registered as, the
+/// link a ledger below layout 12 holds.
 pub fn listed(store: &dyn LedgerStore) -> Result<Vec<JsonSession>, String> {
     let instances = store.instances_list()?;
+    let actors = store.actors_list()?;
+    let session_actors = store.session_actors_list()?;
     Ok(store
         .sessions_list()?
         .into_iter()
         .map(|row| JsonSession {
-            actor: instances
+            actor: session_actors
                 .iter()
-                .find(|i| i.instance == row.instance)
-                .map(|i| i.actor_name.clone()),
+                .find(|a| a.session == row.session && a.role == ActorRole::Primary)
+                .and_then(|a| {
+                    actors
+                        .iter()
+                        .find(|actor| actor.uid.as_deref() == Some(a.actor_uid.as_str()))
+                })
+                .map(|actor| actor.name.clone())
+                .or_else(|| {
+                    instances
+                        .iter()
+                        .find(|i| i.instance == row.instance)
+                        .map(|i| i.actor_name.clone())
+                }),
             instance_urn: instance_urn(row.kind, &row.instance),
             session: row.session,
             instance: row.instance,
@@ -168,6 +199,28 @@ pub fn run(action: SessionCommands) -> Result<i32, String> {
             }
             for session in found {
                 println!("{}", line(session));
+            }
+            Ok(0)
+        }
+        SessionCommands::Actor { session: target } => {
+            let urn = match target {
+                Some(urn) => urn,
+                None => session.session_urn().ok_or_else(|| {
+                    "error: this session has no recorded URN; pass --session <urn>, or run tsk thread session-start first".to_string()
+                })?,
+            };
+            let rows = crate::actor::actors_of_session(session.store.as_ref(), &urn)?;
+            if rows.is_empty() {
+                println!("no actor registered");
+            }
+            for (role, actor) in rows {
+                println!(
+                    "{}\t{}\t{}\t{}",
+                    role.as_str(),
+                    actor.name,
+                    actor.kind.as_str(),
+                    actor.uid.as_deref().unwrap_or("-")
+                );
             }
             Ok(0)
         }

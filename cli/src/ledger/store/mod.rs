@@ -80,11 +80,11 @@ impl BindingKind {
     }
 }
 
-/// One row of the bindings: a harness instance (the `actor` column, kept under that name
-/// from before 0.26.0) and the thread it works.
+/// One row of `thread_bindings`: a harness instance and the thread it works (ADR 0030). A
+/// ledger below layout 12 holds the same rows in `bindings`, under the column `actor`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindingRow {
-    pub actor: String,
+    pub instance: String,
     pub kind: BindingKind,
     pub thread_id: String,
     pub registered_at: String,
@@ -121,6 +121,51 @@ pub struct ActorRow {
     pub name: String,
     pub kind: ActorKind,
     pub registered_at: String,
+    /// The uid, the key every link names (ADR 0030). `None` on a ledger below layout 12.
+    pub uid: Option<String>,
+}
+
+/// What an actor is to a session: the one primary actor, or one of its supporting actors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActorRole {
+    Primary,
+    Supporting,
+}
+
+impl ActorRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ActorRole::Primary => "primary",
+            ActorRole::Supporting => "supporting",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<ActorRole> {
+        match text {
+            "primary" => Some(ActorRole::Primary),
+            "supporting" => Some(ActorRole::Supporting),
+            _ => None,
+        }
+    }
+}
+
+/// One row of `session_actors`: an actor of a session, by uid, with its role (ADR 0030).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionActorRow {
+    pub session: String,
+    pub actor_uid: String,
+    pub role: ActorRole,
+    pub joined_at: String,
+}
+
+/// One row of `actor_names`: a name an actor held, from `from_at` until `until_at`, which is
+/// `None` for the name it holds now (ADR 0030).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActorNameRow {
+    pub actor_uid: String,
+    pub name: String,
+    pub from_at: String,
+    pub until_at: Option<String>,
 }
 
 /// One row of `instances`: a harness instance (a cloud session, or a code worktree of a
@@ -293,13 +338,13 @@ pub trait LedgerStore {
 
     // --- Bindings ---
 
-    /// Every binding, sorted by registration time and then actor. Empty when nothing is
-    /// bound. A Dolt ledger below version 8 reads its `cloud_session_bindings` table as
-    /// cloud rows and upgrades nothing.
+    /// Every binding, sorted by registration time and then instance. Empty when nothing is
+    /// bound. A Dolt ledger below layout 12 reads `bindings`, and below version 8 its
+    /// `cloud_session_bindings` table as cloud rows; a read upgrades nothing.
     fn bindings_list(&self) -> Result<Vec<BindingRow>, String>;
-    /// Bind an actor to a thread, replacing the actor's earlier binding. The first call on
-    /// a Dolt ledger below version 9 upgrades it. The change is local until the caller
-    /// pushes it.
+    /// Bind an instance to a thread, replacing the instance's earlier binding. The first
+    /// call on a Dolt ledger below the current layout upgrades it. The change is local until
+    /// the caller pushes it.
     fn binding_set(&self, row: &BindingRow) -> Result<(), String>;
 
     // --- Actors and harness instances ---
@@ -326,11 +371,23 @@ pub trait LedgerStore {
     /// ledger below version 11 it records nothing and upgrades nothing: a session start is not
     /// a write that upgrades. The change is local until the caller pushes it.
     fn session_add(&self, row: &SessionRow) -> Result<(), String>;
-    /// Remove an actor's binding, if it has one.
-    fn binding_remove(&self, actor: &str) -> Result<(), String>;
-    /// Remove the bindings of several actors in one write. An actor with no binding is
-    /// skipped.
-    fn bindings_remove(&self, actors: &[String]) -> Result<(), String>;
+    /// Every session actor row, sorted by join time, session and uid. Empty on a Dolt ledger
+    /// below layout 12; a read upgrades nothing.
+    fn session_actors_list(&self) -> Result<Vec<SessionActorRow>, String>;
+    /// Add an actor to a session with a role, replacing the actor's earlier row for that
+    /// session. A primary row replaces the session's earlier primary, which becomes
+    /// supporting. The first call on a Dolt ledger below layout 12 upgrades it. Local until
+    /// pushed.
+    fn session_actor_set(&self, row: &SessionActorRow) -> Result<(), String>;
+    /// Every name an actor has held, sorted by uid and start time. Empty below layout 12.
+    fn actor_names_list(&self) -> Result<Vec<ActorNameRow>, String>;
+    /// The ledger's own identifier, the manifest key `ledger_id`, or `None` below layout 12.
+    fn ledger_id(&self) -> Result<Option<String>, String>;
+    /// Remove an instance's binding, if it has one.
+    fn binding_remove(&self, instance: &str) -> Result<(), String>;
+    /// Remove the bindings of several instances in one write. An instance with no binding
+    /// is skipped.
+    fn bindings_remove(&self, instances: &[String]) -> Result<(), String>;
     /// Remove every binding to a thread, of either kind.
     fn binding_remove_thread(&self, thread_id: &str) -> Result<(), String>;
 

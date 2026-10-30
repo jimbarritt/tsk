@@ -321,7 +321,7 @@ pub fn apply(session: &Session) -> Result<Applied, String> {
     if settings.identity != Identity::Robot {
         return Ok(Applied::Unchanged);
     }
-    let Some(Current { name, kind }) = actor::current(session)? else {
+    let Some(Current { name, kind, .. }) = actor::current(session)? else {
         return Err("error: no actor is registered: run tsk actor register first".to_string());
     };
     if kind != Some(ActorKind::Robot) {

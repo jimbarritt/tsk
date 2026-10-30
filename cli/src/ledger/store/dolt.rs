@@ -33,8 +33,8 @@ use crate::mission::model::{
 use super::doc_tree::DocTree;
 use super::renumber::{self, Renumbered};
 use super::{
-    ActorKind, ActorRow, BindingKind, BindingRow, InstanceRow, LedgerStore, PushReport,
-    RefreshOutcome, SessionRow, ThreadInfo,
+    ActorKind, ActorNameRow, ActorRole, ActorRow, BindingKind, BindingRow, InstanceRow,
+    LedgerStore, PushReport, RefreshOutcome, SessionActorRow, SessionRow, ThreadInfo,
 };
 
 const MANIFEST_SOURCE: &str = "the manifest table";
@@ -118,9 +118,21 @@ struct DataState {
 
 const DIRTY_QUERY: &str = "select count(*) as c from dolt_status";
 const BINDINGS_QUERY: &str =
-    "select actor, kind, thread_id, registered_at from bindings order by registered_at, actor";
+    "select instance, kind, thread_id, registered_at from thread_bindings \
+     order by registered_at, instance";
+/// The bindings of a ledger at layouts 8 to 11, under the old table and column name.
+const OLD_BINDINGS_QUERY: &str = "select actor as instance, kind, thread_id, registered_at \
+     from bindings order by registered_at, actor";
 const ACTORS_QUERY: &str =
-    "select name, kind, registered_at from actors order by registered_at, name";
+    "select name, kind, registered_at, uid from actors order by registered_at, name";
+/// The actors of a ledger at layouts 9 to 11, which have no `uid`.
+const OLD_ACTORS_QUERY: &str =
+    "select name, kind, registered_at, null as uid from actors order by registered_at, name";
+const SESSION_ACTORS_QUERY: &str =
+    "select session, actor_uid, role, joined_at from session_actors \
+     order by joined_at, session, actor_uid";
+const ACTOR_NAMES_QUERY: &str = "select actor_uid, name, from_at, until_at from actor_names \
+     order by actor_uid, from_at";
 const INSTANCES_QUERY: &str = "select instance, kind, actor_name, registered_at from instances \
      order by registered_at, instance";
 const SESSIONS_QUERY: &str = "select session, instance, kind, started_at from sessions \
@@ -1493,7 +1505,7 @@ pub fn create_database(
     let build = || -> Result<(), String> {
         let db = Dolt::new(path);
         db.run(["init", "--initial-branch", BRANCH])?;
-        db.exec(&dolt::init_sql(repo_id))?;
+        db.exec(&dolt::init_sql(repo_id, &dolt::mint_uuid()))?;
         db.run(["add", "-A"])?;
         db.run(["commit", "-m", "Create the ledger"])?;
         match ref_name {
@@ -1779,22 +1791,72 @@ impl DoltStore {
                         edited_rows(db, &base, table)
                     })?;
                     // The version 8 upgrade copies the cloud rows into `bindings` and drops
-                    // the old table: the copies are not changes the person made.
+                    // the old table, and the version 12 upgrade copies `bindings` into
+                    // `thread_bindings` and drops it: the copies are not changes the person
+                    // made. A ledger from below 8 makes and drops `bindings` in one change,
+                    // so its rows go from the oldest table to the newest.
+                    let at_base = |table: &str| -> i64 {
+                        db.count(&format!(
+                            "select count(*) as c from {} as of {}",
+                            table,
+                            plain(&base)
+                        ))
+                        .unwrap_or(0)
+                    };
                     if origin < dolt::BINDINGS_LAYOUT_VERSION
                         && local >= dolt::BINDINGS_LAYOUT_VERSION
                     {
-                        let copied = db
-                            .count(&format!(
-                                "select count(*) as c from cloud_session_bindings as of {}",
-                                plain(&base)
-                            ))
-                            .unwrap_or(0);
+                        let copied = at_base("cloud_session_bindings");
+                        let to = if local >= dolt::SESSION_ACTORS_LAYOUT_VERSION {
+                            "thread_bindings"
+                        } else {
+                            "bindings"
+                        };
+                        changes =
+                            status::hide_copied_rows(changes, "cloud_session_bindings", to, copied);
+                    }
+                    if (dolt::BINDINGS_LAYOUT_VERSION..dolt::SESSION_ACTORS_LAYOUT_VERSION)
+                        .contains(&origin)
+                        && local >= dolt::SESSION_ACTORS_LAYOUT_VERSION
+                    {
+                        let copied = at_base("bindings");
                         changes = status::hide_copied_rows(
                             changes,
-                            "cloud_session_bindings",
                             "bindings",
+                            "thread_bindings",
                             copied,
                         );
+                    }
+                    if origin < dolt::SESSION_ACTORS_LAYOUT_VERSION
+                        && local >= dolt::SESSION_ACTORS_LAYOUT_VERSION
+                    {
+                        // The name history and the session actors the upgrade wrote from
+                        // the rows the ledger held.
+                        if origin >= dolt::ACTORS_LAYOUT_VERSION {
+                            changes = status::hide_copied_rows(
+                                changes,
+                                "actors",
+                                "actor_names",
+                                at_base("actors"),
+                            );
+                        }
+                        if origin >= dolt::SESSIONS_LAYOUT_VERSION {
+                            let base = plain(&base);
+                            let copied = db
+                                .count(&format!(
+                                    "select count(*) as c from sessions as of {b} s \
+                                     join instances as of {b} i on i.instance = s.instance \
+                                     join actors as of {b} a on a.name = i.actor_name",
+                                    b = base
+                                ))
+                                .unwrap_or(0);
+                            changes = status::hide_copied_rows(
+                                changes,
+                                "sessions",
+                                "session_actors",
+                                copied,
+                            );
+                        }
                     }
                 }
             }
@@ -2655,17 +2717,25 @@ impl LedgerStore for DoltStore {
         if let Some(rows) = self.read_snapshot(&db, |snapshot| snapshot.bindings.clone())? {
             return Ok(rows);
         }
-        // One query on a current ledger. A ledger below version 8 has no `bindings` table:
-        // its cloud rows are read from the old table, and nothing is upgraded.
+        // One query on a current ledger. A ledger below layout 12 holds `bindings`, and one
+        // below version 8 only `cloud_session_bindings`: the rows are read from the table
+        // the ledger has, and nothing is upgraded.
         let (rows, legacy) = match db.rows(BINDINGS_QUERY) {
             Ok(rows) => (rows, false),
-            Err(e) if e.contains("table not found: bindings") => (
-                db.rows(
-                    "select session_id as actor, 'cloud' as kind, thread_id, registered_at \
-                     from cloud_session_bindings order by registered_at, session_id",
-                )?,
-                true,
-            ),
+            Err(e) if e.contains("table not found: thread_bindings") => {
+                match db.rows(OLD_BINDINGS_QUERY) {
+                    Ok(rows) => (rows, false),
+                    Err(e) if e.contains("table not found: bindings") => (
+                        db.rows(
+                            "select session_id as instance, 'cloud' as kind, thread_id, \
+                             registered_at from cloud_session_bindings \
+                             order by registered_at, session_id",
+                        )?,
+                        true,
+                    ),
+                    Err(e) => return Err(e),
+                }
+            }
             Err(e) => return Err(e),
         };
         Ok(binding_rows(&rows, legacy))
@@ -2673,9 +2743,9 @@ impl LedgerStore for DoltStore {
 
     fn binding_set(&self, row: &BindingRow) -> Result<(), String> {
         self.write_bindings(&format!(
-            "replace into bindings (actor, kind, thread_id, registered_at) \
+            "replace into thread_bindings (instance, kind, thread_id, registered_at) \
              values ({}, {}, {}, {});",
-            lit(&row.actor),
+            lit(&row.instance),
             lit(row.kind.as_str()),
             lit(&row.thread_id),
             lit(&row.registered_at)
@@ -2685,21 +2755,80 @@ impl LedgerStore for DoltStore {
     fn actors_list(&self) -> Result<Vec<ActorRow>, String> {
         // A ledger below version 9 has no table: it has no actors, and a read upgrades
         // nothing.
-        let rows = match self.db()?.rows(ACTORS_QUERY) {
+        let db = self.db()?;
+        let rows = match db.rows(ACTORS_QUERY) {
             Ok(rows) => rows,
             Err(e) if e.contains("table not found: actors") => Vec::new(),
+            // Layouts 9 to 11 have the table and no `uid`.
+            Err(e) if e.contains("uid") => match db.rows(OLD_ACTORS_QUERY) {
+                Ok(rows) => rows,
+                Err(e) if e.contains("table not found: actors") => Vec::new(),
+                Err(e) => return Err(e),
+            },
             Err(e) => return Err(e),
         };
         Ok(actor_rows(&rows))
     }
 
     fn actor_add(&self, row: &ActorRow) -> Result<(), String> {
+        let uid = row
+            .uid
+            .as_deref()
+            .ok_or_else(|| "error: an actor needs a uid".to_string())?;
         self.write_bindings(&format!(
-            "insert into actors (name, kind, registered_at) values ({}, {}, {});",
-            lit(&row.name),
-            lit(row.kind.as_str()),
-            lit(&row.registered_at)
+            "insert into actors (name, kind, registered_at, uid) values ({n}, {k}, {t}, {u});\n\
+             insert into actor_names (actor_uid, name, from_at, until_at) values ({u}, {n}, {t}, null);",
+            n = lit(&row.name),
+            k = lit(row.kind.as_str()),
+            t = lit(&row.registered_at),
+            u = lit(uid)
         ))
+    }
+
+    fn session_actors_list(&self) -> Result<Vec<SessionActorRow>, String> {
+        let rows = match self.db()?.rows(SESSION_ACTORS_QUERY) {
+            Ok(rows) => rows,
+            Err(e) if e.contains("table not found: session_actors") => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        Ok(session_actor_rows(&rows))
+    }
+
+    fn session_actor_set(&self, row: &SessionActorRow) -> Result<(), String> {
+        let mut sql = String::new();
+        if row.role == ActorRole::Primary {
+            sql.push_str(&format!(
+                "update session_actors set role = 'supporting' where session = {} and role = 'primary';\n",
+                lit(&row.session)
+            ));
+        }
+        sql.push_str(&format!(
+            "replace into session_actors (session, actor_uid, role, joined_at) \
+             values ({}, {}, {}, {});",
+            lit(&row.session),
+            lit(&row.actor_uid),
+            lit(row.role.as_str()),
+            lit(&row.joined_at)
+        ));
+        self.write_bindings(&sql)
+    }
+
+    fn actor_names_list(&self) -> Result<Vec<ActorNameRow>, String> {
+        let rows = match self.db()?.rows(ACTOR_NAMES_QUERY) {
+            Ok(rows) => rows,
+            Err(e) if e.contains("table not found: actor_names") => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        Ok(actor_name_rows(&rows))
+    }
+
+    fn ledger_id(&self) -> Result<Option<String>, String> {
+        Ok(self
+            .db()?
+            .rows("select v from manifest where k = 'ledger_id'")?
+            .first()
+            .and_then(|row| text(row, "v"))
+            .filter(|id| !id.is_empty()))
     }
 
     fn instances_list(&self) -> Result<Vec<InstanceRow>, String> {
@@ -2756,27 +2885,27 @@ impl LedgerStore for DoltStore {
         )
     }
 
-    fn binding_remove(&self, actor: &str) -> Result<(), String> {
+    fn binding_remove(&self, instance: &str) -> Result<(), String> {
         self.write_bindings(&format!(
-            "delete from bindings where actor = {};",
-            lit(actor)
+            "delete from thread_bindings where instance = {};",
+            lit(instance)
         ))
     }
 
-    fn bindings_remove(&self, actors: &[String]) -> Result<(), String> {
-        if actors.is_empty() {
+    fn bindings_remove(&self, instances: &[String]) -> Result<(), String> {
+        if instances.is_empty() {
             return Ok(());
         }
-        let list: Vec<String> = actors.iter().map(|actor| lit(actor)).collect();
+        let list: Vec<String> = instances.iter().map(|i| lit(i)).collect();
         self.write_bindings(&format!(
-            "delete from bindings where actor in ({});",
+            "delete from thread_bindings where instance in ({});",
             list.join(", ")
         ))
     }
 
     fn binding_remove_thread(&self, thread_id: &str) -> Result<(), String> {
         self.write_bindings(&format!(
-            "delete from bindings where thread_id = {};",
+            "delete from thread_bindings where thread_id = {};",
             lit(thread_id)
         ))
     }
@@ -3139,7 +3268,7 @@ fn binding_rows(rows: &[serde_json::Value], legacy: bool) -> Vec<BindingRow> {
                 BindingKind::parse(&text(row, "kind")?)?
             };
             Some(BindingRow {
-                actor: text(row, "actor")?,
+                instance: text(row, "instance")?,
                 kind,
                 thread_id: text(row, "thread_id").unwrap_or_default(),
                 registered_at: text(row, "registered_at").unwrap_or_default(),
@@ -3156,6 +3285,35 @@ fn actor_rows(rows: &[serde_json::Value]) -> Vec<ActorRow> {
                 name: text(row, "name")?,
                 kind: ActorKind::parse(&text(row, "kind")?)?,
                 registered_at: text(row, "registered_at").unwrap_or_default(),
+                uid: text(row, "uid").filter(|uid| !uid.is_empty()),
+            })
+        })
+        .collect()
+}
+
+/// The session actors in the rows of [`SESSION_ACTORS_QUERY`].
+fn session_actor_rows(rows: &[serde_json::Value]) -> Vec<SessionActorRow> {
+    rows.iter()
+        .filter_map(|row| {
+            Some(SessionActorRow {
+                session: text(row, "session")?,
+                actor_uid: text(row, "actor_uid")?,
+                role: ActorRole::parse(&text(row, "role")?)?,
+                joined_at: text(row, "joined_at").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+/// The name history in the rows of [`ACTOR_NAMES_QUERY`].
+fn actor_name_rows(rows: &[serde_json::Value]) -> Vec<ActorNameRow> {
+    rows.iter()
+        .filter_map(|row| {
+            Some(ActorNameRow {
+                actor_uid: text(row, "actor_uid")?,
+                name: text(row, "name")?,
+                from_at: text(row, "from_at").unwrap_or_default(),
+                until_at: text(row, "until_at").filter(|t| !t.is_empty()),
             })
         })
         .collect()

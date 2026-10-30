@@ -171,7 +171,7 @@ impl Fixture {
     }
 
     fn origin_binding_threads(&self) -> std::collections::BTreeMap<String, String> {
-        self.origin_rows("select actor, thread_id from bindings")
+        self.origin_rows("select instance as actor, thread_id from thread_bindings")
             .iter()
             .map(|row| {
                 (
@@ -184,7 +184,7 @@ impl Fixture {
 
     /// The bindings the work clone's ledger store holds, as it is, with no fetch.
     fn local_binding_threads(&self) -> std::collections::BTreeMap<String, String> {
-        self.rows("select actor, thread_id from bindings")
+        self.rows("select instance as actor, thread_id from thread_bindings")
             .iter()
             .map(|row| {
                 (
@@ -265,7 +265,7 @@ impl Fixture {
         self.exec_in(
             &other,
             &format!(
-                "insert into bindings (actor, kind, thread_id, registered_at) values {}",
+                "insert into thread_bindings (instance, kind, thread_id, registered_at) values {}",
                 values.join(", ")
             ),
         );
@@ -457,7 +457,7 @@ fn start_mints_scaffolds_binds_the_worktree_and_pushes() {
     assert!(!fx.marker().exists());
     assert_eq!(fx.binding(), format!("worktree:{}\n", id));
     let actor = fx.worktree_actor();
-    let rows = fx.origin_rows("select actor, kind, thread_id from bindings");
+    let rows = fx.origin_rows("select instance as actor, kind, thread_id from thread_bindings");
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["actor"], actor.as_str());
     assert_eq!(rows[0]["kind"], "worktree");
@@ -515,7 +515,9 @@ fn start_in_a_cloud_session_binds_through_the_ledger() {
         .unwrap()
         .to_string();
 
-    let rows = fx.origin_rows("select actor, kind, thread_id, registered_at from bindings");
+    let rows = fx.origin_rows(
+        "select instance as actor, kind, thread_id, registered_at from thread_bindings",
+    );
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["actor"], "cse_one");
     assert_eq!(rows[0]["kind"], "cloud");
@@ -1198,7 +1200,7 @@ fn fixture_with_old_and_new_bindings() -> Fixture {
     fx.exec_in(
         &fx.work(),
         &format!(
-            "update bindings set registered_at = '{}' where kind = 'worktree'",
+            "update thread_bindings set registered_at = '{}' where kind = 'worktree'",
             LONG_AGO
         ),
     );
@@ -1206,7 +1208,7 @@ fn fixture_with_old_and_new_bindings() -> Fixture {
 }
 
 fn local_actors(fx: &Fixture) -> Vec<String> {
-    fx.rows("select actor from bindings order by actor")
+    fx.rows("select instance as actor from thread_bindings order by instance")
         .iter()
         .map(|row| row["actor"].as_str().unwrap().to_string())
         .collect()
@@ -1480,7 +1482,10 @@ fn binding_without_fetch_reads_the_cloud_binding_in_the_existing_store() {
             .output()
             .unwrap(),
     );
-    fx.exec_in(&other, "delete from bindings where actor = 'cse_x'");
+    fx.exec_in(
+        &other,
+        "delete from thread_bindings where instance = 'cse_x'",
+    );
     assert_success(
         &fx.command_in(&other, &["ledger", "push", "Remove the binding"], None)
             .output()
@@ -1892,7 +1897,7 @@ fn session_start_warns_about_a_ledger_commit_that_is_not_on_origin() {
     let wt = fx.ledger_path();
     fx.exec_in(
         &fx.work(),
-        "insert into bindings (actor, kind, thread_id, registered_at) values ('cse_local', 'cloud', 'zzzzzzzz', '2026-01-01T00:00:00Z')",
+        "insert into thread_bindings (instance, kind, thread_id, registered_at) values ('cse_local', 'cloud', 'zzzzzzzz', '2026-01-01T00:00:00Z')",
     );
     common::stop_servers(fx.root.path(), true);
     for args in [
@@ -2193,7 +2198,11 @@ fn actor_register_makes_the_actor_and_registers_this_worktree_as_it() {
     let before = fx.origin_ledger_sha();
     let registered = fx.register("alice", "robot");
     assert_success(&registered);
-    assert_eq!(stdout(&registered), "registered alice (robot)\n");
+    let out = stdout(&registered);
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines[0], "registered alice (robot)");
+    assert!(lines[1].starts_with("urn:tsk:actor:"), "{:?}", lines);
+    assert_eq!(lines.len(), 2);
     assert!(stderr(&registered).contains(NOT_PUBLISHED));
     // A local write: origin is unchanged until the next push.
     assert_eq!(fx.origin_ledger_sha(), before);
@@ -2234,14 +2243,14 @@ fn actor_register_needs_no_thread_binding() {
 
     let registered = fx.register("alice", "human");
     assert_success(&registered);
-    assert_eq!(stdout(&registered), "registered alice (human)\n");
+    assert!(stdout(&registered).starts_with("registered alice (human)\nurn:tsk:actor:"));
     assert_eq!(fx.actor_name(), "alice\n");
-    assert!(fx.rows("select actor from bindings").is_empty());
+    assert!(fx.rows("select instance from thread_bindings").is_empty());
 
     // A cloud session with no binding registers too.
     let cloud = fx.tsk_cloud("cse_free", &["actor", "register", "bot", "--kind", "robot"]);
     assert_success(&cloud);
-    assert_eq!(stdout(&cloud), "registered bot (robot)\n");
+    assert!(stdout(&cloud).starts_with("registered bot (robot)\nurn:tsk:actor:"));
     assert_eq!(
         stdout(&fx.tsk_cloud("cse_free", &["actor", "name"])),
         "bot\n"
@@ -2260,9 +2269,10 @@ fn actor_register_joins_an_existing_name_of_the_same_kind_and_refuses_the_other_
         &["actor", "register", "alice", "--kind", "robot"],
     );
     assert_success(&joined);
-    assert_eq!(
-        stdout(&joined),
-        "alice (robot) is now this session's actor\n"
+    assert!(
+        stdout(&joined).starts_with("alice (robot) is now this session's actor\nurn:tsk:actor:"),
+        "{}",
+        stdout(&joined)
     );
     assert_eq!(
         stdout(&fx.tsk_cloud("cse_two", &["actor", "name"])),
@@ -2274,9 +2284,10 @@ fn actor_register_joins_an_existing_name_of_the_same_kind_and_refuses_the_other_
     // Registering again from the same instance is a join too, and keeps one row.
     let again = fx.register("alice", "robot");
     assert_success(&again);
-    assert_eq!(
-        stdout(&again),
-        "alice (robot) is now this worktree's actor\n"
+    assert!(
+        stdout(&again).starts_with("alice (robot) is now this worktree's actor\nurn:tsk:actor:"),
+        "{}",
+        stdout(&again)
     );
     assert_eq!(fx.rows("select instance from instances").len(), 2);
 
@@ -2299,9 +2310,8 @@ fn actor_register_joins_an_existing_name_of_the_same_kind_and_refuses_the_other_
     );
 
     // An instance moves to another actor by registering as it.
-    assert_eq!(
-        stdout(&fx.register("bob", "robot")),
-        "registered bob (robot)\n"
+    assert!(
+        stdout(&fx.register("bob", "robot")).starts_with("registered bob (robot)\nurn:tsk:actor:")
     );
     assert_eq!(fx.actor_name(), "bob\n");
     assert_eq!(fx.rows("select instance from instances").len(), 2);
@@ -2341,19 +2351,27 @@ fn actor_list_prints_each_actor_with_its_instances() {
     assert_success(&fx.tsk_cloud("cse_3", &["actor", "register", "bob", "--kind", "human"]));
     let main = fx.worktree_actor();
 
-    assert_eq!(
-        fx.ok_list(&["actor", "list", "--porcelain"]),
-        format!("alice\trobot\t{}\nbob\thuman\tcse_2,cse_3\n", main)
-    );
+    let porcelain = fx.ok_list(&["actor", "list", "--porcelain"]);
+    let lines: Vec<Vec<&str>> = porcelain.lines().map(|l| l.split('\t').collect()).collect();
+    assert_eq!(lines.len(), 2, "{}", porcelain);
+    assert_eq!(lines[0][0], "alice");
+    assert_eq!(lines[0][1], "robot");
+    assert_eq!(lines[0][2].len(), 36, "{}", porcelain);
+    assert_eq!(lines[0][3], main);
+    assert_eq!(lines[1][0], "bob");
+    assert_eq!(lines[1][3], "cse_2,cse_3");
     let aligned = fx.ok_list(&["actor", "list"]);
-    assert_eq!(
-        aligned,
-        format!("alice  robot  {}\nbob    human  cse_2,cse_3\n", main)
-    );
+    assert!(aligned.starts_with("alice  robot  "), "{}", aligned);
+    assert!(aligned.contains(&format!("  {}\n", main)), "{}", aligned);
     let listed = json(&fx.ok_list(&["actor", "list", "--json"]));
     assert_eq!(listed.as_array().unwrap().len(), 2);
     assert_eq!(listed[0]["name"], "alice");
     assert_eq!(listed[0]["kind"], "robot");
+    assert_eq!(listed[0]["uid"].as_str().unwrap().len(), 36);
+    assert_eq!(
+        listed[0]["urn"],
+        format!("urn:tsk:actor:{}", listed[0]["uid"].as_str().unwrap())
+    );
     assert_eq!(listed[0]["instances"][0]["instance"], main);
     assert_eq!(listed[0]["instances"][0]["kind"], "worktree");
     assert_eq!(listed[1]["name"], "bob");
