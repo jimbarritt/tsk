@@ -4,8 +4,9 @@ Date: 2026-10-30
 
 ## Status
 
-Proposed. Worked out by Jim and the robot Plain Statement Of Fact on 2026-10-30 (mission
-M-TSK-ADHOC, task T-35). The decisions are recorded on that mission. ADR 0024 (a thread is
+Accepted. Worked out by Jim and the robot Plain Statement Of Fact on 2026-10-30 (mission
+M-TSK-ADHOC, task T-35), and built in 0.39.0 as layout 12 (M-TSK-ADHOC T-33). The
+decisions are recorded on that mission. ADR 0024 (a thread is
 the unit of continuation) and ADR 0029 (sessions and harness instances are named by URNs)
 stand; this ADR says how the two relate to an actor. It replaces the design in M-TSK-ADHOC
 T-33 and M-TSK-NAMES T-13, which are rewritten from it. The design document with the

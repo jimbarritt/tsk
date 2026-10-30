@@ -753,6 +753,9 @@ pub struct JsonMission<'a> {
     id: &'a str,
     #[serde(skip_serializing_if = "str::is_empty")]
     uid: &'a str,
+    /// `urn:tsk:mission:<ledger-id>:<internal-id>`; absent on a ledger below layout 12.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    urn: Option<String>,
     name: &'a str,
     category: &'a str,
     status: &'a str,
@@ -772,11 +775,18 @@ pub struct JsonMission<'a> {
 
 /// The full record for JSON output, with the derived `blocked` flag. The keys print in
 /// the order of the struct.
-pub fn to_json<'a>(missions: &[Mission], mission: &'a Mission) -> JsonMission<'a> {
+pub fn to_json<'a>(
+    missions: &[Mission],
+    mission: &'a Mission,
+    ledger_id: Option<&str>,
+) -> JsonMission<'a> {
     let blockers = blocking(missions, mission);
     JsonMission {
         id: &mission.id,
         uid: &mission.uid,
+        urn: ledger_id
+            .filter(|_| !mission.uid.is_empty())
+            .map(|ledger| crate::urn::mission_urn(ledger, &mission.uid)),
         name: &mission.name,
         category: mission.category.as_str(),
         status: mission.status.as_str(),
@@ -1045,7 +1055,12 @@ mod tests {
         put(&mut all, a);
         let c = set(&all, "M-C", "status", "done").unwrap();
         put(&mut all, c);
-        let json = serde_json::to_value(to_json(&all, &all[0])).unwrap();
+        let json = serde_json::to_value(to_json(&all, &all[0], Some("L"))).unwrap();
+        if all[0].uid.is_empty() {
+            assert!(json.get("urn").is_none());
+        } else {
+            assert_eq!(json["urn"], format!("urn:tsk:mission:L:{}", all[0].uid));
+        }
         assert_eq!(json["blocked"], true);
         assert_eq!(json["blocked_by"][0]["id"], "M-B");
         assert_eq!(json["blocked_by"][0]["blocking"], true);

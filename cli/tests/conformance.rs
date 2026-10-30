@@ -352,18 +352,24 @@ fn stdout(output: &Output) -> String {
 /// The text with each mission `uid` of a JSON record blanked: a `uid` is random for a new
 /// mission, so two ledgers made the same way never agree on it.
 fn without_uids(text: String) -> String {
-    let mut out = String::new();
-    let mut rest = text.as_str();
-    while let Some(at) = rest.find("\"uid\":\"") {
-        let end = at + "\"uid\":\"".len();
-        out.push_str(&rest[..end]);
-        out.push('-');
-        rest = &rest[end..];
-        let close = rest.find('"').unwrap_or(rest.len());
-        rest = &rest[close..];
+    // A `uid` and a `urn` (which carries the ledger ID and a uid) differ between two
+    // ledgers made separately, so both read as `-`.
+    let mut text = text;
+    for key in ["\"uid\":\"", "\"urn\":\""] {
+        let mut out = String::new();
+        let mut rest = text.as_str();
+        while let Some(at) = rest.find(key) {
+            let end = at + key.len();
+            out.push_str(&rest[..end]);
+            out.push('-');
+            rest = &rest[end..];
+            let close = rest.find('"').unwrap_or(rest.len());
+            rest = &rest[close..];
+        }
+        out.push_str(rest);
+        text = out;
     }
-    out.push_str(rest);
-    out
+    text
 }
 
 /// A mission record without its `uid`, which must be a 36 character UUID.
@@ -373,6 +379,17 @@ fn without_uid(mut record: serde_json::Value) -> serde_json::Value {
         .and_then(|object| object.remove("uid"))
         .expect("the record has a uid");
     assert_eq!(uid.as_str().map(str::len), Some(36), "{}", uid);
+    let urn = record
+        .as_object_mut()
+        .and_then(|object| object.remove("urn"))
+        .expect("the record has a urn");
+    let urn = urn.as_str().unwrap();
+    assert!(urn.starts_with("urn:tsk:mission:"), "{}", urn);
+    assert!(
+        urn.ends_with(&format!(":{}", uid.as_str().unwrap())),
+        "{}",
+        urn
+    );
     record
 }
 
@@ -8740,6 +8757,7 @@ impl Fixture {
         let mut record = json(&self.ok(dir, &["mission", "list", mission, "--json"]));
         if let Some(object) = record.as_object_mut() {
             object.remove("uid");
+            object.remove("urn");
         }
         record
     }
@@ -9716,4 +9734,256 @@ fn a_layout_10_ledger_records_no_session_until_another_write_upgrades_it() {
         "{}",
         list
     );
+}
+
+// --- Layout 12: thread_bindings, actor uids, session actors and the ledger ID (ADR 0030) ---
+
+/// A layout 11 ledger upgrades at its first write: the bindings move to `thread_bindings`,
+/// every actor gets a uid from its name, the name history and the session actors are filled
+/// from the rows the ledger held, and the ledger ID is recorded. Two clones that upgrade on
+/// their own write the same values, so the second push merges.
+#[test]
+fn a_layout_11_ledger_upgrades_the_same_way_on_two_clones_and_merges() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let (a, b) = (fx.a(), fx.b());
+    // A thread, a registered actor and a recorded session on a current ledger, then the
+    // ledger is taken back to layout 11 and pushed.
+    fx.ok(&a, &["mission", "create", "M-CONF-01", "Conformance"]);
+    let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
+    assert_success(&fx.tsk_cloud(
+        &a,
+        "cse_old",
+        &["actor", "register", "alice", "--kind", "robot"],
+    ));
+    assert_success(&fx.tsk_cloud(&a, "cse_old", &["thread", "resume", &id]));
+    fx.dolt_sql(&a, &layout_eleven_sql());
+    fx.dolt_sql(
+        &a,
+        "insert into sessions (session, instance, kind, started_at) values \
+         ('urn:tsk:session:claude-cloud:cse_old', 'cse_old', 'cloud', '2026-10-30T01:00:00Z')",
+    );
+    assert_eq!(fx.manifest_version(&a), "11");
+    fx.ok(&a, &["ledger", "push", "A layout 11 ledger"]);
+    fx.ok(&b, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&b), "11");
+
+    // Reads work on layout 11 and upgrade nothing.
+    assert!(fx
+        .ok(&b, &["actor", "list", "--porcelain"])
+        .starts_with("alice\trobot\t-\t"));
+    assert_eq!(fx.tsk(&b, &["ledger", "id"]).status.code(), Some(1));
+    assert_eq!(fx.manifest_version(&b), "11");
+
+    // Each clone upgrades with a write of its own.
+    fx.ok(&a, &["mission", "set", "M-CONF-01", "purpose", "On a"]);
+    fx.ok(&b, &["task", "add", "M-CONF-01", "On b"]);
+    for dir in [&a, &b] {
+        assert_eq!(fx.manifest_version(dir), "12");
+        let tables = fx.tables(dir);
+        for table in ["thread_bindings", "actor_names", "session_actors"] {
+            assert!(tables.lines().any(|t| t == table), "{}: {}", table, tables);
+        }
+        assert!(!tables.lines().any(|t| t == "bindings"), "{}", tables);
+    }
+    let uid_on = |dir: &Path| fx.dolt_sql(dir, "select uid from actors where name = 'alice'");
+    assert_eq!(uid_on(&a), uid_on(&b));
+    assert_eq!(uid_on(&a).lines().nth(1).map(str::len), Some(36));
+    let ledger_id_on = |dir: &Path| fx.ok(dir, &["ledger", "id"]);
+    assert_eq!(ledger_id_on(&a), ledger_id_on(&b));
+    assert!(ledger_id_on(&a).starts_with("urn:tsk:ledger:"));
+    assert_eq!(
+        fx.dolt_sql(&a, "select session, role from session_actors"),
+        "session,role\nurn:tsk:session:claude-cloud:cse_old,primary\n"
+    );
+    assert_eq!(
+        fx.dolt_sql(&a, "select name, until_at from actor_names"),
+        "name,until_at\nalice,\n"
+    );
+    assert_eq!(
+        fx.dolt_sql(
+            &a,
+            "select instance, thread_id from thread_bindings order by instance"
+        ),
+        format!(
+            "instance,thread_id\ncse_old,{id}\n{main},{id}\n",
+            id = id,
+            main = fx.main_actor(&a)
+        )
+    );
+
+    // The second push merges: the same schema and the same upgrade rows on both sides.
+    fx.ok(&a, &["ledger", "push", "Upgrade on a"]);
+    fx.ok(&b, &["ledger", "push", "Upgrade on b"]);
+    fx.ok(&a, &["ledger", "fetch"]);
+    let record = fx.ok(&a, &["mission", "list", "M-CONF-01", "--json"]);
+    assert!(record.contains("\"purpose\":\"On a\""), "{}", record);
+    assert!(record.contains("\"description\":\"On b\""), "{}", record);
+    assert_eq!(uid_on(&a), uid_on(&b));
+}
+
+/// A new session of an instance continues from the latest pause a session of that instance
+/// wrote: it is recorded with the same actors (ADR 0030, decision 6). The session start
+/// context prints the bindings, and `tsk session actor` lists the actors.
+#[test]
+fn a_new_session_takes_the_actors_of_the_pause_its_instance_wrote() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let a = fx.a();
+    fx.ok(&a, &["mission", "create", "M-CONF-01", "Conformance"]);
+    // Session s1 of this worktree: it registers a robot, starts a thread, a human joins it,
+    // and it pauses. The pause names the session.
+    fx.session_context(&a, "s1", "claude");
+    assert_success(&fx.tsk(&a, &["actor", "register", "Robot One", "--kind", "robot"]));
+    assert_success(&fx.tsk(&a, &["actor", "register", "Jim", "--kind", "human"]));
+    let jim = fx
+        .dolt_sql(&a, "select uid from actors where name = 'Jim'")
+        .lines()
+        .nth(1)
+        .unwrap()
+        .to_string();
+    let robot = fx
+        .dolt_sql(&a, "select uid from actors where name = 'Robot One'")
+        .lines()
+        .nth(1)
+        .unwrap()
+        .to_string();
+    // Jim registered last, so Jim is the primary: make the robot primary again and Jim
+    // supporting, as a supervised session is recorded.
+    assert_success(&fx.tsk(&a, &["actor", "join", &robot, "--primary"]));
+    let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
+    assert_eq!(
+        fx.ok(&a, &["session", "actor"]),
+        format!(
+            "primary\tRobot One\trobot\t{}\nsupporting\tJim\thuman\t{}\n",
+            robot, jim
+        )
+    );
+    assert_eq!(fx.ok(&a, &["actor", "name"]), "Robot One\n");
+    assert_success(&fx.tsk(&a, &["thread", "pause", &id, "", "Handed over"]));
+    let entry = fx.dolt_sql(
+        &a,
+        &format!(
+            "select entry from continuation_entries where thread_id = '{}' order by seq desc limit 1",
+            id
+        ),
+    );
+    // The CSV output doubles every quote.
+    assert!(
+        entry.contains("\"\"written_by\"\":\"\"urn:tsk:session:claude-cli:s1\"\""),
+        "{}",
+        entry
+    );
+
+    // Session s2 in the same worktree (a /clear): it is recorded with the actors of s1, and
+    // the context names the bindings.
+    let context = fx.session_context(&a, "s2", "claude");
+    assert!(
+        context.contains("session: urn:tsk:session:claude-cli:s2"),
+        "{}",
+        context
+    );
+    assert!(
+        context.contains("instance: urn:tsk:instance:worktree:"),
+        "{}",
+        context
+    );
+    assert!(
+        context.contains(&format!(
+            "primary: Robot One (robot) urn:tsk:actor:{}",
+            robot
+        )),
+        "{}",
+        context
+    );
+    assert!(
+        context.contains(&format!("supporting: Jim (human) urn:tsk:actor:{}", jim)),
+        "{}",
+        context
+    );
+    assert!(!context.contains("WARNING: thread"), "{}", context);
+    assert_eq!(
+        fx.ok(&a, &["session", "actor"]),
+        format!(
+            "primary\tRobot One\trobot\t{}\nsupporting\tJim\thuman\t{}\n",
+            robot, jim
+        )
+    );
+    assert_eq!(
+        fx.ok(
+            &a,
+            &[
+                "session",
+                "actor",
+                "--session",
+                "urn:tsk:session:claude-cli:s1"
+            ]
+        )
+        .lines()
+        .count(),
+        2
+    );
+    // The thread list names the actor of the instance through its latest session.
+    let row = fx.thread_row(&a, &id);
+    assert_eq!(row["actors"][0]["name"], "Robot One");
+    assert!(row["urn"].as_str().unwrap().ends_with(&format!(":{}", id)));
+    // A resume by the same actor from another instance does not warn.
+    assert_success(&fx.tsk_cloud(
+        &a,
+        "cse_two",
+        &["actor", "register", "Robot One", "--kind", "robot"],
+    ));
+    let resumed = fx.tsk_cloud(&a, "cse_two", &["thread", "resume", &id]);
+    assert_success(&resumed);
+    assert_eq!(json(&stdout(&resumed))["warning"], "");
+    // A resume by another actor warns, naming the actor.
+    assert_success(&fx.tsk_cloud(
+        &a,
+        "cse_three",
+        &["actor", "register", "Robot Two", "--kind", "robot"],
+    ));
+    let resumed = fx.tsk_cloud(&a, "cse_three", &["thread", "resume", &id]);
+    assert_success(&resumed);
+    assert_eq!(
+        json(&stdout(&resumed))["warning"],
+        format!(
+            "thread {} is already associated with other actor(s): Robot One",
+            id
+        )
+    );
+}
+
+/// `tsk actor join` refuses an unknown uid and needs a session URN.
+#[test]
+fn actor_join_needs_a_known_uid_and_a_session() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let a = fx.a();
+    let out = fx.tsk(
+        &a,
+        &["actor", "join", "00000000-0000-4000-8000-000000000000"],
+    );
+    assert_exit(&out, 1);
+    assert!(stderr(&out).contains("no recorded URN"), "{}", stderr(&out));
+    fx.session_context(&a, "s9", "claude");
+    let out = fx.tsk(
+        &a,
+        &["actor", "join", "00000000-0000-4000-8000-000000000000"],
+    );
+    assert_exit(&out, 1);
+    assert!(
+        stderr(&out).contains("no actor has the uid"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(fx.ok(&a, &["session", "actor"]), "no actor registered\n");
 }

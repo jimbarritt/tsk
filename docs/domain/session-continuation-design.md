@@ -28,12 +28,15 @@ every channel.
 
 | Channel | Binding mechanism |
 |---|---|
-| Cloud session | A row of the `bindings` table, keyed on `CLAUDE_CODE_REMOTE_SESSION_ID` |
+| Cloud session | A row of the `thread_bindings` table, keyed on `CLAUDE_CODE_REMOTE_SESSION_ID` |
 | Code worktree | A row of the same table, keyed on the clone ID and the worktree name |
 
-Every binding is one row of the ledger's `bindings` table: the actor key, its kind
-(`cloud` or `worktree`), the thread ID and the registration time. An actor has one row, so
-binding it to another thread replaces the row. A thread can have any number of rows. The
+Every binding is one row of the ledger's `thread_bindings` table (`bindings`, keyed by
+`actor`, before layout 12): the instance key, its kind (`cloud` or `worktree`), the thread
+ID and the registration time. An instance has one row, so binding it to another thread
+replaces the row. The actors of a session are separate rows (`session_actors`, ADR 0030):
+the binding is on the instance, which is the key a new session holds, and the actor is on
+the session. A thread can have any number of rows. The
 table has no foreign key to `threads`: `tsk thread stop` deletes the thread and every row
 that names it, of either kind.
 

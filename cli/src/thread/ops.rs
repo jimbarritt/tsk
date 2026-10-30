@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::path::Path;
 
 use serde::Serialize;
@@ -13,6 +12,7 @@ use super::binding::{bind_current, clear_skip, remove_marker, resolve, unbind_cu
 use super::clock::{now_secs, parse_utc, utc_now};
 use super::entry::{self, parse_store, CodeState, GitState, LedgerState, NewEntry};
 use super::session::Session;
+use super::writers::Writers;
 
 pub const THREAD_ID_LEN: usize = 8;
 pub const MINT_ATTEMPTS: usize = 100;
@@ -63,6 +63,9 @@ pub fn facts_of(info: &ThreadInfo, latest: Option<&entry::Entry>, missions: &[Mi
 #[derive(Debug, PartialEq, Serialize)]
 pub struct ListRow {
     pub id: String,
+    /// `urn:tsk:thread:<ledger-id>:<thread-id>`; null on a ledger below layout 12.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub urn: Option<String>,
     pub mission_id: Option<String>,
     pub mission_link: String,
     pub latest_whats_next: Option<String>,
@@ -478,39 +481,6 @@ fn is_branch_ref(target: &str) -> bool {
         .is_some_and(|name| !name.is_empty() && !name.contains(char::is_whitespace))
 }
 
-/// Whether a `written_by` value is an actor URN (`urn:tsk:...`). Entries written before the
-/// actor key replaced it carry the old forms, `urn:tsk:cloudsession:<id>` and
-/// `urn:tsk:worktree:<name>`. The current fallback is `urn:tsk:instance:<kind>:<key>` (ADR
-/// 0029). None of them tells two clones' main worktrees apart, so each names an unknown
-/// writer.
-fn is_old_format_writer(value: &str) -> bool {
-    value.starts_with("urn:")
-}
-
-/// The actor keys that wrote to a thread. An old-format value is left out: it names an
-/// unknown writer, and a warning against it would fire for every thread paused before
-/// the actor key was written.
-pub fn prior_actors(entries: &[entry::StoredEntry]) -> BTreeSet<String> {
-    entries
-        .iter()
-        .filter_map(|stored| stored.entry.written_by.clone())
-        .filter(|actor| !actor.is_empty() && !is_old_format_writer(actor))
-        .collect()
-}
-
-/// The warning for a thread other actors wrote to, or an empty string. Nothing is
-/// compared when `current` is an old-format value, which names an unknown actor.
-pub fn takeover_warning(id: &str, prior: &BTreeSet<String>, current: &str) -> String {
-    if prior.is_empty() || prior.contains(current) || is_old_format_writer(current) {
-        return String::new();
-    }
-    format!(
-        "thread {} is already associated with other actor(s): {}",
-        id,
-        prior.iter().cloned().collect::<Vec<_>>().join(",")
-    )
-}
-
 pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
     check_thread_id(id)?;
     refresh_for_binding(session)?;
@@ -519,7 +489,7 @@ pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
         return Err(format!("error: no such thread: {}", id));
     }
     let entries = entries_of(store, id)?;
-    let warning = takeover_warning(id, &prior_actors(&entries), &session.written_by()?);
+    let warning = Writers::load(store)?.takeover_warning(id, &entries, &session.written_by()?);
 
     // The binding is a local write. It goes out with the next push (ADR 0019).
     let bound = match &session.cloud_session {
@@ -684,12 +654,10 @@ pub fn stop(session: &Session, target: Option<&str>) -> Result<String, String> {
 
 pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
     let bindings = store.bindings_list()?;
-    // The actor name of each harness instance that registered one.
-    let actor_names: std::collections::HashMap<String, String> = store
-        .instances_list()?
-        .into_iter()
-        .map(|row| (row.instance, row.actor_name))
-        .collect();
+    // The actor of each bound harness instance: the primary actor of its latest session,
+    // else the actor it registered as (ADR 0030).
+    let writers = Writers::load(store)?;
+    let ledger_id = store.ledger_id()?;
     let mut rows = Vec::new();
     let names = store.thread_ids()?;
     // Every thread's lines are read together, not one process per thread.
@@ -699,6 +667,9 @@ pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
         let entries = parse_store(&lines.join("\n"), &store.describe_thread(&name))?;
         let latest = entries.last().map(|stored| &stored.entry);
         rows.push(ListRow {
+            urn: ledger_id
+                .as_deref()
+                .map(|ledger| crate::urn::thread_urn(ledger, &name)),
             mission_id: thread_mission(&info),
             mission_link: info.briefing_path.unwrap_or_default(),
             latest_whats_next: latest.and_then(|e| e.whats_next.clone()),
@@ -706,10 +677,13 @@ pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
             actors: bindings
                 .iter()
                 .filter(|binding| binding.thread_id == name)
-                .map(|binding| ListActor {
-                    actor: binding.instance.clone(),
-                    kind: binding.kind.as_str(),
-                    name: actor_names.get(&binding.instance).cloned(),
+                .map(|binding| {
+                    let writer = writers.resolve(&binding.instance);
+                    ListActor {
+                        actor: binding.instance.clone(),
+                        kind: binding.kind.as_str(),
+                        name: writer.actor_uid.map(|_| writer.label),
+                    }
                 })
                 .collect(),
             id: name,
@@ -1031,64 +1005,6 @@ mod tests {
         assert_eq!(render_prune(&[], false), vec!["0 bindings removed"]);
     }
 
-    fn actors(list: &[&str]) -> BTreeSet<String> {
-        list.iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn no_warning_without_prior_actors_or_when_current_is_among_them() {
-        assert_eq!(takeover_warning("1234abcd", &actors(&[]), "c1/main"), "");
-        assert_eq!(
-            takeover_warning("1234abcd", &actors(&["c1/main", "c2/main"]), "c1/main"),
-            ""
-        );
-    }
-
-    #[test]
-    fn warning_names_every_other_actor_sorted_and_comma_joined() {
-        assert_eq!(
-            takeover_warning("1234abcd", &actors(&["c3/main", "c2/main"]), "c1/main"),
-            "thread 1234abcd is already associated with other actor(s): c2/main,c3/main"
-        );
-    }
-
-    #[test]
-    fn two_clones_main_worktrees_are_two_writers() {
-        assert_ne!(
-            takeover_warning(
-                "1234abcd",
-                &actors(&["tsk-aaaa1111/main"]),
-                "tsk-bbbb2222/main"
-            ),
-            ""
-        );
-    }
-
-    #[test]
-    fn an_old_format_current_actor_never_warns() {
-        assert_eq!(
-            takeover_warning("1234abcd", &actors(&["c1/main"]), "urn:tsk:worktree:.git"),
-            ""
-        );
-    }
-
-    fn stored_by(written_by: &str) -> entry::StoredEntry {
-        let raw = format!("{{\"whats_next\":\"x\",\"written_by\":\"{}\"}}", written_by);
-        entry::parse_store(&raw, "test").unwrap().remove(0)
-    }
-
-    #[test]
-    fn old_format_writers_are_not_prior_actors() {
-        let entries = vec![
-            stored_by("urn:tsk:worktree:.git"),
-            stored_by("urn:tsk:cloudsession:cse_a"),
-            stored_by("urn:tsk:instance:worktree:.git"),
-        ];
-        assert!(prior_actors(&entries).is_empty());
-        let entries = vec![stored_by("urn:tsk:worktree:.git"), stored_by("c2/main")];
-        assert_eq!(prior_actors(&entries), actors(&["c2/main"]));
-    }
-
     #[test]
     fn render_resume_passes_the_latest_entry_through_as_stored() {
         let outcome = ResumeOutcome {
@@ -1107,6 +1023,7 @@ mod tests {
     fn row(id: &str, ts: Option<&str>) -> ListRow {
         ListRow {
             id: id.to_string(),
+            urn: None,
             mission_id: None,
             mission_link: String::new(),
             latest_whats_next: None,
@@ -1131,6 +1048,7 @@ mod tests {
     fn list_row_serialises_in_the_script_field_order() {
         let r = ListRow {
             id: "1234abcd".to_string(),
+            urn: None,
             mission_id: Some("M-X".to_string()),
             mission_link: "m.md".to_string(),
             latest_whats_next: None,

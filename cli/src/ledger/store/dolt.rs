@@ -1992,10 +1992,8 @@ impl DoltStore {
             ));
         }
 
-        let db;
-        let state;
-        if present {
-            db = Dolt::store(&path);
+        let (db, state) = if present {
+            let db = Dolt::store(&path);
             // When origin has nothing new, one process reads everything the refresh needs.
             // Otherwise the remote check and the dirty check come first, then the fetch,
             // then the reads. When a batch fails, the reads go one by one, which gives the
@@ -2039,7 +2037,7 @@ impl DoltStore {
                         Some(self.read_state_one_by_one(&db, &location, true, dirty, keep_local)?);
                 }
             }
-            state = found.expect("the state was read");
+            (db, found.expect("the state was read"))
         } else {
             let (kind, commit) = self.remote_kind(&location)?;
             let parent = path
@@ -2070,13 +2068,13 @@ impl DoltStore {
                     self.note_data_fetched(&location, ledger_tip.as_deref());
                 }
             }
-            db = Dolt::store(&path);
+            let db = Dolt::store(&path);
             let mut found = self.read_state(&db, &location, false, None, false, keep_local)?;
             if found.is_none() {
                 found = Some(self.read_state_one_by_one(&db, &location, false, false, keep_local)?);
             }
-            state = found.expect("the state was read");
-        }
+            (db, found.expect("the state was read"))
+        };
         let DataState {
             remote_head,
             mut pending,

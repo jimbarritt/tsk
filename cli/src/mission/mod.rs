@@ -375,8 +375,11 @@ fn list(
         None => missions.iter().collect(),
     };
     if json {
-        let records: Vec<model::JsonMission> =
-            shown.iter().map(|m| model::to_json(&missions, m)).collect();
+        let ledger_id = store.ledger_id()?;
+        let records: Vec<model::JsonMission> = shown
+            .iter()
+            .map(|m| model::to_json(&missions, m, ledger_id.as_deref()))
+            .collect();
         let printed = match (id, records.first()) {
             (Some(_), Some(record)) => serde_json::to_string(record),
             _ => serde_json::to_string(&records),

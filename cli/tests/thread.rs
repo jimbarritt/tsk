@@ -1068,7 +1068,7 @@ fn resume_warns_when_a_new_format_entry_follows_old_format_ones_from_another_clo
 }
 
 #[test]
-fn a_cloud_session_pause_writes_the_session_id_as_written_by() {
+fn a_cloud_session_pause_writes_the_session_urn_as_written_by() {
     let fx = Fixture::new();
     let id = fx.start();
     let output = fx.tsk_cloud(
@@ -1077,7 +1077,10 @@ fn a_cloud_session_pause_writes_the_session_id_as_written_by() {
     );
     assert_success(&output);
     let stored = fx.origin_entries(&id);
-    assert_eq!(json(stored.last().unwrap())["written_by"], "cse_writer");
+    assert_eq!(
+        json(stored.last().unwrap())["written_by"],
+        "urn:tsk:session:claude-cloud:cse_writer"
+    );
 }
 
 #[test]
@@ -1419,7 +1422,21 @@ fn list_prints_one_compact_object_per_thread_newest_first() {
     let output = fx.tsk(&["thread", "list"]);
 
     assert_success(&output);
-    let lines: Vec<String> = stdout(&output).lines().map(str::to_string).collect();
+    // The thread URN carries the ledger ID: cut it out, so the lines compare as fixed text.
+    let lines: Vec<String> = stdout(&output)
+        .lines()
+        .map(|line| {
+            let value = json(line);
+            let urn = value["urn"].as_str().unwrap();
+            assert!(urn.starts_with("urn:tsk:thread:"), "{}", line);
+            assert!(
+                urn.ends_with(&format!(":{}", value["id"].as_str().unwrap())),
+                "{}",
+                line
+            );
+            line.replace(&format!("\"urn\":\"{}\",", urn), "")
+        })
+        .collect();
     assert_eq!(
         lines,
         vec![

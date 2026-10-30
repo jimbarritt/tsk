@@ -14,9 +14,7 @@ use crate::mission::records::task_line;
 
 use super::binding::{is_skipped, open_mission_lines, resolve, unbound_prompt};
 use super::entry::Entry;
-use super::ops::{
-    entries_of, facts_of, latest_whats_next, session_title, takeover_warning, thread_mission, Facts,
-};
+use super::ops::{entries_of, facts_of, latest_whats_next, session_title, thread_mission, Facts};
 use super::session::{Session, CLOUD_SESSION_VAR};
 
 pub const ENV_FILE_VAR: &str = "CLAUDE_ENV_FILE";
@@ -381,7 +379,13 @@ fn export_to_env_file(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("could not write {}: {}", Path::new(&file).display(), e))
 }
 
-fn context_after_fetch(session: &Session) -> Result<String, String> {
+/// The context of a session start, after the refresh. `after_refresh` runs between the
+/// refresh and the reads that build the context: the session record and its actors, so the
+/// context describes this session (ADR 0030).
+fn context_after_fetch(
+    session: &Session,
+    after_refresh: impl FnOnce(&Session),
+) -> Result<String, String> {
     let outcome = match session.store.refresh_keeping_local() {
         Ok(outcome) => outcome,
         Err(e) if e == VERSION_1_REFUSAL => {
@@ -398,6 +402,10 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
         }
         Err(e) => return Err(e),
     };
+    // Whether the store holds changes of the person's own, before this start writes its
+    // session row.
+    let local_changes = session.store.has_local_changes().unwrap_or(false);
+    after_refresh(session);
     let store = session.store.as_ref();
     let binding = resolve(session).ok().flatten();
     let missions = store.missions_load().unwrap_or_default();
@@ -427,8 +435,11 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
                     if let (Some(last), Ok(info)) = (entries.last(), store.thread_info(id)) {
                         let facts = facts_of(&info, Some(&last.entry), &missions);
                         let current = session.written_by().unwrap_or_default();
-                        let prior = last.entry.written_by.iter().cloned().collect();
-                        let warning = takeover_warning(id, &prior, &current);
+                        let warning = super::writers::Writers::load(store)
+                            .map(|writers| {
+                                writers.takeover_warning(id, std::slice::from_ref(last), &current)
+                            })
+                            .unwrap_or_default();
                         push_part(
                             &mut read_hint,
                             &latest_entry_context(&last.entry, &facts, &warning),
@@ -478,6 +489,16 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
             );
         }
     }
+    // The bindings of this session: the session, the instance and the session's actors
+    // (ADR 0030, decision 8).
+    if let Ok(lines) = crate::sessions::binding_lines(session) {
+        if !lines.is_empty() {
+            push_part(
+                &mut thread_text,
+                &format!("Bindings: {}.", lines.join("; ")),
+            );
+        }
+    }
     if binding.is_some() {
         let cloud = std::env::var(CLOUD_SESSION_VAR).ok();
         if let Some(note) = title_context(cloud.as_deref(), title.as_deref()) {
@@ -498,7 +519,7 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
             push_part(&mut context, cloud);
         }
     }
-    if store.has_local_changes().unwrap_or(false) {
+    if local_changes {
         push_part(&mut context, LOCAL_CHANGES_NOTE);
     }
     if missions.is_empty() && no_documents {
@@ -516,7 +537,7 @@ fn context_after_fetch(session: &Session) -> Result<String, String> {
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.39";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.40";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -621,13 +642,20 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
         }
         warnings.extend(install_plugin_warning());
     }
+    let hook_session_id = input.session_id.clone();
     let mut context = Session::discover()
         .and_then(|session| {
-            let context = context_after_fetch(&session);
-            // Record the session beside its harness instance (ADR 0029). A failure here
-            // never fails the hook: the session still works, and has no row.
-            let _ = crate::sessions::record(&session, format, input.session_id.as_deref());
-            context
+            context_after_fetch(&session, |session| {
+                // Record the session beside its harness instance (ADR 0029), after the
+                // refresh and before the reads, and give it the actors of the session it
+                // continues (ADR 0030). A failure here never fails the hook: the session
+                // still works, and has no row.
+                if let Ok(Some(urn)) =
+                    crate::sessions::record(session, format, hook_session_id.as_deref())
+                {
+                    let _ = crate::sessions::continue_actors(session, &urn);
+                }
+            })
         })
         .unwrap_or_else(|e| failure_context(&e));
     if !cloud_install {
