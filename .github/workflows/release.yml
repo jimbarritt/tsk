@@ -6,9 +6,10 @@ name: Release
 #
 # 1. Reads the workspace version from Cargo.toml. When the tag `v<version>` already
 #    exists, it stops: the push is not a release.
-# 2. Verifies the commit: `plugin/tsk-version` is not above the workspace version, the
-#    build uses the locked dependencies, and the whole test suite passes with `dolt`
-#    installed. A failure stops the release before it creates a tag.
+# 2. Verifies the commit: `plugin/tsk-version` is not above the workspace version,
+#    `cargo fmt` and `cargo clippy` with warnings denied pass, and the whole test suite
+#    passes with `dolt` installed, all with the locked dependencies. A failure stops the
+#    release before it creates a tag.
 # 3. Creates the tag on the pushed commit and the GitHub release `tsk <version>`. The
 #    notes are `docs/releases/v<version>.md` when that file exists, then the subject of
 #    every commit since the previous `v*` tag, then the compare link GitHub generates.
@@ -76,7 +77,13 @@ jobs:
           fi
 
       - name: Install Rust
-        run: rustup toolchain install stable --profile minimal
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+
+      - name: Check the formatting
+        run: cargo fmt --all --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Install dolt
         run: |

@@ -204,8 +204,9 @@ just publish         # publish tsk-bin to crates.io
 A push to `main` releases when the workspace version in `Cargo.toml` has no `v<version>`
 tag yet. The workflow `.github/workflows/release.yml`:
 
-1. Verifies the commit. `plugin/tsk-version` must not be above the workspace version, and
-   `cargo test --workspace --locked` must pass with `dolt` installed. A failure stops the
+1. Verifies the commit. `plugin/tsk-version` must not be above the workspace version.
+   `cargo fmt --all --check` and `cargo clippy --workspace --all-targets --locked -- -D
+   warnings` must pass. `cargo test --workspace --locked` must pass with `dolt` installed. A failure stops the
    release before it creates a tag, and nothing is published. A missing `dolt` is also a
    failure, because the ledger tests pass without running when it is missing.
 2. Creates the tag `v<version>` on the pushed commit and the GitHub release
@@ -224,7 +225,8 @@ To release:
 1. Bump the workspace version with `just bump <version>` (requires cargo-edit:
    `cargo install cargo-edit`).
 2. Optional: write a summary in `docs/releases/v<version>.md`.
-3. Run `cargo test --workspace --locked` and read its exit status. Do not pipe it into
+3. Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D
+   warnings` and `cargo test --workspace --locked`, and read the exit status of each. Do not pipe it into
    another command, which replaces the status with its own.
 4. Commit and push to `main`.
 
