@@ -183,95 +183,25 @@ The questions are in the order they need answering. Each has the answer I propos
   for now, so `register` of an existing name joins that actor and a new name makes one, as
   today. M-TSK-NAMES T-13 and T-33 point 1 are the same work. T-33 point 6 (refuse an existing
   name) is dropped, because a regenerated session must rejoin its actor by name.
-- **Q-C. Which thing holds the primary and supporting actors?** Proposal: the instance holds
-  the primary actor, the one it registered as. A session holds its supporting actors. The
-  reason is the ubiquitous language: operating context (supervised, unsupervised) "is a
-  property of the session", and a supervisor attends to a conversation, not to a place where a
-  harness runs. A human who supervises joins the session as a supporting actor, and a terminal
-  session that changes supervisor at a `/clear` records the change on the new session. A
-  thread's actors stay derived from its bound instances and their sessions. `--thread` is
-  dropped from `tsk actor join`: a thread with an actor and no instance would be a claim with
-  nobody running it. The session title, the commit author and the task claim use the primary
-  actor of the instance. This needs the sessions record of Q-A.
-- **Q-D. What does a claim record?** Proposal: the actor uid of the primary actor of the
-  instance that set the task to `in-progress`, and the session URN beside it. A reader asks
-  "who" and gets the actor, or "which conversation" and gets the session, whose instance is
-  one lookup away.
-- **Q-E. How does a session know it is supervised?** Proposal: it does not infer it. A human
-  joins the session as a supporting actor by a command, run by the start-thread skill of an
-  interactive session, and a scheduled or spawned session has none. M-TSK-ATTRIB T-09 reads
-  the supporting actors of the session. This answers the disagreement in section 4 point 1:
-  the robot is the actor, and the person is recorded as supporting.
-- **Q-F. Do scheduled firings register an actor?** Proposal: yes, by name in the trigger
-  prompt, as the regenerate prompt does, so the 41 firings become one actor with many
-  instances. `tsk thread prune-bindings` removes the old rows.
-- **Q-G. Is `bindings.actor` renamed?** Proposal: no, at layout 10. The layout document and
-  the ubiquitous language say what it holds. A rename waits for a layout change that needs a
-  new table anyway.
+- **Q-C. Which thing holds the primary and supporting actors?** Settled by Jim, 2026-10-30:
+  the session, and never the instance (constraint 3). An instance is infrastructure and the
+  continuity key. `--instance` and `--thread` go from `tsk actor join`.
+- **Q-D. What does a claim record?** The primary actor's uid and the session URN.
+- **Q-E. How does a session know it is supervised?** A human joins the session as a
+  supporting actor; nothing is inferred.
+- **Q-F. Do scheduled firings register an actor?** Yes, by name in the trigger prompt.
+- **Q-G. Is `bindings.actor` renamed?** Settled by Jim, 2026-10-30: yes, to `instance`, as a
+  new table `thread_bindings`, since a renamed key does not merge in Dolt.
+- **Continuity at a new session.** Settled by Jim, 2026-10-30: option C, with B as the
+  fallback. A pause names the session that wrote it; a new session goes instance, binding,
+  thread, the latest pause by its instance, that session's actors. With no such pause, the
+  latest session of the instance. With no binding: a human-started session asks, an
+  agent-spawned session has the context in its prompt. The session start context prints the
+  bindings.
 
-## 6. One URN scheme for the domain types
-
-ADR 0029 names two types: `urn:tsk:session:<harness>:<id>` and `urn:tsk:instance:<kind>:<key>`.
-Jim's direction, 2026-10-30: extend the scheme to every domain type. The rules of ADR 0029
-carry over: the prefix `urn:tsk:`, a type segment, a fixed number of further segments, and a
-reader that splits on the first N colons only, so the last segment may hold colons.
-
-### The problem of scope
-
-A URN is useful when it names one thing for ever and across ledgers. The identifiers in a
-ledger differ in that:
-
-| Type | Identifier today | Unique | Stable |
-|---|---|---|---|
-| Session | harness ID | within a harness (the URN adds the harness) | yes |
-| Instance | cloud session ID, or `<clone-id>/<worktree>` | within a harness, and a clone ID is minted once | yes |
-| Actor | name | within a ledger | no: a name can change (Q-B) |
-| Thread | 8 characters, minted by `tsk` | within a ledger | yes |
-| Mission | internal ID `missions.id`, and the code a person types | within a ledger | the internal ID, yes; the code, no (ADR 0026) |
-| Task, decision, question | number per mission | within a mission | no: a publish that merges renumbers a collision (ADR 0022) |
-| Document | path on the documents branch | within a ledger | no: `doc mv` renames it |
-| Ledger | none | not applicable | not applicable |
-
-So a URN for a thread, mission or task needs the ledger in it, and a ledger has no identifier
-of its own today. The manifest holds `repo_id`, which is a nexus entry ID or absent for an
-in-repo ledger, and unique only inside one nexus.
-
-### The proposed forms
-
-```
-urn:tsk:ledger:<ledger-id>
-urn:tsk:actor:<uid>
-urn:tsk:thread:<ledger-id>:<thread-id>
-urn:tsk:mission:<ledger-id>:<mission-internal-id>
-urn:tsk:session:<harness>:<id>                       (ADR 0029)
-urn:tsk:instance:<kind>:<key>                         (ADR 0029)
-```
-
-- `<ledger-id>` is a UUID minted at ledger creation, in a new manifest key. A ledger that has
-  none gets one at the next write (a layout change, additive).
-- `<uid>` of an actor is a UUID. It is globally unique, so an actor URN needs no ledger.
-- A mission URN uses `missions.id`, not the code, so a rename (`tsk mission mv`) does not
-  change it.
-- A task, decision and question have no stable identifier until each row has a uid of its own.
-  Options: give each row a uid column (additive, filled at upgrade) and name it
-  `urn:tsk:task:<ledger-id>:<uid>`; or name them by mission and number and accept that the
-  name is valid only after a publish. The first costs a column per table and makes the name
-  stable. The second costs nothing and breaks on the one case ADR 0022 handles.
-- A document has no stable name either. A document URN would need the same step as a task: a
-  uid per document, kept in a record. This design leaves documents without a URN.
-
-### Where a URN is used
-
-- `Agent-Session` in a commit trailer (ADR 0029).
-- An actor trailer on a commit, `Actor: urn:tsk:actor:<uid>`, in place of the plain
-  `Tsk-Actor: <name>` of M-TSK-NAMES T-11, so a commit still names the right actor after a
-  rename.
-- `written_by` of a new continuation entry holds the instance URN. A reader accepts the old
-  forms, as ADR 0029 says.
-- A task claim (M-TSK-COMMS T-03) records the actor URN and the session URN.
-- Output for a program: `--json` of a record prints its URN beside its ID.
-
-### Open questions for the scheme
+These are written up as ADR 0030,
+`docs/adr/0030-an-actor-belongs-to-a-session-and-an-instance-is-the-continuity-key.md`.
+Still open:
 
 - **Q-H. Is a ledger identified by a minted UUID?** Proposal: yes. It is the only form that
   stays unique across nexuses, and it survives a repo rename and a move into a nexus.
