@@ -1,17 +1,14 @@
 # tsk - work with a clear context
 
-**The objective of tsk is to scale humans.** The less supervision the work needs, the more
-work one human delegates to agents, and the more one human produces.
-
-Reducing context bloat is an optimisation. It can serve a separate objective: to reduce
-overall token costs.
-
 tsk is about navigating software delivery, for people and agents together.
 
 It keeps track of where you and your agents are: which piece of work each of you is
 on, what it is for, what is decided, what is still open, and where a line of work
 stopped so the next session picks it up. Work spread across many people and many
 sessions stays in one place that all of them read and write.
+
+**The objective of tsk is to scale humans.** The less supervision the work needs, the more
+work one human delegates to agents, and the more one human produces.
 
 tsk is open source, under the [MIT licence](LICENSE).
 
