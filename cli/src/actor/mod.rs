@@ -7,7 +7,10 @@
 use clap::Subcommand;
 use serde::Serialize;
 
-use crate::ledger::store::{ActorKind, ActorRow, BindingKind, InstanceRow, LedgerStore};
+use crate::ledger::store::{
+    ActorKind, ActorNameRow, ActorRole, ActorRow, BindingKind, InstanceRow, LedgerStore,
+    SessionActorRow,
+};
 use crate::mission::table::print_lines;
 use crate::thread::binding::no_clone_id;
 use crate::thread::clock::utc_now;
@@ -36,7 +39,24 @@ pub enum ActorCommands {
         kind: String,
     },
     #[command(
-        about = "Print the name of the actor this session or worktree is registered as, or no actor registered"
+        about = "Add an actor, by uid, to the current session as a supporting actor, or as its primary actor with --primary (the earlier primary becomes supporting). --session names another session by its URN. Refuses an unknown uid. A human who supervises a robot's session joins it this way. A local write"
+    )]
+    Join {
+        #[arg(
+            help = "The actor's uid, as tsk actor list prints it, or its URN urn:tsk:actor:<uid>"
+        )]
+        uid: String,
+        #[arg(long, help = "Make the actor the session's primary actor")]
+        primary: bool,
+        #[arg(
+            long,
+            value_name = "URN",
+            help = "The session to join, by URN; the current session when omitted"
+        )]
+        session: Option<String>,
+    },
+    #[command(
+        about = "Print the name of the primary actor of this session, or no actor registered. The actor is read from the session, else from the latest session of this harness instance, else from the instance's own registration (a ledger below layout 12)"
     )]
     Name,
     #[command(
@@ -45,7 +65,7 @@ pub enum ActorCommands {
     )]
     GitIdentity,
     #[command(
-        about = "List the actors, one per line: name, kind, and the sessions and worktrees registered as it (- for none, comma-separated otherwise). The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records"
+        about = "List the actors, one per line: name, kind, uid, and the harness instances that ran as it (- for none, comma-separated otherwise). The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records with the URN and the name history"
     )]
     List {
         #[arg(long, help = "Print the full records as JSON")]
@@ -65,6 +85,8 @@ pub struct Current {
     /// The kind from the `actors` row. `None` when the instance names an actor that has
     /// no row, which no `tsk` command writes.
     pub kind: Option<ActorKind>,
+    /// The uid of the actor (ADR 0030). `None` on a ledger below layout 12.
+    pub uid: Option<String>,
 }
 
 impl Current {
@@ -77,9 +99,11 @@ impl Current {
     }
 }
 
-/// The actor this session or worktree is registered as, from the local ledger store as it
-/// is: no fetch. `None` when it registered none, when there is no ledger store yet, and
-/// when the clone has no clone ID.
+/// The primary actor of this session, from the local ledger store as it is: no fetch. Read
+/// from the session's own actors; else from the latest recorded session of the same harness
+/// instance that has a primary; else from the instance's own registration, the link a
+/// ledger below layout 12 holds (ADR 0030). `None` when none of them names an actor, when
+/// there is no ledger store yet, and when the clone has no clone ID.
 pub fn current(session: &Session) -> Result<Option<Current>, String> {
     if !session.store.exists_locally()? {
         return Ok(None);
@@ -88,6 +112,43 @@ pub fn current(session: &Session) -> Result<Option<Current>, String> {
         return Ok(None);
     };
     let store = session.store.as_ref();
+    let actors = store.actors_list()?;
+    let by_uid = |uid: &str| -> Option<Current> {
+        actors
+            .iter()
+            .find(|actor| actor.uid.as_deref() == Some(uid))
+            .map(|actor| Current {
+                name: actor.name.clone(),
+                kind: Some(actor.kind),
+                uid: actor.uid.clone(),
+            })
+    };
+    let session_actors = store.session_actors_list()?;
+    let primary_of = |urn: &str| -> Option<Current> {
+        session_actors
+            .iter()
+            .find(|row| row.session == urn && row.role == ActorRole::Primary)
+            .and_then(|row| by_uid(&row.actor_uid))
+    };
+    if let Some(urn) = session.session_urn() {
+        if let Some(current) = primary_of(&urn) {
+            return Ok(Some(current));
+        }
+    }
+    // The latest session of this instance that has a primary actor.
+    let mut sessions: Vec<_> = store
+        .sessions_list()?
+        .into_iter()
+        .filter(|row| row.instance == instance)
+        .collect();
+    sessions.sort_by(|a, b| a.started_at.cmp(&b.started_at));
+    if let Some(current) = sessions
+        .iter()
+        .rev()
+        .find_map(|row| primary_of(&row.session))
+    {
+        return Ok(Some(current));
+    }
     let Some(row) = store
         .instances_list()?
         .into_iter()
@@ -95,15 +156,75 @@ pub fn current(session: &Session) -> Result<Option<Current>, String> {
     else {
         return Ok(None);
     };
-    let kind = store
-        .actors_list()?
-        .into_iter()
-        .find(|actor| actor.name == row.actor_name)
-        .map(|actor| actor.kind);
+    let actor = actors.iter().find(|actor| actor.name == row.actor_name);
     Ok(Some(Current {
         name: row.actor_name,
-        kind,
+        kind: actor.map(|actor| actor.kind),
+        uid: actor.and_then(|actor| actor.uid.clone()),
     }))
+}
+
+/// The actors of a session, as `tsk session actor` prints them: the primary first, then the
+/// supporting actors in the order they joined. Empty when the session has none recorded.
+pub fn actors_of_session(
+    store: &dyn LedgerStore,
+    urn: &str,
+) -> Result<Vec<(ActorRole, ActorRow)>, String> {
+    let actors = store.actors_list()?;
+    let mut rows: Vec<(ActorRole, ActorRow)> = store
+        .session_actors_list()?
+        .into_iter()
+        .filter(|row| row.session == urn)
+        .filter_map(|row| {
+            actors
+                .iter()
+                .find(|actor| actor.uid.as_deref() == Some(row.actor_uid.as_str()))
+                .map(|actor| (row.role, actor.clone()))
+        })
+        .collect();
+    rows.sort_by_key(|(role, _)| *role != ActorRole::Primary);
+    Ok(rows)
+}
+
+/// The start of every actor URN (ADR 0030).
+pub const URN_PREFIX: &str = "urn:tsk:actor:";
+
+/// `urn:tsk:actor:<uid>`.
+pub fn actor_urn(uid: &str) -> String {
+    format!("{}{}", URN_PREFIX, uid)
+}
+
+/// The uid in a `tsk actor join` argument: the uid itself, or the URN.
+pub fn uid_of_argument(text: &str) -> &str {
+    text.trim().strip_prefix(URN_PREFIX).unwrap_or(text.trim())
+}
+
+/// Join a session: the actor `uid` becomes its primary or a supporting actor. Refuses an
+/// unknown uid.
+pub fn join(
+    store: &dyn LedgerStore,
+    session_urn: &str,
+    uid: &str,
+    role: ActorRole,
+    now: &str,
+) -> Result<ActorRow, String> {
+    let actor = store
+        .actors_list()?
+        .into_iter()
+        .find(|actor| actor.uid.as_deref() == Some(uid))
+        .ok_or_else(|| {
+            format!(
+                "error: no actor has the uid {}; tsk actor list prints the uids",
+                uid
+            )
+        })?;
+    store.session_actor_set(&SessionActorRow {
+        session: session_urn.to_string(),
+        actor_uid: uid.to_string(),
+        role,
+        joined_at: now.to_string(),
+    })?;
+    Ok(actor)
 }
 
 /// The check a name passes before it is registered: not empty, at most
@@ -128,28 +249,31 @@ pub fn check_name(name: &str) -> Result<(), String> {
 /// What `tsk actor register` did.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Registered {
-    /// The name was new: the actor was made, and this instance registered as it.
+    /// The name was new: the actor was made, and this session registered as it.
     New,
-    /// The name existed with the same kind: this instance registered as it.
+    /// The name existed with the same kind: this session registered as it.
     Joined,
 }
 
-/// Register the instance `instance` of kind `instance_kind` as the actor `name` of kind
-/// `kind`: see [`ActorCommands::Register`].
+/// Register as the actor `name` of kind `kind`: see [`ActorCommands::Register`]. The actor
+/// becomes the primary actor of the session `session_urn` when one is known (ADR 0030). The
+/// instance row is written too, for a reader of the older link. Returns what happened and
+/// the actor's uid, which is `None` only on a ledger that has no uids yet.
 pub fn register(
     store: &dyn LedgerStore,
     instance: &str,
     instance_kind: BindingKind,
+    session_urn: Option<&str>,
     name: &str,
     kind: ActorKind,
     now: &str,
-) -> Result<Registered, String> {
+) -> Result<(Registered, Option<String>), String> {
     check_name(name)?;
     let existing = store
         .actors_list()?
         .into_iter()
         .find(|actor| actor.name == name);
-    let outcome = match existing {
+    let (outcome, uid) = match existing {
         Some(actor) if actor.kind != kind => {
             return Err(format!(
                 "error: {} is registered as a {}",
@@ -157,14 +281,16 @@ pub fn register(
                 actor.kind.as_str()
             ))
         }
-        Some(_) => Registered::Joined,
+        Some(actor) => (Registered::Joined, actor.uid),
         None => {
+            let uid = crate::ledger::dolt::mint_uuid();
             store.actor_add(&ActorRow {
                 name: name.to_string(),
                 kind,
                 registered_at: now.to_string(),
+                uid: Some(uid.clone()),
             })?;
-            Registered::New
+            (Registered::New, Some(uid))
         }
     };
     store.instance_set(&InstanceRow {
@@ -173,7 +299,25 @@ pub fn register(
         actor_name: name.to_string(),
         registered_at: now.to_string(),
     })?;
-    Ok(outcome)
+    // An actor that joined an existing name on a ledger upgraded by this write has a uid
+    // now: read it back.
+    let uid = match uid {
+        Some(uid) => Some(uid),
+        None => store
+            .actors_list()?
+            .into_iter()
+            .find(|actor| actor.name == name)
+            .and_then(|actor| actor.uid),
+    };
+    if let (Some(urn), Some(uid)) = (session_urn, uid.as_deref()) {
+        store.session_actor_set(&SessionActorRow {
+            session: urn.to_string(),
+            actor_uid: uid.to_string(),
+            role: ActorRole::Primary,
+            joined_at: now.to_string(),
+        })?;
+    }
+    Ok((outcome, uid))
 }
 
 /// The line `tsk actor register` prints.
@@ -203,8 +347,20 @@ pub struct JsonActor {
     pub name: String,
     pub kind: &'static str,
     pub registered_at: String,
+    /// The uid (ADR 0030), and the URN `urn:tsk:actor:<uid>`. Null on a ledger below layout 12.
+    pub uid: Option<String>,
+    pub urn: Option<String>,
+    /// The names the actor has held, oldest first; the last has no `until`.
+    pub names: Vec<JsonName>,
     /// The harness instances registered as the actor, oldest registration first.
     pub instances: Vec<JsonInstance>,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+pub struct JsonName {
+    pub name: String,
+    pub from: String,
+    pub until: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -214,14 +370,29 @@ pub struct JsonInstance {
     pub registered_at: String,
 }
 
-/// The actors with their instances, in the order of `actors`.
-pub fn listed(actors: &[ActorRow], instances: &[InstanceRow]) -> Vec<JsonActor> {
+/// The actors with their name history and instances, in the order of `actors`.
+pub fn listed(
+    actors: &[ActorRow],
+    instances: &[InstanceRow],
+    names: &[ActorNameRow],
+) -> Vec<JsonActor> {
     actors
         .iter()
         .map(|actor| JsonActor {
             name: actor.name.clone(),
             kind: actor.kind.as_str(),
             registered_at: actor.registered_at.clone(),
+            uid: actor.uid.clone(),
+            urn: actor.uid.as_deref().map(actor_urn),
+            names: names
+                .iter()
+                .filter(|row| Some(row.actor_uid.as_str()) == actor.uid.as_deref())
+                .map(|row| JsonName {
+                    name: row.name.clone(),
+                    from: row.from_at.clone(),
+                    until: row.until_at.clone(),
+                })
+                .collect(),
             instances: instances
                 .iter()
                 .filter(|row| row.actor_name == actor.name)
@@ -235,8 +406,8 @@ pub fn listed(actors: &[ActorRow], instances: &[InstanceRow]) -> Vec<JsonActor> 
         .collect()
 }
 
-/// The tab-separated line of one actor: name, kind, and its instances joined by commas,
-/// or `-` with none.
+/// The tab-separated line of one actor: name, kind, uid (`-` with none), and its instances
+/// joined by commas, or `-` with none.
 pub fn list_line(actor: &JsonActor) -> String {
     let instances = if actor.instances.is_empty() {
         "-".to_string()
@@ -248,7 +419,13 @@ pub fn list_line(actor: &JsonActor) -> String {
             .collect::<Vec<_>>()
             .join(",")
     };
-    format!("{}\t{}\t{}", actor.name, actor.kind, instances)
+    format!(
+        "{}\t{}\t{}\t{}",
+        actor.name,
+        actor.kind,
+        actor.uid.as_deref().unwrap_or("-"),
+        instances
+    )
 }
 
 pub fn run(action: ActorCommands) -> Result<i32, String> {
@@ -259,10 +436,12 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
                 .ok_or_else(|| format!("error: unknown actor kind: {}", kind))?;
             let session = Session::discover()?;
             let (instance, instance_kind) = session.actor_key()?.ok_or_else(no_clone_id)?;
-            let outcome = register(
+            let urn = session.session_urn();
+            let (outcome, uid) = register(
                 session.store.as_ref(),
                 &instance,
                 instance_kind,
+                urn.as_deref(),
                 &name,
                 kind,
                 &utc_now(),
@@ -272,12 +451,58 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
                 "{}",
                 render_registered(&outcome, &name, kind, instance_kind)
             );
+            if let Some(uid) = uid {
+                println!("{}", actor_urn(&uid));
+            }
+            if urn.is_none() && instance_kind == BindingKind::Worktree {
+                eprintln!("note: this session has no recorded URN (the session start did not run), so the actor is recorded on the harness instance only");
+            }
             if let Err(error) = crate::attribution::apply(&session) {
                 eprintln!(
                     "warning: the registration stands, and the git identity is not set: {}",
                     error.trim_start_matches("error: ")
                 );
             }
+            Ok(0)
+        }
+        ActorCommands::Join {
+            uid,
+            primary,
+            session: target,
+        } => {
+            let session = Session::discover()?;
+            let urn = match target {
+                Some(urn) => urn,
+                None => session.session_urn().ok_or_else(|| {
+                    "error: this session has no recorded URN; pass --session <urn>, or run tsk thread session-start first".to_string()
+                })?,
+            };
+            if !urn.starts_with(crate::sessions::URN_PREFIX) {
+                return Err(format!(
+                    "error: {} is not a session URN (urn:tsk:session:<harness>:<id>)",
+                    urn
+                ));
+            }
+            let role = if primary {
+                ActorRole::Primary
+            } else {
+                ActorRole::Supporting
+            };
+            let actor = join(
+                session.store.as_ref(),
+                &urn,
+                uid_of_argument(&uid),
+                role,
+                &utc_now(),
+            )?;
+            eprintln!("{}", NOT_PUBLISHED_NOTE);
+            println!(
+                "{} ({}) joined {} as {}",
+                actor.name,
+                actor.kind.as_str(),
+                urn,
+                role.as_str()
+            );
             Ok(0)
         }
         ActorCommands::GitIdentity => crate::attribution::run_git_identity(),
@@ -292,7 +517,11 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
         ActorCommands::List { json, porcelain } => {
             let session = Session::discover()?;
             let store = session.store.as_ref();
-            let actors = listed(&store.actors_list()?, &store.instances_list()?);
+            let actors = listed(
+                &store.actors_list()?,
+                &store.instances_list()?,
+                &store.actor_names_list()?,
+            );
             if json {
                 println!(
                     "{}",
@@ -330,11 +559,13 @@ mod tests {
         let known = Current {
             name: "alice".to_string(),
             kind: Some(ActorKind::Robot),
+            uid: None,
         };
         assert_eq!(known.label(), "alice (robot)");
         let unknown = Current {
             name: "alice".to_string(),
             kind: None,
+            uid: None,
         };
         assert_eq!(unknown.label(), "alice");
     }
@@ -375,6 +606,7 @@ mod tests {
             name: name.to_string(),
             kind,
             registered_at: "2026-10-24T00:00:00Z".to_string(),
+            uid: Some(format!("uid-{}", name)),
         }
     }
 
@@ -398,16 +630,39 @@ mod tests {
             instance("c1/main", "alice"),
             instance("cse_9", "nobody"),
         ];
-        let listed = listed(&actors, &instances);
+        let names = [ActorNameRow {
+            actor_uid: "uid-alice".to_string(),
+            name: "alice".to_string(),
+            from_at: "2026-10-24T00:00:00Z".to_string(),
+            until_at: None,
+        }];
+        let listed = listed(&actors, &instances, &names);
         assert_eq!(
             listed.iter().map(list_line).collect::<Vec<_>>(),
-            vec!["bob\thuman\t-", "alice\trobot\tcse_1,c1/main"]
+            vec![
+                "bob\thuman\tuid-bob\t-",
+                "alice\trobot\tuid-alice\tcse_1,c1/main"
+            ]
         );
         assert_eq!(
             serde_json::to_string(&listed[1]).unwrap(),
             "{\"name\":\"alice\",\"kind\":\"robot\",\"registered_at\":\"2026-10-24T00:00:00Z\",\
+             \"uid\":\"uid-alice\",\"urn\":\"urn:tsk:actor:uid-alice\",\
+             \"names\":[{\"name\":\"alice\",\"from\":\"2026-10-24T00:00:00Z\",\"until\":null}],\
              \"instances\":[{\"instance\":\"cse_1\",\"kind\":\"cloud\",\"registered_at\":\"2026-10-24T00:00:01Z\"},\
              {\"instance\":\"c1/main\",\"kind\":\"cloud\",\"registered_at\":\"2026-10-24T00:00:01Z\"}]}"
         );
+    }
+}
+
+#[cfg(test)]
+mod urn_tests {
+    use super::*;
+
+    #[test]
+    fn an_actor_urn_names_the_uid_and_a_join_argument_may_be_either() {
+        assert_eq!(actor_urn("ab-1"), "urn:tsk:actor:ab-1");
+        assert_eq!(uid_of_argument("urn:tsk:actor:ab-1"), "ab-1");
+        assert_eq!(uid_of_argument(" ab-1 "), "ab-1");
     }
 }

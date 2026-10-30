@@ -6,6 +6,10 @@ use crate::ledger::{fetch_keeping_local_reporting, push_reporting};
 
 pub const CLOUD_SESSION_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 pub const MARKER_FILE: &str = "tsk-thread-id";
+/// The file in the git directory that holds the URN of the session that runs in this code
+/// worktree, written at session start. A cloud session needs none: its URN comes from the
+/// environment. Local and never pushed, like the skip marker.
+pub const SESSION_URN_FILE: &str = "tsk-session";
 
 pub struct Session {
     pub repo: Repo,
@@ -42,6 +46,35 @@ impl Session {
 
     pub fn marker_path(&self) -> PathBuf {
         self.git_dir.join(MARKER_FILE)
+    }
+
+    /// The URN of the session `tsk` runs in (ADR 0029): from the environment in a cloud
+    /// session, else from the file the session start wrote. `None` when neither is known.
+    pub fn session_urn(&self) -> Option<String> {
+        if let Some(id) = &self.cloud_session {
+            return Some(crate::sessions::session_urn(
+                crate::sessions::harness_name(
+                    crate::thread::session_start::HookFormat::Claude,
+                    true,
+                ),
+                id,
+            ));
+        }
+        let text = std::fs::read_to_string(self.git_dir.join(SESSION_URN_FILE)).ok()?;
+        let urn = text.trim();
+        urn.starts_with(crate::sessions::URN_PREFIX)
+            .then(|| urn.to_string())
+    }
+
+    /// Record the URN of the session that runs in this code worktree, for later commands of
+    /// the same session. A cloud session writes nothing.
+    pub fn remember_session_urn(&self, urn: &str) -> Result<(), String> {
+        if self.cloud_session.is_some() {
+            return Ok(());
+        }
+        let path = self.git_dir.join(SESSION_URN_FILE);
+        std::fs::write(&path, format!("{}\n", urn))
+            .map_err(|e| format!("error: could not write {}: {}", path.display(), e))
     }
 
     /// The key and kind this session's binding has in the ledger: the session ID for a

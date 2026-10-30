@@ -89,7 +89,7 @@ fn resolve_with(session: &Session, migrate: bool) -> Result<Option<Binding>, Str
             .store
             .bindings_list()?
             .iter()
-            .find(|row| row.actor == actor)
+            .find(|row| row.instance == actor)
             .and_then(binding_of));
     }
     let marker = read_marker(&session.marker_path())?;
@@ -103,7 +103,7 @@ fn resolve_with(session: &Session, migrate: bool) -> Result<Option<Binding>, Str
         Err(_) if marker.is_some() => return Ok(from_marker()),
         Err(e) => return Err(e),
     };
-    if let Some(row) = rows.iter().find(|row| row.actor == actor) {
+    if let Some(row) = rows.iter().find(|row| row.instance == actor) {
         if marker.is_some() && migrate {
             // The row is the binding. A marker beside it is left over from before.
             let _ = remove_marker(session);
@@ -112,7 +112,7 @@ fn resolve_with(session: &Session, migrate: bool) -> Result<Option<Binding>, Str
     }
     if let (Some(id), true) = (&marker, migrate) {
         let row = BindingRow {
-            actor,
+            instance: actor,
             kind: BindingKind::Worktree,
             thread_id: id.clone(),
             registered_at: utc_now(),
@@ -155,7 +155,7 @@ pub fn remove_marker(session: &Session) -> Result<(), String> {
 pub fn bind_current(session: &Session, thread_id: &str) -> Result<(), String> {
     let (actor, kind) = session.actor_key()?.ok_or_else(no_clone_id)?;
     session.store.binding_set(&BindingRow {
-        actor,
+        instance: actor,
         kind,
         thread_id: thread_id.to_string(),
         registered_at: utc_now(),

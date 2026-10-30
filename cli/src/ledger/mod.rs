@@ -34,6 +34,10 @@ pub enum LedgerCommands {
     #[command(about = "Print the ledger worktree path without fetching or writing anything")]
     Path,
     #[command(
+        about = "Print the ledger's URN, urn:tsk:ledger:<ledger-id>, from the manifest key ledger_id; exit status 1 on a ledger below layout 12, which has none until its next write"
+    )]
+    Id,
+    #[command(
         about = "Commit every change in the ledger worktree, rebase onto the latest ledger branch, and push it with a bounded compare and swap retry; prints the commit the branch holds"
     )]
     Push {
@@ -206,6 +210,16 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             println!("{}", store.path()?.display());
             Ok(())
         }
+        LedgerCommands::Id => match store.ledger_id()? {
+            Some(id) => {
+                println!("{}", crate::urn::ledger_urn(&id));
+                Ok(())
+            }
+            None => Err(
+                "error: this ledger has no ledger_id yet: it is below layout 12, and its next write records one"
+                    .to_string(),
+            ),
+        },
         LedgerCommands::Push {
             message,
             background: true,

@@ -707,9 +707,9 @@ pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
                 .iter()
                 .filter(|binding| binding.thread_id == name)
                 .map(|binding| ListActor {
-                    actor: binding.actor.clone(),
+                    actor: binding.instance.clone(),
                     kind: binding.kind.as_str(),
-                    name: actor_names.get(&binding.actor).cloned(),
+                    name: actor_names.get(&binding.instance).cloned(),
                 })
                 .collect(),
             id: name,
@@ -745,7 +745,7 @@ pub fn prunable_bindings(
     let limit = days.saturating_mul(86_400);
     rows.iter()
         .filter(|row| row.kind == BindingKind::Cloud)
-        .filter(|row| Some(row.actor.as_str()) != current)
+        .filter(|row| Some(row.instance.as_str()) != current)
         .filter(|row| {
             parse_utc(&row.registered_at).is_some_and(|at| now.saturating_sub(at) > limit)
         })
@@ -770,7 +770,7 @@ pub fn prune_bindings(
         current.as_deref(),
     );
     if !dry_run {
-        let actors: Vec<String> = rows.iter().map(|row| row.actor.clone()).collect();
+        let actors: Vec<String> = rows.iter().map(|row| row.instance.clone()).collect();
         store.bindings_remove(&actors)?;
     }
     Ok(rows)
@@ -781,7 +781,7 @@ pub fn render_prune(rows: &[BindingRow], dry_run: bool) -> Vec<String> {
     let verb = if dry_run { "would remove" } else { "removed" };
     let mut lines: Vec<String> = rows
         .iter()
-        .map(|row| format!("{} {} {}", verb, row.actor, row.thread_id))
+        .map(|row| format!("{} {} {}", verb, row.instance, row.thread_id))
         .collect();
     let noun = if rows.len() == 1 {
         "binding"
@@ -960,7 +960,7 @@ mod tests {
 
     fn bound(actor: &str, kind: BindingKind, at: &str) -> BindingRow {
         BindingRow {
-            actor: actor.to_string(),
+            instance: actor.to_string(),
             kind,
             thread_id: "1234abcd".to_string(),
             registered_at: at.to_string(),
@@ -984,7 +984,10 @@ mod tests {
         ];
         let chosen = prunable_bindings(&rows, NOW, 30, None);
         assert_eq!(
-            chosen.iter().map(|r| r.actor.as_str()).collect::<Vec<_>>(),
+            chosen
+                .iter()
+                .map(|r| r.instance.as_str())
+                .collect::<Vec<_>>(),
             vec!["old"]
         );
     }
@@ -998,7 +1001,10 @@ mod tests {
         ];
         let chosen = prunable_bindings(&rows, NOW, 30, Some("mine"));
         assert_eq!(
-            chosen.iter().map(|r| r.actor.as_str()).collect::<Vec<_>>(),
+            chosen
+                .iter()
+                .map(|r| r.instance.as_str())
+                .collect::<Vec<_>>(),
             vec!["just over"]
         );
         assert_eq!(prunable_bindings(&rows, NOW, 0, Some("mine")).len(), 2);

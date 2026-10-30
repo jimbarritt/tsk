@@ -257,6 +257,7 @@ mod actor;
 mod attribution;
 
 mod sessions;
+mod urn;
 
 mod events;
 
