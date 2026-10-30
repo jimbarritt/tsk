@@ -90,15 +90,24 @@ pub fn worktree_actor(clone_id: &str, git_dir: &Path) -> String {
     format!("{}/{}", clone_id, name)
 }
 
+/// The URN of a harness instance: `urn:tsk:instance:<kind>:<key>`, where `<kind>` is `cloud`
+/// or `worktree` and `<key>` is the instance key (ADR 0029).
+pub fn instance_urn(kind: BindingKind, key: &str) -> String {
+    format!("urn:tsk:instance:{}:{}", kind.as_str(), key)
+}
+
+/// The URN of an instance that has no instance key: a code worktree of a clone with no clone
+/// ID. The key part is the basename of the git directory (`.git` for a main code worktree),
+/// so the URN names an unknown clone. It is the fallback value of `written_by`.
 pub fn actor_urn(cloud_session: Option<&str>, git_dir: &Path) -> String {
     match cloud_session {
-        Some(id) => format!("urn:tsk:cloudsession:{}", id),
-        None => format!(
-            "urn:tsk:worktree:{}",
-            git_dir
+        Some(id) => instance_urn(BindingKind::Cloud, id),
+        None => instance_urn(
+            BindingKind::Worktree,
+            &git_dir
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default()
+                .unwrap_or_default(),
         ),
     }
 }
@@ -124,26 +133,38 @@ mod tests {
     }
 
     #[test]
+    fn an_instance_urn_names_the_kind_and_the_key() {
+        assert_eq!(
+            instance_urn(BindingKind::Cloud, "cse_01abc"),
+            "urn:tsk:instance:cloud:cse_01abc"
+        );
+        assert_eq!(
+            instance_urn(BindingKind::Worktree, "tsk-1a2b3c4d/main"),
+            "urn:tsk:instance:worktree:tsk-1a2b3c4d/main"
+        );
+    }
+
+    #[test]
     fn cloud_session_urn_names_the_session() {
         assert_eq!(
             actor_urn(Some("cse_01abc"), Path::new("/r/.git")),
-            "urn:tsk:cloudsession:cse_01abc"
+            "urn:tsk:instance:cloud:cse_01abc"
         );
     }
 
     #[test]
-    fn main_worktree_urn_is_dot_git() {
+    fn main_worktree_urn_has_dot_git_as_its_key() {
         assert_eq!(
             actor_urn(None, Path::new("/r/.git")),
-            "urn:tsk:worktree:.git"
+            "urn:tsk:instance:worktree:.git"
         );
     }
 
     #[test]
-    fn linked_worktree_urn_is_the_worktree_name() {
+    fn linked_worktree_urn_has_the_worktree_name_as_its_key() {
         assert_eq!(
             actor_urn(None, Path::new("/r/.git/worktrees/feature-x")),
-            "urn:tsk:worktree:feature-x"
+            "urn:tsk:instance:worktree:feature-x"
         );
     }
 }

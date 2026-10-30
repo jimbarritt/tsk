@@ -478,9 +478,11 @@ fn is_branch_ref(target: &str) -> bool {
         .is_some_and(|name| !name.is_empty() && !name.contains(char::is_whitespace))
 }
 
-/// Whether a `written_by` value is an old-format actor URN (`urn:tsk:...`). Entries
-/// written before the actor key replaced it carry one. It does not tell two clones'
-/// main worktrees apart, so it names an unknown writer.
+/// Whether a `written_by` value is an actor URN (`urn:tsk:...`). Entries written before the
+/// actor key replaced it carry the old forms, `urn:tsk:cloudsession:<id>` and
+/// `urn:tsk:worktree:<name>`. The current fallback is `urn:tsk:instance:<kind>:<key>` (ADR
+/// 0029). None of them tells two clones' main worktrees apart, so each names an unknown
+/// writer.
 fn is_old_format_writer(value: &str) -> bool {
     value.starts_with("urn:")
 }
@@ -1074,6 +1076,7 @@ mod tests {
         let entries = vec![
             stored_by("urn:tsk:worktree:.git"),
             stored_by("urn:tsk:cloudsession:cse_a"),
+            stored_by("urn:tsk:instance:worktree:.git"),
         ];
         assert!(prior_actors(&entries).is_empty());
         let entries = vec![stored_by("urn:tsk:worktree:.git"), stored_by("c2/main")];
