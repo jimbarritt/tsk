@@ -92,11 +92,15 @@ impl Session {
         }
     }
 
-    /// The value a pause entry records in `written_by`: the actor key (the session ID, or
+    /// The value a pause entry records in `written_by`: the session URN when the session is
+    /// known (ADR 0030), else the instance key (the session ID, or
     /// `<clone-id>/<worktree-name>`), which tells two clones' main worktrees apart. A
-    /// worktree with no clone ID yet falls back to the old actor URN, which marks the
-    /// writer as unknown.
+    /// worktree with no clone ID yet falls back to the instance URN, which marks the writer
+    /// as unknown.
     pub fn written_by(&self) -> Result<String, String> {
+        if let Some(urn) = self.session_urn() {
+            return Ok(urn);
+        }
         Ok(match self.actor_key()? {
             Some((actor, _)) => actor,
             None => self.actor_urn(),

@@ -15,14 +15,14 @@ this repository. They hold the minimum logic: see
 | Skill | Runs |
 |---|---|
 | `tsk` | Reference for the `tsk` command line: records (missions, tasks, decisions, questions), documents, threads. |
-| `start-thread` | `tsk thread start`, with a mission ID or with no mission; `tsk thread skip` to work with no thread |
+| `start-thread` | `tsk thread start`, `tsk actor join` for a supervising human, with a mission ID or with no mission; `tsk thread skip` to work with no thread |
 | `pause-thread` | `tsk thread pause` |
 | `resume-thread` | `tsk thread resume` |
 | `switch-thread` | `tsk thread detach`, `tsk thread stop` when asked, then the `resume-thread` skill |
 | `detach-thread` | `tsk thread detach`, then `tsk thread skip` if asked |
 | `stop-thread` | `tsk thread stop` |
 | `register-repo` | `tsk nexus register-repo` |
-| `construct-robot` | `tsk actor list`, then `tsk actor register --kind robot` with a name the robot chooses in the style of the Culture ships, `tsk ledger push`, and the session title |
+| `construct-robot` | `tsk actor list`, then `tsk actor register --kind robot` with a name the robot chooses in the style of the Culture ships (the actor becomes the primary actor of the session), `tsk ledger push`, and the session title |
 | `regenerate-cloud-instance` | `tsk thread pause`, `tsk ledger push`, then `create_session` for a new cloud session that resumes the thread and joins the same robot, and a `to archive-` prefix on the old session's title |
 
 | Hook | Runs |

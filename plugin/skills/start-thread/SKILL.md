@@ -60,7 +60,17 @@ Backs the `/tsk:start-thread` command. This skill is the agent-facing wrapper ar
    - Exit 1: the mission ID is unknown, or another error occurred. Report the
      command's stderr and stop. Do not retry with a guessed ID.
 
-4. **Set the session title.** Run `tsk thread title` after exit 0. Exit 1 means there is no
+4. **Record a supervising human, when there is one.** When I am supervising this session
+   and have an actor (`tsk actor list` shows my name and uid), add me to the session as a
+   supporting actor, so the commit trailer and the records say who supervised:
+
+   ```bash
+   tsk actor join "<my uid>"
+   ```
+
+   Skip this in a session no human supervises. The robot stays the primary actor.
+
+5. **Set the session title.** Run `tsk thread title` after exit 0. Exit 1 means there is no
    actor and no mission: skip this step. Exit 0 prints the title, `<mission ID>: <robot
    name>`, the name alone, or the mission ID alone.
    - In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` is set), call `get_session` from

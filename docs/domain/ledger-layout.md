@@ -112,13 +112,15 @@ A `mission_id` column in any table below holds the internal ID of a mission, `mi
 
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `k` varchar(64), primary key; `v` text | The manifest keys as rows, for example `version` and `repo_id`. The `version` row is `10`. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The manifest keys as rows: `version`, `repo_id` for a nexus ledger, `mission_prefix` when set, and `ledger_id` (version 12), a UUID that names the ledger in `urn:tsk:ledger:<ledger-id>`. The `version` row is `12`. |
 | `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the internal ID of the mission the thread works (the code itself for a mission with no record), and is null for a thread with no mission. Every command reads it through `missions.code`, so a renamed mission shows its new ID. `briefing_path` is the mission's briefing document, stored only when the mission has no record. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
-| `bindings` | `actor` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `thread_id` varchar(64); `registered_at` varchar(32) | One row per bound actor, of either kind. The actor key of a cloud session is the session ID (`cse_...`). The actor key of a local code worktree is `<clone-id>/<worktree-name>`: the ID in `.git/tsk-clone-id`, a slash, and `main` for the main worktree or the name of the linked worktree. A bind sets or replaces the actor's row. `thread stop` deletes every row that names the stopped thread. There is no foreign key to `threads`. It replaces the `tsk-thread-id` marker files. A ledger below version 8 holds the cloud rows in `cloud_session_bindings` (`session_id`, `thread_id`, `registered_at`) instead. Since 0.26.0 the `actor` column is the key of a harness instance (see `instances`); it keeps its name. |
-| `actors` | `name` varchar(200), primary key; `kind` enum(`human`, `robot`); `registered_at` varchar(32) | One row per actor: a human or a robot, by name. An actor's identity is its own, outside any harness instance. `tsk actor register` adds a row for a new name. Nothing deletes a row. Version 9. |
-| `instances` | `instance` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `actor_name` varchar(200); `registered_at` varchar(32) | One row per harness instance that registered as an actor. The key is the one `bindings.actor` holds: the session ID of a cloud session, or `<clone-id>/<worktree-name>` of a code worktree. `tsk actor register` sets or replaces the instance's row. There is no foreign key to `actors` or to `bindings`. A registration is separate from a binding: an instance may be registered and unbound, or bound and unregistered. Version 9. |
+| `thread_bindings` | `instance` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `thread_id` varchar(64); `registered_at` varchar(32) | One row per bound harness instance, of either kind (version 12, ADR 0030; `bindings`, with the column `actor`, from version 8 to 11, and `cloud_session_bindings` below 8). The key of a cloud session is the session ID (`cse_...`). The key of a local code worktree is `<clone-id>/<worktree-name>`: the ID in `.git/tsk-clone-id`, a slash, and `main` for the main worktree or the name of the linked worktree. A bind sets or replaces the instance's row. `thread stop` deletes every row that names the stopped thread. There is no foreign key to `threads`. |
+| `actors` | `name` varchar(200), primary key; `kind` enum(`human`, `robot`); `registered_at` varchar(32); `uid` varchar(36), unique (version 12) | One row per actor: a human or a robot. The `uid` is the identity every link names (ADR 0030): minted at `tsk actor register` for a new name, and derived from the name at the upgrade to version 12, so two clones that upgrade on their own write the same value. The name can change; `actor_names` keeps the history. Nothing deletes a row. Version 9. |
+| `instances` | `instance` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `actor_name` varchar(200); `registered_at` varchar(32) | One row per harness instance that registered as an actor before version 12. Since version 12 an actor belongs to a session (`session_actors`), and `tsk actor register` still writes this row so a reader of the older link finds it; nothing else reads it except the fallback of `tsk actor name` on an instance that has no recorded session. The key is the one `bindings.actor` holds: the session ID of a cloud session, or `<clone-id>/<worktree-name>` of a code worktree. `tsk actor register` sets or replaces the instance's row. There is no foreign key to `actors` or to `bindings`. A registration is separate from a binding: an instance may be registered and unbound, or bound and unregistered. Version 9. |
 | `sessions` | `session` varchar(255), primary key; `instance` varchar(255); `kind` enum(`cloud`, `worktree`); `started_at` varchar(32) | One row per session that ran `tsk thread session-start`. The key is the session URN, `urn:tsk:session:<harness>:<id>` (ADR 0029): the harness that minted the ID, then the ID. A cloud session is named by the cloud session ID, which is also its instance key. Any other session is named by the ID the harness gives its hook. `instance` and `kind` are the key and kind of the harness instance the session ran in, as `instances` and `bindings` hold them. A code worktree runs many sessions, one for each start and each `/clear`, so this table maps a session back to its instance. A second start of the same session changes nothing. There is no foreign key. `tsk session find` and `tsk session list` read it. Version 11. |
+| `actor_names` | `actor_uid` varchar(36); `name` varchar(200); `from_at` varchar(32); `until_at` varchar(32), null. Primary key (`actor_uid`, `from_at`) | One row per name an actor has held: from `from_at` until `until_at`, which is null for the name it holds now. `tsk actor register` adds the first row of a new actor; the upgrade to version 12 adds one open row per existing actor. Version 12. |
+| `session_actors` | `session` varchar(255); `actor_uid` varchar(36); `role` enum(`primary`, `supporting`); `joined_at` varchar(32). Primary key (`session`, `actor_uid`) | The actors of a session (ADR 0030): one primary, any number supporting. `tsk actor register` makes the registering actor the primary of the current session; `tsk actor join <uid> [--primary]` adds one. The session start copies the rows of the session a new session continues from. The upgrade to version 12 gives every recorded session the actor its instance was registered as, as primary. Version 12. |
 | `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of the [event envelope](#event-envelope). |
 | `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` varchar(32) | One row, `id` 1, the processed position of the queue. No row reads as `0`. It replaces `watermark.json`. |
 | `missions` | `id` varchar(64), primary key; `code` varchar(64), null, unique; `name` varchar(255); `category` enum(`operational`, `administrative`); `status` enum(`todo`, `in-progress`, `done`), default `todo`; `parent` varchar(64), null, foreign key to `missions(id)`; `purpose`, `decision_authority` longtext, null; `next_objective`, `next_task`, `next_question`, `next_constraint`, `next_out_of_scope` int, default 1 | One row per mission. `id` is the internal ID: every other table names the mission by it, and it never changes. `code` is the mission ID a person types and sees, such as `M-NAMES`; a rename changes `code` and nothing else, and a `code` that is null reads as the `id`. A mission made before layout 10 has its first ID as both. A mission made from layout 10 on has a random UUID as `id`. Empty text is stored as null. Each `next_` column is the number the next objective outcome, task, question, constraint or out-of-scope item gets. It only grows, so a number is never reused. A ledger below version 7 has two more columns, `constraints_text` and `out_of_scope` (longtext, null), in place of the last two counters. |
@@ -534,7 +536,9 @@ Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::di
 
 ### Manifest version
 
-The `version` row of the `manifest` table is `11` for a ledger with the `sessions` table, `10` for a
+The `version` row of the `manifest` table is `12` for a ledger with `thread_bindings`,
+`actors.uid`, `actor_names`, `session_actors` and the manifest key `ledger_id` (ADR 0030),
+`11` for a ledger with the `sessions` table and the bindings still in `bindings`, `10` for a
 ledger with `missions.code` and no `sessions` table, `9` for a ledger with the `actors` and
 `instances` tables, `8` for a ledger whose bindings, of cloud sessions and of code
 worktrees, are rows of `bindings` and that has no actor tables, `7` for a ledger whose constraints
@@ -543,7 +547,7 @@ and out of scope are tables of their own with the bindings still in `cloud_sessi
 `mission_id`, `4` for a ledger with the mission, task, decision and question tables and the
 older `threads` table, `3` for a ledger with the mission tables only, and `2` for a
 ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
-backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 and 11. Version 1 is a ledger that still keeps its
+backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 and 12. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger is refused by every command except `tsk ledger fetch`,
@@ -651,6 +655,20 @@ documents in a `documents` table.
     the person runs `tsk self-update`.
   - Tests set `TSK_TEST_MODE=1` and `TSK_SELF_UPDATE_CMD=<script>`. The update step then
     runs the script, with the installed tsk path as `$1`, instead of the real update.
+
+- A version 11 ledger (and every lower one, after the steps above) works for everything it
+  did before: the bindings are read from `bindings`, an actor has no `uid`, and `tsk ledger
+  id` exits 1. The first write of any kind that upgrades it (a record, a thread, a
+  registration, a bind) runs the version 12 step in the same local Dolt change: `actors`
+  gains `uid`, filled from the MD5 of each name; `thread_bindings` is created, every
+  `bindings` row is copied into it under the column `instance`, and `bindings` is dropped;
+  `actor_names` gets one open row per actor; `session_actors` gets a primary row for each
+  recorded session whose instance had registered an actor; and the manifest gets
+  `ledger_id`, a UUID from the MD5 of the root commit hash. Every value is a function of
+  what the ledger holds, so two clones that upgrade on their own write the same change and
+  Dolt merges them. `tsk ledger status` labels the upgrade and does not show the copied
+  rows as changes. A session start never upgrades: on a ledger below 12 it records the
+  session and no actors.
 
 ### Migration from the file ledger
 
@@ -1290,7 +1308,7 @@ path as a second argument: it is accepted and ignored.
 The thread store from `docs/domain/session-continuation-design.md`. A thread is a row of
 `threads` (its ID, its mission and, for a thread made before layout version 5, a briefing
 path). Its continuation entries are rows of `continuation_entries`, one compact JSON
-object for each, numbered from 1 by `seq`. Its bindings are rows of `bindings`. See
+object for each, numbered from 1 by `seq`. Its bindings are rows of `thread_bindings`. See
 [Tables](#tables).
 
 `thread list` takes the mission ID from the thread row, and derives it from the briefing
@@ -1316,7 +1334,7 @@ Fields, in the order written. `git` holds `ledger` then `code`; `ledger` holds `
 | `git.code.ref` | string | command | Full ref of the branch the code worktree's `HEAD` is on at pause time, for example `refs/heads/feature/x`. |
 | `git.code.commit` | string | command | Full SHA of the code worktree's `HEAD` at pause time. |
 | `timestamp` | string | command | UTC time the entry is appended. |
-| `written_by` | string | command | The actor key of the session or worktree that wrote the entry: the session ID in a cloud session, otherwise `<clone-id>/<worktree-name>` as in the `bindings` table, so two clones' main worktrees are two writers. Entries written by 0.16.0 or earlier hold an actor URN (`urn:tsk:worktree:.git`, `urn:tsk:cloudsession:<id>`) instead. A URN names an unknown writer: `thread resume` leaves it out of the takeover check. |
+| `written_by` | string | command | Who wrote the entry (ADR 0030): the session URN, `urn:tsk:session:<harness>:<id>`, when the session is known, which is every session that ran the session start; else the instance key, the session ID in a cloud session or `<clone-id>/<worktree-name>` as `thread_bindings` holds it. Entries written before 0.39.0 hold the instance key; entries written by 0.16.0 or earlier hold `urn:tsk:worktree:.git` or `urn:tsk:cloudsession:<id>`, and 0.38.0 writes `urn:tsk:instance:<kind>:<key>` as a fallback. A reader maps a session URN to its instance and its primary actor through `sessions` and `session_actors`, an instance key to the actor of its latest session, and the three older URN forms to an unknown writer. |
 
 `git.ledger.commit` cannot be the commit the push creates: that commit holds this entry,
 so its hash is unknown when the entry is written.
@@ -1357,37 +1375,57 @@ The latest entry is the one with the highest `seq`. A thread with no entries has
 latest entry yet; `thread resume` prints `{}` for it. `thread list` sorts threads by the
 latest entry's `timestamp`, newest first, with threads that have no entry last. The
 `written_by` values across all entries are the set of actors that have touched the thread.
-`thread resume` warns when the resuming actor key is not among the actor keys of that set.
-An old-format value (a `urn:` value) is not an actor key and is left out of the set, so a
-thread paused before the change gives no warning until a pause writes an actor key.
+`thread resume` and the session start warn when no writer of the thread is the current
+actor: a writer is the current actor when both actors are known and equal, or when either
+is unknown and both instances are known and equal. The warning names each other writer by
+its actor's name, else by its instance key. A writer with no known instance (an old `urn:`
+form) is left out, so a thread paused before the instance key was written gives no warning
+until a pause writes one.
 
 ### Bindings
 
-A binding is a row of `bindings`: `actor`, `kind` (`cloud` or `worktree`), `thread_id` and
-`registered_at`. The `actor` column holds the key of a harness instance (the column keeps
-its name from before 0.26.0). The key of a cloud session is the `CLAUDE_CODE_REMOTE_SESSION_ID` value
-(`cse_...`). The key of a code worktree is `<clone-id>/<worktree-name>`. A bind sets
-or replaces the instance's row. Detach deletes that one row. Stop deletes every row whose
+A binding is a row of `thread_bindings`: `instance`, `kind` (`cloud` or `worktree`),
+`thread_id` and `registered_at` (ADR 0030; `bindings` with the column `actor` before
+version 12). The key of a cloud session is the `CLAUDE_CODE_REMOTE_SESSION_ID` value
+(`cse_...`). The key of a code worktree is `<clone-id>/<worktree-name>`. A bind sets or
+replaces the instance's row. Detach deletes that one row. Stop deletes every row whose
 `thread_id` is the stopped thread, of either kind. `thread list` shows the rows as
-`actors`, each with the `name` of the actor the instance registered as, or `null`.
+`actors`, each with the `name` of the primary actor of the instance's latest session, else
+the actor the instance registered as, or `null`.
 
-An actor is a human or a robot, with a name and a kind, and its identity persists outside
-any harness instance: a row of `actors`. A harness instance registers as an actor, which
-is a row of `instances` keyed as `bindings.actor` is, and that is separate from binding to
-a thread. `tsk actor register <name> --kind human|robot` checks the name (1 to 200
-characters, not starting with `/`), adds the `actors` row when the name is new, and sets or
-replaces this instance's `instances` row. A name already registered must have the same
-kind: the command then prints `<name> (<kind>) is now this session's actor` or `... this
-worktree's actor`; with the other kind it exits 1 with `<name> is registered as a <kind>`
-and changes nothing. A new name prints `registered <name> (<kind>)`. The command needs no
-thread binding and does not fetch. The write is local; the next push publishes it. A
-rebind, a detach and a stop leave the registration as it is. Nothing deletes an `actors`
-row. `tsk actor name` prints the name this instance is registered as, or `no actor
-registered`, and exits 0 either way. `tsk actor list` prints one actor per line: name,
-kind, and the keys of the instances registered as it, comma-separated, or `-`, in the
-order `registered_at` then key; `--porcelain` prints the columns tab-separated and
-`--json` prints the records with their `instances`. `tsk thread binding` prints
-`actor: <name> (<kind>)` on a second line when the instance is registered.
+An actor is a human or a robot, with a `uid`, a name and a kind, and its identity persists
+outside any harness instance or session: a row of `actors`, with its names in
+`actor_names`. An actor belongs to a session, never to a harness instance (ADR 0030): a
+session has one primary actor and any number of supporting actors, as rows of
+`session_actors`. `tsk actor register <name> --kind human|robot` checks the name (1 to 200
+characters, not starting with `/`), adds the `actors` row with a new uid when the name is
+new, and makes the actor the primary of the current session. A name already registered must
+have the same kind: the command then prints `<name> (<kind>) is now this session's actor`
+or `... this worktree's actor`; with the other kind it exits 1 with `<name> is registered
+as a <kind>` and changes nothing. A new name prints `registered <name> (<kind>)`. A second
+line prints the actor's URN, `urn:tsk:actor:<uid>`. The command needs no thread binding and
+does not fetch. The write is local; the next push publishes it. A rebind, a detach and a
+stop leave the actors as they are. Nothing deletes an `actors` row. `tsk actor join <uid>
+[--primary] [--session <urn>]` adds an actor to the current session, or to the named one,
+as supporting, or as primary with the earlier primary demoted; it refuses an unknown uid.
+`tsk session actor [--session <urn>]` prints the actors of a session, one per line: role,
+name, kind, uid, the primary first, or `no actor registered`. `tsk actor name` prints the
+name of the primary actor of this session, else of the latest session of this instance that
+has one, else the name the instance registered as, or `no actor registered`, and exits 0
+either way. `tsk actor list` prints one actor per line: name, kind, uid, and the keys of
+the instances that ran as it, comma-separated, or `-`, in the order `registered_at` then
+key; `--porcelain` prints the columns tab-separated and `--json` prints the records with
+the `urn`, the `names` history and their `instances`. `tsk thread binding` prints
+`actor: <name> (<kind>)` on a second line when the session has a primary actor.
+
+A new session takes its actors from the session it continues (ADR 0030, decision 6). The
+session start, after it records the session, copies the `session_actors` rows of the
+session that wrote the latest pause on the bound thread from the same instance; else of the
+latest recorded session of the instance that has actors; else it makes the actor the
+instance registered as its primary. The context then prints `Bindings:` with the session
+URN, the instance URN and one item per actor. The session URN of a terminal session is kept
+in the local file `tsk-session` of the git directory, written by the session start, so the
+later commands of the session know it; a cloud session reads it from the environment.
 
 A cloud session rarely detaches, so its row stays after it ends. `tsk thread prune-bindings
 [--older-than <days>] [--dry-run]` deletes the cloud rows whose `registered_at` is more
@@ -1781,11 +1819,14 @@ what the harness expects until then.
 | `thread-resume.sh` | `{"thread_id":"...","latest":{...},"warning":"...","mission":{"id","name"}|null,"task":{"id","description"}|null}` (`latest` is `{}` with no entry; `warning` is empty unless another actor wrote to the thread; `mission` is null with no mission record; `task` is null when the latest entry names no task the mission has) | | `tsk thread resume <thread-id>` |
 | `thread-detach.sh` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding | `tsk thread detach` |
 | `thread-stop.sh` | `stopped:<thread-id>` | | `tsk thread stop [<thread-id>]` |
-| `thread-list.sh` | one compact JSON object per line: `id`, `mission_id` (`null` for a thread with no mission), `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry), `actors` (an array of `{"actor", "kind", "name"}`, one for each session or worktree bound to the thread, oldest binding first; `kind` is `cloud` or `worktree`; `name` is the actor the instance registered as, or `null`; empty when none is bound) | | `tsk thread list` |
-| `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>`, then `actor: <name> (<kind>)` on a second line when the instance is registered | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger store |
-| (none) | `registered <name> (<kind>)` for a new name; `<name> (<kind>) is now this session's actor` or `... this worktree's actor` for a name already registered with that kind | exit 1 with `<name> is registered as a <kind>` for the other kind, or for a name that is empty, over 200 characters or starts with `/` | `tsk actor register <name> --kind human\|robot` |
-| (none) | the actor name, or `no actor registered` | | `tsk actor name` |
-| (none) | one actor per line: name, kind, instances (comma-separated keys, or `-`); tab-separated with `--porcelain`; the records with their `instances` with `--json` | | `tsk actor list [--porcelain\|--json]` |
+| `thread-list.sh` | one compact JSON object per line: `id`, `urn` (`urn:tsk:thread:<ledger-id>:<id>`, absent below layout 12), `mission_id` (`null` for a thread with no mission), `mission_link`, `latest_whats_next`, `latest_timestamp` (both `null` with no entry), `actors` (an array of `{"actor", "kind", "name"}`, one for each session or worktree bound to the thread, oldest binding first; `kind` is `cloud` or `worktree`; `name` is the actor the instance registered as, or `null`; empty when none is bound) | | `tsk thread list` |
+| `thread-resolve-binding.sh` | `cloud:<thread-id>` or `worktree:<thread-id>`, then `actor: <name> (<kind>)` on a second line when the session has a primary actor | exit 1, nothing on stdout, with no binding | `tsk thread binding`; `--no-fetch` in place of passing an already fetched ledger store |
+| (none) | `registered <name> (<kind>)` for a new name; `<name> (<kind>) is now this session's actor` or `... this worktree's actor` for a name already registered with that kind; then `urn:tsk:actor:<uid>` on a second line | exit 1 with `<name> is registered as a <kind>` for the other kind, or for a name that is empty, over 200 characters or starts with `/` | `tsk actor register <name> --kind human\|robot` |
+| (none) | the name of the session's primary actor, or `no actor registered` | | `tsk actor name` |
+| (none) | one line per actor of the session: role, name, kind, uid, tab-separated; or `no actor registered` | exit 1 with no session URN and no `--session` | `tsk session actor [--session <urn>]` |
+| (none) | `<name> (<kind>) joined <session urn> as primary|supporting` | exit 1 for an unknown uid, a value that is not a session URN, or no session | `tsk actor join <uid> [--primary] [--session <urn>]` |
+| (none) | `urn:tsk:ledger:<ledger-id>` | exit 1 below layout 12 | `tsk ledger id` |
+| (none) | one actor per line: name, kind, uid, instances (comma-separated keys, or `-`); tab-separated with `--porcelain`; the records with `urn`, `names` and `instances` with `--json` | | `tsk actor list [--porcelain\|--json]` |
 | (none) | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; `would remove ...` and `<n> bindings would be removed` with `--dry-run` | | `tsk thread prune-bindings [--older-than <days>] [--dry-run]` |
 | (none) | `mission-set:<thread-id>:<mission-id>`, or `mission-cleared:<thread-id>` with `--none` | exit 1 for an unknown mission or thread, or with no thread ID and no binding | `tsk thread set mission <mission-id> [<thread-id>]`, `tsk thread set mission --none [<thread-id>]` |
 | `thread-binding-guard.sh` | nothing when bound, after `tsk thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise | | `tsk thread guard` |

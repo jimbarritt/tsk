@@ -30,9 +30,9 @@ decided when an ADR names them.
 | Session | `urn:tsk:session:<harness>:<id>` | the harness that minted the ID, then the ID | decided, ADR 0029 |
 | Harness instance | `urn:tsk:instance:<kind>:<key>` | `cloud` or `worktree`, then the instance key | decided, ADR 0029 |
 | Actor | `urn:tsk:actor:<uid>` | the actor's uid | decided, ADR 0030 |
-| Ledger | `urn:tsk:ledger:<ledger-id>` | the ledger's own identifier | proposed |
-| Thread | `urn:tsk:thread:<ledger-id>:<thread-id>` | the ledger, then the thread ID | proposed |
-| Mission | `urn:tsk:mission:<ledger-id>:<mission-id>` | the ledger, then the internal ID `missions.id`, never the code | proposed |
+| Ledger | `urn:tsk:ledger:<ledger-id>` | the ledger's own identifier | decided, M-TSK-ADHOC 2026-10-30, built in 0.39.0 |
+| Thread | `urn:tsk:thread:<ledger-id>:<thread-id>` | the ledger, then the thread ID | decided, built in 0.39.0 |
+| Mission | `urn:tsk:mission:<ledger-id>:<mission-id>` | the ledger, then the internal ID `missions.id`, never the code | decided, built in 0.39.0 |
 | Task, decision, question | none yet | | open |
 | Document | none | | not planned |
 
@@ -45,10 +45,11 @@ The harness names in use are `claude-cloud`, `claude-cli`, `copilot-cli` and `pi
   within the harness that minted it, and two harnesses can mint the same string.
 - **Actor** carries the uid alone. A uid is a UUID, unique everywhere, and the name is not
   in the URN because a name can change (ADR 0030).
-- **Ledger** needs an identifier of its own. Today the manifest holds `repo_id`, which is a
-  nexus entry ID, absent for an in-repo ledger, and unique only inside one nexus. The
-  proposal is a UUID minted once, in a new manifest key `ledger_id`, added at the next
-  write for a ledger that has none.
+- **Ledger** needs an identifier of its own. The manifest holds `repo_id`, which is a nexus
+  entry ID, absent for an in-repo ledger, and unique only inside one nexus. The manifest
+  key `ledger_id` (layout 12) is a UUID: minted at creation for a new ledger, and derived
+  from the hash of the root Dolt commit at the upgrade for a ledger that has none, so
+  every clone of one ledger derives the same value.
 - **Thread** carries the ledger, because a thread ID is 8 characters unique only among the
   threads of its ledger.
 - **Mission** carries the ledger and the internal ID, because the code a person types is
@@ -65,12 +66,13 @@ The harness names in use are `claude-cloud`, `claude-cli`, `copilot-cli` and `pi
 - A commit trailer: `Agent-Session: <session URN>` (ADR 0029), and the actor trailer of
   M-TSK-ATTRIB, `<actor URN>` in place of a plain name, so a commit still names the right
   actor after a rename.
-- `written_by` of a continuation entry: the session URN from ADR 0030; the instance URN
-  before it; a reader accepts both and the two older forms.
+- `written_by` of a continuation entry: the session URN from 0.39.0 (ADR 0030); the instance
+  key or the instance URN before it; a reader accepts all of them and the two older forms.
 - A task claim (M-TSK-COMMS T-03): the actor URN and the session URN.
 - The session start context: the thread, the session URN, the instance URN and the actors
   (ADR 0030 decision 8).
-- The `--json` output of a record prints its URN beside its ID, once the form is decided.
+- The `--json` output of a record prints its URN beside its ID: `tsk actor list`, `tsk
+  thread list` and `tsk mission list` from 0.39.0, and `tsk ledger id` prints the ledger's.
 - A link from one ledger to a record of another, which a nexus-level view needs, uses the
   thread or mission URN with the ledger in it.
 
@@ -85,9 +87,6 @@ unknown session of a known instance.
 
 ## Open points
 
-- **Ledger identifier.** Whether `ledger_id` is a UUID minted at creation, as proposed, or
-  derived from something the ledger already has. Nothing it already has is unique across
-  nexuses.
 - **Task, decision and question uids.** Whether each row gets a uid column, so a claim, a
   trailer or a cross-ledger link keeps pointing at the right row after a renumber. The cost
   is one column per table and the upgrade that fills it.

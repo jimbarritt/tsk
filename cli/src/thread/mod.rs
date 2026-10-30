@@ -4,6 +4,7 @@ pub mod entry;
 pub mod ops;
 pub mod session;
 pub mod session_start;
+pub mod writers;
 
 use std::io::Read;
 
@@ -109,7 +110,7 @@ pub enum ThreadCommands {
         dry_run: bool,
     },
     #[command(
-        about = "Print this session's or worktree's binding as cloud:<thread-id> or worktree:<thread-id>, then actor: <name> (<kind>) on a second line when this session or worktree is registered as an actor (tsk actor register); exit status 1 and no output with no binding. A worktree that still has a tsk-thread-id marker file gets a binding row from it, and the file is removed (not with --no-fetch)"
+        about = "Print this session's or worktree's binding as cloud:<thread-id> or worktree:<thread-id>, then actor: <name> (<kind>) on a second line when the session has a primary actor (tsk actor register); exit status 1 and no output with no binding. A worktree that still has a tsk-thread-id marker file gets a binding row from it, and the file is removed (not with --no-fetch)"
     )]
     Binding {
         #[arg(long, help = "Read the existing ledger worktree without fetching")]
@@ -398,7 +399,8 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                 Some(binding) => {
                     println!("{}", binding);
                     // The actor, on a line of its own, so the first line stays the
-                    // binding alone.
+                    // binding alone. The session, the instance and the session's actors
+                    // are in the session start context and `tsk session actor` (ADR 0030).
                     if let Some(actor) = crate::actor::current(&session)? {
                         println!("actor: {}", actor.label());
                     }

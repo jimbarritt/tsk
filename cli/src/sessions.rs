@@ -245,6 +245,111 @@ pub fn run(action: SessionCommands) -> Result<i32, String> {
     }
 }
 
+/// Give a new session the actors of the session it continues (ADR 0030, decision 6). With
+/// actors of its own already, nothing changes. Else the latest pause on the bound thread
+/// written by a session of this instance supplies them; else the latest recorded session of
+/// this instance that has a primary actor; else the actor the instance registered as (the
+/// link a ledger below layout 12 holds). A ledger that has no `ledger_id` is below layout
+/// 12: nothing is written, because a session start is not a write that upgrades.
+pub fn continue_actors(session: &Session, urn: &str) -> Result<(), String> {
+    use crate::ledger::store::{ActorRole, SessionActorRow};
+    use crate::thread::writers::Writers;
+
+    let store = session.store.as_ref();
+    if store.ledger_id()?.is_none() {
+        return Ok(());
+    }
+    let session_actors = store.session_actors_list()?;
+    if session_actors.iter().any(|row| row.session == urn) {
+        return Ok(());
+    }
+    let Some((instance, _)) = session.actor_key()? else {
+        return Ok(());
+    };
+    let writers = Writers::load(store)?;
+    let now = utc_now();
+    // The pause this instance continues from.
+    let from_pause = crate::thread::binding::resolve_local(session)?
+        .and_then(|binding| crate::thread::ops::entries_of(store, binding.thread_id()).ok())
+        .and_then(|entries| writers.latest_session_of_instance(&entries, &instance));
+    let mut rows: Vec<SessionActorRow> = Vec::new();
+    if let Some(previous) = from_pause {
+        rows = session_actors
+            .iter()
+            .filter(|row| row.session == previous)
+            .cloned()
+            .collect();
+    }
+    if rows.is_empty() {
+        // The latest session of this instance that has actors.
+        let mut sessions: Vec<_> = store
+            .sessions_list()?
+            .into_iter()
+            .filter(|row| row.instance == instance && row.session != urn)
+            .collect();
+        sessions.sort_by(|a, b| a.started_at.cmp(&b.started_at));
+        for previous in sessions.iter().rev() {
+            let found: Vec<SessionActorRow> = session_actors
+                .iter()
+                .filter(|row| row.session == previous.session)
+                .cloned()
+                .collect();
+            if !found.is_empty() {
+                rows = found;
+                break;
+            }
+        }
+    }
+    if rows.is_empty() {
+        if let Some(uid) = writers.resolve(&instance).actor_uid {
+            rows.push(SessionActorRow {
+                session: urn.to_string(),
+                actor_uid: uid,
+                role: ActorRole::Primary,
+                joined_at: now.clone(),
+            });
+        }
+    }
+    // The primary first, so a replace of the primary never demotes it.
+    rows.sort_by_key(|row| row.role != ActorRole::Primary);
+    for row in rows {
+        store.session_actor_set(&SessionActorRow {
+            session: urn.to_string(),
+            actor_uid: row.actor_uid,
+            role: row.role,
+            joined_at: now.clone(),
+        })?;
+    }
+    Ok(())
+}
+
+/// The lines after the binding in `tsk thread binding` and the session start context: the
+/// session URN, the instance URN, and one line per actor of the session (ADR 0030, decision
+/// 8). Empty when the session has no URN.
+pub fn binding_lines(session: &Session) -> Result<Vec<String>, String> {
+    let Some(urn) = session.session_urn() else {
+        return Ok(Vec::new());
+    };
+    let mut lines = vec![format!("session: {}", urn)];
+    if let Some((instance, kind)) = session.actor_key()? {
+        lines.push(format!("instance: {}", instance_urn(kind, &instance)));
+    }
+    for (role, actor) in crate::actor::actors_of_session(session.store.as_ref(), &urn)? {
+        lines.push(format!(
+            "{}: {} ({}) {}",
+            role.as_str(),
+            actor.name,
+            actor.kind.as_str(),
+            actor
+                .uid
+                .as_deref()
+                .map(crate::actor::actor_urn)
+                .unwrap_or_default()
+        ));
+    }
+    Ok(lines)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

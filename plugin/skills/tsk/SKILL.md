@@ -35,29 +35,35 @@ To see the state of the work, run `tsk mission list` for the missions, `tsk miss
 <id> --json` for one mission in full, `tsk task list <id>`, `tsk decision list <id>` and
 `tsk question list`. There is no index document and no briefing document to read.
 
-A **binding** ties the current session or code worktree to a thread:
+A **binding** ties the current harness instance to a thread:
 
-Every binding is one row of the ledger's `bindings` table, keyed on the actor:
+Every binding is one row of the ledger's `thread_bindings` table, keyed on the instance:
 
-- In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` set), the actor is the session ID.
-- Otherwise, the actor is the code worktree: `<clone-id>/<worktree-name>`, where the clone
-  ID is in `.git/tsk-clone-id` and the worktree name is `main` for the main worktree or the
-  name of the linked worktree.
+- In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` set), the instance is the session ID.
+- Otherwise, the instance is the code worktree: `<clone-id>/<worktree-name>`, where the
+  clone ID is in `.git/tsk-clone-id` and the worktree name is `main` for the main worktree
+  or the name of the linked worktree.
 
-A session or code worktree has one binding, so binding it again replaces the old one. More than one session
-or code worktree can bind to the same thread, and `tsk thread list` shows them in `actors`,
-an array of `{"actor", "kind", "name"}` objects (`cloud` or `worktree`; `name` is the actor
-the instance registered as, or `null`), empty when none is bound.
-Resuming a thread that another actor wrote to binds anyway, and prints a warning.
+An instance has one binding, so binding it again replaces the old one. More than one
+instance can bind to the same thread, and `tsk thread list` shows them in `actors`, an
+array of `{"actor", "kind", "name"}` objects (`cloud` or `worktree`; `name` is the actor of
+the instance's latest session, or `null`), empty when none is bound. Resuming a thread that
+another actor wrote to binds anyway, and prints a warning.
 
-An **actor** is a human or a robot, with a name and a kind. Its identity persists outside
-any harness instance. A **harness instance** is the running harness: a cloud session, or a
-code worktree of a clone, the same key as `bindings.actor`. An instance registers as an
-actor with `tsk actor register <name> --kind human|robot`, which is separate from binding
-to a thread and needs none. A new name makes the actor; a name already registered must
-have the same kind, and the instance then joins it. The registration stays through a
-rebind, a detach and a stop. `tsk actor name` prints the name this instance is registered
-as, or `no actor registered`. `tsk actor list` lists the actors with their instances.
+A **harness instance** is a place where a harness runs: a cloud session, or a code
+worktree of a clone. A **session** is one conversation in it: in the cloud the two are one,
+and in a terminal each `/clear` starts a new session of the same worktree. An **actor** is
+a human or a robot, with a uid, a name that can change, and a kind. An actor belongs to a
+session, never to an instance (ADR 0030): a session has one primary actor and any number
+of supporting actors. `tsk actor register <name> --kind human|robot` makes the actor when
+the name is new and makes it the primary actor of this session; a name already registered
+must have the same kind, and the session then joins that actor. A new session takes its
+actors from the session it continues: the one that wrote the latest pause on its thread
+from the same instance, else the latest session of the instance. `tsk actor join <uid>
+[--primary]` adds an actor to this session, for example the human who supervises it.
+`tsk actor name` prints the primary actor's name, or `no actor registered`. `tsk session
+actor` lists the actors of this session. `tsk actor list` lists the actors with their uids
+and instances.
 `tsk thread binding` and the session start context name the actor when the instance is
 registered. Registering is a local write; the next push publishes it.
 
@@ -135,10 +141,13 @@ tsk thread skip                                                       work witho
 tsk thread stop [<thread-id>]                                         delete a thread and every cloud binding to it, push
 tsk thread list                                                       list threads, most recently paused first
 tsk thread title                                                      print the session title: <mission-id>: <actor name>, the name alone, or the mission ID alone; exit 1 with neither; read-only, never fetches
-tsk thread binding [--no-fetch]                                       print the current binding, and the actor when registered
-tsk actor register <name> --kind human|robot                          register this session or code worktree as an actor; local, tsk ledger push publishes
-tsk actor name                                                        print the actor this session or code worktree is registered as
-tsk actor list [--porcelain|--json]                                   list the actors and the instances registered as each
+tsk thread binding [--no-fetch]                                       print the current binding, and the primary actor when the session has one
+tsk actor register <name> --kind human|robot                          make the actor (a new name) and make it the primary actor of this session; prints its URN; local, tsk ledger push publishes
+tsk actor join <uid> [--primary] [--session <urn>]                    add an actor to this session (or the named one) as supporting, or as primary; local
+tsk actor name                                                        print the name of the primary actor of this session
+tsk actor list [--porcelain|--json]                                   list the actors: name, kind, uid, and the instances that ran as each; --json adds the URN and the name history
+tsk session actor [--session <urn>]                                   list the actors of this session: role, name, kind, uid
+tsk ledger id                                                         print the ledger's URN, urn:tsk:ledger:<ledger-id>
 tsk actor git-identity                                                write the registered robot's git identity to the repo's local git config when [attribution] identity is robot; needs TSK_ROBOT_SIGNING_KEY
 tsk config attribution [default|robot] [--email <address>]            print the [attribution] settings and where each came from, or write them to .tsk/config.toml
 tsk session find <urn|id>                                             print the harness instance and the actor of a recorded session; exit 1 when none matches
