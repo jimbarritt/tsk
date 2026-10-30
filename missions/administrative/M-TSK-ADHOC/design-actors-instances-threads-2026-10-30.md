@@ -108,13 +108,13 @@ The questions are in the order they need answering. Each has the answer I propos
   record of sessions that ADR 0029 decision 5 adds: its columns (the session URN, the instance
   key, the start time, and whether an end time is kept) and whether the actor and supervision
   links of Q-C sit on it. T-33 keeps both flags, `--session` and `--instance`.
-- **Q-B. Is an actor identified by a uid, with a name that can change?** Proposal: yes. A uid
-  is minted at `register` and is the key of `actors`; `instances` and every future link
-  (claims, supporting actors) name the uid. The name stays unique for now, so `register` of
-  an existing name joins that actor and a new name makes one, as today, and no clash rule is
-  needed until names collide in practice. This keeps the current behaviour and adds the uid
-  under it. M-TSK-NAMES T-13 and T-33 point 1 are the same work. T-33 point 6 (refuse an
-  existing name) is dropped: a regenerated session must be able to rejoin its actor by name.
+- **Q-B. Is an actor identified by a uid, with a name that can change?** Settled by Jim,
+  2026-10-30: yes. A uid is minted at `register` and is the key of `actors`. `instances` and
+  every later link (claims, supporting actors, commit trailers) name the uid. A name is a
+  property that can change, and **a previous name is kept as a history**. The name stays unique
+  for now, so `register` of an existing name joins that actor and a new name makes one, as
+  today. M-TSK-NAMES T-13 and T-33 point 1 are the same work. T-33 point 6 (refuse an existing
+  name) is dropped, because a regenerated session must rejoin its actor by name.
 - **Q-C. Which thing holds the primary and supporting actors?** Proposal: the instance holds
   the primary actor, the one it registered as. A session holds its supporting actors. The
   reason is the ubiquitous language: operating context (supervised, unsupervised) "is a
@@ -220,6 +220,11 @@ urn:tsk:instance:<kind>:<key>                         (ADR 0029)
 - `actors` gets a `uid` column, filled for existing rows at upgrade; `instances` gets
   `actor_uid`; a new `instance_actors` table holds supporting actors (`instance`, `actor_uid`,
   `role`), or `instances` keeps the primary and the new table the supporting ones.
+- `actors` keeps the current `name`. A new table `actor_names` (`actor_uid`, `name`, `from`,
+  `until`) keeps every earlier name with the time it held it, and the current name has no
+  `until`. A rename appends a row and closes the last one. Both tables are additive, so two
+  clones that upgrade on their own merge. A lookup by name finds the actor by its current name,
+  and by an earlier name when no current name matches, and says that it matched a former name.
 - `tsk actor register` prints the uid and the actor URN. `tsk actor join <uid> [--session <urn>]
   [--instance <urn>] [--primary]` is the only new command; with no flag it acts on the current
   session. `tsk actor name` prints the primary and lists the supporting.
