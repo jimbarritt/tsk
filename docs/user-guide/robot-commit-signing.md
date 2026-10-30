@@ -6,6 +6,25 @@ author and shows a Verified badge on GitHub. This is mission M-TSK-ATTRIB.
 Steps 1 to 5 are done once, by a person. Step 6 is what each robot session does. Steps 7
 and 8 check the result.
 
+## It is optional
+
+The feature is off unless a repo or a user turns it on. With nothing set, tsk writes no git
+config, and commits keep the author that the environment gives them.
+
+To turn it on for a repo, run this at the top of the repo, then commit `.tsk/config.toml`:
+
+```bash
+tsk config attribution robot --email robots@jimbarritt.com
+```
+
+To turn it on for yourself in every repo, add the same two keys under `[attribution]` in
+`~/.config/tsk/config.toml`. `tsk config attribution` prints what is in force and where each
+value came from. `tsk config attribution default` turns it off for a repo.
+
+A robot commit is signed and shows Verified only after steps 1 to 5 are done, and a session
+reads the key from the environment secret `TSK_ROBOT_SIGNING_KEY`. Without the key, `tsk`
+prints a warning and commits keep the default author. It needs `tsk` 0.37.0 or later.
+
 ## What a robot commit looks like
 
 | Field | Value |
