@@ -139,6 +139,10 @@ tsk thread binding [--no-fetch]                                       print the 
 tsk actor register <name> --kind human|robot                          register this session or code worktree as an actor; local, tsk ledger push publishes
 tsk actor name                                                        print the actor this session or code worktree is registered as
 tsk actor list [--porcelain|--json]                                   list the actors and the instances registered as each
+tsk actor git-identity                                                write the registered robot's git identity to the repo's local git config when [attribution] identity is robot; needs TSK_ROBOT_SIGNING_KEY
+tsk config attribution [default|robot] [--email <address>]            print the [attribution] settings and where each came from, or write them to .tsk/config.toml
+tsk session find <urn|id>                                             print the harness instance and the actor of a recorded session; exit 1 when none matches
+tsk session list [--porcelain|--json]                                 list the recorded sessions: session URN, instance URN, actor, start time
 tsk thread prune-bindings [--older-than <days>] [--dry-run]           remove old cloud bindings, local; tsk ledger push publishes
 tsk thread guard                                                      Stop hook check for a binding; never fetches
 tsk thread session-start [--format claude|copilot] [--plugin-version <semver>]

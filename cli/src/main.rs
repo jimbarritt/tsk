@@ -38,6 +38,7 @@ Daily work:
   question        Ask, answer and list the questions of a mission
   thread          Start, pause, resume and stop the thread this session works on
   actor           Register this session as an actor and list the actors
+  session         Find the harness instance and the actor of a session
 
 Ledger:
   ledger          Fetch, push and inspect the ledger; read and write its documents
@@ -80,6 +81,13 @@ enum Commands {
     Actor {
         #[command(subcommand)]
         action: actor::ActorCommands,
+    },
+    #[command(
+        about = "Find the harness instance and the actor of a session by its URN, and list the recorded sessions"
+    )]
+    Session {
+        #[command(subcommand)]
+        action: sessions::SessionCommands,
     },
     #[command(about = "Fetch, locate and push the ledger branch")]
     Ledger {
@@ -210,6 +218,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
     match cli.command {
         Some(Commands::Thread { action }) => thread::run(action),
         Some(Commands::Actor { action }) => actor::run(action),
+        Some(Commands::Session { action }) => sessions::run(action),
         Some(Commands::Ledger { action }) => ledger::run(action).map(|()| 0),
         Some(Commands::Events { action }) => events::run(action),
         Some(Commands::Mission { action }) => mission::run(action).map(|()| 0),
@@ -246,6 +255,8 @@ mod thread;
 
 mod actor;
 mod attribution;
+
+mod sessions;
 
 mod events;
 

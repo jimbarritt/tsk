@@ -10,8 +10,8 @@ pub const MANIFEST_FILE: &str = ".tsk-ledger.toml";
 /// Version 8 replaces `cloud_session_bindings` with `bindings`, which also holds the
 /// bindings of local worktrees. Version 9 adds `bindings.name`, the chosen name of an
 /// actor. Version 10 gives a mission an internal `uid`, which every other mission table names
-/// it by.
-pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+/// it by. Version 11 adds `sessions`, which maps a session URN to its harness instance.
+pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
 /// How the unsupported-version error starts. `auto_update` finds the error by this
 /// prefix, so the text is built from it and from nothing else.
@@ -84,9 +84,9 @@ mod tests {
     #[test]
     fn the_unsupported_layout_is_read_back_from_the_error_check_values_makes() {
         let err =
-            check_values(11, None, None, "the manifest", DOLT_SUPPORTED_VERSIONS).unwrap_err();
-        assert_eq!(unsupported_layout(&err), Some(11));
-        assert_eq!(unsupported_layout(&format!("note\n{}", err)), Some(11));
+            check_values(12, None, None, "the manifest", DOLT_SUPPORTED_VERSIONS).unwrap_err();
+        assert_eq!(unsupported_layout(&err), Some(12));
+        assert_eq!(unsupported_layout(&format!("note\n{}", err)), Some(12));
     }
 
     #[test]
@@ -158,8 +158,8 @@ mod tests {
     }
 
     #[test]
-    fn the_dolt_list_accepts_versions_one_to_ten_and_rejects_eleven() {
-        for ok in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] {
+    fn the_dolt_list_accepts_versions_one_to_eleven_and_rejects_twelve() {
+        for ok in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] {
             assert_eq!(
                 check_values(
                     ok,
@@ -173,16 +173,16 @@ mod tests {
             );
         }
         let err = check_values(
-            11,
+            12,
             None,
             None,
             "the manifest table",
             DOLT_SUPPORTED_VERSIONS,
         )
         .unwrap_err();
-        assert!(err.contains("unsupported ledger version 11"), "{}", err);
+        assert!(err.contains("unsupported ledger version 12"), "{}", err);
         assert!(
-            err.contains("supports version 1, 2, 3, 4, 5, 6, 7, 8, 9, 10"),
+            err.contains("supports version 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11"),
             "{}",
             err
         );

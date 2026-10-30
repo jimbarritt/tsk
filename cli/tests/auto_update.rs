@@ -53,7 +53,7 @@ impl Drop for Fixture {
 }
 
 impl Fixture {
-    /// A work clone with a fetched ledger whose manifest says layout 11, and a copy of
+    /// A work clone with a fetched ledger whose manifest says layout 12, and a copy of
     /// the built binary in `bin/` that stands for the installed tsk. The fetched ledger is
     /// built once per test process (see `common::templates`), and each test gets a copy.
     fn new() -> Fixture {
@@ -71,7 +71,7 @@ impl Fixture {
             .args([
                 "sql",
                 "-q",
-                "replace into manifest (k, v) values ('version', '11')",
+                "replace into manifest (k, v) values ('version', '12')",
             ])
             .current_dir(String::from_utf8_lossy(&path.stdout).trim_end())
             .env("HOME", fx.home())
@@ -212,7 +212,7 @@ fn err(o: &Output) -> String {
 
 fn warning() -> String {
     format!(
-        "warning: this ledger is at layout 11 and this tsk ({}) supports up to 10. Updating tsk now.",
+        "warning: this ledger is at layout 12 and this tsk ({}) supports up to 11. Updating tsk now.",
         RUNNING
     )
 }
@@ -259,10 +259,10 @@ fn a_tsk_that_still_does_not_support_the_layout_stops_with_the_guard_line() {
     );
     assert_eq!(o.status.code(), Some(1));
     let e = err(&o);
-    assert!(e.contains("error: unsupported ledger version 11"), "{}", e);
+    assert!(e.contains("error: unsupported ledger version 12"), "{}", e);
     assert!(
         e.trim_end().ends_with(
-            "tsk was updated but still does not support layout 11; update it by hand: tsk self-update"
+            "tsk was updated but still does not support layout 12; update it by hand: tsk self-update"
         ),
         "{}",
         e
@@ -298,7 +298,7 @@ fn the_opt_outs_keep_the_error_and_run_no_update() {
         let o = fx.with_update(&["mission", "list", "--porcelain"], "", &script, &[var]);
         assert_eq!(o.status.code(), Some(1), "{:?}", var);
         assert!(
-            err(&o).contains("error: unsupported ledger version 11"),
+            err(&o).contains("error: unsupported ledger version 12"),
             "{:?}: {}",
             var,
             err(&o)
@@ -325,7 +325,7 @@ fn the_update_script_is_ignored_without_test_mode() {
     assert!(!fx.marker().exists());
     assert!(err(&o).contains("has no release tag"), "{}", err(&o));
     assert!(
-        err(&o).contains("unsupported ledger version 11"),
+        err(&o).contains("unsupported ledger version 12"),
         "{}",
         err(&o)
     );
@@ -344,7 +344,7 @@ fn a_failed_update_prints_its_error_then_the_original_error() {
             .unwrap_or_else(|| panic!("{}: {}", needle, e))
     };
     assert!(at(&warning()) < at("the update script failed"));
-    assert!(at("the update script failed") < at("error: unsupported ledger version 11"));
+    assert!(at("the update script failed") < at("error: unsupported ledger version 12"));
     assert!(fx.marker().exists());
 }
 
@@ -357,7 +357,7 @@ fn an_update_that_does_not_raise_the_version_is_an_error() {
     assert_eq!(o.status.code(), Some(1));
     let e = err(&o);
     assert!(e.contains("not newer than"), "{}", e);
-    assert!(e.contains("error: unsupported ledger version 11"), "{}", e);
+    assert!(e.contains("error: unsupported ledger version 12"), "{}", e);
 }
 
 #[test]

@@ -48,6 +48,7 @@ pub const SCHEMA: &[&str] = &[
     "create table instances (instance varchar(255) primary key, kind enum('cloud','worktree') not null, actor_name varchar(200) not null, registered_at varchar(32) not null)",
     "create table external_events (position bigint primary key, envelope longtext not null)",
     "create table watermark (id int primary key, processed_through bigint not null, updated_at varchar(32) not null)",
+    "create table sessions (session varchar(255) primary key, instance varchar(255) not null, kind enum('cloud','worktree') not null, started_at varchar(32) not null)",
 ];
 
 /// The table a version 1 ledger holds its documents in. A new ledger does not create it.
@@ -169,8 +170,12 @@ pub const TASK_SCHEMA: &[&str] = &[
 /// mission's constraints and out-of-scope items are rows of their own, every session and
 /// worktree binding is a row of `bindings`, and the actors and the harness instances
 /// registered as them are rows of `actors` and `instances`, and a mission has a `code`
-/// that can change beside the internal `id` that cannot.
-pub const LAYOUT_VERSION: i64 = 10;
+/// that can change beside the internal `id` that cannot, and every session a harness instance
+/// runs is a row of `sessions`.
+pub const LAYOUT_VERSION: i64 = 11;
+/// The layout version with the `sessions` table, which maps a session URN to the harness
+/// instance it ran in.
+pub const SESSIONS_LAYOUT_VERSION: i64 = 11;
 /// The layout version with `missions.code`, the mission ID a person types. `missions.id`
 /// is then the internal ID of a mission, which a rename never changes.
 pub const CODE_LAYOUT_VERSION: i64 = 10;
@@ -272,6 +277,13 @@ pub fn upgrade_sql_moving(from: i64, moved: &str) -> String {
     if (MISSIONS_LAYOUT_VERSION..CODE_LAYOUT_VERSION).contains(&from) {
         sql.push_str(CODE_UPGRADE_SQL);
     }
+    // No layout below 11 has `sessions`. The table starts empty: a session start adds rows.
+    if from < SESSIONS_LAYOUT_VERSION {
+        for statement in SESSIONS_SCHEMA {
+            sql.push_str(statement);
+            sql.push_str(";\n");
+        }
+    }
     sql.push_str(&version_sql());
     sql
 }
@@ -290,6 +302,9 @@ const BINDINGS_UPGRADE_SQL: &str = "create table bindings (actor varchar(255) pr
 /// The version 9 step: the `actors` and `instances` tables of [`SCHEMA`], which no older
 /// layout has. Both start empty: an instance registers with `tsk actor register`.
 const ACTORS_SCHEMA: &[&str] = &[SCHEMA[4], SCHEMA[5]];
+
+/// The version 11 step: the `sessions` table of [`SCHEMA`], which no older layout has.
+const SESSIONS_SCHEMA: &[&str] = &[SCHEMA[8]];
 
 /// [`upgrade_sql_moving`] for a ledger that has no mission text to move.
 pub fn upgrade_sql(from: i64) -> String {
@@ -1020,7 +1035,8 @@ mod tests {
         assert!(sql.contains("kind enum('cloud','worktree') not null"));
         assert!(sql.contains("create table actors (name varchar(200) primary key, kind enum('human','robot') not null"));
         assert!(sql.contains("create table instances (instance varchar(255) primary key, kind enum('cloud','worktree') not null, actor_name varchar(200) not null"));
-        assert!(sql.contains("('version', '10')"));
+        assert!(sql.contains("create table sessions (session varchar(255) primary key, instance varchar(255) not null, kind enum('cloud','worktree') not null, started_at varchar(32) not null)"));
+        assert!(sql.contains("('version', '11')"));
         assert!(sql.contains("id varchar(64) not null primary key, code varchar(64) null, name"));
         assert!(sql.contains("unique key missions_code_unique (code)"));
         assert!(sql.contains("mission_id varchar(64) null"));
@@ -1037,12 +1053,12 @@ mod tests {
         assert!(!from_four.contains("create table missions "));
         assert!(!from_four.contains("create table tasks "));
         assert!(from_four.contains("alter table decisions add column adr_path varchar(1024) null"));
-        assert!(from_four.ends_with("('version', '10');\n"));
+        assert!(from_four.ends_with("('version', '11');\n"));
         let from_five = upgrade_sql(5);
         assert!(!from_five.contains("alter table threads"));
         assert!(!from_five.contains("create table tasks "));
         assert!(from_five.contains("alter table decisions add column adr_path"));
-        assert!(from_five.ends_with("('version', '10');\n"));
+        assert!(from_five.ends_with("('version', '11');\n"));
         let from_six = upgrade_sql(6);
         assert!(!from_six.contains("alter table decisions"));
         assert!(!from_six.contains("alter table threads"));
@@ -1052,7 +1068,7 @@ mod tests {
         assert!(from_six.contains("drop column constraints_text"));
         assert!(from_six.contains("drop column out_of_scope"));
         assert!(!from_six.contains("create table missions "));
-        assert!(from_six.ends_with("('version', '10');\n"));
+        assert!(from_six.ends_with("('version', '11');\n"));
         let from_seven = upgrade_sql(7);
         assert!(from_seven.contains("create table bindings "));
         assert!(from_seven.contains(
@@ -1063,21 +1079,30 @@ mod tests {
         // The one alteration is the layout 10 column.
         assert_eq!(from_seven.matches("alter table").count(), 2);
         assert!(from_seven.contains("alter table missions add column code"));
-        assert!(from_seven.ends_with("('version', '10');\n"));
+        assert!(from_seven.ends_with("('version', '11');\n"));
         let from_eight = upgrade_sql(8);
         assert_eq!(
             from_eight,
             format!(
-                "{};\n{};\n{}replace into manifest (k, v) values ('version', '10');\n",
-                SCHEMA[4], SCHEMA[5], CODE_UPGRADE_SQL
+                "{};\n{};\n{}{};\nreplace into manifest (k, v) values ('version', '11');\n",
+                SCHEMA[4], SCHEMA[5], CODE_UPGRADE_SQL, SCHEMA[8]
             )
         );
-        // From layout 9 only the code step runs, and it adds a column and an index.
+        // From layout 9 the code step and the sessions step run. The code step adds a column
+        // and an index.
         assert_eq!(
             upgrade_sql(9),
             format!(
-                "{}replace into manifest (k, v) values ('version', '10');\n",
-                CODE_UPGRADE_SQL
+                "{}{};\nreplace into manifest (k, v) values ('version', '11');\n",
+                CODE_UPGRADE_SQL, SCHEMA[8]
+            )
+        );
+        // From layout 10 only the sessions step runs.
+        assert_eq!(
+            upgrade_sql(10),
+            format!(
+                "{};\nreplace into manifest (k, v) values ('version', '11');\n",
+                SCHEMA[8]
             )
         );
         assert!(CODE_UPGRADE_SQL.contains("add column code varchar(64) null after id"));

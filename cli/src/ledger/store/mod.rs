@@ -133,6 +133,16 @@ pub struct InstanceRow {
     pub registered_at: String,
 }
 
+/// One row of `sessions`: a session (named by its URN, `urn:tsk:session:<harness>:<id>`) and
+/// the harness instance it ran in, with the instance key and kind of `instances`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionRow {
+    pub session: String,
+    pub instance: String,
+    pub kind: BindingKind,
+    pub started_at: String,
+}
+
 /// The mission and briefing a thread stores. A thread made before layout version 5 has
 /// no stored mission ID: [`crate::thread::ops::thread_mission`] derives it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -309,6 +319,13 @@ pub trait LedgerStore {
     /// first call on a Dolt ledger below version 9 upgrades it. The change is local until
     /// the caller pushes it.
     fn instance_set(&self, row: &InstanceRow) -> Result<(), String>;
+    /// Every session recorded, sorted by start time and then URN. Empty on a Dolt ledger below
+    /// version 11, which has no `sessions` table; a read upgrades nothing.
+    fn sessions_list(&self) -> Result<Vec<SessionRow>, String>;
+    /// Record a session, and change nothing when the session is already recorded. On a Dolt
+    /// ledger below version 11 it records nothing and upgrades nothing: a session start is not
+    /// a write that upgrades. The change is local until the caller pushes it.
+    fn session_add(&self, row: &SessionRow) -> Result<(), String>;
     /// Remove an actor's binding, if it has one.
     fn binding_remove(&self, actor: &str) -> Result<(), String>;
     /// Remove the bindings of several actors in one write. An actor with no binding is

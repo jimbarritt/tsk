@@ -622,7 +622,13 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
         warnings.extend(install_plugin_warning());
     }
     let mut context = Session::discover()
-        .and_then(|session| context_after_fetch(&session))
+        .and_then(|session| {
+            let context = context_after_fetch(&session);
+            // Record the session beside its harness instance (ADR 0029). A failure here
+            // never fails the hook: the session still works, and has no row.
+            let _ = crate::sessions::record(&session, format, input.session_id.as_deref());
+            context
+        })
         .unwrap_or_else(|e| failure_context(&e));
     if !cloud_install {
         if let Some(notice) = session_notice() {

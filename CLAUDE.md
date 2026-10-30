@@ -6,7 +6,9 @@ Start at [docs/index.md](docs/index.md) to find design docs, domain model, user 
 
 Missions, objectives, constraints, out of scope, tasks, decisions, questions and thread
 state are now records: typed rows in the Dolt database, written through `tsk` commands.
-The ledger is at layout 10 (layout 9 plus `missions.code` of 0.30.0: a mission has an
+The ledger is at layout 11 (layout 10 plus `sessions` of 0.38.0: a row for each session, naming
+its harness instance, so `tsk session find` maps a session to its instance and actor. Layout 10 is
+layout 9 plus `missions.code` of 0.30.0: a mission has an
 internal ID and the code a person types, so `tsk mission mv` renames it by one cell).
 Layout 9 added the `actors` and `instances` tables of 0.26.0. Markdown briefings and `index.md` are no longer the state of the work. Documents stay Markdown on `tsk/docs` for intelligence, research and reports.
 
