@@ -1511,7 +1511,7 @@ without a thread. Never in the ledger and never pushed.
 | Timestamp | UTC, second precision, `YYYY-MM-DDTHH:MM:SSZ` (`date -u +%Y-%m-%dT%H:%M:%SZ`). |
 | Commit | A git commit is the full 40-character lowercase hexadecimal SHA-1. A Dolt commit is a 32-character hash. |
 | Thread ID | 8 characters, `[0-9a-z]`. Minted as 8 lowercase hexadecimal characters; IDs minted before hex minting are base36 (for example `4onylfsg`) and stay valid. Unique among the threads of the ledger: a new ID that matches an existing thread is discarded and minted again, up to 100 attempts. |
-| Actor URN | `urn:tsk:cloudsession:<CLAUDE_CODE_REMOTE_SESSION_ID>` in a cloud session, otherwise `urn:tsk:worktree:<name>`, where `<name>` is the basename of `git rev-parse --git-dir` (`.git` in a main code worktree). It appears in commit messages of bind and detach pushes. A pause entry's `written_by` is the actor key instead. |
+| Actor URN | `urn:tsk:instance:<kind>:<key>`, the URN of a harness instance (ADR 0029): `<kind>` is `cloud` or `worktree`, and `<key>` is the instance key, the cloud session ID or `<clone-id>/<worktree-name>`. A pause entry's `written_by` holds the bare instance key. The URN is its fallback for a code worktree of a clone with no clone ID, where `<key>` is the basename of `git rev-parse --git-dir` (`.git` in a main code worktree). Entries and commit messages written before ADR 0029 hold `urn:tsk:cloudsession:<id>` and `urn:tsk:worktree:<name>`, and stay valid. |
 | Text encoding | UTF-8. JSON strings use standard JSON escaping. |
 
 ## Fetching and printing the path

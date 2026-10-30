@@ -120,8 +120,9 @@ compaction, or `<clone-id>/<worktree-name>` locally, where the CLI mints a new s
 at every `/clear`. A harness instance [registers](#actor) as an actor and
 [binds](#binding) to a thread; the two are separate records. The `bindings` table's
 `actor` column contains this identifier from layout 8; it is a harness instance key, and the
-column keeps its name. Chosen over "instance" alone (too general) and "session" (the
-platforms do not use it consistently). Jim, 2026-10-24.
+column keeps its name. Its URN is `urn:tsk:instance:<cloud|worktree>:<key>` (ADR 0029), which
+replaces `urn:tsk:cloudsession:<id>` and `urn:tsk:worktree:<name>`. Chosen over "instance"
+alone (too general) and "session" (the platforms do not use it consistently). Jim, 2026-10-24.
 
 ## Thread
 
