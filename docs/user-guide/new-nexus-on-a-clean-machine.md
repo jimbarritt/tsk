@@ -128,6 +128,10 @@ fetched and no copy is held from an earlier fetch, the command exits 1 with the 
 
 ## 6. Register the managed repo
 
+A short version of steps 3 to 7 is in [nexus-quickstart.md](nexus-quickstart.md). Since 0.36.0 the
+registration needs the mission prefix of the repo's ledger, so run `tsk ledger fetch` and
+`tsk mission prefix <PREFIX>` in the managed repo first.
+
 In the managed repo:
 
 ```bash
