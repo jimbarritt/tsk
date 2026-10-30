@@ -60,6 +60,74 @@ mission 1 ---- 0..* thread 1 ---- 0..* binding 1 ---- 1 instance 1 ---- 1..* ses
   model connects a human to an instance a robot runs, so a supervised session has no record of
   its supervisor.
 
+## 2a. The thread as a timeline of sessions
+
+Jim, 2026-10-30: the thread is the context that binds several sessions. Its timeline is a
+sequence of sessions, each one a unit of execution. The thread is the coordination point for
+the work. (A session is then closer to a thread of an operating system than to the thread of
+this model. That dissonance is noted and parked.)
+
+Thread 01d143d5 as that timeline:
+
+| Order | Session | Instance | Actor | What happened |
+|---|---|---|---|---|
+| 1 | `cse_01NPz…` | cloud instance 1 | Plain Statement Of Fact | started the thread, worked T-37, paused |
+| 2 | `cse_01XoX…` | cloud instance 2 | Plain Statement Of Fact | resumed, updated tsk, paused for regenerate |
+| 3 | `cse_01Sw1…` | cloud instance 3 | Plain Statement Of Fact | resumed, working now |
+
+In the cloud each session is in its own instance. In a terminal the same table has one
+instance in every row and a new session at each `/clear`.
+
+The three relationships that follow:
+
+1. **Thread to session: one to many, in time.** A session works one thread. The thread's
+   history is its sessions in order, with a continuation entry at each pause.
+2. **Session to actor: one primary, any number supporting.** The actor is who did that unit
+   of execution. The actors of a thread are the actors of its sessions: a query over the
+   timeline, not a field on the thread.
+3. **Session to instance: many to one.** The instance is where the session ran: harness,
+   environment, capabilities. Jim, 2026-10-30: an instance is infrastructural and has no
+   direct connection to an actor.
+
+Today the ledger holds the binding and the registration on the instance, and no session. The
+timeline above is therefore not readable from the ledger. It was read from the cloud
+session records and the `written_by` of the continuation entries.
+
+## 2b. What happens at `/clear` today
+
+The steps, from `plugin/hooks/session-start.sh`, `ops/local/claude-session-start.sh` and
+`cli/src/thread/session_start.rs` at 0.37.1:
+
+1. Claude Code ends the conversation. The process stays. In a terminal it mints a new session
+   ID. In the cloud the session ID (`cse_…`) stays the same.
+2. Claude Code fires `SessionStart` with `source: "clear"` and the session ID, to the repo's
+   hook and to the plugin's hook. Both run `tsk thread session-start` with that input.
+3. `tsk thread session-start` claims the event by session ID and source, so the second run
+   exits with no output. The source is used for nothing else: `tsk` is told of the `/clear`
+   and keeps no record of it.
+4. It starts the Dolt server if none runs, and in the cloud upgrades `tsk` and the plugin.
+5. `Session::discover` reads the instance key: `CLAUDE_CODE_REMOTE_SESSION_ID` in the cloud,
+   or `<clone-id>/<worktree-name>` from the git directory. The new terminal session ID is
+   read from the hook input for the claim and then dropped.
+6. The ledger is fetched and the store refreshed.
+7. The binding is resolved by the instance key: the `bindings` row. **This is where the
+   thread crosses the `/clear`: through the instance, not the session.**
+8. The actor is resolved by the same key: the `instances` row, then the `actors` row by name.
+   **This is where the actor crosses the `/clear`, the same way.**
+9. The context is printed: the mission, the latest continuation entry, a takeover warning when
+   `written_by` of that entry is another instance key, the actor, and the session title.
+   The git identity of the robot is written again from the attribution settings.
+10. Claude reads the context and runs the resume-thread skill, which writes its summary from
+    the context and runs no command.
+
+What is not written at a `/clear`: no continuation entry (a pause is a person's act), no
+session record, and no change to the binding. The work of the session that ended is on origin
+only if it paused or the `Stop` hook published it.
+
+So the ledger sees a terminal instance as one long session, and sees a cloud instance as one
+session that never clears. The sequence of sessions on a thread exists in the harness and in
+`git` (the `Agent-Session` trailer), and not in the ledger.
+
 ## 3. What the data shows
 
 From `tsk thread list` and `tsk actor list` on 2026-10-30:
