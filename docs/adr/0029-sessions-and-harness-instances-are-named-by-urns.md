@@ -62,8 +62,8 @@ without a rewrite.
    replaces it on the commits before the cutoff.
 
 4. **The prefix and the segment count are fixed. The set of harness names grows.** A new
-   harness adds a name. No old commit changes. The names in use are recorded in
-   `docs/domain/ubiquitous-language.md` under the term harness.
+   harness adds a name. No old commit changes. The names in use are listed under
+   Consequences.
 
 5. **The reverse lookup from a session to its harness instance is a ledger record.** A
    cloud session ID is also its instance key, so that case needs no record. A code
@@ -83,5 +83,6 @@ without a rewrite.
   rewrite (T-07) confirms this on every commit before it maps one to the other.
 - `urn:tsk:instance:` uses the word "instance" alone, where the domain term is "harness
   instance". The namespace `urn:tsk:` supplies the qualifier, so the segment stays short.
-- The harness names are the next decision. The candidates are `claude-cloud`, `claude-cli`,
-  `copilot-cli` and `pi`.
+- The harness names are `claude-cloud`, `claude-cli`, `copilot-cli` and `pi`. Claude Code in
+  the cloud and Claude Code on a machine are two harnesses: they mint different ID forms
+  and a reader looks each up in a different place (Jim, 2026-10-30).
