@@ -22,6 +22,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 - [mission-briefing-template.md](domain/mission-briefing-template.md): the shape a projection of a mission record will take, as a briefing for humans and agents. Projections are not built yet.
 - [session-continuation-design.md](domain/session-continuation-design.md): thread binding, the continuation state store, and the `/start-thread`, `/pause-thread`, `/resume-thread` commands.
 - [ledger-layout.md](domain/ledger-layout.md): the Dolt ledger (database location, tables, documents, the transport, push, status, manifest versions, migration of documents and of the transport), the removed files backend, the ledger refs and nexus URL normalisation, the continuation entry format, the external event queue, the local-only files, and what `tsk ledger fetch`, `tsk ledger path` and the session start command do.
+- [urn-scheme.md](domain/urn-scheme.md): the `urn:tsk:` names of the domain types: the rules, the forms for session, instance, actor (decided), ledger, thread and mission (proposed), why task, decision, question and document have none yet, where a URN is used, and the open points.
 
 ## User guide
 
