@@ -233,7 +233,7 @@ fn rerun(binary: &Path) -> Result<std::convert::Infallible, String> {
 mod tests {
     use super::*;
 
-    const ERR: &str = "error: unsupported ledger version 11 in the manifest; this tsk supports version 1, 2, 3, 4, 5, 6, 7, 8, 9, 10. Update tsk";
+    const ERR: &str = "error: unsupported ledger version 12 in the manifest; this tsk supports version 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11. Update tsk";
 
     #[test]
     fn the_switches_turn_the_update_off() {
@@ -247,17 +247,17 @@ mod tests {
 
     #[test]
     fn an_unsupported_layout_above_the_supported_ones_starts_an_update() {
-        assert_eq!(decide(ERR, false, None, None, None), Decision::Update(11));
+        assert_eq!(decide(ERR, false, None, None, None), Decision::Update(12));
     }
 
     #[test]
     fn the_loop_guard_stops_a_second_update_and_adds_the_line() {
         assert_eq!(
             decide(ERR, false, None, None, Some("1")),
-            Decision::KeepWithLine(still_unsupported_line(11))
+            Decision::KeepWithLine(still_unsupported_line(12))
         );
-        assert!(still_unsupported_line(11)
-            .starts_with("tsk was updated but still does not support layout 11;"));
+        assert!(still_unsupported_line(12)
+            .starts_with("tsk was updated but still does not support layout 12;"));
     }
 
     #[test]
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn a_layout_this_tsk_supports_is_not_a_newer_ledger() {
-        let old = ERR.replace("version 11", "version 0");
+        let old = ERR.replace("version 12", "version 0");
         assert_eq!(decide(&old, false, None, None, None), Decision::Keep);
     }
 

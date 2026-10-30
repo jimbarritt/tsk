@@ -118,6 +118,7 @@ A `mission_id` column in any table below holds the internal ID of a mission, `mi
 | `bindings` | `actor` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `thread_id` varchar(64); `registered_at` varchar(32) | One row per bound actor, of either kind. The actor key of a cloud session is the session ID (`cse_...`). The actor key of a local code worktree is `<clone-id>/<worktree-name>`: the ID in `.git/tsk-clone-id`, a slash, and `main` for the main worktree or the name of the linked worktree. A bind sets or replaces the actor's row. `thread stop` deletes every row that names the stopped thread. There is no foreign key to `threads`. It replaces the `tsk-thread-id` marker files. A ledger below version 8 holds the cloud rows in `cloud_session_bindings` (`session_id`, `thread_id`, `registered_at`) instead. Since 0.26.0 the `actor` column is the key of a harness instance (see `instances`); it keeps its name. |
 | `actors` | `name` varchar(200), primary key; `kind` enum(`human`, `robot`); `registered_at` varchar(32) | One row per actor: a human or a robot, by name. An actor's identity is its own, outside any harness instance. `tsk actor register` adds a row for a new name. Nothing deletes a row. Version 9. |
 | `instances` | `instance` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `actor_name` varchar(200); `registered_at` varchar(32) | One row per harness instance that registered as an actor. The key is the one `bindings.actor` holds: the session ID of a cloud session, or `<clone-id>/<worktree-name>` of a code worktree. `tsk actor register` sets or replaces the instance's row. There is no foreign key to `actors` or to `bindings`. A registration is separate from a binding: an instance may be registered and unbound, or bound and unregistered. Version 9. |
+| `sessions` | `session` varchar(255), primary key; `instance` varchar(255); `kind` enum(`cloud`, `worktree`); `started_at` varchar(32) | One row per session that ran `tsk thread session-start`. The key is the session URN, `urn:tsk:session:<harness>:<id>` (ADR 0029): the harness that minted the ID, then the ID. A cloud session is named by the cloud session ID, which is also its instance key. Any other session is named by the ID the harness gives its hook. `instance` and `kind` are the key and kind of the harness instance the session ran in, as `instances` and `bindings` hold them. A code worktree runs many sessions, one for each start and each `/clear`, so this table maps a session back to its instance. A second start of the same session changes nothing. There is no foreign key. `tsk session find` and `tsk session list` read it. Version 11. |
 | `external_events` | `position` bigint, primary key; `envelope` longtext | The external event queue, `position` from 1. `envelope` is the JSON line, in the format of the [event envelope](#event-envelope). |
 | `watermark` | `id` int, primary key; `processed_through` bigint; `updated_at` varchar(32) | One row, `id` 1, the processed position of the queue. No row reads as `0`. It replaces `watermark.json`. |
 | `missions` | `id` varchar(64), primary key; `code` varchar(64), null, unique; `name` varchar(255); `category` enum(`operational`, `administrative`); `status` enum(`todo`, `in-progress`, `done`), default `todo`; `parent` varchar(64), null, foreign key to `missions(id)`; `purpose`, `decision_authority` longtext, null; `next_objective`, `next_task`, `next_question`, `next_constraint`, `next_out_of_scope` int, default 1 | One row per mission. `id` is the internal ID: every other table names the mission by it, and it never changes. `code` is the mission ID a person types and sees, such as `M-NAMES`; a rename changes `code` and nothing else, and a `code` that is null reads as the `id`. A mission made before layout 10 has its first ID as both. A mission made from layout 10 on has a random UUID as `id`. Empty text is stored as null. Each `next_` column is the number the next objective outcome, task, question, constraint or out-of-scope item gets. It only grows, so a number is never reused. A ledger below version 7 has two more columns, `constraints_text` and `out_of_scope` (longtext, null), in place of the last two counters. |
@@ -533,7 +534,8 @@ Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::di
 
 ### Manifest version
 
-The `version` row of the `manifest` table is `9` for a ledger with the `actors` and
+The `version` row of the `manifest` table is `11` for a ledger with the `sessions` table, `10` for a
+ledger with `missions.code` and no `sessions` table, `9` for a ledger with the `actors` and
 `instances` tables, `8` for a ledger whose bindings, of cloud sessions and of code
 worktrees, are rows of `bindings` and that has no actor tables, `7` for a ledger whose constraints
 and out of scope are tables of their own with the bindings still in `cloud_session_bindings`, `6` for a ledger whose `decisions` table has
@@ -541,7 +543,7 @@ and out of scope are tables of their own with the bindings still in `cloud_sessi
 `mission_id`, `4` for a ledger with the mission, task, decision and question tables and the
 older `threads` table, `3` for a ledger with the mission tables only, and `2` for a
 ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
-backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8, 9 and 10. Version 1 is a ledger that still keeps its
+backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 and 11. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger is refused by every command except `tsk ledger fetch`,
@@ -565,7 +567,7 @@ documents in a `documents` table.
   alters `threads` and sets the `version` row to `10` in the same local Dolt change:
   `tsk thread start`, `tsk thread set mission`, and a mission, task, decision or question write.
   Reads, `thread skip` and a `thread pause` upgrade nothing, and neither does a write that is refused.
-  A version 2, 3, 4, 5 or 6 ledger takes the whole chain of changes up to version 10 at its first
+  A version 2, 3, 4, 5 or 6 ledger takes the whole chain of changes up to version 11 at its first
   such write.
 - A version 5 ledger works for everything it did before. `decision list` prints `-` as the
   ADR path of every decision, and `mission list --json` prints `adr` as null. The first
@@ -624,8 +626,8 @@ documents in a `documents` table.
   as the write. The step adds a column and an index and rewrites no key, so two clones that
   each upgrade write the same change and Dolt merges them. The same step ends the chain for
   a ledger at version 3 to 8. `tsk ledger status` labels the upgrade.
-- A `tsk` binary from before version 10 does not know the version. It stops at its manifest
-  check with `unsupported ledger version 10`, before it writes. The binary needs updating.
+- A `tsk` binary from before version 11 does not know the version. It stops at its manifest
+  check with `unsupported ledger version 11`, before it writes. The binary needs updating.
 - **Automatic update (tsk 0.18.0 and later).** A command refused with `unsupported ledger
   version N`, where N is above the highest layout this tsk supports, prints `warning: this
   ledger is at layout N and this tsk (X) supports up to M. Updating tsk now.` to stderr,

@@ -34,7 +34,7 @@ use super::doc_tree::DocTree;
 use super::renumber::{self, Renumbered};
 use super::{
     ActorKind, ActorRow, BindingKind, BindingRow, InstanceRow, LedgerStore, PushReport,
-    RefreshOutcome, ThreadInfo,
+    RefreshOutcome, SessionRow, ThreadInfo,
 };
 
 const MANIFEST_SOURCE: &str = "the manifest table";
@@ -123,6 +123,8 @@ const ACTORS_QUERY: &str =
     "select name, kind, registered_at from actors order by registered_at, name";
 const INSTANCES_QUERY: &str = "select instance, kind, actor_name, registered_at from instances \
      order by registered_at, instance";
+const SESSIONS_QUERY: &str = "select session, instance, kind, started_at from sessions \
+     order by started_at, session";
 /// A thread names its mission by the internal ID. The query reads the code, so a renamed
 /// mission shows its new ID. A thread whose mission has no record keeps the ID it was
 /// started with.
@@ -2724,6 +2726,36 @@ impl LedgerStore for DoltStore {
         ))
     }
 
+    fn sessions_list(&self) -> Result<Vec<SessionRow>, String> {
+        let rows = match self.db()?.rows(SESSIONS_QUERY) {
+            Ok(rows) => rows,
+            Err(e) if e.contains("table not found: sessions") => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        Ok(session_rows(&rows))
+    }
+
+    fn session_add(&self, row: &SessionRow) -> Result<(), String> {
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        // A session start upgrades nothing: a ledger below version 11 records no session
+        // until another write upgrades it.
+        if self.check_current(&db, &location)? < dolt::SESSIONS_LAYOUT_VERSION {
+            return Ok(());
+        }
+        self.write(
+            &db,
+            &format!(
+                "insert ignore into sessions (session, instance, kind, started_at) \
+                 values ({}, {}, {}, {});",
+                lit(&row.session),
+                lit(&row.instance),
+                lit(row.kind.as_str()),
+                lit(&row.started_at)
+            ),
+        )
+    }
+
     fn binding_remove(&self, actor: &str) -> Result<(), String> {
         self.write_bindings(&format!(
             "delete from bindings where actor = {};",
@@ -3124,6 +3156,20 @@ fn actor_rows(rows: &[serde_json::Value]) -> Vec<ActorRow> {
                 name: text(row, "name")?,
                 kind: ActorKind::parse(&text(row, "kind")?)?,
                 registered_at: text(row, "registered_at").unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+/// The sessions in the rows of [`SESSIONS_QUERY`].
+fn session_rows(rows: &[serde_json::Value]) -> Vec<SessionRow> {
+    rows.iter()
+        .filter_map(|row| {
+            Some(SessionRow {
+                session: text(row, "session")?,
+                instance: text(row, "instance")?,
+                kind: BindingKind::parse(&text(row, "kind")?)?,
+                started_at: text(row, "started_at").unwrap_or_default(),
             })
         })
         .collect()
