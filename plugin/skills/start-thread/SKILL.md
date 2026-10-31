@@ -1,12 +1,22 @@
 ---
 name: start-thread
-description: Bind this session or code worktree to a tsk thread, for a named mission or with no mission, minting a new thread if none exists yet. Invoke explicitly as /tsk:start-thread <mission>, or when a natural-language request names a mission to begin work on.
+description: Create a tsk thread for a harness instance that has no bound thread and no thread to join, for a named mission or with no mission. Invoke explicitly as /tsk:start-thread [<mission>], or from /tsk:switch-mission when nothing is bound. To change the mission of a bound thread, use /tsk:switch-mission.
 ---
 
 Backs the `/tsk:start-thread` command. This skill is the agent-facing wrapper around
 `tsk thread start`, which does the deterministic work.
 
+A thread is created only when the harness instance has no bound thread and no thread to
+join. Neither a mission nor a session creates one. A request to work on a mission, in a
+session that is bound to a thread, changes the focus of that thread: use `tsk:switch-mission`.
+
 ## Steps
+
+0. **Check the binding and the threads to join.** Run `tsk thread binding`. Exit 0 means
+   this session is bound: do not start a thread. Use `tsk:switch-mission` to change the
+   mission, or `tsk:resume-thread` for a different thread. Exit 1 means it is not bound.
+   Run `tsk thread list`, and when a thread fits the work, offer to resume it with
+   `tsk:resume-thread` before starting a new one.
 
 1. **Resolve the mission argument.** You were given a mission reference, by name,
    ID, or natural language. Resolve it to the mission's stable ID, e.g.
