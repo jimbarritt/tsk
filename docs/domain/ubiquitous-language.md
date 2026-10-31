@@ -51,7 +51,7 @@ collision.
 ## Actor
 
 Whoever or whatever does the work in a session: a human, or a [robot](#robot). An actor
-has a uid, the identity every link names; a name, which it chooses and can change, with
+has a uid, the identity every link names; a name, which can be chosen and changed, with
 the earlier names kept as a history; and a kind. An actor is a record of its own (the
 `actors` table, from layout 9; the uid and the name history from layout 12), so a robot's
 identity persists outside any [session](#session) or [harness instance](#harness-instance).
@@ -103,7 +103,7 @@ Jim, 2026-10-30). Its identifier is the one the platform gives it: the cloud ses
 locally, where the CLI mints a new session ID at every `/clear`. An instance runs one or
 many [sessions](#session). It [binds](#binding) to a thread, and that key is how a new
 session finds its thread: the instance is the continuity key. The `thread_bindings` table
-is keyed by `instance` (from layout 12; `bindings.actor` held the same key from layout 8
+is keyed by `instance` (from layout 12; `bindings.actor` had the same key from layout 8
 to 11). Its URN is `urn:tsk:instance:<cloud|worktree>:<key>` (ADR 0029), which replaces
 `urn:tsk:cloudsession:<id>` and `urn:tsk:worktree:<name>`. Chosen over "instance" alone
 (too general) and "session" (the platforms do not use it consistently). Jim, 2026-10-24.
@@ -116,7 +116,7 @@ and differs from an instance (Jim, 2026-10-30): an instance lasts, a session is 
 it. In the cloud an instance has one session, because the session ID survives `/clear`. In
 a terminal the code worktree is the instance and each `/clear` starts a new session. A
 session is named by `urn:tsk:session:<harness>:<id>` (ADR 0029), recorded at session start
-as a row of `sessions`, and it holds its [actors](#actor) as rows of `session_actors`
+as a row of `sessions`, and its [actors](#actor) are rows of `session_actors`
 (ADR 0030). A pause names the session that wrote it. A new session takes its thread
 through its instance's binding and its actors from the session it continues: the one that
 wrote the latest pause on that thread from the same instance, else the latest recorded
@@ -130,7 +130,8 @@ where a [mission](#mission) represents the work's state (Jim, 2026-10-16). A thr
 has its own context and can be paused, suspended and resumed. This is what lets a human or an agent continue a set of tasks from one
 session to the next, possibly as a different actor. See Actor for what "different
 actor" means, and why thread identity is tsk's own rather than borrowed from a
-session's platform identifier.
+session's platform identifier. In a supervised session the thread is the human's
+attention with one robot (Jim, 2026-10-31).
 
 Distinguished from: step, a movement made, independent of people and mostly of time,
 leaving a trail behind similar to a log. Step is not adopted as a unit in tsk.
@@ -138,12 +139,15 @@ leaving a trail behind similar to a log. Step is not adopted as a unit in tsk.
 Relationship to Mission: loose, not fixed. A thread has at most one mission at a time,
 and may have none (decided 2026-10-16, built by M-TSK-SCHEMA T-10): `tsk thread start`
 with no argument mints a thread with no mission, and `tsk thread set mission` attaches
-or changes one later. Each continuation records the mission current when it was
-written, so a thread can cover work across several missions over its life. A mission
-can have several threads, at once or over time, and a thread can have several
-actors. Tasks never belong to a thread: they belong to a mission, so a thread that needs
-ad hoc tasks takes an administrative mission such as M-TSK-ADHOC. Most threads are one
-to one with a mission; the model does not force it.
+or changes one later. The mission of a thread is its current focus. A mission switch
+keeps the thread, because one line of work can cross missions. Each continuation records
+the mission current when it was written, so a thread can cover work across several
+missions over its life. A thread is created only for a harness instance with no bound
+thread and no thread to join (ADR 0031). A mission can have several threads, at once or
+over time, and a thread can have several actors. Tasks never belong to a thread: they
+belong to a mission, so a thread that needs ad hoc tasks takes an administrative
+mission such as M-TSK-ADHOC. Most threads are one to one with a mission; the model
+does not force it.
 
 The four cases: `tsk thread skip` (no thread, nothing persists); a thread without a
 mission (continuity, no tasks); a thread on an administrative mission (continuity and
@@ -198,7 +202,7 @@ role-based position with persistent context, a defined scope of authority, a his
 accountability. Doctrine splits that bundle five ways, post, authority by assignment,
 standing orders, incumbent, and duty log, of which tsk already has the last two as Actor
 and Thread continuation. The full mapping, and the doctrine sources, are in
-[docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md](../kb/orchestration-ecosystem/tsk-market-position-analysis.md)
+[`docs/kb/orchestration-ecosystem/tsk-market-position-analysis.md`](../kb/orchestration-ecosystem/tsk-market-position-analysis.md)
 under Seats.
 
 Rejected: seat (Wheelhouse's term; does not read intuitively in tsk's context), billet
@@ -301,7 +305,7 @@ one binding. Several instances can bind to one thread, `tsk thread list` shows t
 `actors` with the name of each instance's actor, and `tsk thread resume` warns when the
 thread was written by another actor. The binding is on the instance and not on the
 session, because the thread continues across sessions and the instance key is the one
-thing a new session holds that it did not mint (ADR 0030). A binding is not an actor:
+thing a new session has that it did not mint (ADR 0030). A binding is not an actor:
 `thread stop` deletes the binding; the actors of the sessions stay.
 
 Decided 2026-10-16, built by M-TSK-SCHEMA T-11: every binding is a row of one table. The
@@ -503,9 +507,9 @@ of bringing that future about", and places it alongside preparing, executing and
 assessing as activities that run continuously rather than as sequential phases.
 
 Planning starts when a mission is received and continues through execution, because the
-situation keeps changing. Eisenhower's "plans are worthless, but planning is everything"
-places the value in the understanding the activity produces rather than in the document
-that remains.
+situation keeps changing. In Eisenhower's words, "plans are worthless, but planning
+is everything": the value is in the understanding the activity produces rather than
+in the document that remains.
 
 ## Intelligence (or intel for short)
 

@@ -6,16 +6,16 @@ description: Reference for the tsk command line: the ledger, threads and binding
 # tsk: agent context
 
 tsk tracks missions and the threads that work them. The missions, their tasks, decisions
-and questions, the threads and their continuation state live in a **ledger**. They are
+and questions, the threads and their continuation state are in a **ledger**. They are
 records, typed rows in a Dolt database, written only through `tsk` commands. Free text
 (intelligence, research, reports) is Markdown documents on a second ref. The ledger is a
 Dolt database synced over a git ref on the managed repo's `origin` by default, cloned to a
-local ledger store (`ledger-db`) outside the repository. The ref holds a Dolt file remote (a
-directory of table files) that `tsk` moves with plain `git fetch` and `git push`; a ledger
+local ledger store (`ledger-db`) outside the repository. The ref contains a Dolt file remote (a
+directory of table files) transferred by `tsk` with plain `git fetch` and `git push`; a ledger
 made before 0.21.0 converts once with `tsk ledger migrate-transport`. A new ledger uses a custom ref,
 `refs/tsk/ledger`. A repo used from Claude Code cloud sessions uses the branch
-`refs/heads/tsk/ledger`, because the cloud proxy refuses to push a custom ref (see Ledger
-refs below). For a repo that cannot hold a ledger ref, the ledger is
+`refs/heads/tsk/ledger`, because a push to a custom ref fails at the cloud proxy (see Ledger
+refs below). For a repo that cannot contain a ledger ref, the ledger is
 `refs/tsk/ledgers/<repo-id>` (or `refs/heads/ledgers/<repo-id>`) in the nexus repo (see
 Nexus ledgers below). The `ledger`, `thread` and `events` commands run in the `tsk` binary alone, with no
 daemon, from inside any working tree of the managed repo.
@@ -26,8 +26,8 @@ Design references in the tsk repository: every ledger file and format is in
 
 ## Core concepts
 
-A **thread** is one line of work on a mission. Its ID is 8 characters from `[0-9a-z]`.
-A thread names a mission, or has none, and holds one continuation state entry per pause.
+A **thread** is one line of work. Its mission is its current focus (ADR 0031). Its ID is 8 characters from `[0-9a-z]`.
+A thread names a mission, or has none, and has one continuation state entry per pause.
 The ledger keeps a thread in tables: a `threads` row, its continuation entries and its
 bindings.
 
@@ -46,7 +46,7 @@ Every binding is one row of the ledger's `thread_bindings` table, keyed on the i
 
 An instance has one binding, so binding it again replaces the old one. More than one
 instance can bind to the same thread, and `tsk thread list` shows them in `actors`, an
-array of `{"actor", "kind", "name"}` objects (`cloud` or `worktree`; `name` is the actor of
+array of `{"actor", "kind", "name"}` entries (`cloud` or `worktree`; `name` is the actor of
 the instance's latest session, or `null`), empty when none is bound. Resuming a thread that
 another actor wrote to binds anyway, and prints a warning.
 
@@ -76,17 +76,17 @@ and is never in the ledger.
 
 `tsk self-update` upgrades the binary to the latest release by the method it was installed
 with (Homebrew, Cargo or a release binary). `tsk self-update --check` only reports. When
-the session context says a newer tsk is available, run `tsk self-update`.
+the session context shows a newer tsk as available, run `tsk self-update`.
 
 ## Ledger refs
 
-`tsk config ledger-refs` prints which refs hold the ledger and where the choice came from.
+`tsk config ledger-refs` prints which refs contain the ledger and where the choice came from.
 `tsk config ledger-refs branches` or `custom` writes `.tsk/config.toml` in the repo.
 A custom ref is the default for a new ledger, and GitHub does not list it as a branch.
-Branches are for a repo used from Claude Code cloud sessions, because the cloud proxy
-refuses to push a custom ref. The order is: the nexus entry (`ledger_refs`), then
-`.tsk/config.toml`, then discovery on `origin`. A new ledger made in a cloud session takes
-branches and says so. Set the choice before the first push. tsk does not move an existing
+Branches are for a repo used from Claude Code cloud sessions, because a push to a
+custom ref fails at the cloud proxy. The order is: the nexus entry (`ledger_refs`), then
+`.tsk/config.toml`, then discovery on `origin`. A new ledger made in a cloud session uses
+branches and prints a note. Set the choice before the first push. tsk does not convert an existing
 ledger between the two. When a push stops with `origin refused the push to refs/tsk/...`,
 run `tsk config ledger-refs branches` and push again. Run `git` against these refs only
 with the full name, such as `refs/tsk/ledger`.
@@ -95,7 +95,7 @@ with the full name, such as `refs/tsk/ledger`.
 
 `tsk nexus add <url>`, or `tsk config attach-nexus <url>`, writes the nexus URL to
 `${XDG_CONFIG_HOME:-~/.config}/tsk/config.toml`. A repo's entry in the nexus's `nexus.json`
-with `"ledger": "nexus"` holds its ledger on `ledgers/<repo-id>` in the nexus (under
+with `"ledger": "nexus"` has its ledger on `ledgers/<repo-id>` in the nexus (under
 `refs/tsk/` or `refs/heads/`, see Ledger refs), where `<repo-id>` is the entry's `id`. With no attached nexus, no matching entry or no
 `ledger` field, the ledger is in-repo. tsk finds the entry through the repo ID cached in
 `.git/tsk-repo-id`, otherwise by matching the repo's raw `remote.origin.url` against each
@@ -167,9 +167,9 @@ tsk events advance-watermark <count>                                      set th
 ```
 
 `<mission-id>` is a mission with a record, for example `M-TSK-SCHEMA`. `tsk thread start`
-refuses an unknown ID.
+fails for an unknown ID.
 `<task-id>` can be empty. When the thread's mission has a record, `tsk thread pause`
-refuses a task that is not one of its tasks, and writes `T-5` as `T-01`. A thread started
+fails for a task that is not one of its tasks, and writes `T-5` as `T-01`. A thread started
 with no mission ID has no mission and no tasks: its task ID must be empty, and
 `tsk thread set mission <mission-id>` attaches a mission later. The old forms
 `thread start <mission-id> <briefing-path>` and
@@ -194,12 +194,12 @@ is set. Use `tsk` 0.15.1 to read an old file ledger.
 Documents are plain Markdown files on a second ref, `refs/tsk/docs` or `refs/heads/tsk/docs`
 (on a nexus ledger, `refs/tsk/ledgers/<repo-id>-docs` or `refs/heads/ledgers/<repo-id>-docs`). They are checked out as a worktree beside the
 database, at `.../tsk/repos/<clone-id>/docs`. Read and change them with `tsk ledger doc`.
-Documents hold intelligence, research and reports. They do not hold state: a mission's
+Documents contain intelligence, research and reports. They do not contain state: a mission's
 purpose, tasks, decisions and questions are records, and a document must not repeat them.
 Link a document to its mission with `tsk mission link`. To write one, run
 `tsk ledger doc put <path>` (body on stdin, or a file argument), then
 `tsk ledger push "<message>"`. `doc put` and `doc rm` change the local worktree only.
-A document carries an id of 8 hexadecimal characters in its file name, before the extension
+A document has an id of 8 hexadecimal characters in its file name, before the extension
 (`report.3f2a9c1e.md`): `doc put` mints it for a new path and prints the path it wrote, and a
 second `doc put` of the path without the id rewrites the same file. Every doc command and
 `mission link` accept the path with the id, without it, or the id alone. A link names the id,
@@ -225,8 +225,8 @@ this. `TSK_AUTO_UPDATE=never` switches it off. A binary from before 0.18.0 canno
 never on a read.
 
 A ledger at version 1 still keeps its documents in a Dolt table. Every command except
-`tsk ledger fetch` refuses it with `this ledger stores its documents in Dolt (version 1)`.
-Run `tsk ledger migrate-docs` once. It moves the documents to `tsk/docs` and prints
+`tsk ledger fetch` fails on it with `this ledger stores its documents in Dolt (version 1)`.
+Run `tsk ledger migrate-docs` once. It migrates the documents to `tsk/docs` and prints
 `migrated-docs:<count>`. `--dry-run` checks the move and pushes nothing.
 
 To see what is not pushed, run `tsk ledger status`. It prints two answers for a person:
@@ -246,15 +246,15 @@ change; the porcelain form is stable.
 To undo work that is not pushed, such as a trial mission, run `tsk ledger discard`. It
 prints what it would drop (the `Local` block, or the porcelain lines with `--porcelain`) and exits 1. Run `tsk ledger discard --yes` to drop every local
 change in the data and the documents, including local commits that origin lacks, and
-reset both to origin's state. It prints `discarded`. It leaves thread bindings alone.
+reset both to origin's state. It prints `discarded`. It does not change thread bindings.
 **Use `tsk ledger discard`, never `dolt reset`, `dolt clean` or `git reset` against the
 ledger.** Check `tsk ledger status` first: a discard cannot be undone.
 
-**Rules for an agent.** These hold in every repo:
+**Rules for an agent.** These apply in every repo:
 
-- Check whether the ledger exists and what it holds with `tsk ledger status`. Its `Ledger`
+- Check whether the ledger exists and what it contains with `tsk ledger status`. Its `Ledger`
   block names the ledger store, the refs in use and the counts of missions, tasks, threads
-  and actors. The `Origin` line says whether origin has the ledger yet.
+  and actors. The `Origin` line shows whether origin has the ledger yet.
 - Do not run `ls`, `find`, `cat` or `git` against the ledger store. It is a Dolt database,
   not a directory of files, and a `tsk` command reads it.
 - Do not pipe `tsk` output through `head`, `tail` or another command. The pipe hides the
@@ -267,7 +267,7 @@ Outside a git repository the `ledger`, `mission`, `task`, `decision`, `question`
 `error: not inside a git repository. Run tsk from inside the repository whose ledger you want.`
 
 To bring an existing plan, in any format, into the ledger, run `tsk guide import` and
-follow it. It explains what the ledger holds and how to map a plan onto missions. Do not
+follow it. It explains what the ledger contains and how to map a plan onto missions. Do not
 read the tsk source code to learn the format.
 
 `tsk ledger fetch` and `path` print a bare path on stdout, so
@@ -275,7 +275,7 @@ read the tsk source code to learn the format.
 then up to 10 attempts of fetch, `dolt merge`, `dolt push` and (on a file remote) a plain `git push`. A merge conflict, such as
 two clones editing one field, stops it with exit 1 and names the conflicting tables. The local
 commit stays. `git.ledger.commit` in a
-continuation state entry holds the Dolt commit hash. An older `tsk` finds no
+continuation state entry is the Dolt commit hash. An older `tsk` finds no
 `.tsk-ledger.toml` on the Dolt branch and stops before writing: update `tsk`.
 
 **Read the `is now` lines after a push.** Two clones that each add a task, question,
@@ -315,7 +315,7 @@ add it to an ID that lacks it (`M-BOOT` becomes `M-TSK-BOOT`) and print the ID t
 A number at the end of an ID marks a part of a mission and nothing else: `M-TSK-BOOT-01` is
 a part of `M-TSK-BOOT`, which has to exist, and it becomes the parent. A separate mission of
 the same kind gets a name, not a number. A ledger with no prefix has none of these rules and
-prints a note that says how to set one. If `mission prefix` says the ledger has none, choose 3
+prints a note on how to set one. If `mission prefix` prints that the ledger has none, choose 3
 or 4 capital letters for the repo from its name, tell the person, and set it. A mission has an
 internal ID, which a rename never changes, and the ID a person types. Every
 command takes and prints the second. `list <id> --json` has the first as `uid`. A rename
@@ -337,7 +337,7 @@ Constraints and out of scope are lists of one-line items, numbered per mission a
 outcomes are, and a number is never reused. Add one item per command, and do not write a
 paragraph: `tsk mission constraint add M-X "No new crates"`. `constraint list` and
 `out-of-scope list` print the number and the text, tab-separated. `mission set constraints`
-and `mission set out-of-scope` are refused. In `list <id> --json` both are arrays of
+and `mission set out-of-scope` fail. In `list <id> --json` both are arrays of
 `{"n": 1, "text": "..."}`.
 
 ### When records are published
@@ -349,17 +349,17 @@ and never pushes. Records go out at:
 1. thread start: the claim and the binding,
 2. thread pause: the hand-off,
 3. the end of the session: the SessionEnd hook, and the Stop hook, which publishes in the
-   background after a turn when the store holds unpushed changes. It does not ask you to
+   background after a turn when the store has unpushed changes. It gives no prompt to
    push. A failed background publish shows as `warning: the last background publish
    failed ...` on the next `tsk` command: run `tsk ledger push`,
 4. when asked: `tsk ledger push "<message>"`.
 
 `tsk thread resume`, `detach`, `set mission`, `skip` and `prune-bindings` write locally and
 do not push. `tsk thread stop` pushes. Progress can wait: marking a task done, adding a
-task, recording a decision or answering a question goes out with the next of the four
+task, recording a decision or answering a question is published at the next of the four
 points. A stale read is acceptable.
 
-A claim must not wait, so that two actors do not take the same task. Two things are claims:
+A claim must not wait, so that two actors do not take the same task. These are claims:
 `tsk thread start`, which publishes by itself, and setting a task or a mission to
 `in-progress` to take it. The second is a record write and does not push, so run
 `tsk ledger push "Claim <mission> <task>"` straight after it. A container that is
@@ -396,7 +396,7 @@ tsk mission rm <id> [--force]                # refused with child missions; with
 
 `mv` moves a record to another mission, which gives it the next number there. The number it
 had is not used again, and each command prints one line, such as `task M-A T-05 -> M-B T-12`.
-A task with blocks is refused, because a block belongs to one mission: unblock it, or add
+A task with blocks fails, because a block belongs to one mission: unblock it, or add
 `--force` to drop them. A decision loses its task link unless `--task` names a task of the
 target. `tsk ledger doc mv <from> <to>` renames a document, keeps its id and updates the path in the mission links.
 
@@ -445,7 +445,7 @@ to stderr.
 | `actor name` | the actor name, or `no actor registered` | |
 | `actor list` | one actor per line: name, kind, instances (comma-separated keys, or `-`); tab-separated with `--porcelain`; the records with their `instances` with `--json` | |
 | `thread prune-bindings` | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; with `--dry-run`, `would remove <actor> <thread-id>` lines and `<n> bindings would be removed`, and nothing changes | |
-| `thread guard` | nothing when bound, after `thread skip`, or when the ledger holds no missions; `{"decision":"block","reason":"..."}` otherwise, asking for a thread. With unpushed changes it also starts `tsk ledger push --background` and prints nothing | |
+| `thread guard` | nothing when bound, after `thread skip`, or when the ledger has no missions; `{"decision":"block","reason":"..."}` otherwise, asking for a thread. With unpushed changes it also starts `tsk ledger push --background` and prints nothing | |
 
 `thread prune-bindings` removes the bindings of cloud sessions that ended, which collect in
 the ledger because a cloud session rarely detaches. It removes a cloud row registered more
@@ -458,20 +458,20 @@ so no lookup follows. `latest` is the thread's last continuation state entry as 
 `{}` with no entry. `warning` is empty unless the thread's entries name a `written_by`
 actor and none of them is the current actor.
 
-A continuation state entry holds `mission_id`, `mission_link` (only for a thread whose
+A continuation state entry has `mission_id`, `mission_link` (only for a thread whose
 mission has no record), `task_id`, `whats_next`, a nested `git` object, `timestamp` and
-`written_by`. The `git` object holds `ledger.commit`, `code.ref` and `code.commit`. An
+`written_by`. The `git` object has `ledger.commit`, `code.ref` and `code.commit`. An
 older entry has `mission_link` and no `mission_id`.
 
 `thread pause` records the commit the ledger store is at before the entry is appended,
-and the managed repo's branch and `HEAD` commit. It refuses a `HEAD` that no branch on
-origin holds, because an actor resuming from another clone cannot see it.
+and the managed repo's branch and `HEAD` commit. It fails for a `HEAD` that no branch on
+origin contains, because an actor resuming from another clone cannot see it.
 
 ### External events
 
 The external event queue is `external-events/queue.ndjson` on the ledger, one event
 envelope per line: `source`, `event_type`, `action`, `repo`, `received_at` and `payload`.
-`external-events/watermark.json` holds `processed_through`, the number of queue lines
+`external-events/watermark.json` contains `processed_through`, the number of queue lines
 processed. Each `events` command fetches the ledger first. `append`, `append-batch`
 and `advance-watermark` push once, through the same code as `tsk ledger push`.
 
@@ -494,8 +494,11 @@ skipping them.
 ### Thread skills
 
 The plugin provides `/tsk:start-thread`, `/tsk:pause-thread`, `/tsk:resume-thread`,
-`/tsk:detach-thread`, `/tsk:stop-thread` and `/tsk:switch-thread`. Each wraps the
+`/tsk:detach-thread`, `/tsk:stop-thread`, `/tsk:switch-thread` and `/tsk:switch-mission`. Each wraps the
 `tsk thread` commands above.
+
+`/tsk:switch-mission` changes the focus (the mission) of the thread this session is bound to and
+keeps the thread. It pauses on the old focus, runs `tsk thread set mission`, and sets the title.
 
 Other skills: `/tsk:construct-robot` names this session as a robot, `/tsk:register-repo`
 registers the repo in the nexus, `/tsk:self-update` updates the `tsk` binary, and

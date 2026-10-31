@@ -27,6 +27,7 @@
 - [25. A documents hook point, and no git hooks in the ledger worktrees](0025-a-documents-hook-point-and-no-git-hooks-in-the-ledger-worktrees.md)
 - [26. A mission has an internal ID and a code](0026-a-mission-has-an-internal-id-and-a-code.md)
 - [27. A mission prefix belongs to the ledger](0027-a-mission-prefix-belongs-to-the-ledger.md)
-- [28. Every change to the ledger goes through the tsk binary](0028-every-change-to-the-ledger-goes-through-the-tsk-binary.md)
+- [`28. Every change to the ledger goes through the tsk binary`](0028-every-change-to-the-ledger-goes-through-the-tsk-binary.md)
 - [29. Sessions and harness instances are named by URNs in the tsk namespace](0029-sessions-and-harness-instances-are-named-by-urns.md)
 - [30. An actor belongs to a session, and a harness instance is the continuity key](0030-an-actor-belongs-to-a-session-and-an-instance-is-the-continuity-key.md)
+- [31. A thread's mission is its current focus, and only an instance with no thread creates one](0031-a-threads-mission-is-its-current-focus-and-an-instance-without-a-thread-creates-one.md)
