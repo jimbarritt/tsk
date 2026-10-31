@@ -433,10 +433,10 @@ fn fetch_keeps_an_unpushed_documents_commit_and_still_prints_the_path() {
     let fx = Fixture::with_ledger();
     let docs = fx.fetch_docs();
 
-    write(&docs.join("local.md"), "local\n");
+    write(&docs.join("local.1c0de033.md"), "local\n");
     commit_all(&docs, "Unpushed documents change");
     let local = head(&docs);
-    fx.add_docs_commit("remote.md", "remote\n");
+    fx.add_docs_commit("remote.1c0de032.md", "remote\n");
 
     let output = fx.tsk(&["ledger", "fetch"]);
     assert_success(&output);
@@ -772,7 +772,7 @@ fn push_commits_every_document_change_and_pushes_it_to_the_documents_branch() {
     let before = fx.origin_docs_sha();
 
     write(&docs.join("index.md"), "# Ledger index\nedited\n");
-    write(&docs.join("missions/new.md"), "new mission\n");
+    write(&docs.join("missions/new.1c0de030.md"), "new mission\n");
 
     let output = fx.push("Record the new mission");
 
@@ -782,12 +782,15 @@ fn push_commits_every_document_change_and_pushes_it_to_the_documents_branch() {
     assert_eq!(head(&docs), tip);
     assert_eq!(origin_docs_subject(&fx), "Record the new mission");
     assert_eq!(fx.origin_ref_sha(&format!("{}^", DOCS_REF)), before);
+    // The edited seed file has no id, so the push gave it the id of its path.
     assert_eq!(
-        fx.origin_file(DOCS_REF, "index.md").unwrap(),
+        fx.origin_file(DOCS_REF, "index.5a94a939.md").unwrap(),
         "# Ledger index\nedited\n"
     );
+    assert!(fx.origin_file(DOCS_REF, "index.md").is_none());
     assert_eq!(
-        fx.origin_file(DOCS_REF, "missions/new.md").unwrap(),
+        fx.origin_file(DOCS_REF, "missions/new.1c0de030.md")
+            .unwrap(),
         "new mission\n"
     );
     assert!(git(&docs, &["status", "--porcelain=v2", "-z"]).is_empty());
@@ -798,7 +801,7 @@ fn push_sends_a_documents_commit_an_earlier_run_left_unpushed() {
     let fx = Fixture::with_ledger();
     let docs = fx.fetch_docs();
 
-    write(&docs.join("left.md"), "committed, not pushed\n");
+    write(&docs.join("left.1c0de031.md"), "committed, not pushed\n");
     commit_all(&docs, "Earlier run");
     let local = head(&docs);
 
@@ -813,17 +816,23 @@ fn push_sends_a_documents_commit_an_earlier_run_left_unpushed() {
 fn push_rebases_onto_a_documents_commit_landed_since_the_fetch() {
     let fx = Fixture::with_ledger();
     let docs = fx.fetch_docs();
-    let remote = fx.add_docs_commit("remote.md", "remote\n");
+    let remote = fx.add_docs_commit("remote.1c0de032.md", "remote\n");
 
-    write(&docs.join("local.md"), "local\n");
+    write(&docs.join("local.1c0de033.md"), "local\n");
     let output = fx.push("Local change");
 
     assert_success(&output);
     let tip = fx.origin_docs_sha();
     assert_eq!(head(&docs), tip);
     assert!(is_ancestor(&fx.origin(), &remote, &tip));
-    assert_eq!(fx.origin_file(DOCS_REF, "remote.md").unwrap(), "remote\n");
-    assert_eq!(fx.origin_file(DOCS_REF, "local.md").unwrap(), "local\n");
+    assert_eq!(
+        fx.origin_file(DOCS_REF, "remote.1c0de032.md").unwrap(),
+        "remote\n"
+    );
+    assert_eq!(
+        fx.origin_file(DOCS_REF, "local.1c0de033.md").unwrap(),
+        "local\n"
+    );
 }
 
 #[test]
@@ -832,7 +841,7 @@ fn push_retries_when_a_concurrent_writer_lands_between_fetch_and_push() {
     let docs = fx.fetch_docs();
     fx.install_racing_pre_push_hook(1);
 
-    write(&docs.join("local.md"), "local\n");
+    write(&docs.join("local.1c0de033.md"), "local\n");
     let output = fx.push("Local change");
 
     assert_success(&output);
@@ -847,7 +856,10 @@ fn push_retries_when_a_concurrent_writer_lands_between_fetch_and_push() {
     assert_eq!(origin_docs_subject(&fx), "Local change");
     assert!(is_ancestor(&fx.origin(), &head(&fx.racer()), &tip));
     assert_eq!(fx.origin_file(DOCS_REF, "race-1.md").unwrap(), "race 1\n");
-    assert_eq!(fx.origin_file(DOCS_REF, "local.md").unwrap(), "local\n");
+    assert_eq!(
+        fx.origin_file(DOCS_REF, "local.1c0de033.md").unwrap(),
+        "local\n"
+    );
 }
 
 #[test]
@@ -856,7 +868,7 @@ fn push_stops_after_the_retry_bound_without_overwriting_the_concurrent_writer() 
     let docs = fx.fetch_docs();
     fx.install_racing_pre_push_hook(100);
 
-    write(&docs.join("local.md"), "local\n");
+    write(&docs.join("local.1c0de033.md"), "local\n");
     let output = fx.push("Local change");
 
     assert!(!output.status.success());
@@ -873,9 +885,9 @@ fn push_stops_after_the_retry_bound_without_overwriting_the_concurrent_writer() 
     );
     assert_eq!(fx.origin_docs_sha(), head(&fx.racer()));
     assert_eq!(origin_docs_subject(&fx), "Race 10");
-    assert!(fx.origin_file(DOCS_REF, "local.md").is_none());
+    assert!(fx.origin_file(DOCS_REF, "local.1c0de033.md").is_none());
     assert_eq!(
-        std::fs::read_to_string(docs.join("local.md")).unwrap(),
+        std::fs::read_to_string(docs.join("local.1c0de033.md")).unwrap(),
         "local\n"
     );
     assert_eq!(
@@ -891,7 +903,7 @@ fn push_never_writes_the_colliding_custom_refs() {
     let ledger_shadow = shadow(&fx, "refs/tsk/ledger");
 
     let docs = fx.fetch_docs();
-    write(&docs.join("local.md"), "local\n");
+    write(&docs.join("local.1c0de033.md"), "local\n");
     let output = fx.push("Local change");
 
     assert_success(&output);
@@ -996,48 +1008,75 @@ fn doc_put_from_stdin_or_a_file_writes_the_worktree_and_does_not_push() {
 
     let output = fx.tsk_stdin(&["ledger", "doc", "put", "missions/new.md"], "from stdin\n");
     assert_success(&output);
-    assert_eq!(stdout(&output), "");
+    // The put prints the path it wrote, with a minted id before the extension.
+    let written = stdout(&output).trim_end().to_string();
+    assert!(
+        written.starts_with("missions/new.") && written.ends_with(".md"),
+        "{}",
+        written
+    );
+    assert_eq!(written.len(), "missions/new.md".len() + 9, "{}", written);
     assert_eq!(
-        std::fs::read_to_string(docs.join("missions/new.md")).unwrap(),
+        std::fs::read_to_string(docs.join(&written)).unwrap(),
         "from stdin\n"
+    );
+    // A second put of the path without the id rewrites the same file.
+    let again = fx.tsk_stdin(&["ledger", "doc", "put", "missions/new.md"], "again\n");
+    assert_eq!(stdout(&again).trim_end(), written);
+    assert_eq!(
+        std::fs::read_to_string(docs.join(&written)).unwrap(),
+        "again\n"
     );
 
     let source = fx.root.path().join("body.md");
     write(&source, "from file");
     let output = fx.tsk(&["ledger", "doc", "put", "index.md", source.to_str().unwrap()]);
     assert_success(&output);
+    // The seed file index.md has no id: the write gives it the id of its path.
+    assert_eq!(stdout(&output), "index.5a94a939.md\n");
     assert_eq!(
-        std::fs::read_to_string(docs.join("index.md")).unwrap(),
+        std::fs::read_to_string(docs.join("index.5a94a939.md")).unwrap(),
         "from file"
     );
+    assert!(!docs.join("index.md").exists());
     assert_eq!(fx.origin_docs_sha(), before);
 
     let output = fx.push("Record the documents");
     assert_success(&output);
-    assert_eq!(
-        fx.origin_file(DOCS_REF, "missions/new.md").unwrap(),
-        "from stdin\n"
-    );
+    assert_eq!(fx.origin_file(DOCS_REF, &written).unwrap(), "again\n");
 }
 
 #[test]
 fn doc_list_prints_sorted_paths_and_filters_by_prefix() {
     let fx = Fixture::with_ledger();
     let docs = fx.fetch_docs();
-    write(&docs.join("future-missions-tbd.md"), "x");
-    write(&docs.join("missions/b.md"), "b");
-    write(&docs.join("missions/operational/a.md"), "a");
+    write(&docs.join("future-missions-tbd.1c0de040.md"), "x");
+    write(&docs.join("missions/b.1c0de041.md"), "b");
+    write(&docs.join("missions/operational/a.1c0de042.md"), "a");
 
+    // The path, two spaces and the id, with the path column as wide as the longest path.
     let output = fx.tsk(&["ledger", "doc", "list"]);
     assert_success(&output);
     assert_eq!(
         stdout(&output),
-        "README.md\nfuture-missions-tbd.md\nindex.md\nmissions/b.md\nmissions/operational/a.md\n"
+        "README.md                           -\n\
+         future-missions-tbd.1c0de040.md     1c0de040\n\
+         index.md                            -\n\
+         missions/b.1c0de041.md              1c0de041\n\
+         missions/operational/a.1c0de042.md  1c0de042\n"
     );
     let output = fx.tsk(&["ledger", "doc", "list", "missions/"]);
     assert_eq!(
         stdout(&output),
-        "missions/b.md\nmissions/operational/a.md\n"
+        "missions/b.1c0de041.md              1c0de041\n\
+         missions/operational/a.1c0de042.md  1c0de042\n"
+    );
+    // The porcelain form separates them with a tab, and leaves the id empty for a seed file.
+    let output = fx.tsk(&["ledger", "doc", "list", "--porcelain"]);
+    assert_eq!(
+        stdout(&output),
+        "README.md\t\nfuture-missions-tbd.1c0de040.md\t1c0de040\nindex.md\t\n\
+         missions/b.1c0de041.md\t1c0de041\nmissions/operational/a.1c0de042.md\t1c0de042\n"
     );
     let output = fx.tsk(&["ledger", "doc", "list", "nothing"]);
     assert_success(&output);

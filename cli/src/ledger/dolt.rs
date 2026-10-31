@@ -101,8 +101,10 @@ pub const MISSION_SCHEMA: &[&str] = &[
     "create table mission_documents (\
      mission_id varchar(64) not null, \
      path varchar(1024) not null, \
+     doc_id varchar(8) null, \
      role enum('intelligence','report','design') not null, \
      primary key (mission_id, path), \
+     unique key mission_documents_doc_unique (mission_id, doc_id), \
      constraint mission_documents_mission_fk foreign key (mission_id) references missions (id))",
 ];
 
@@ -179,8 +181,12 @@ pub const TASK_SCHEMA: &[&str] = &[
 /// runs is a row of `sessions`, and (layout 12, ADR 0030) the binding of a harness instance to
 /// its thread is a row of `thread_bindings`, an actor has a `uid` and a name history in
 /// `actor_names`, a session's actors are rows of `session_actors`, and the manifest holds the
-/// `ledger_id`, and (layout 13) a task, a decision and a question each have a `uid`.
-pub const LAYOUT_VERSION: i64 = 13;
+/// `ledger_id`, and (layout 13) a task, a decision and a question each have a `uid`, and
+/// (layout 14) a document carries an id in its file name and `mission_documents` links by it.
+pub const LAYOUT_VERSION: i64 = 14;
+/// The layout version with `mission_documents.doc_id`, and an 8 hexadecimal character id in
+/// the name of every document file (`docs/domain/urn-scheme.md`).
+pub const DOCUMENT_IDS_LAYOUT_VERSION: i64 = 14;
 /// The layout version with `uid` on `tasks`, `decisions` and `questions`, so a record has a
 /// name that a renumbering never changes (ADR 0022, `docs/domain/urn-scheme.md`).
 pub const RECORD_UIDS_LAYOUT_VERSION: i64 = 13;
@@ -232,6 +238,12 @@ pub const LEGACY_LAYOUT_VERSION: i64 = 1;
 /// before the columns go. Pass [`move_lists_sql`] of the rows for a ledger from 3 to 6,
 /// and an empty string otherwise.
 pub fn upgrade_sql_moving(from: i64, moved: &str) -> String {
+    upgrade_sql_full(from, moved, "")
+}
+
+/// [`upgrade_sql_moving`] with the SQL of the version 14 step that rewrites rows: pass
+/// [`document_rows_sql`] of the rows the ledger holds for a ledger from 3 to 13.
+pub fn upgrade_sql_full(from: i64, moved: &str, document_rows: &str) -> String {
     let mut sql = String::new();
     if from <= DOCS_LAYOUT_VERSION {
         for statement in MISSION_SCHEMA.iter().chain(LIST_SCHEMA).chain(TASK_SCHEMA) {
@@ -314,7 +326,53 @@ pub fn upgrade_sql_moving(from: i64, moved: &str) -> String {
         sql.push_str(&session_actors_upgrade_sql());
     }
     sql.push_str(&record_uids_upgrade_sql(from));
+    sql.push_str(&document_ids_upgrade_sql(from, document_rows));
     sql.push_str(&version_sql());
+    sql
+}
+
+/// The version 14 step: `mission_documents` gains `doc_id`, and every linked path gains the
+/// id before its extension, as the file on the documents branch does. A ledger below version 3
+/// makes the table in its newest shape and has no rows. `rows` is the SQL of
+/// [`document_rows_sql`]. Every value is a function of the path, so two clones that upgrade
+/// on their own write the same change and Dolt merges them. Empty from layout 14.
+fn document_ids_upgrade_sql(from: i64, rows: &str) -> String {
+    let mut sql = String::new();
+    if (MISSIONS_LAYOUT_VERSION..DOCUMENT_IDS_LAYOUT_VERSION).contains(&from) {
+        sql.push_str(
+            "alter table mission_documents add column doc_id varchar(8) null after `path`;\n\
+             alter table mission_documents add unique key mission_documents_doc_unique (mission_id, doc_id);\n",
+        );
+        sql.push_str(rows);
+    }
+    sql
+}
+
+/// The statements of the version 14 step for the rows of a ledger below it: for each link
+/// `(mission ID, path)` the id and the new path, and for each thread `(thread ID, briefing
+/// path)` the new briefing path. A path that already carries an id keeps it.
+pub fn document_rows_sql(links: &[(String, String)], briefings: &[(String, String)]) -> String {
+    let mut sql = String::new();
+    for (mission, path) in links {
+        let (id, new) = crate::ledger::doc_id::upgraded(path);
+        sql.push_str(&format!(
+            "update mission_documents set doc_id = {}, path = {} where mission_id = {} and path = {};\n",
+            lit(&id),
+            lit(&new),
+            lit(mission),
+            lit(path)
+        ));
+    }
+    for (thread, path) in briefings {
+        let (_, new) = crate::ledger::doc_id::upgraded(path);
+        if new != *path {
+            sql.push_str(&format!(
+                "update threads set briefing_path = {} where thread_id = {};\n",
+                lit(&new),
+                lit(thread)
+            ));
+        }
+    }
     sql
 }
 
@@ -1173,7 +1231,7 @@ mod tests {
         assert!(!sql.contains("create table bindings "));
         assert!(sql.contains("create table instances (instance varchar(255) primary key, kind enum('cloud','worktree') not null, actor_name varchar(200) not null"));
         assert!(sql.contains("create table sessions (session varchar(255) primary key, instance varchar(255) not null, kind enum('cloud','worktree') not null, started_at varchar(32) not null)"));
-        assert!(sql.contains("('version', '13')"));
+        assert!(sql.contains("('version', '14')"));
         assert!(sql.contains("id varchar(64) not null primary key, code varchar(64) null, name"));
         assert!(sql.contains("unique key missions_code_unique (code)"));
         assert!(sql.contains("mission_id varchar(64) null"));
@@ -1191,12 +1249,12 @@ mod tests {
         assert!(!from_four.contains("create table missions "));
         assert!(!from_four.contains("create table tasks "));
         assert!(from_four.contains("alter table decisions add column adr_path varchar(1024) null"));
-        assert!(from_four.ends_with("('version', '13');\n"));
+        assert!(from_four.ends_with("('version', '14');\n"));
         let from_five = upgrade_sql(5);
         assert!(!from_five.contains("alter table threads"));
         assert!(!from_five.contains("create table tasks "));
         assert!(from_five.contains("alter table decisions add column adr_path"));
-        assert!(from_five.ends_with("('version', '13');\n"));
+        assert!(from_five.ends_with("('version', '14');\n"));
         let from_six = upgrade_sql(6);
         assert!(!from_six.contains("alter table decisions add column adr_path"));
         assert!(!from_six.contains("alter table threads"));
@@ -1206,7 +1264,7 @@ mod tests {
         assert!(from_six.contains("drop column constraints_text"));
         assert!(from_six.contains("drop column out_of_scope"));
         assert!(!from_six.contains("create table missions "));
-        assert!(from_six.ends_with("('version', '13');\n"));
+        assert!(from_six.ends_with("('version', '14');\n"));
         let from_seven = upgrade_sql(7);
         assert!(from_seven.contains("create table bindings "));
         assert!(from_seven.contains(
@@ -1214,16 +1272,17 @@ mod tests {
         ));
         assert!(from_seven.contains("drop table cloud_session_bindings"));
         assert!(!from_seven.contains("mission_constraints"));
-        // The alterations are the layout 10 column and its index, and the three layout 13 columns: a layout
+        // The alterations are the layout 10 column and its index, the three layout 13 columns and the layout 14 column and its key: a layout
         // 7 ledger makes `actors` with its `uid`.
-        assert_eq!(from_seven.matches("alter table").count(), 2 + 3);
+        assert_eq!(from_seven.matches("alter table").count(), 2 + 3 + 2);
         assert!(from_seven.contains("alter table missions add column code"));
-        assert!(from_seven.ends_with("('version', '13');\n"));
+        assert!(from_seven.ends_with("('version', '14');\n"));
         let step_twelve = session_actors_upgrade_sql();
         let from_eight_records = record_uids_upgrade_sql(8);
         assert!(from_eight_records.contains("alter table tasks add column uid varchar(36) null"));
         assert!(from_eight_records.contains("update decisions set uid = lower(concat(substr(md5(concat('urn:tsk:decision:', mission_id, ':', seq))"));
         assert_eq!(record_uids_upgrade_sql(13), "");
+        assert_eq!(record_uids_upgrade_sql(14), "");
         // A ledger below version 4 makes the tables with the column, and only fills it.
         assert!(!record_uids_upgrade_sql(3).contains("alter table"));
         assert!(record_uids_upgrade_sql(3).contains("update questions set uid"));
@@ -1234,8 +1293,14 @@ mod tests {
         assert_eq!(
             from_eight,
             format!(
-                "{};\n{};\n{}{};\n{}{}replace into manifest (k, v) values ('version', '13');\n",
-                SCHEMA[4], SCHEMA[5], CODE_UPGRADE_SQL, SCHEMA[8], step_twelve, from_eight_records
+                "{};\n{};\n{}{};\n{}{}{}replace into manifest (k, v) values ('version', '14');\n",
+                SCHEMA[4],
+                SCHEMA[5],
+                CODE_UPGRADE_SQL,
+                SCHEMA[8],
+                step_twelve,
+                from_eight_records,
+                document_ids_upgrade_sql(8, "")
             )
         );
         // From layout 9 the code step, the sessions step, the uid column and the layout 12
@@ -1243,43 +1308,58 @@ mod tests {
         assert_eq!(
             upgrade_sql(9),
             format!(
-                "{}{};\n{}{}{}replace into manifest (k, v) values ('version', '13');\n",
+                "{}{};\n{}{}{}{}replace into manifest (k, v) values ('version', '14');\n",
                 CODE_UPGRADE_SQL,
                 SCHEMA[8],
                 uid_alter,
                 step_twelve,
-                record_uids_upgrade_sql(9)
+                record_uids_upgrade_sql(9),
+                document_ids_upgrade_sql(9, "")
             )
         );
         // From layout 10 the sessions step, the uid column and the layout 12 step run.
         assert_eq!(
             upgrade_sql(10),
             format!(
-                "{};\n{}{}{}replace into manifest (k, v) values ('version', '13');\n",
+                "{};\n{}{}{}{}replace into manifest (k, v) values ('version', '14');\n",
                 SCHEMA[8],
                 uid_alter,
                 step_twelve,
-                record_uids_upgrade_sql(10)
+                record_uids_upgrade_sql(10),
+                document_ids_upgrade_sql(10, "")
             )
         );
         // From layout 11 the uid column and the layout 12 step run.
         assert_eq!(
             upgrade_sql(11),
             format!(
-                "{}{}{}replace into manifest (k, v) values ('version', '13');\n",
+                "{}{}{}{}replace into manifest (k, v) values ('version', '14');\n",
                 uid_alter,
                 step_twelve,
-                record_uids_upgrade_sql(11)
+                record_uids_upgrade_sql(11),
+                document_ids_upgrade_sql(11, "")
             )
         );
         // From layout 12 only the record uids step runs.
         assert_eq!(
             upgrade_sql(12),
             format!(
-                "{}replace into manifest (k, v) values ('version', '13');\n",
-                record_uids_upgrade_sql(12)
+                "{}{}replace into manifest (k, v) values ('version', '14');\n",
+                record_uids_upgrade_sql(12),
+                document_ids_upgrade_sql(12, "")
             )
         );
+        // From layout 13 only the document ids step runs.
+        assert_eq!(
+            upgrade_sql(13),
+            format!(
+                "{}replace into manifest (k, v) values ('version', '14');\n",
+                document_ids_upgrade_sql(13, "")
+            )
+        );
+        assert_eq!(document_ids_upgrade_sql(14, "x"), "");
+        // A ledger below layout 3 makes the table with the column.
+        assert!(!document_ids_upgrade_sql(2, "x").contains("alter"));
         assert!(CODE_UPGRADE_SQL.contains("add column code varchar(64) null after id"));
         assert!(CODE_UPGRADE_SQL.contains("update missions set code = id"));
         assert!(!CODE_UPGRADE_SQL.contains("drop"));
@@ -1404,10 +1484,40 @@ mod uuid_tests {
         assert!(sql.contains("insert into actor_names"));
         assert!(sql.contains("insert into session_actors"));
         assert!(sql.contains("insert ignore into manifest (k, v) select 'ledger_id'"));
-        assert!(sql.ends_with("replace into manifest (k, v) values ('version', '13');\n"));
+        assert!(sql.ends_with("replace into manifest (k, v) values ('version', '14');\n"));
         // A ledger below 9 makes `actors` in its newest shape, so no alter follows.
         let old = upgrade_sql(8);
         assert!(!old.contains("alter table actors add column uid"));
         assert!(old.contains("create table thread_bindings"));
+    }
+
+    #[test]
+    fn the_upgrade_to_fourteen_gives_each_link_the_id_of_its_path() {
+        let links = vec![("M-A".to_string(), "missions/x/r.md".to_string())];
+        let briefings = vec![("0123abcd".to_string(), "missions/x/M-A.md".to_string())];
+        let rows = document_rows_sql(&links, &briefings);
+        let id = crate::ledger::doc_id::derived_id("missions/x/r.md");
+        assert!(rows.contains(&format!(
+            "update mission_documents set doc_id = {}, path = {} where mission_id = {} and path = {};",
+            lit(&id),
+            lit(&format!("missions/x/r.{}.md", id)),
+            lit("M-A"),
+            lit("missions/x/r.md")
+        )));
+        assert!(rows.contains("update threads set briefing_path = "));
+        let sql = upgrade_sql_full(13, "", &rows);
+        assert!(sql.starts_with("alter table mission_documents add column doc_id varchar(8) null"));
+        assert!(sql.contains(&rows));
+        // A path that has an id keeps it and moves no thread.
+        let kept = document_rows_sql(
+            &[("M-A".to_string(), "x.3f2a9c1e.md".to_string())],
+            &[("t".to_string(), "x.3f2a9c1e.md".to_string())],
+        );
+        assert!(kept.contains(&format!(
+            "set doc_id = {}, path = {} where",
+            lit("3f2a9c1e"),
+            lit("x.3f2a9c1e.md")
+        )));
+        assert!(!kept.contains("threads"));
     }
 }

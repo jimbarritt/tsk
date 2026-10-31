@@ -36,7 +36,7 @@ decided when an ADR names them.
 | Task | `urn:tsk:task:<ledger-id>:<uid>` | the ledger, then the task's uid | decided, built in 0.40.0 |
 | Decision | `urn:tsk:decision:<ledger-id>:<uid>` | the ledger, then the decision's uid | decided, built in 0.40.0 |
 | Question | `urn:tsk:question:<ledger-id>:<uid>` | the ledger, then the question's uid | decided, built in 0.40.0 |
-| Document | none | | not planned |
+| Document | `urn:tsk:document:<ledger-id>:<id>` | the ledger, then the 8 hexadecimal character id in the file name | decided, M-TSK-ADHOC 2026-10-31, built in 0.41.0 |
 
 The harness names in use are `claude-cloud`, `claude-cli`, `copilot-cli` and `pi`
 (ADR 0029). The instance key is the cloud session ID, or `<clone-id>/<worktree-name>`.
@@ -65,8 +65,15 @@ The harness names in use are `claude-cloud`, `claude-cli`, `copilot-cli` and `pi
   is a new row and gets a uid of its own: the old URN names a record that no longer exists.
   The column has no unique key, because a moved record is written under its new mission
   before the old row is removed.
-- **Document** is named by its path inside a ledger, and `tsk ledger doc mv` updates every
-  link that names the old path. A URN would need a uid per document in a record. Not planned.
+- **Document** carries the ledger and an id of 8 lowercase hexadecimal characters, unique
+  within the ledger. The id is part of the file name, before the last extension
+  (`report-x.3f2a9c1e.md`), so a document carries its own identity and the index of the
+  record side can be rebuilt from the branch. `mission_documents.doc_id` links by the id and
+  `path` is the current path, so `tsk ledger doc mv` renames a file and keeps every link
+  and the URN. An id is minted at the first `doc put` of a path. At the layout 14 upgrade an
+  existing document gets the first 8 hexadecimal characters of the MD5 of
+  `urn:tsk:document-path:<path>`, the same on every clone. A multi-file document, when one
+  arrives, is a directory named in the same form.
 
 ## Where a URN is used
 
@@ -80,7 +87,8 @@ The harness names in use are `claude-cloud`, `claude-cli`, `copilot-cli` and `pi
   (ADR 0030 decision 8).
 - The `--json` output of a record prints its URN beside its ID: `tsk actor list`, `tsk
   thread list` and `tsk mission list` from 0.39.0, a task, a decision and a question in `tsk
-  mission list <id> --json` from 0.40.0, and `tsk ledger id` prints the ledger's.
+  mission list <id> --json` from 0.40.0, a linked document (`urn` and `id` beside `path`
+  and `role`) from 0.41.0, and `tsk ledger id` prints the ledger's.
 - A link from one ledger to a record of another, which a nexus-level view needs, uses the
   thread or mission URN with the ledger in it.
 
@@ -95,4 +103,5 @@ unknown session of a known instance.
 
 ## Open points
 
-- **Document URNs.** Not planned. Reopen if a link from outside a ledger needs one.
+- **Multi-file documents.** A directory named `<name>.<id>` would hold the files of one
+  document. No command makes one yet. Reopen when a document needs more than one file.

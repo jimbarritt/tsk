@@ -6,7 +6,7 @@ Start at [docs/index.md](docs/index.md) to find design docs, domain model, user 
 
 Missions, objectives, constraints, out of scope, tasks, decisions, questions and thread
 state are now records: typed rows in the Dolt database, written through `tsk` commands.
-The ledger is at layout 13 (0.40.0): a task, a decision and a question have a `uid`, so
+The ledger is at layout 14 (0.41.0): a document carries an 8 character id in its file name (`report.3f2a9c1e.md`), `mission_documents` links by `doc_id`, and `tsk mission list <id> --json` prints `id` and `urn` for a linked document; the first `doc put`, `mv`, `rm` or push on a layout 14 ledger renames the files that have no id. Layout 13 (0.40.0): a task, a decision and a question have a `uid`, so
 `tsk mission list <id> --json` prints a `urn` for each that survives a renumbering. Layout 12
 (ADR 0030, 0.39.0): an actor belongs to a session, never to a harness instance. `thread_bindings`, keyed by `instance`, replaces `bindings`; an actor has a
 `uid` and a name history (`actor_names`); a session's actors are rows of `session_actors`, one

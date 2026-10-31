@@ -499,7 +499,7 @@ fn migrate_docs_moves_every_document_byte_for_byte_and_a_fresh_clone_reads_them(
     // The database: no table, version 9, and one Dolt commit for the change.
     assert_eq!(
         fx.dolt_sql(&a, "select v from manifest where k = 'version'"),
-        "v\n13\n"
+        "v\n14\n"
     );
     // The migrated thread gained the mission column, still null.
     assert_eq!(
@@ -553,7 +553,12 @@ fn migrate_docs_moves_every_document_byte_for_byte_and_a_fresh_clone_reads_them(
     }
     assert_eq!(
         fx.ok(&c, &["ledger", "doc", "list", "notes/"]),
-        "notes/awkward.md\nnotes/empty.md\nnotes/no-newline.md\nnotes/quotes.md\n"
+        // The migrated files have the names of an older tsk, and a read renames nothing: the
+        // first write or push gives each the id of its path.
+        "notes/awkward.md     -\n\
+         notes/empty.md       -\n\
+         notes/no-newline.md  -\n\
+         notes/quotes.md      -\n"
     );
     let list = fx.ok(&c, &["thread", "list"]);
     assert!(list.contains("aaaa1111"), "{}", list);
@@ -567,6 +572,14 @@ fn migrate_docs_moves_every_document_byte_for_byte_and_a_fresh_clone_reads_them(
     fx.ok(&c, &["ledger", "push", "After migration"]);
     fx.ok(&a, &["ledger", "fetch"]);
     assert_eq!(fx.ok(&a, &["ledger", "doc", "get", "after.md"]), "after\n");
+    // The write on the new clone renamed the migrated files, and the push sent the names.
+    assert_eq!(
+        fx.ok(&a, &["ledger", "doc", "list", "notes/"]),
+        "notes/awkward.fe0113d2.md     fe0113d2\n\
+         notes/empty.93c83d98.md       93c83d98\n\
+         notes/no-newline.f951840e.md  f951840e\n\
+         notes/quotes.f59e21c9.md      f59e21c9\n"
+    );
 }
 
 #[test]
@@ -574,16 +587,16 @@ fn an_older_tsk_stops_at_the_manifest_check_of_a_version_it_does_not_know() {
     need_dolt!();
     let fx = Fixture::new();
     // A version this tsk does not know stands in for what this tsk meets in a later release.
-    fx.old_ledger("14", &[], "");
+    fx.old_ledger("15", &[], "");
     let out = fx.tsk(&fx.a(), &["ledger", "fetch"]);
-    assert_fails(&out, "unsupported ledger version 14");
+    assert_fails(&out, "unsupported ledger version 15");
     assert!(
         stderr(&out).contains("supports version 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13"),
         "{}",
         stderr(&out)
     );
     let out = fx.tsk(&fx.a(), &["ledger", "migrate-docs"]);
-    assert_fails(&out, "unsupported ledger version 14");
+    assert_fails(&out, "unsupported ledger version 15");
     assert_eq!(fx.remote_ref(DOCS_REF), None);
 }
 
@@ -747,7 +760,7 @@ fn a_rejected_docs_push_leaves_the_dolt_data_unpushed_and_tsk_ledger_push_resume
     assert_success(&resumed);
     assert!(fx.remote_ref(DOCS_REF).is_some());
     assert_ne!(fx.remote_ref(LEDGER_REF).unwrap(), ledger_before);
-    assert_eq!(fx.docs_blob("notes/awkward.md"), AWKWARD);
+    assert_eq!(fx.docs_blob("notes/awkward.fe0113d2.md"), AWKWARD);
     let c = fx.fresh();
     fx.ok(&c, &["ledger", "fetch"]);
     assert_eq!(

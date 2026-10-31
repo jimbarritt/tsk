@@ -54,7 +54,7 @@ fn git_hooks_of_the_code_repo_do_not_run_for_the_ledger_worktrees() {
         );
     }
     let before = fx.origin_sha();
-    assert_success(&put(&fx, "notes/hooks.md", false));
+    assert_success(&put(&fx, "notes/hooks.1c0de074.md", false));
     assert_success(&push(&fx, false));
     assert_ne!(fx.origin_sha(), before, "the documents were not pushed");
     assert!(
@@ -72,11 +72,11 @@ fn a_failing_docs_hook_makes_put_exit_1_and_the_document_stays() {
         "#!/bin/sh\necho \"lint: $1 has a problem\"\necho \"on stderr\" >&2\nexit 1\n",
         0o755,
     );
-    let out = put(&fx, "notes/bad.md", false);
+    let out = put(&fx, "notes/bad.1c0de071.md", false);
     assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
-    assert!(stderr(&out).contains("lint: notes/bad.md has a problem"));
+    assert!(stderr(&out).contains("lint: notes/bad.1c0de071.md has a problem"));
     assert!(stderr(&out).contains("on stderr"));
-    let got = fx.tsk(&["ledger", "doc", "get", "notes/bad.md"]);
+    let got = fx.tsk(&["ledger", "doc", "get", "notes/bad.1c0de071.md"]);
     assert_success(&got);
     assert_eq!(stdout(&got), "# note\n");
 }
@@ -84,7 +84,7 @@ fn a_failing_docs_hook_makes_put_exit_1_and_the_document_stays() {
 #[test]
 fn a_failing_docs_hook_blocks_the_push_and_nothing_is_published() {
     let fx = Fixture::new();
-    assert_success(&put(&fx, "notes/early.md", false));
+    assert_success(&put(&fx, "notes/early.1c0de073.md", false));
     write_hook(
         &docs_hook(&fx),
         "#!/bin/sh\necho \"lint: stop\"\nexit 1\n",
@@ -97,7 +97,7 @@ fn a_failing_docs_hook_blocks_the_push_and_nothing_is_published() {
     assert_eq!(fx.origin_sha(), before);
     // The document and the local state stay.
     assert!(fx.unpushed());
-    assert_success(&fx.tsk(&["ledger", "doc", "get", "notes/early.md"]));
+    assert_success(&fx.tsk(&["ledger", "doc", "get", "notes/early.1c0de073.md"]));
     // Once the hook passes, the same push goes through.
     write_hook(&docs_hook(&fx), "#!/bin/sh\nexit 0\n", 0o755);
     assert_success(&push(&fx, false));
@@ -116,13 +116,16 @@ fn a_passing_docs_hook_gets_the_paths_the_directory_and_the_environment() {
         ),
         0o755,
     );
-    let first = put(&fx, "notes/one.md", false);
+    let first = put(&fx, "notes/one.1c0de075.md", false);
     assert_success(&first);
     assert!(stdout(&first).contains("hook output"));
-    let second = put(&fx, "notes/two.md", false);
+    let second = put(&fx, "notes/two.1c0de078.md", false);
     assert_success(&second);
-    let docs =
-        String::from_utf8(fx.tsk(&["ledger", "doc", "path", "notes/one.md"]).stdout).unwrap();
+    let docs = String::from_utf8(
+        fx.tsk(&["ledger", "doc", "path", "notes/one.1c0de075.md"])
+            .stdout,
+    )
+    .unwrap();
     let docs = Path::new(docs.trim())
         .parent()
         .unwrap()
@@ -130,8 +133,8 @@ fn a_passing_docs_hook_gets_the_paths_the_directory_and_the_environment() {
         .unwrap()
         .to_path_buf();
     let text = std::fs::read_to_string(&log).unwrap();
-    assert!(text.contains("args: notes/one.md\n"), "{}", text);
-    assert!(text.contains("args: notes/two.md\n"), "{}", text);
+    assert!(text.contains("args: notes/one.1c0de075.md\n"), "{}", text);
+    assert!(text.contains("args: notes/two.1c0de078.md\n"), "{}", text);
     assert!(
         text.contains(&format!("env: {}\n", docs.display())),
         "{} / {}",
@@ -152,7 +155,7 @@ fn a_passing_docs_hook_gets_the_paths_the_directory_and_the_environment() {
     let text = std::fs::read_to_string(&log).unwrap();
     assert_eq!(text.matches("args:").count(), 1, "{}", text);
     assert!(
-        text.contains("args: notes/one.md notes/two.md\n"),
+        text.contains("args: notes/one.1c0de075.md notes/two.1c0de078.md\n"),
         "{}",
         text
     );
@@ -163,7 +166,7 @@ fn the_skip_variable_skips_the_hook_and_says_so() {
     let fx = Fixture::new();
     write_hook(&docs_hook(&fx), "#!/bin/sh\necho stop\nexit 1\n", 0o755);
     let before = fx.origin_sha();
-    let put = put(&fx, "notes/skipped.md", true);
+    let put = put(&fx, "notes/skipped.1c0de077.md", true);
     assert_success(&put);
     assert!(
         stderr(&put).contains("TSK_SKIP_DOC_CHECK"),
@@ -185,7 +188,7 @@ fn the_skip_variable_skips_the_hook_and_says_so() {
 fn a_hook_that_is_not_executable_is_an_error_that_names_its_path() {
     let fx = Fixture::new();
     write_hook(&docs_hook(&fx), "#!/bin/sh\nexit 0\n", 0o644);
-    let out = put(&fx, "notes/x.md", false);
+    let out = put(&fx, "notes/x.1c0de079.md", false);
     assert_eq!(out.status.code(), Some(1));
     assert!(stderr(&out).contains("pre-docs-commit"), "{}", stderr(&out));
     assert!(stderr(&out).contains(".tsk/hooks/pre-docs-commit"));
@@ -196,10 +199,10 @@ fn a_background_publish_that_a_hook_stops_shows_the_hook_output_in_the_warning()
     let fx = Fixture::new();
     write_hook(
         &docs_hook(&fx),
-        "#!/bin/sh\necho \"lint: notes/bg.md fails rule 7\"\nexit 1\n",
+        "#!/bin/sh\necho \"lint: notes/bg.1c0de072.md fails rule 7\"\nexit 1\n",
         0o755,
     );
-    assert_success(&put(&fx, "notes/bg.md", true));
+    assert_success(&put(&fx, "notes/bg.1c0de072.md", true));
     assert_success(&fx.tsk(&["ledger", "push", "--background", "bgmsg-hook"]));
     fx.wait_idle();
     let result = fx.result().unwrap();
@@ -208,7 +211,7 @@ fn a_background_publish_that_a_hook_stops_shows_the_hook_output_in_the_warning()
         result["error"]
             .as_str()
             .unwrap()
-            .contains("lint: notes/bg.md fails rule 7"),
+            .contains("lint: notes/bg.1c0de072.md fails rule 7"),
         "{}",
         result
     );
@@ -216,7 +219,7 @@ fn a_background_publish_that_a_hook_stops_shows_the_hook_output_in_the_warning()
     assert_success(&next);
     assert!(stderr(&next).starts_with(WARNING), "{}", stderr(&next));
     assert!(
-        stderr(&next).contains("lint: notes/bg.md fails rule 7"),
+        stderr(&next).contains("lint: notes/bg.1c0de072.md fails rule 7"),
         "{}",
         stderr(&next)
     );
@@ -225,7 +228,7 @@ fn a_background_publish_that_a_hook_stops_shows_the_hook_output_in_the_warning()
 #[test]
 fn a_background_publish_that_git_stops_shows_its_stderr_in_the_warning() {
     let fx = Fixture::new();
-    assert_success(&put(&fx, "notes/p.md", false));
+    assert_success(&put(&fx, "notes/p.1c0de076.md", false));
     git(
         &fx.work(),
         &["remote", "set-url", "origin", "/nonexistent/origin.git"],
@@ -265,7 +268,7 @@ fn the_hook_is_looked_up_in_the_environment_then_the_clone_then_the_user_then_th
     let env = fx.root.path().join("env-hook");
 
     assert_eq!(hook_source(&fx, None), "docs hook: none\n");
-    assert_success(&put(&fx, "notes/a.md", false));
+    assert_success(&put(&fx, "notes/a.1c0de070.md", false));
 
     marker_hook(&repo, "repo", &log);
     let shown = hook_source(&fx, None);
@@ -275,11 +278,11 @@ fn the_hook_is_looked_up_in_the_environment_then_the_clone_then_the_user_then_th
         shown
     );
     assert!(shown.contains("source: repo"), "{}", shown);
-    assert_success(&put(&fx, "notes/a.md", false));
+    assert_success(&put(&fx, "notes/a.1c0de070.md", false));
 
     marker_hook(&user, "user", &log);
     assert!(hook_source(&fx, None).contains("source: user"));
-    assert_success(&put(&fx, "notes/a.md", false));
+    assert_success(&put(&fx, "notes/a.1c0de070.md", false));
 
     marker_hook(&clone, "clone", &log);
     let shown = hook_source(&fx, None);
@@ -289,11 +292,11 @@ fn the_hook_is_looked_up_in_the_environment_then_the_clone_then_the_user_then_th
         shown
     );
     assert!(shown.contains("source: clone"), "{}", shown);
-    assert_success(&put(&fx, "notes/a.md", false));
+    assert_success(&put(&fx, "notes/a.1c0de070.md", false));
 
     marker_hook(&env, "env", &log);
     assert!(hook_source(&fx, Some(&env)).contains("source: environment"));
-    let mut command = fx.command(&["ledger", "doc", "put", "notes/a.md"]);
+    let mut command = fx.command(&["ledger", "doc", "put", "notes/a.1c0de070.md"]);
     command.env("TSK_DOCS_HOOK", &env);
     assert_success(&run_stdin(&mut command, "# note\n"));
 

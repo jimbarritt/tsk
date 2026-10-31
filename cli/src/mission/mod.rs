@@ -14,7 +14,7 @@ use std::io::Read;
 
 use clap::Subcommand;
 
-use crate::ledger::store::{self, check_docs_path, LedgerStore};
+use crate::ledger::store::{self, LedgerStore};
 use model::{Category, ListKind, Mission};
 
 #[derive(Subcommand)]
@@ -259,16 +259,17 @@ pub fn run_with(store: &dyn LedgerStore, action: MissionCommands) -> Result<(), 
         MissionCommands::Constraint { action } => items(store, ListKind::Constraint, action)?,
         MissionCommands::OutOfScope { action } => items(store, ListKind::OutOfScope, action)?,
         MissionCommands::Link { id, path, role } => {
-            // The stored path is the normalised one; a path that cannot be a document
-            // on the branch does not exist.
-            let path = check_docs_path(&path).unwrap_or(path);
-            let exists = store.doc_exists(&path)?;
+            // The link names the document by its id; the stored path is the one the file
+            // has now. A path that cannot be a document on the branch does not exist.
+            let found = store.doc_resolve(&path)?;
+            let exists = found.is_some();
+            let path = found.unwrap_or(path);
             change(store, |missions| {
                 model::link(missions, &id, &path, &role, exists)
             })?;
         }
         MissionCommands::Unlink { id, path } => {
-            let path = check_docs_path(&path).unwrap_or(path);
+            let path = store.doc_resolve(&path)?.unwrap_or(path);
             change(store, |missions| model::unlink(missions, &id, &path))?;
         }
         MissionCommands::Rm { id, force } => rm::mission_rm_run(store, &id, force)?,

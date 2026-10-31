@@ -112,7 +112,7 @@ A `mission_id` column in any table below holds the internal ID of a mission, `mi
 
 | Table | Columns | Content |
 |---|---|---|
-| `manifest` | `k` varchar(64), primary key; `v` text | The manifest keys as rows: `version`, `repo_id` for a nexus ledger, `mission_prefix` when set, and `ledger_id` (version 12), a UUID that names the ledger in `urn:tsk:ledger:<ledger-id>`. The `version` row is `13`. |
+| `manifest` | `k` varchar(64), primary key; `v` text | The manifest keys as rows: `version`, `repo_id` for a nexus ledger, `mission_prefix` when set, and `ledger_id` (version 12), a UUID that names the ledger in `urn:tsk:ledger:<ledger-id>`. The `version` row is `14`. |
 | `threads` | `thread_id` varchar(64), primary key; `briefing_path` varchar(1024), null; `mission_id` varchar(64), null | One row per thread. `mission_id` is the internal ID of the mission the thread works (the code itself for a mission with no record), and is null for a thread with no mission. Every command reads it through `missions.code`, so a renamed mission shows its new ID. `briefing_path` is the mission's briefing document, stored only when the mission has no record. There is no foreign key from `mission_id` to `missions`, because a thread made before mission records names a mission with no record. A thread made before version 5 has a null `mission_id`: the reader derives it from the file name of `briefing_path` (`M-BOOT-04` from `M-BOOT-04-official-ledger.md`) and never writes it back. |
 | `continuation_entries` | `thread_id` varchar(64); `seq` int; `entry` longtext. Primary key (`thread_id`, `seq`) | One row per continuation state entry, `seq` from 1. `entry` is the JSON line, in the format of [`continuation-state.jsonl`](#threadsthread-idcontinuation-statejsonl). |
 | `thread_bindings` | `instance` varchar(255), primary key; `kind` enum(`cloud`, `worktree`); `thread_id` varchar(64); `registered_at` varchar(32) | One row per bound harness instance, of either kind (version 12, ADR 0030; `bindings`, with the column `actor`, from version 8 to 11, and `cloud_session_bindings` below 8). The key of a cloud session is the session ID (`cse_...`). The key of a local code worktree is `<clone-id>/<worktree-name>`: the ID in `.git/tsk-clone-id`, a slash, and `main` for the main worktree or the name of the linked worktree. A bind sets or replaces the instance's row. `thread stop` deletes every row that names the stopped thread. There is no foreign key to `threads`. |
@@ -128,7 +128,7 @@ A `mission_id` column in any table below holds the internal ID of a mission, `mi
 | `mission_out_of_scope` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext. Primary key (`mission_id`, `seq`) | One row per out-of-scope item of a mission, one line each. |
 | `objective_outcomes` | `mission_id` varchar(64), foreign key; `seq` int; `outcome` longtext; `met` boolean, default false. Primary key (`mission_id`, `seq`) | One row per objective outcome. |
 | `mission_blocks` | `mission_id` varchar(64), foreign key; `blocked_by_id` varchar(64), foreign key to `missions(id)`. Primary key of both | One row per block. Whether a block still holds is derived, never stored. |
-| `mission_documents` | `mission_id` varchar(64), foreign key; `path` varchar(1024); `role` enum(`intelligence`, `report`, `design`). Primary key (`mission_id`, `path`) | One row per document a mission links. The path names a document on `tsk/docs`. |
+| `mission_documents` | `mission_id` varchar(64), foreign key; `path` varchar(1024); `doc_id` varchar(8), null (version 14); `role` enum(`intelligence`, `report`, `design`). Primary key (`mission_id`, `path`); unique key (`mission_id`, `doc_id`) | One row per document a mission links. `doc_id` is the id in the file name of the document, and it is the link. `path` is the path the file has now, kept so an older reader still finds it, and it is refreshed when the document is renamed. |
 | `tasks` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `description` longtext; `status` enum(`todo`, `in-progress`, `done`), default `todo`. Primary key (`mission_id`, `seq`) | One row per task. The ID `T-nn` is `seq` zero padded to two digits. |
 | `task_blocks` | `mission_id` varchar(64); `task_seq` int; `blocked_by_seq` int. Primary key of all three. Foreign keys (`mission_id`, `task_seq`) and (`mission_id`, `blocked_by_seq`) to `tasks(mission_id, seq)` | One row per task block. Both tasks belong to one mission. Whether a block still holds is derived, never stored. |
 | `decisions` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext; `decided_by` varchar(255); `decided_on` date; `task_seq` int, null; `adr_path` varchar(1024), null. Primary key (`mission_id`, `seq`). Foreign key (`mission_id`, `task_seq`) to `tasks(mission_id, seq)` | One row per decision. `seq` orders the decisions and has no label. `decided_on` is the UTC date of the command. `adr_path` is the path of an ADR in the code repository, relative to its root, or null. It has no foreign key: the ADR is a file in another repository's tree. |
@@ -227,15 +227,38 @@ The worktree, the refresh and the compare-and-swap push (`cli/src/ledger/fetch.r
 `push.rs`) run with the documents ref. The path rules are those of a file in git: no
 absolute path, no `..`, no `.git` component. No name is reserved.
 
-Five commands read and write the documents:
+#### The id of a document
+
+From layout 14 a document carries its own identity in its file name: an id of 8 lowercase
+hexadecimal characters, unique within the ledger, at the end of the name and before the last
+extension. `missions/administrative/M-TSK-ADHOC/report-renaming-missions-2026-10-25.3f2a9c1e.md`
+is the document with the id `3f2a9c1e`. A name with no extension ends in `.<id>`. The URN is
+`urn:tsk:document:<ledger-id>:<id>` (`docs/domain/urn-scheme.md`). A multi-file document, when
+one arrives, is a directory named in the same form.
+
+The file name is the identity, so the index on the record side can be rebuilt from the branch:
+`mission_documents.doc_id` names the id, and the path is whatever the tree holds. A rename of
+the file changes the path and keeps the id, so `tsk ledger doc mv` rewrites the `path` of the
+links and no link is lost. A document written without an id (`doc put missions/x/report.md`)
+gets a minted one, drawn again when the ledger already uses it. Every command that takes a
+document accepts the path with the id, the path without it, or the id alone. A path without
+the id names the file in the same directory that has the name with an id, so a second `doc put
+missions/x/report.md` rewrites `missions/x/report.<id>.md`. The two seed files of a new
+branch, `README.md` and `index.md` with their seed text, have no id.
+
+Six commands read and write the documents:
 
 | Command | Effect |
 |---|---|
-| `tsk ledger doc get <path>` | Prints the body of the document at `<path>`. |
-| `tsk ledger doc put <path> [<file>]` | Stores the content of `<file>`, or stdin when no file is given, as the document at `<path>`. Writes the documents worktree only. |
-| `tsk ledger doc list [<prefix>]` | Prints the document paths, limited to those under `<prefix>` when given. |
-| `tsk ledger doc rm <path>` | Removes the document. Writes the documents worktree only. |
-| `tsk ledger doc path <path>` | Prints the absolute path of the document's file, for opening it in another tool. Exits 1 with `error: no such document: <path>` when it is absent. |
+| `tsk ledger doc get <ref>` | Prints the body of the document `<ref>` names. |
+| `tsk ledger doc put <path> [<file>]` | Stores the content of `<file>`, or stdin when no file is given, as the document at `<path>`, and prints the path it has, with its id. Writes the documents worktree only. |
+| `tsk ledger doc list [<prefix>]` | Prints each document path under `<prefix>` (all when omitted) and its id, aligned (`-` for a file with no id). `--porcelain` separates them with a tab. |
+| `tsk ledger doc rm <ref>` | Removes the document. Writes the documents worktree only. |
+| `tsk ledger doc mv <ref> <path>` | Renames the file, keeps the id, and updates `path` in `mission_documents` for every mission that links the id. |
+| `tsk ledger doc path <ref>` | Prints the absolute path of the document's file, for opening it in another tool. Exits 1 with `error: no such document: <ref>` when it is absent. |
+
+`tsk mission link <mission> <ref> --role <role>` links by the id the reference names.
+`tsk mission list <id> --json` prints `path`, `id`, `urn` and `role` for each linked document.
 
 `doc put` and `doc rm` do not reach the remote. `tsk ledger push "<message>"` does.
 
@@ -536,8 +559,9 @@ Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::di
 
 ### Manifest version
 
-The `version` row of the `manifest` table is `13` for a ledger whose `tasks`, `decisions` and
-`questions` have a `uid` column, `12` for a ledger with `thread_bindings`,
+The `version` row of the `manifest` table is `14` for a ledger whose documents carry an id in
+the file name and whose `mission_documents` has `doc_id`, `13` for a ledger whose `tasks`,
+`decisions` and `questions` have a `uid` column, `12` for a ledger with `thread_bindings`,
 `actors.uid`, `actor_names`, `session_actors` and the manifest key `ledger_id` (ADR 0030),
 `11` for a ledger with the `sessions` table and the bindings still in `bindings`, `10` for a
 ledger with `missions.code` and no `sessions` table, `9` for a ledger with the `actors` and
@@ -548,7 +572,7 @@ and out of scope are tables of their own with the bindings still in `cloud_sessi
 `mission_id`, `4` for a ledger with the mission, task, decision and question tables and the
 older `threads` table, `3` for a ledger with the mission tables only, and `2` for a
 ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
-backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 and 13. Version 1 is a ledger that still keeps its
+backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 and 14. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger is refused by every command except `tsk ledger fetch`,
@@ -680,6 +704,33 @@ documents in a `documents` table.
   them. A row written later gets a uid from `uuid()` at its first insert, and an update of the
   row does not name the column, so a renumbering (ADR 0022) keeps it. The column has no unique
   key.
+
+- A version 13 ledger works for everything it did before: its documents have no id in the file
+  name, and `mission list --json` prints no `id` or `urn` for a linked document. A read
+  upgrades nothing, and shows each link as the upgrade will leave it. The upgrade has two
+  parts, which keep two clones consistent because each is a function of the path alone:
+  1. **The Dolt change.** `mission_documents` gains `doc_id` and the unique key
+     `mission_documents_doc_unique`. Each row gets the id of its path, the first 8 hexadecimal
+     characters of the MD5 of `urn:tsk:document-path:<path>`, and its `path` gains the id
+     before the last extension. A path that already carries an id keeps it. A thread whose
+     `briefing_path` is a document moves the same way. The rows are written with the schema
+     change, in the first Dolt write that upgrades the ledger, so two clones that upgrade on
+     their own write the same change and Dolt merges them.
+  2. **The files.** The renames are a change of the documents branch, which Dolt cannot hold.
+     A read of a document (`doc get|list|path`, `mission link`) renames nothing, so it never
+     leaves a dirty worktree that `tsk ledger fetch` would refuse: a file with no id keeps
+     its name, a reference to it by path, by the path with the id it will get, or by that id
+     still resolves, and `doc list` prints `-` for its id. A write of a document (`doc put`,
+     `mv`, `rm`) first upgrades a ledger still below 14 with the Dolt change, then renames
+     every file that has no id to the name with the id of its path. `tsk ledger push` on a
+     ledger at 14 does the same renames before it commits the documents. A push of a ledger
+     below 14 upgrades nothing. The step is idempotent: a file that has an id is left alone,
+     so a clone whose branch is already renamed, or whose rename was interrupted, does
+     nothing or finishes. The two seed files of a new branch (`README.md` and `index.md` with
+     their seed text) are not renamed, and a write of one gives it the id of its path. Two
+     clones that rename on their own make the same renames, so the second push rebases the
+     same change onto the first. `tsk ledger push` sends the documents first, so a link never
+     names a file the remote lacks.
 
 ### Migration from the file ledger
 

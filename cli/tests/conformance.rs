@@ -17,7 +17,7 @@ use common::templates::{self, Seed, Step};
 
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
 const DOCS_REF: &str = "refs/heads/tsk/docs";
-const BRIEFING: &str = "missions/operational/M-CONF-01-conformance.md";
+const BRIEFING: &str = "missions/operational/M-CONF-01-conformance.0b1f1e6a.md";
 const CLOUD_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";
 
 /// Every branch a ledger with documents publishes: the code, the data and the documents.
@@ -35,8 +35,37 @@ fn published_branches() -> Vec<String> {
 fn listing(extra: &[&str]) -> String {
     let mut paths: Vec<&str> = vec!["README.md", "index.md"];
     paths.extend_from_slice(extra);
+    columns(&paths)
+}
+
+/// The id in a document path (`a/b.3f2a9c1e.md` has `3f2a9c1e`), or `None`.
+fn id_in(path: &str) -> Option<String> {
+    let name = path.rsplit('/').next().unwrap();
+    let parts: Vec<&str> = name.split('.').collect();
+    let is_id = |p: &str| p.len() == 8 && p.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    match parts.len() {
+        n if n >= 3 && is_id(parts[n - 2]) => Some(parts[n - 2].to_string()),
+        2 if is_id(parts[1]) => Some(parts[1].to_string()),
+        _ => None,
+    }
+}
+
+/// What `tsk ledger doc list` prints for `paths`, sorted: the path, two spaces, the id
+/// (`-` for a file with none), with the path column as wide as the longest path.
+fn columns(paths: &[&str]) -> String {
+    let mut paths = paths.to_vec();
     paths.sort();
-    paths.iter().map(|p| format!("{}\n", p)).collect()
+    let width = paths.iter().map(|p| p.len()).max().unwrap_or(0);
+    paths
+        .iter()
+        .map(|p| {
+            format!(
+                "{:width$}  {}\n",
+                p,
+                id_in(p).unwrap_or_else(|| "-".to_string())
+            )
+        })
+        .collect()
 }
 
 /// True when the whole run has the Dolt server switch on (`TSK_DOLT_SERVER=on`).
@@ -390,6 +419,21 @@ fn without_uid(mut record: serde_json::Value) -> serde_json::Value {
         "{}",
         urn
     );
+    // A linked document has the URN of its id, which carries the ledger.
+    if let Some(documents) = record["documents"].as_array_mut() {
+        for document in documents {
+            let Some(urn) = document.as_object_mut().and_then(|d| d.remove("urn")) else {
+                continue;
+            };
+            let urn = urn.as_str().unwrap().to_string();
+            assert!(urn.starts_with("urn:tsk:document:"), "{}", urn);
+            assert!(
+                urn.ends_with(&format!(":{}", document["id"].as_str().unwrap())),
+                "{}",
+                urn
+            );
+        }
+    }
     record
 }
 
@@ -582,7 +626,7 @@ mod cases {
         assert_success(&again);
         assert!(stderr(&again).contains("does not exist yet"));
 
-        fx.put(&a, "missions/M-X.md", "# Mission X\n");
+        fx.put(&a, "missions/M-X.1c0de001.md", "# Mission X\n");
         let push = fx.tsk(&a, &["ledger", "push", "Add M-X"]);
         assert_success(&push);
         assert!(!stdout(&push).trim().is_empty());
@@ -603,7 +647,7 @@ mod cases {
         );
         assert_eq!(
             fx.ok(&second, &["ledger", "doc", "list"]),
-            listing(&["missions/M-X.md"])
+            listing(&["missions/M-X.1c0de001.md"])
         );
 
         let nothing = fx.tsk(&a, &["ledger", "push", "Nothing"]);
@@ -620,12 +664,12 @@ mod cases {
         let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
         let awkward = "no newline at end \"quoted\" 'single' \\ back\n\ttab; drop table documents; -- \u{e9} \u{65e5}\u{672c} \u{1f600}\r\nlast";
-        fx.put(&a, "missions/b.md", awkward);
-        fx.put(&a, "missions/a.md", "a");
-        fx.put(&a, "notes/n.md", "");
+        fx.put(&a, "missions/b.1c0de002.md", awkward);
+        fx.put(&a, "missions/a.1c0de003.md", "a");
+        fx.put(&a, "notes/n.1c0de004.md", "");
         assert_eq!(
             fx.ok(&a, &["ledger", "doc", "list", "missions/"]),
-            "missions/a.md\nmissions/b.md\n"
+            columns(&["missions/a.1c0de003.md", "missions/b.1c0de002.md"])
         );
         assert_eq!(
             fx.ok(&a, &["ledger", "doc", "get", "missions/b.md"]),
@@ -653,7 +697,11 @@ mod cases {
         assert_eq!(fx.ok(&other, &["ledger", "doc", "get", "notes/n.md"]), "");
         assert_eq!(
             fx.ok(&other, &["ledger", "doc", "list"]),
-            listing(&["missions/a.md", "missions/b.md", "notes/n.md"])
+            listing(&[
+                "missions/a.1c0de003.md",
+                "missions/b.1c0de002.md",
+                "notes/n.1c0de004.md"
+            ])
         );
 
         assert_success(&fx.tsk(&other, &["ledger", "doc", "rm", "missions/a.md"]));
@@ -667,7 +715,7 @@ mod cases {
         assert_exit(&fx.get(&a, "missions/a.md"), 1);
         assert_eq!(
             fx.ok(&a, &["ledger", "doc", "list", "missions/"]),
-            "missions/b.md\n"
+            columns(&["missions/b.1c0de002.md"])
         );
 
         for reserved in ["threads/x", "../x.md", "/abs.md"] {
@@ -1158,14 +1206,14 @@ mod cases {
     pub fn a_stale_push_is_merged_when_different_rows_changed() {
         let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
-        fx.put(&a, "base.md", "base\n");
+        fx.put(&a, "base.1c0de005.md", "base\n");
         fx.ok(&a, &["ledger", "push", "Base"]);
         fx.ok(&other, &["ledger", "fetch"]);
 
-        fx.put(&a, "from-a.md", "a\n");
+        fx.put(&a, "from-a.1c0de006.md", "a\n");
         fx.ok(&a, &["ledger", "push", "From A"]);
 
-        fx.put(&other, "from-b.md", "b\n");
+        fx.put(&other, "from-b.1c0de007.md", "b\n");
         let stale = fx.tsk(&other, &["ledger", "push", "From B"]);
         assert_success(&stale);
         let pushed = stdout(&stale).trim().to_string();
@@ -1173,7 +1221,11 @@ mod cases {
         fx.ok(&a, &["ledger", "fetch"]);
         assert_eq!(
             fx.ok(&a, &["ledger", "doc", "list"]),
-            listing(&["base.md", "from-a.md", "from-b.md"])
+            listing(&[
+                "base.1c0de005.md",
+                "from-a.1c0de006.md",
+                "from-b.1c0de007.md"
+            ])
         );
         assert_eq!(fx.ok(&other, &["ledger", "doc", "get", "from-a.md"]), "a\n");
         assert!(!pushed.is_empty());
@@ -1182,7 +1234,7 @@ mod cases {
     pub fn a_same_row_conflict_stops_and_leaves_the_remote_unchanged() {
         let fx = Fixture::fetched();
         let (a, other) = (fx.a(), fx.b());
-        fx.put(&a, "shared.md", "base\n");
+        fx.put(&a, "shared.1c0de008.md", "base\n");
         fx.ok(&a, &["ledger", "push", "Base"]);
         fx.ok(&other, &["ledger", "fetch"]);
 
@@ -1196,7 +1248,7 @@ mod cases {
         let message = stderr(&conflict);
         assert!(message.contains("conflicted"), "{}", message);
         // The documents are files on their own branch: the conflict names the file.
-        assert!(message.contains("shared.md"), "{}", message);
+        assert!(message.contains("shared.1c0de008.md"), "{}", message);
         assert!(message.contains("refs/heads/tsk/docs"), "{}", message);
         assert_eq!(fx.remote_ledger(), before);
     }
@@ -1204,8 +1256,17 @@ mod cases {
     pub fn doc_path_prints_the_file_and_bad_paths_are_refused() {
         let fx = Fixture::fetched();
         let a = fx.a();
-        fx.put(&a, "missions/p.md", "x\n");
+        fx.put(&a, "missions/p.1c0de009.md", "x\n");
 
+        // The path is found by the path with the id, without it, and by the id alone.
+        for reference in ["missions/p.1c0de009.md", "missions/p.md", "1c0de009"] {
+            assert_eq!(
+                fx.ok(&a, &["ledger", "doc", "path", reference]),
+                fx.ok(&a, &["ledger", "doc", "path", "missions/p.md"]),
+                "{}",
+                reference
+            );
+        }
         let printed = fx.ok(&a, &["ledger", "doc", "path", "missions/p.md"]);
         let file = PathBuf::from(printed.trim_end());
         assert!(file.is_absolute(), "{}", printed);
@@ -1214,7 +1275,7 @@ mod cases {
         let root = fx.docs_path(&a);
         assert_eq!(
             std::fs::canonicalize(&file).unwrap(),
-            std::fs::canonicalize(root.join("missions/p.md")).unwrap()
+            std::fs::canonicalize(root.join("missions/p.1c0de009.md")).unwrap()
         );
 
         let missing = fx.tsk(&a, &["ledger", "doc", "path", "missions/none.md"]);
@@ -1622,11 +1683,11 @@ mod cases {
         );
     }
 
-    pub fn documents_are_linked_by_path_and_checked_at_push() {
+    pub fn documents_are_linked_by_id_and_checked_at_push() {
         let fx = Fixture::fetched();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-D", "Documents"]);
-        fx.put(&a, "missions/M-D/report.md", "# Report\n");
+        fx.put(&a, "missions/M-D/report.1a2b3c4d.md", "# Report\n");
 
         fails(
             &fx,
@@ -1693,11 +1754,18 @@ mod cases {
             &a,
             &["mission", "link", "M-D", "./index.md", "--role", "design"],
         );
+        let ledger = fx.ok(&a, &["ledger", "id"]);
+        let ledger = ledger.trim().strip_prefix("urn:tsk:ledger:").unwrap();
         assert_eq!(
             mission_json(&fx, &a, "M-D")["documents"],
             serde_json::json!([
                 {"path": "index.md", "role": "design"},
-                {"path": "missions/M-D/report.md", "role": "report"}
+                {
+                    "path": "missions/M-D/report.1a2b3c4d.md",
+                    "id": "1a2b3c4d",
+                    "urn": format!("urn:tsk:document:{}:1a2b3c4d", ledger),
+                    "role": "report"
+                }
             ])
         );
         // Linking again changes the role.
@@ -1707,7 +1775,7 @@ mod cases {
                 "mission",
                 "link",
                 "M-D",
-                "missions/M-D/report.md",
+                "1a2b3c4d",
                 "--role",
                 "intelligence",
             ],
@@ -1727,22 +1795,41 @@ mod cases {
 
         // The document is removed after the link: the push stops and names both.
         assert_success(&fx.tsk(&a, &["ledger", "doc", "rm", "missions/M-D/report.md"]));
+        // The removal by the path without the id removed the file that has it.
+        fails(
+            &fx,
+            &a,
+            &["ledger", "doc", "get", "1a2b3c4d"],
+            "error: no such document: 1a2b3c4d",
+        );
         let ledger_before = fx.remote_ledger();
         let stopped = fx.tsk(&a, &["ledger", "push", "Report gone"]);
         assert_exit(&stopped, 1);
         let message = stderr(&stopped);
         assert!(message.contains("M-D"), "{}", message);
-        assert!(message.contains("missions/M-D/report.md"), "{}", message);
+        assert!(
+            message.contains("missions/M-D/report.1a2b3c4d.md"),
+            "{}",
+            message
+        );
         assert_eq!(fx.remote_ledger(), ledger_before);
         // The documents had already gone: the removal is on the branch.
         let files = fx.origin_files(DOCS_REF);
         assert!(
-            !files.iter().any(|f| f == "missions/M-D/report.md"),
+            !files.iter().any(|f| f == "missions/M-D/report.1a2b3c4d.md"),
             "{:?}",
             files
         );
 
-        fx.ok(&a, &["mission", "unlink", "M-D", "missions/M-D/report.md"]);
+        fx.ok(
+            &a,
+            &[
+                "mission",
+                "unlink",
+                "M-D",
+                "missions/M-D/report.1a2b3c4d.md",
+            ],
+        );
         assert_success(&fx.tsk(&a, &["ledger", "push", "Unlink it"]));
         let other = fx.b();
         fx.ok(&other, &["ledger", "fetch"]);
@@ -1852,7 +1939,7 @@ mod cases {
         fx.ok(&a, &["mission", "objective", "add", "M-J", "Two"]);
         fx.ok(&a, &["mission", "objective", "done", "M-J", "1"]);
         fx.ok(&a, &["mission", "block", "M-J", "M-Q"]);
-        fx.put(&a, "m/design.md", "d\n");
+        fx.put(&a, "m/design.1c0de00a.md", "d\n");
         fx.ok(
             &a,
             &["mission", "link", "M-J", "m/design.md", "--role", "design"],
@@ -1881,7 +1968,7 @@ mod cases {
                     {"n": 2, "outcome": "Two", "met": false}
                 ],
                 "blocked_by": [{"id": "M-Q", "blocking": true}],
-                "documents": [{"path": "m/design.md", "role": "design"}],
+                "documents": [{"path": "m/design.1c0de00a.md", "id": "1c0de00a", "role": "design"}],
                 "tasks": [],
                 "decisions": [],
                 "questions": []
@@ -2469,7 +2556,11 @@ mod cases {
         assert_eq!(fx.remote_ledger(), before);
 
         // A sub-mission's briefing does not make its parent exist.
-        fx.put(&a, "missions/operational/M-CONF-01-02-sub.md", "# Sub\n");
+        fx.put(
+            &a,
+            "missions/operational/M-CONF-01-02-sub.1c0de021.md",
+            "# Sub\n",
+        );
         fx.ok(&a, &["ledger", "push", "Add a sub-mission briefing"]);
         let refused = fx.tsk(&a, &["thread", "start", "M-CONF"]);
         assert_exit(&refused, 1);
@@ -2517,7 +2608,11 @@ mod cases {
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-REC", "Recorded"]);
         fx.ok(&a, &["task", "add", "M-REC", "First task"]);
-        fx.put(&a, "missions/operational/M-LEG-legacy.md", "# Legacy\n");
+        fx.put(
+            &a,
+            "missions/operational/M-LEG-legacy.1c0de022.md",
+            "# Legacy\n",
+        );
         fx.ok(&a, &["ledger", "push", "Add the missions"]);
 
         let id = fx.started(&a, &["thread", "start", "M-REC"]);
@@ -2601,7 +2696,7 @@ mod cases {
         assert_eq!(latest["mission_id"], "M-LEG");
         assert_eq!(
             latest["mission_link"],
-            "missions/operational/M-LEG-legacy.md"
+            "missions/operational/M-LEG-legacy.1c0de022.md"
         );
         assert_eq!(latest["task_id"], "T-99");
     }
@@ -3346,7 +3441,7 @@ mod cases {
 
         fx.ok(&a, &["mission", "create", "M-LOCAL", "Local only"]);
         fx.ok(&a, &["task", "add", "M-LOCAL", "A task"]);
-        fx.put(&a, "local-note.md", "local\n");
+        fx.put(&a, "local-note.1c0de01a.md", "local\n");
         fx.put(&a, "index.md", "# Changed\n");
         fx.ok(&a, &["ledger", "doc", "rm", BRIEFING]);
 
@@ -3355,8 +3450,10 @@ mod cases {
         expected.push("data\ttasks\tadded 1\tmodified 0\tdeleted 0".to_string());
         expected.push("docs\tlocal changes".to_string());
         // Sorted by path.
-        expected.push("docs\tM\tindex.md".to_string());
-        expected.push("docs\tA\tlocal-note.md".to_string());
+        // A write of a file with no id (the seed index) gives it the id of its path.
+        expected.push("docs\tA\tindex.5a94a939.md".to_string());
+        expected.push("docs\tD\tindex.md".to_string());
+        expected.push("docs\tA\tlocal-note.1c0de01a.md".to_string());
         expected.push(format!("docs\tD\t{}", BRIEFING));
         expected.push("data\tremote\tup to date".to_string());
         expected.push("docs\tremote\tup to date".to_string());
@@ -3450,13 +3547,13 @@ mod cases {
             &a,
             &["mission", "create", "M-AHEAD", "Committed, not pushed"],
         );
-        fx.put(&a, "ahead.md", "ahead\n");
+        fx.put(&a, "ahead.1c0de01c.md", "ahead\n");
         assert_exit(&fx.tsk(&a, &["ledger", "push", "Refused"]), 1);
         let lines = status_lines(&fx, &a);
         assert_eq!(lines[0], "data\tlocal changes");
         assert!(lines.contains(&mission_change()), "{:?}", lines);
         assert!(
-            lines.contains(&"docs\tA\tahead.md".to_string()),
+            lines.contains(&"docs\tA\tahead.1c0de01c.md".to_string()),
             "{:?}",
             lines
         );
@@ -3467,7 +3564,11 @@ mod cases {
         // The committed work is what the dry run lists too.
         let dry = fx.tsk(&a, &["ledger", "discard", "--porcelain"]);
         assert_exit(&dry, 1);
-        assert!(stdout(&dry).contains("ahead.md"), "{}", stdout(&dry));
+        assert!(
+            stdout(&dry).contains("ahead.1c0de01c.md"),
+            "{}",
+            stdout(&dry)
+        );
 
         // Diverged: the other clone pushes while this one holds its commit.
         std::fs::remove_file(&hook).unwrap();
@@ -3511,7 +3612,7 @@ mod cases {
         let fx = Fixture::with_briefing();
         let a = fx.a();
         fx.ok(&a, &["mission", "create", "M-OFF", "Offline"]);
-        fx.put(&a, "off.md", "off\n");
+        fx.put(&a, "off.1c0de01d.md", "off\n");
         let moved = fx.root.path().join("origin-away.git");
         std::fs::rename(fx.origin(), &moved).unwrap();
 
@@ -3528,7 +3629,7 @@ mod cases {
         let lines: Vec<String> = stdout(&status).lines().map(str::to_string).collect();
         assert!(lines.contains(&mission_change()), "{:?}", lines);
         assert!(
-            lines.contains(&"docs\tA\toff.md".to_string()),
+            lines.contains(&"docs\tA\toff.1c0de01d.md".to_string()),
             "{:?}",
             lines
         );
@@ -3566,11 +3667,11 @@ mod cases {
         out.lines().map(str::to_string).collect()
     }
 
-    /// The Local block for one mission record and one document `h.md`, written locally.
+    /// The Local block for one mission record and one document `h.1c0de01b.md`, written locally.
     fn local_block(extra_commits: Option<&str>) -> Vec<String> {
         let mut lines = vec!["Local   2 changes not pushed".to_string()];
-        lines.push("          data  missions  1 added".to_string());
-        lines.push("          docs  h.md      added".to_string());
+        lines.push("          data  missions       1 added".to_string());
+        lines.push("          docs  h.1c0de01b.md  added".to_string());
         if let Some(plus) = extra_commits {
             lines.push(format!("        plus {} not pushed", plus));
         }
@@ -3665,7 +3766,7 @@ mod cases {
 
         // Changes not pushed; the discard preview prints the Local block alone.
         fx.ok(&a, &["mission", "create", "M-H", "Human"]);
-        fx.put(&a, "h.md", "h\n");
+        fx.put(&a, "h.1c0de01b.md", "h\n");
         let mut expected = local_block(None);
         expected.push("Origin  up to date".to_string());
         assert_eq!(human(&fx, &a), expected);
@@ -3707,7 +3808,7 @@ mod cases {
             "#!/bin/sh\nwhile read old new ref; do\n  case \"$ref\" in\n    refs/heads/tsk/*) echo 'closed' >&2; exit 1;;\n  esac\ndone\n",
         );
         fx.ok(&a, &["mission", "create", "M-H", "Human"]);
-        fx.put(&a, "h.md", "h\n");
+        fx.put(&a, "h.1c0de01b.md", "h\n");
         assert_exit(&fx.tsk(&a, &["ledger", "push", "Refused"]), 1);
         let mut expected = local_block(Some("2 commits"));
         expected.push(origin_line(
@@ -4909,7 +5010,7 @@ conformance!(
     status_accepts_three_values_and_an_administrative_mission_keeps_one,
     blocks_are_checked_and_blocked_is_derived,
     objective_outcomes_are_numbered_and_numbers_are_not_reused,
-    documents_are_linked_by_path_and_checked_at_push,
+    documents_are_linked_by_id_and_checked_at_push,
     mission_writes_stay_local_until_the_push,
     two_clones_add_missions_that_merge_and_one_field_conflicts,
     the_json_record_has_every_field,
@@ -5137,7 +5238,11 @@ fn session_start_names_the_import_guide_only_while_the_ledger_has_no_missions() 
     };
     assert!(session_start("empty").contains("run `tsk guide import`"));
 
-    fx.put(&a, "missions/operational/M-X-x.md", "# Mission: X\n");
+    fx.put(
+        &a,
+        "missions/operational/M-X-x.1c0de023.md",
+        "# Mission: X\n",
+    );
     fx.ok(&a, &["ledger", "push", "Add M-X"]);
     let with_mission = session_start("with-mission");
     assert!(
@@ -5173,8 +5278,8 @@ fn dolt_documents_are_plain_files_on_the_docs_branch_and_dolt_files_on_the_ledge
     }
     let fx = Fixture::fetched();
     let (a, other) = (fx.a(), fx.b());
-    fx.put(&a, "missions/M-X.md", AWKWARD);
-    fx.put(&a, "notes/empty.md", "");
+    fx.put(&a, "missions/M-X.1c0de01e.md", AWKWARD);
+    fx.put(&a, "notes/empty.1c0de01f.md", "");
     let pushed = fx.ok(&a, &["ledger", "push", "Add documents"]);
     assert!(!pushed.trim().is_empty());
 
@@ -5184,7 +5289,12 @@ fn dolt_documents_are_plain_files_on_the_docs_branch_and_dolt_files_on_the_ledge
     let files = fx.origin_files(DOCS_REF);
     assert_eq!(
         files,
-        vec!["README.md", "index.md", "missions/M-X.md", "notes/empty.md"]
+        vec![
+            "README.md",
+            "index.md",
+            "missions/M-X.1c0de01e.md",
+            "notes/empty.1c0de01f.md"
+        ]
     );
     assert!(!files
         .iter()
@@ -5198,8 +5308,8 @@ fn dolt_documents_are_plain_files_on_the_docs_branch_and_dolt_files_on_the_ledge
         assert!(out.status.success(), "{}", path);
         String::from_utf8(out.stdout).unwrap()
     };
-    assert_eq!(blob("missions/M-X.md"), AWKWARD);
-    assert_eq!(blob("notes/empty.md"), "");
+    assert_eq!(blob("missions/M-X.1c0de01e.md"), AWKWARD);
+    assert_eq!(blob("notes/empty.1c0de01f.md"), "");
     assert_eq!(
         blob("README.md"),
         "Documents of the tsk ledger. Written by tsk ledger doc put.\n"
@@ -5226,20 +5336,23 @@ fn dolt_documents_are_plain_files_on_the_docs_branch_and_dolt_files_on_the_ledge
     assert_success(&fetch);
     assert!(stdout(&fetch).trim_end().ends_with("/ledger-db"));
     assert_eq!(
-        fx.ok(&other, &["ledger", "doc", "get", "missions/M-X.md"]),
+        fx.ok(
+            &other,
+            &["ledger", "doc", "get", "missions/M-X.1c0de01e.md"]
+        ),
         AWKWARD
     );
     assert_eq!(
-        fx.ok(&other, &["ledger", "doc", "get", "notes/empty.md"]),
+        fx.ok(&other, &["ledger", "doc", "get", "notes/empty.1c0de01f.md"]),
         ""
     );
     assert_eq!(
         fx.ok(&other, &["ledger", "doc", "list", "notes/"]),
-        "notes/empty.md\n"
+        columns(&["notes/empty.1c0de01f.md"])
     );
     // The documents worktree is a linked worktree of the clone, beside the database.
     let docs = fx.docs_path(&other);
-    assert!(docs.join("missions/M-X.md").is_file());
+    assert!(docs.join("missions/M-X.1c0de01e.md").is_file());
     let listing = git(&other, &["worktree", "list", "--porcelain", "-z"]);
     let canonical = std::fs::canonicalize(&docs).unwrap();
     assert!(listing
@@ -5337,17 +5450,21 @@ fn a_stale_docs_push_is_rebased_for_different_files_and_refused_for_the_same_fil
     }
     let fx = Fixture::fetched();
     let (a, other) = (fx.a(), fx.b());
-    fx.put(&a, "base.md", "base\n");
+    fx.put(&a, "base.1c0de010.md", "base\n");
     fx.ok(&a, &["ledger", "push", "Base"]);
     fx.ok(&other, &["ledger", "fetch"]);
 
     // Different files: the second push rebases and goes.
-    fx.put(&a, "from-a.md", "a\n");
+    fx.put(&a, "from-a.1c0de011.md", "a\n");
     fx.ok(&a, &["ledger", "push", "From A"]);
-    fx.put(&other, "from-b.md", "b\n");
+    fx.put(&other, "from-b.1c0de012.md", "b\n");
     fx.ok(&other, &["ledger", "push", "From B"]);
     let files = fx.origin_files(DOCS_REF);
-    for expected in ["base.md", "from-a.md", "from-b.md"] {
+    for expected in [
+        "base.1c0de010.md",
+        "from-a.1c0de011.md",
+        "from-b.1c0de012.md",
+    ] {
         assert!(files.iter().any(|f| f == expected), "{:?}", files);
     }
     // Rebased, not merged: the docs history stays linear.
@@ -5358,14 +5475,14 @@ fn a_stale_docs_push_is_rebased_for_different_files_and_refused_for_the_same_fil
 
     // The same file: stop, name it, and leave the remote alone.
     fx.ok(&a, &["ledger", "fetch"]);
-    fx.put(&a, "same.md", "from a\n");
+    fx.put(&a, "same.1c0de019.md", "from a\n");
     fx.ok(&a, &["ledger", "push", "A writes same"]);
     let docs_before = fx.remote_docs();
-    fx.put(&other, "same.md", "from b\n");
+    fx.put(&other, "same.1c0de019.md", "from b\n");
     let conflict = fx.tsk(&other, &["ledger", "push", "B writes same"]);
     assert_exit(&conflict, 1);
     assert!(
-        stderr(&conflict).contains("same.md"),
+        stderr(&conflict).contains("same.1c0de019.md"),
         "{}",
         stderr(&conflict)
     );
@@ -5572,12 +5689,44 @@ const OLD_BINDINGS: [&str; 9] = [
     "create table cloud_session_bindings (session_id varchar(255) primary key, thread_id varchar(64) not null, registered_at varchar(32) not null)",
 ];
 
+/// The statements that take a current ledger back to layout 13: no `doc_id` on
+/// `mission_documents`, whose paths lose the id they carry, and the version. The files on the
+/// documents branch lose their ids too: [`strip_document_ids`] renames them.
+fn layout_thirteen_sql() -> String {
+    [
+        "alter table mission_documents drop index mission_documents_doc_unique",
+        "alter table mission_documents drop column doc_id",
+        "update mission_documents set path = concat(substr(path, 1, length(path) - 12), '.md')",
+        "replace into manifest (k, v) values ('version', '13')",
+    ]
+    .join("; ")
+}
+
+/// Rename every file of a documents worktree that carries an id (`name.<id>.md`) to the name
+/// an older tsk gave it, `name.md`.
+fn strip_document_ids(root: &Path) {
+    for entry in std::fs::read_dir(root).unwrap() {
+        let path = entry.unwrap().path();
+        if path.file_name().is_some_and(|name| name == ".git") {
+            continue;
+        }
+        if path.is_dir() {
+            strip_document_ids(&path);
+        } else if let Some(id) = id_in(path.to_str().unwrap()) {
+            let name = path.to_str().unwrap().replace(&format!(".{}", id), "");
+            std::fs::rename(&path, name).unwrap();
+        }
+    }
+}
+
 /// The statements that take a current ledger back to layout 11: no `uid` on a task, a
 /// decision and a question (layout 13), `bindings` under its old name and column, no
 /// `actors.uid`, none of the two layout 12 tables, and no `ledger_id`. The rows of the
 /// bindings are kept.
 fn layout_eleven_sql() -> String {
     [
+        "alter table mission_documents drop index mission_documents_doc_unique",
+        "alter table mission_documents drop column doc_id",
         "alter table tasks drop column uid",
         "alter table decisions drop column uid",
         "alter table questions drop column uid",
@@ -5684,6 +5833,8 @@ impl Fixture {
         let fx = Fixture::new();
         let a = fx.a();
         fx.ok(&a, &["ledger", "fetch"]);
+        // The document first: a write of a document upgrades a ledger to the current layout.
+        fx.put(&a, "base.md", "base\n");
         let mut sql: Vec<String> = MISSION_TABLES
             .iter()
             .map(|t| format!("drop table {}", t))
@@ -5692,7 +5843,6 @@ impl Fixture {
         sql.extend(OLD_BINDINGS.iter().map(|s| s.to_string()));
         sql.push("replace into manifest (k, v) values ('version', '2')".to_string());
         fx.dolt_sql(&a, &sql.join("; "));
-        fx.put(&a, "base.md", "base\n");
         fx.ok(&a, &["ledger", "push", "A version 2 ledger"]);
         fx
     }
@@ -5774,7 +5924,7 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
         fx.ok(&other, &["task", "add", "M-OLD", "First on version 3"]),
         "T-01\n"
     );
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     let tables = fx.tables(&other);
     for table in TASK_TABLES {
         assert!(tables.lines().any(|t| t == table), "{}: {}", table, tables);
@@ -5817,7 +5967,7 @@ fn a_version_three_ledger_reads_without_task_tables_and_the_first_record_write_u
     assert_eq!(fx.manifest_version(&a), "3");
     fx.ok(&other, &["ledger", "push", "First task"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     assert_eq!(
         fx.ok(&a, &["task", "list", "M-OLD", "--porcelain"]),
         "T-01\ttodo\t-\tFirst on version 3\nT-02\ttodo\tT-01\tSecond\n"
@@ -5847,7 +5997,7 @@ fn a_version_three_ledger_upgrades_at_a_mission_write_too() {
     fx.ok(&other, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&other), "3");
     fx.ok(&other, &["mission", "create", "M-NEW", "New"]);
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     assert_eq!(fx.ok(&other, &["task", "add", "M-OLD", "x"]), "T-01\n");
 }
 
@@ -5859,7 +6009,7 @@ fn a_new_dolt_ledger_has_the_mission_and_task_tables_at_version_eight() {
     }
     let fx = Fixture::fetched();
     let a = fx.a();
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     let tables = fx.tables(&a);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -5927,7 +6077,7 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
     // The first mission write creates the tables, the column and records version 9 in one
     // change.
     fx.ok(&other, &["mission", "create", "M-X", "First on version 2"]);
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     let tables = fx.tables(&other);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -5947,13 +6097,13 @@ fn a_version_two_ledger_reads_as_no_missions_and_the_first_mission_write_upgrade
     assert_eq!(fx.manifest_version(&a), "2");
     fx.ok(&other, &["ledger", "push", "First mission"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     assert_eq!(
         fx.ok(&a, &["mission", "list", "--porcelain"]),
         "M-X\ttodo\t-\t-\tFirst on version 2\n"
     );
     fx.ok(&a, &["mission", "create", "M-Y", "Second"]);
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
 }
 
 #[test]
@@ -5965,7 +6115,11 @@ fn a_version_two_ledger_upgrades_at_the_first_thread_write_and_not_before() {
     let fx = Fixture::version_two_ledger();
     let (a, other) = (fx.a(), fx.b());
     fx.ok(&other, &["ledger", "fetch"]);
-    fx.put(&other, "missions/operational/M-CONF-01-old.md", "# Old\n");
+    // A briefing as an older tsk wrote it: no id in the name. A write of a document would
+    // upgrade the ledger, so the file is written into the worktree.
+    let briefing = fx.docs_path(&other).join("missions/operational");
+    std::fs::create_dir_all(&briefing).unwrap();
+    std::fs::write(briefing.join("M-CONF-01-old.md"), "# Old\n").unwrap();
     fx.ok(&other, &["ledger", "push", "A briefing"]);
     assert_eq!(fx.manifest_version(&other), "2");
 
@@ -5990,7 +6144,7 @@ fn a_version_two_ledger_upgrades_at_the_first_thread_write_and_not_before() {
         .strip_prefix("started:")
         .unwrap()
         .to_string();
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     let tables = fx.tables(&other);
     for table in MISSION_TABLES {
         assert!(tables.contains(table), "{}", tables);
@@ -6003,12 +6157,12 @@ fn a_version_two_ledger_upgrades_at_the_first_thread_write_and_not_before() {
                 id
             )
         ),
-        "mission_id,briefing_path\nM-CONF-01,missions/operational/M-CONF-01-old.md\n"
+        "mission_id,briefing_path\nM-CONF-01,missions/operational/M-CONF-01-old.7391a6fe.md\n"
     );
     // The start pushed itself.
     assert_eq!(fx.manifest_version(&a), "2");
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     assert_eq!(fx.ok(&a, &["mission", "list", "--porcelain"]), "");
 }
 
@@ -6090,7 +6244,7 @@ fn a_version_four_ledger_reads_threads_and_upgrades_at_the_first_thread_start() 
 
     // The first thread start alters the table and records version 9, in its own push.
     let id = fx.started(&other, &["thread", "start", "M-CONF-01"]);
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     assert_eq!(
         fx.dolt_sql(
             &other,
@@ -6106,7 +6260,7 @@ fn a_version_four_ledger_reads_threads_and_upgrades_at_the_first_thread_start() 
     // The other clone takes the upgrade with its next fetch.
     assert_eq!(fx.manifest_version(&a), "4");
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     assert_eq!(fx.thread_row(&a, &id)["mission_id"], "M-CONF-01");
     assert_eq!(fx.thread_row(&a, "aaaa1111")["mission_id"], "M-CONF-01");
 }
@@ -6123,7 +6277,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
     }
     let fx = Fixture::fetched();
     let a = fx.a();
-    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '14')");
+    fx.dolt_sql(&a, "replace into manifest (k, v) values ('version', '15')");
     for args in [
         vec!["mission", "list", "--porcelain"],
         vec!["mission", "create", "M-X", "x"],
@@ -6133,7 +6287,7 @@ fn a_ledger_version_the_binary_does_not_know_stops_every_command_at_the_manifest
         assert_exit(&out, 1);
         let message = stderr(&out);
         assert!(
-            message.contains("unsupported ledger version 14")
+            message.contains("unsupported ledger version 15")
                 && message.contains("supports version 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")
                 && message.contains("Update tsk"),
             "{:?}: {}",
@@ -6198,11 +6352,11 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
         &other,
         &["mission", "create", "M-NEW", "First on version 2"],
     );
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     assert_eq!(
         fx.ok(&other, &["ledger", "status", "--porcelain"]),
         "data\tlocal changes\n\
-         data\tupgrade\tschema upgraded to version 13\n\
+         data\tupgrade\tschema upgraded to version 14\n\
          data\tmissions\tadded 1\tmodified 0\tdeleted 0\n\
          docs\tclean\n\
          data\tremote\tup to date\n\
@@ -6211,7 +6365,7 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
     assert_eq!(
         no_server_line(fx.ok(&other, &["ledger", "status"])),
         "Local   2 changes not pushed\n\
-         \x20         data  upgrade   schema upgraded to version 13 (origin has 2)\n\
+         \x20         data  upgrade   schema upgraded to version 14 (origin has 2)\n\
          \x20         data  missions  1 added\n\
          Origin  up to date\n"
     );
@@ -6226,7 +6380,7 @@ fn dolt_status_labels_a_schema_upgrade_and_hides_the_lines_it_caused() {
     // Clone A takes the upgrade with its fetch. Its next write is an ordinary change:
     // origin has the same version, so there is no label.
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     fx.ok(&a, &["mission", "create", "M-LATER", "After the upgrade"]);
     assert_eq!(
         fx.ok(&a, &["ledger", "status", "--porcelain"]),
@@ -6256,11 +6410,11 @@ fn dolt_status_keeps_the_rows_a_person_changed_in_an_upgrade_write() {
     let other = fx.b();
     fx.ok(&other, &["ledger", "fetch"]);
     fx.ok(&other, &["mission", "set", "M-OLD", "purpose", "Changed"]);
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     assert_eq!(
         fx.ok(&other, &["ledger", "status", "--porcelain"]),
         "data\tlocal changes\n\
-         data\tupgrade\tschema upgraded to version 13\n\
+         data\tupgrade\tschema upgraded to version 14\n\
          data\tmissions\tadded 0\tmodified 1\tdeleted 0\n\
          docs\tclean\n\
          data\tremote\tup to date\n\
@@ -6383,7 +6537,7 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
             "docs/adr/0001-first.md",
         ],
     );
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     assert_eq!(
         fx.dolt_sql(
             &other,
@@ -6405,7 +6559,7 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
     assert_eq!(
         fx.ok(&other, &["ledger", "status", "--porcelain"]),
         "data\tlocal changes\n\
-         data\tupgrade\tschema upgraded to version 13\n\
+         data\tupgrade\tschema upgraded to version 14\n\
          data\tdecisions\tadded 1\tmodified 0\tdeleted 0\n\
          docs\tclean\n\
          data\tremote\tup to date\n\
@@ -6416,7 +6570,7 @@ fn a_version_five_ledger_reads_decisions_and_the_first_adr_write_adds_the_column
     assert_eq!(fx.manifest_version(&a), "5");
     fx.ok(&other, &["ledger", "push", "First ADR link"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     assert_eq!(
         fx.ok(
             &a,
@@ -6445,7 +6599,7 @@ fn a_decision_without_an_adr_upgrades_a_version_five_ledger_too() {
         &other,
         &["decision", "add", "M-OLD", "Plain", "--by", "Jim"],
     );
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     assert!(fx
         .ok(&other, &["decision", "list", "M-OLD", "--porcelain"])
         .lines()
@@ -6558,7 +6712,7 @@ fn a_version_six_ledger_reads_its_text_as_lists_and_the_first_write_moves_it() {
         fx.ok(&other, &["mission", "constraint", "add", "M-OLD", "fourth"]),
         "4\n"
     );
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     let tables = fx.tables(&other);
     assert!(
         tables.lines().any(|t| t == "mission_constraints"),
@@ -6631,7 +6785,7 @@ fn a_version_six_ledger_reads_its_text_as_lists_and_the_first_write_moves_it() {
     // writes, not the columns that went.
     let status = fx.ok(&other, &["ledger", "status", "--porcelain"]);
     assert!(
-        status.contains("data\tupgrade\tschema upgraded to version 13\n"),
+        status.contains("data\tupgrade\tschema upgraded to version 14\n"),
         "{}",
         status
     );
@@ -6642,7 +6796,7 @@ fn a_version_six_ledger_reads_its_text_as_lists_and_the_first_write_moves_it() {
     assert_eq!(fx.manifest_version(&a), "6");
     fx.ok(&other, &["ledger", "push", "Move the lists"]);
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     assert_eq!(
         fx.ok(&a, &["mission", "constraint", "list", "M-OLD"]),
         "1\tfirst\n2\tsecond\n3\tthird\n4\tfourth\n"
@@ -6668,7 +6822,7 @@ fn a_thread_write_moves_the_lists_of_a_version_six_ledger_too() {
     fx.ok(&other, &["ledger", "fetch"]);
     assert_eq!(fx.manifest_version(&other), "6");
     fx.started(&other, &["thread", "start", "M-OLD"]);
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     assert_eq!(
         fx.ok(&other, &["mission", "constraint", "list", "M-OLD"]),
         "1\tfirst\n2\tsecond\n3\tthird\n"
@@ -6758,7 +6912,7 @@ fn a_version_seven_ledger_reads_its_bindings_from_the_old_table_and_the_first_wr
     // A write upgrades: this bind creates the table, copies the rows as cloud rows, drops
     // the old table and records version 9, and the push after it carries it.
     assert_success(&fx.tsk_cloud(&other, "cse_new", &["thread", "resume", &id]));
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     // The bind is local. The next push carries the upgrade.
     fx.ok(&other, &["ledger", "push", "Upgrade to version 9"]);
     let tables = fx.tables(&other);
@@ -6789,7 +6943,7 @@ fn a_version_seven_ledger_reads_its_bindings_from_the_old_table_and_the_first_wr
     // The original clone picks the upgrade up from origin.
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     assert_eq!(
         stdout(&fx.tsk_cloud(&a, "cse_old", &["thread", "binding"])),
         format!("cloud:{}\n", id)
@@ -6879,7 +7033,7 @@ fn a_version_eight_ledger_reads_without_actor_tables_and_the_first_registration_
     );
     assert_success(&registered);
     assert!(stdout(&registered).starts_with("registered alice (robot)\nurn:tsk:actor:"));
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     let tables = fx.tables(&other);
     assert!(tables.lines().any(|t| t == "actors"), "{}", tables);
     assert!(tables.lines().any(|t| t == "instances"), "{}", tables);
@@ -6912,7 +7066,7 @@ fn a_version_eight_ledger_reads_without_actor_tables_and_the_first_registration_
     );
     let status = fx.ok(&other, &["ledger", "status", "--local", "--porcelain"]);
     assert!(
-        status.contains("data\tupgrade\tschema upgraded to version 13\n"),
+        status.contains("data\tupgrade\tschema upgraded to version 14\n"),
         "{}",
         status
     );
@@ -6920,7 +7074,7 @@ fn a_version_eight_ledger_reads_without_actor_tables_and_the_first_registration_
     fx.ok(&other, &["ledger", "push", "Upgrade to version 9"]);
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     assert_eq!(
         stdout(&fx.tsk_cloud(&a, "cse_old", &["thread", "binding"])),
         format!("cloud:{}\nactor: alice (robot)\n", id)
@@ -6959,7 +7113,7 @@ fn a_marker_file_on_a_version_seven_ledger_is_migrated_by_a_write_that_upgrades_
         format!("worktree:{}\n", id)
     );
     assert!(!fx.marker(&other).exists());
-    assert_eq!(fx.manifest_version(&other), "13");
+    assert_eq!(fx.manifest_version(&other), "14");
     let actor = fx.main_actor(&other);
     assert_eq!(
         fx.dolt_sql(
@@ -6975,7 +7129,7 @@ fn a_marker_file_on_a_version_seven_ledger_is_migrated_by_a_write_that_upgrades_
     // The change is local: origin still holds version 7.
     let status = fx.ok(&other, &["ledger", "status", "--porcelain"]);
     assert!(
-        status.contains("data\tupgrade\tschema upgraded to version 13\n"),
+        status.contains("data\tupgrade\tschema upgraded to version 14\n"),
         "{}",
         status
     );
@@ -6990,7 +7144,7 @@ fn a_marker_file_on_a_version_seven_ledger_is_migrated_by_a_write_that_upgrades_
     fx.ok(&other, &["ledger", "push", "Carry the binding"]);
     let a = fx.a();
     fx.ok(&a, &["ledger", "fetch"]);
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     assert_eq!(fx.actors_of(&a, &id).len(), 2);
 }
 
@@ -7282,20 +7436,20 @@ fn a_start_that_went_on_the_record_of_the_last_fetch_is_merged_and_says_nothing(
 fn a_race_between_the_refresh_and_the_push(args: &[&str], bound: bool, says_so: bool) {
     let fx = Fixture::fetched();
     let (a, b) = (fx.a(), fx.b());
-    fx.put(&a, "base.md", "base\n");
+    fx.put(&a, "base.1c0de013.md", "base\n");
     fx.ok(&a, &["ledger", "push", "Base"]);
     if bound {
         fx.ok(&a, &["thread", "start"]);
     }
     fx.ok(&b, &["ledger", "fetch"]);
     // A holds a document of its own that its thread command pushes with its data.
-    fx.put(&a, "from-a.md", "a\n");
+    fx.put(&a, "from-a.1c0de014.md", "a\n");
 
     // B writes a document and a mission and pushes both, after A's command has refreshed
     // and before it pushes.
     let tsk = env!("CARGO_BIN_EXE_tsk");
     let race = format!(
-        "cd '{b}' && printf 'from b\\n' | '{tsk}' ledger doc put from-b.md && \
+        "cd '{b}' && printf 'from b\\n' | '{tsk}' ledger doc put from-b.1c0de015.md && \
          '{tsk}' mission create M-RACE Race && '{tsk}' ledger push 'B races'",
         b = b.display(),
         tsk = tsk
@@ -7330,7 +7484,7 @@ fn a_race_between_the_refresh_and_the_push(args: &[&str], bound: bool, says_so: 
     }
 
     let files = fx.origin_files(DOCS_REF);
-    for expected in ["from-a.md", "from-b.md"] {
+    for expected in ["from-a.1c0de014.md", "from-b.1c0de015.md"] {
         assert!(files.iter().any(|f| f == expected), "{:?}", files);
     }
     // A's local store holds B's mission, and B sees A's thread.
@@ -7612,7 +7766,7 @@ fn status_local_asks_origin_nothing_and_says_it_did_not_check() {
     // Commits not pushed are counted from what was last fetched, and origin moving is
     // not noticed: that is what the flag means.
     fx.ok(&b, &["ledger", "push", "B pushes"]);
-    fx.put(&a, "from-a.md", "a\n");
+    fx.put(&a, "from-a.1c0de016.md", "a\n");
     fx.ok(&a, &["ledger", "push", "A pushes"]);
     let text = no_server_line(fx.ok(&b, &["ledger", "status", "--local"]));
     assert_eq!(
@@ -8176,7 +8330,11 @@ fn seed_records() -> Vec<Run> {
             ],
         ),
         run('a', &["question", "add", "M-NB", "Why two paths?"]),
-        run_with_stdin('a', &["ledger", "doc", "put", "m/design.md"], "# Design\n"),
+        run_with_stdin(
+            'a',
+            &["ledger", "doc", "put", "m/design.1c0de00b.md"],
+            "# Design\n",
+        ),
         run(
             'a',
             &["mission", "link", "M-NB", "m/design.md", "--role", "design"],
@@ -8260,10 +8418,10 @@ fn push_merge_tail() -> Vec<Run> {
         run('b', &["ledger", "fetch"]),
         // Both change different rows and documents, and the second push merges.
         run('a', &["task", "add", "M-NB", "From A"]),
-        run_with_stdin('a', &["ledger", "doc", "put", "from-a.md"], "a\n"),
+        run_with_stdin('a', &["ledger", "doc", "put", "from-a.1c0de017.md"], "a\n"),
         run('a', &["ledger", "push", "From A"]),
         run('b', &["task", "add", "M-NB", "From B"]),
-        run_with_stdin('b', &["ledger", "doc", "put", "from-b.md"], "b\n"),
+        run_with_stdin('b', &["ledger", "doc", "put", "from-b.1c0de018.md"], "b\n"),
         run('b', &["ledger", "push", "From B"]),
         run('b', &["ledger", "push", "Nothing more"]),
         run('a', &["ledger", "fetch"]),
@@ -8764,7 +8922,7 @@ impl Fixture {
             object.remove("urn");
             // A task, a decision and a question have a URN too (layout 13): it differs
             // between two ledgers made separately, like the mission's.
-            for key in ["tasks", "decisions", "questions"] {
+            for key in ["tasks", "decisions", "questions", "documents"] {
                 for item in object
                     .get_mut(key)
                     .and_then(|v| v.as_array_mut())
@@ -8824,7 +8982,7 @@ fn a_version_nine_ledger_upgrades_by_adding_the_code_and_keeps_every_record() {
 
     // The first write upgrades, in a change that adds one column and one index.
     fx.ok(&b, &["mission", "set", "M-NINE", "purpose", "Changed"]);
-    assert_eq!(fx.manifest_version(&b), "13");
+    assert_eq!(fx.manifest_version(&b), "14");
     for (at, mission) in ["M-TOP", "M-DEP", "M-NINE"].iter().enumerate() {
         assert_eq!(
             fx.id_and_code(&b, mission),
@@ -8864,8 +9022,8 @@ fn two_clones_that_upgrade_a_version_nine_ledger_on_their_own_merge() {
     // Each clone upgrades with a write of its own, before either pushes.
     fx.ok(&a, &["task", "add", "M-NINE", "From A"]);
     fx.ok(&b, &["question", "add", "M-NINE", "From B?"]);
-    assert_eq!(fx.manifest_version(&a), "13");
-    assert_eq!(fx.manifest_version(&b), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
+    assert_eq!(fx.manifest_version(&b), "14");
     fx.ok(&a, &["ledger", "push", "A upgrades and adds a task"]);
     fx.ok(&b, &["ledger", "push", "B upgrades and asks"]);
 
@@ -8947,15 +9105,15 @@ impl Fixture {
         );
         fx.ok(&a, &["question", "add", "M-OLD", "Why?"]);
         fx.ok(&a, &["task", "add", "M-OTHER", "Wait for M-OLD, then go"]);
-        fx.put(&a, "missions/M-OLD-notes.md", "notes\n");
-        fx.put(&a, "other/keep.md", "keep\n");
+        fx.put(&a, "missions/M-OLD-notes.1a1a1a1a.md", "notes\n");
+        fx.put(&a, "other/keep.2b2b2b2b.md", "keep\n");
         fx.ok(
             &a,
             &[
                 "mission",
                 "link",
                 "M-OLD",
-                "missions/M-OLD-notes.md",
+                "missions/M-OLD-notes.1a1a1a1a.md",
                 "--role",
                 "intelligence",
             ],
@@ -8966,7 +9124,7 @@ impl Fixture {
                 "mission",
                 "link",
                 "M-OLD",
-                "other/keep.md",
+                "other/keep.2b2b2b2b.md",
                 "--role",
                 "design",
             ],
@@ -9003,14 +9161,14 @@ fn mission_mv_changes_the_code_and_every_record_follows() {
             "mission",
             "link",
             "M-OTHER",
-            "missions/M-OLD-notes.md",
+            "missions/M-OLD-notes.1a1a1a1a.md",
             "--role",
             "report",
         ],
     );
     let lines = "mission M-OLD -> M-NEW\n\
-                 doc missions/M-OLD-notes.md -> missions/M-NEW-notes.md\n\
-                 link M-OTHER missions/M-NEW-notes.md\n\
+                 doc missions/M-OLD-notes.1a1a1a1a.md -> missions/M-NEW-notes.1a1a1a1a.md\n\
+                 link M-OTHER missions/M-NEW-notes.1a1a1a1a.md\n\
                  mentions M-OTHER T-01\n";
 
     // A dry run prints the lines and changes nothing.
@@ -9031,17 +9189,13 @@ fn mission_mv_changes_the_code_and_every_record_follows() {
         assert_exit(&refused, 1);
         assert!(stderr(&refused).contains(needle), "{}", stderr(&refused));
     }
-    // A document that a rename would overwrite is refused and nothing changes.
-    fx.put(&a, "missions/M-NEW-notes.md", "in the way\n");
-    let refused = fx.tsk(&a, &["mission", "mv", "M-OLD", "M-NEW"]);
-    assert_exit(&refused, 1);
-    assert!(
-        stderr(&refused).contains("which exists"),
-        "{}",
-        stderr(&refused)
-    );
-    assert!(fx.ok(&a, &["mission", "list"]).contains("M-OLD"));
-    fx.ok(&a, &["ledger", "doc", "rm", "missions/M-NEW-notes.md"]);
+    // A document with the new name and another id is another document: the rename keeps
+    // the id of the document it moves, and leaves that one as it is.
+    fx.put(&a, "missions/M-NEW-notes.md", "another\n");
+    let other_notes = fx.ok(&a, &["ledger", "doc", "list", "missions/M-NEW-notes."]);
+    assert_eq!(other_notes.lines().count(), 1, "{}", other_notes);
+    let other_notes = other_notes.split_whitespace().next().unwrap().to_string();
+    assert_ne!(other_notes, "missions/M-NEW-notes.1a1a1a1a.md");
 
     assert_eq!(fx.ok(&a, &["mission", "mv", "M-OLD", "M-NEW"]), lines);
     assert!(stderr(&fx.tsk(&a, &["mission", "list", "M-OLD"])).contains("no such mission"));
@@ -9058,15 +9212,15 @@ fn mission_mv_changes_the_code_and_every_record_follows() {
     assert_eq!(
         record["documents"],
         serde_json::json!([
-            {"path": "missions/M-NEW-notes.md", "role": "intelligence"},
-            {"path": "other/keep.md", "role": "design"}
+            {"path": "missions/M-NEW-notes.1a1a1a1a.md", "id": "1a1a1a1a", "role": "intelligence"},
+            {"path": "other/keep.2b2b2b2b.md", "id": "2b2b2b2b", "role": "design"}
         ])
     );
     // The others that name it follow, and a text that names it is left as written.
     assert_eq!(fx.record(&a, "M-OTHER")["blocked_by"][0]["id"], "M-NEW");
     assert_eq!(
         fx.record(&a, "M-OTHER")["documents"],
-        serde_json::json!([{"path": "missions/M-NEW-notes.md", "role": "report"}])
+        serde_json::json!([{"path": "missions/M-NEW-notes.1a1a1a1a.md", "id": "1a1a1a1a", "role": "report"}])
     );
     assert_eq!(fx.record(&a, "M-KID")["parent"], "M-NEW");
     assert_eq!(
@@ -9075,10 +9229,22 @@ fn mission_mv_changes_the_code_and_every_record_follows() {
     );
     assert_eq!(fx.thread_row(&a, &thread)["mission_id"], "M-NEW");
     let docs = fx.ok(&a, &["ledger", "doc", "list"]);
-    assert!(docs.contains("missions/M-NEW-notes.md"), "{}", docs);
-    assert!(!docs.contains("missions/M-OLD-notes.md"), "{}", docs);
+    assert!(
+        docs.contains("missions/M-NEW-notes.1a1a1a1a.md"),
+        "{}",
+        docs
+    );
+    assert!(docs.contains(&other_notes), "{}", docs);
+    assert!(
+        !docs.contains("missions/M-OLD-notes.1a1a1a1a.md"),
+        "{}",
+        docs
+    );
     assert_eq!(
-        fx.ok(&a, &["ledger", "doc", "get", "missions/M-NEW-notes.md"]),
+        fx.ok(
+            &a,
+            &["ledger", "doc", "get", "missions/M-NEW-notes.1a1a1a1a.md"]
+        ),
         "notes\n"
     );
 
@@ -9196,7 +9362,7 @@ fn rm_commands_refuse_referred_records_and_force_removes_them() {
         out
     );
     assert!(
-        out.contains("unlinked document missions/M-OLD-notes.md"),
+        out.contains("unlinked document missions/M-OLD-notes.1a1a1a1a.md"),
         "{}",
         out
     );
@@ -9215,7 +9381,10 @@ fn rm_commands_refuse_referred_records_and_force_removes_them() {
     assert!(list.contains("M-OTHER"), "{}", list);
     // The documents stay, and the ledger pushes and fetches.
     assert!(fx
-        .ok(&a, &["ledger", "doc", "get", "missions/M-OLD-notes.md"])
+        .ok(
+            &a,
+            &["ledger", "doc", "get", "missions/M-OLD-notes.1a1a1a1a.md"]
+        )
         .contains("notes"));
     fx.ok(&a, &["ledger", "push", "Remove M-OLD"]);
     let b = fx.b();
@@ -9236,10 +9405,14 @@ fn mission_mv_moves_the_briefing_path_of_a_thread_made_from_a_document() {
     fx.ok(&a, &["ledger", "fetch"]);
     // The briefing document comes first, so the thread stores its path and the mission ID
     // as text. The record is made after, as the missions of this repo were.
-    fx.put(&a, "missions/operational/M-OLD-briefing.md", "briefing\n");
     fx.put(
         &a,
-        "missions/operational/M-KEEP-briefing.md",
+        "missions/operational/M-OLD-briefing.1c0de024.md",
+        "briefing\n",
+    );
+    fx.put(
+        &a,
+        "missions/operational/M-KEEP-briefing.1c0de025.md",
         "other briefing\n",
     );
     let thread = fx.started(&a, &["thread", "start", "M-OLD"]);
@@ -9253,7 +9426,7 @@ fn mission_mv_moves_the_briefing_path_of_a_thread_made_from_a_document() {
             "mission",
             "link",
             "M-OLD",
-            "missions/operational/M-OLD-briefing.md",
+            "missions/operational/M-OLD-briefing.1c0de024.md",
             "--role",
             "design",
         ],
@@ -9261,7 +9434,7 @@ fn mission_mv_moves_the_briefing_path_of_a_thread_made_from_a_document() {
     assert_eq!(fx.thread_row(&a, &thread)["mission_id"], "M-OLD");
 
     let lines = "mission M-OLD -> M-NEW\n\
-                 doc missions/operational/M-OLD-briefing.md -> missions/operational/M-NEW-briefing.md\n\
+                 doc missions/operational/M-OLD-briefing.1c0de024.md -> missions/operational/M-NEW-briefing.1c0de024.md\n\
                  thread ";
     let dry = fx.ok(&a, &["mission", "mv", "M-OLD", "M-NEW", "--dry-run"]);
     assert!(dry.starts_with(lines), "{}", dry);
@@ -9275,14 +9448,14 @@ fn mission_mv_moves_the_briefing_path_of_a_thread_made_from_a_document() {
     assert_eq!(row["mission_id"], "M-NEW");
     assert_eq!(
         row["mission_link"],
-        "missions/operational/M-NEW-briefing.md"
+        "missions/operational/M-NEW-briefing.1c0de024.md"
     );
     // A thread of another mission is not touched.
     let row = fx.thread_row(&a, &other);
     assert_eq!(row["mission_id"], "M-KEEP");
     assert_eq!(
         row["mission_link"],
-        "missions/operational/M-KEEP-briefing.md"
+        "missions/operational/M-KEEP-briefing.1c0de025.md"
     );
 
     // The thread now names the mission by its internal ID, so a second rename follows too.
@@ -9455,7 +9628,7 @@ fn doc_mv_renames_the_file_and_every_link_to_it() {
             "mission",
             "link",
             "M-OTHER",
-            "other/keep.md",
+            "other/keep.2b2b2b2b.md",
             "--role",
             "report",
         ],
@@ -9465,25 +9638,33 @@ fn doc_mv_renames_the_file_and_every_link_to_it() {
             &a,
             &["ledger", "doc", "mv", "other/keep.md", "other/kept.md"]
         ),
-        "doc other/keep.md -> other/kept.md\nlink M-OLD design\nlink M-OTHER report\n"
+        "doc other/keep.2b2b2b2b.md -> other/kept.2b2b2b2b.md\nlink M-OLD design\nlink M-OTHER report\n"
     );
     assert_eq!(
-        fx.ok(&a, &["ledger", "doc", "get", "other/kept.md"]),
+        fx.ok(&a, &["ledger", "doc", "get", "other/kept.2b2b2b2b.md"]),
         "keep\n"
     );
     assert!(
-        stderr(&fx.tsk(&a, &["ledger", "doc", "get", "other/keep.md"]))
+        stderr(&fx.tsk(&a, &["ledger", "doc", "get", "other/keep.2b2b2b2b.md"]))
             .contains("no such document")
     );
     assert_eq!(
         fx.record(&a, "M-OTHER")["documents"],
-        serde_json::json!([{"path": "other/kept.md", "role": "report"}])
+        serde_json::json!([{"path": "other/kept.2b2b2b2b.md", "id": "2b2b2b2b", "role": "report"}])
     );
-    // A missing document and an existing target are refused.
+    // A missing document, another id and the same path are refused.
     for (from, to, needle) in [
         ("other/none.md", "other/x.md", "no such document"),
-        ("other/kept.md", "missions/M-OLD-notes.md", "exists"),
-        ("other/kept.md", "other/kept.md", "already at"),
+        (
+            "other/kept.2b2b2b2b.md",
+            "missions/M-OLD-notes.1a1a1a1a.md",
+            "keeps its id",
+        ),
+        (
+            "other/kept.2b2b2b2b.md",
+            "other/kept.2b2b2b2b.md",
+            "already at",
+        ),
     ] {
         let refused = fx.tsk(&a, &["ledger", "doc", "mv", from, to]);
         assert_exit(&refused, 1);
@@ -9493,12 +9674,12 @@ fn doc_mv_renames_the_file_and_every_link_to_it() {
     fx.ok(&a, &["ledger", "push", "Move a document"]);
     fx.ok(&b, &["ledger", "fetch"]);
     assert_eq!(
-        fx.ok(&b, &["ledger", "doc", "get", "other/kept.md"]),
+        fx.ok(&b, &["ledger", "doc", "get", "other/kept.2b2b2b2b.md"]),
         "keep\n"
     );
     assert_eq!(
         fx.record(&b, "M-OLD")["documents"][1]["path"],
-        "other/kept.md"
+        "other/kept.2b2b2b2b.md"
     );
 }
 
@@ -9742,7 +9923,7 @@ fn a_layout_10_ledger_records_no_session_until_another_write_upgrades_it() {
     assert_eq!(fx.ok(&a, &["session", "list", "--porcelain"]), "");
 
     assert_success(&fx.tsk(&a, &["actor", "register", "alice", "--kind", "robot"]));
-    assert_eq!(fx.manifest_version(&a), "13");
+    assert_eq!(fx.manifest_version(&a), "14");
     assert!(fx.tables(&a).lines().any(|t| t == "sessions"));
     fx.session_context(&a, "s2", "claude");
     let list = fx.ok(&a, &["session", "list", "--porcelain"]);
@@ -9816,7 +9997,7 @@ fn a_layout_11_ledger_upgrades_the_same_way_on_two_clones_and_merges() {
         &["mission", "set", "M-CONF-01", "name", "Conformance on b"],
     );
     for dir in [&a, &b] {
-        assert_eq!(fx.manifest_version(dir), "13");
+        assert_eq!(fx.manifest_version(dir), "14");
         let tables = fx.tables(dir);
         for table in ["thread_bindings", "actor_names", "session_actors"] {
             assert!(tables.lines().any(|t| t == table), "{}: {}", table, tables);
@@ -10088,4 +10269,215 @@ fn a_record_has_a_urn_that_a_renumbering_keeps() {
     let moved = json(&fx.ok(&a, &["mission", "list", "M-URN-B", "--json"]));
     let moved_urn = moved["tasks"][0]["urn"].as_str().unwrap();
     assert!(moved_urn.starts_with("urn:tsk:task:"), "{}", moved_urn);
+}
+
+/// A layout 13 ledger holds documents named without an id and links by path. Each clone
+/// upgrades on its own, with a write: the links get the ids of their paths, and the first push
+/// of each renames the files to match. Both give the same ids and names, so the pushes merge.
+#[test]
+fn a_layout_13_ledger_gives_its_documents_the_same_ids_on_two_clones_and_merges() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&a, &["mission", "create", "M-DOC", "Documents"]);
+    fx.put(&a, "missions/M-DOC/report.md", "report\n");
+    fx.put(&a, "notes/free.md", "free\n");
+    fx.ok(
+        &a,
+        &[
+            "mission",
+            "link",
+            "M-DOC",
+            "missions/M-DOC/report.md",
+            "--role",
+            "report",
+        ],
+    );
+    // Take the ledger back to layout 13 and publish it, files and rows.
+    fx.dolt_sql(&a, &layout_thirteen_sql());
+    strip_document_ids(&fx.docs_path(&a));
+    assert_eq!(fx.manifest_version(&a), "13");
+    fx.ok(&a, &["ledger", "push", "A layout 13 ledger"]);
+    fx.ok(&b, &["ledger", "fetch"]);
+    assert_eq!(fx.manifest_version(&b), "13");
+    let origin = fx.origin_files(DOCS_REF);
+    assert!(origin.iter().any(|f| f == "notes/free.md"), "{:?}", origin);
+
+    // Reads upgrade nothing and rename nothing. A link reads as the upgrade will leave it.
+    assert_eq!(
+        fx.ok(&b, &["ledger", "doc", "list", "notes/"]),
+        "notes/free.md  -\n"
+    );
+    assert_eq!(fx.manifest_version(&b), "13");
+    let report = "missions/M-DOC/report.d4611d1c.md";
+    assert_eq!(fx.record(&b, "M-DOC")["documents"][0]["path"], report);
+    assert_eq!(fx.record(&b, "M-DOC")["documents"][0]["id"], "d4611d1c");
+    // The old name and the name with the id both read the file.
+    assert_eq!(fx.ok(&b, &["ledger", "doc", "get", report]), "report\n");
+    assert_eq!(
+        fx.ok(&b, &["ledger", "doc", "get", "missions/M-DOC/report.md"]),
+        "report\n"
+    );
+
+    // Each clone upgrades with a write of its own.
+    fx.ok(&a, &["mission", "set", "M-DOC", "purpose", "On a"]);
+    fx.ok(&b, &["mission", "set", "M-DOC", "name", "Documents on b"]);
+    let links = |dir: &Path| {
+        fx.dolt_sql(
+            dir,
+            "select mission_id, path, doc_id, role from mission_documents",
+        )
+    };
+    for dir in [&a, &b] {
+        assert_eq!(fx.manifest_version(dir), "14");
+        assert_eq!(links(dir).lines().skip(1).count(), 1, "{}", links(dir));
+    }
+    assert_eq!(links(&a), links(&b));
+    assert!(
+        links(&a).contains(&format!("{},d4611d1c,report", report)),
+        "{}",
+        links(&a)
+    );
+
+    // The first push of each clone renames its files the same way, the documents first.
+    fx.ok(&a, &["ledger", "push", "Upgrade on a"]);
+    let files = fx.origin_files(DOCS_REF);
+    for expected in [report, "notes/free.5776bd52.md"] {
+        assert!(files.iter().any(|f| f == expected), "{:?}", files);
+    }
+    assert!(!files.iter().any(|f| f == "notes/free.md"), "{:?}", files);
+    fx.ok(&b, &["ledger", "push", "Upgrade on b"]);
+    assert_eq!(fx.origin_files(DOCS_REF), files);
+    fx.ok(&a, &["ledger", "fetch"]);
+    let record = fx.ok(&a, &["mission", "list", "M-DOC", "--json"]);
+    assert!(record.contains("\"purpose\":\"On a\""), "{}", record);
+    assert!(record.contains("\"name\":\"Documents on b\""), "{}", record);
+    assert_eq!(links(&a), links(&b));
+    assert_eq!(
+        fx.ok(&a, &["ledger", "doc", "list", "notes/"]),
+        "notes/free.5776bd52.md  5776bd52\n"
+    );
+    // A clean worktree on both: the renames were committed with the push.
+    assert!(!fx
+        .ok(&a, &["ledger", "status", "--porcelain"])
+        .contains("docs\tA"));
+    assert!(!fx
+        .ok(&b, &["ledger", "status", "--porcelain"])
+        .contains("docs\tA"));
+}
+
+/// A put mints an id; a second put by the path without it rewrites the same file; the id
+/// finds it too. A move keeps the id and the link, and the URN follows the id.
+#[test]
+fn a_document_id_is_minted_by_the_first_put_and_kept_by_a_move() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let (a, b) = (fx.a(), fx.b());
+    fx.ok(&a, &["mission", "create", "M-ID", "Ids"]);
+    let first = fx.tsk_stdin(
+        &a,
+        &["ledger", "doc", "put", "missions/M-ID/report.md"],
+        "one\n",
+    );
+    assert_success(&first);
+    let path = stdout(&first).trim_end().to_string();
+    let id = id_in(&path).expect("the put minted an id");
+    assert_eq!(path, format!("missions/M-ID/report.{}.md", id));
+
+    // The path without the id, and the id alone, name the same file.
+    let second = fx.tsk_stdin(
+        &a,
+        &["ledger", "doc", "put", "missions/M-ID/report.md"],
+        "two\n",
+    );
+    assert_eq!(stdout(&second).trim_end(), path);
+    assert_eq!(fx.ok(&a, &["ledger", "doc", "get", &id]), "two\n");
+    assert_eq!(
+        fx.ok(&a, &["ledger", "doc", "list", "missions/"]),
+        columns(&[&path])
+    );
+    assert_eq!(
+        fx.ok(&a, &["ledger", "doc", "list", "--porcelain"]),
+        format!("README.md\t\nindex.md\t\n{}\t{}\n", path, id)
+    );
+    // A second document takes another id.
+    let other = fx.tsk_stdin(
+        &a,
+        &["ledger", "doc", "put", "missions/M-ID/other.md"],
+        "x\n",
+    );
+    assert_ne!(id_in(stdout(&other).trim_end()), Some(id.clone()));
+
+    // The link names the id; the URN carries the ledger.
+    fx.ok(&a, &["mission", "link", "M-ID", &id, "--role", "report"]);
+    let ledger = fx.ok(&a, &["ledger", "id"]);
+    let ledger = ledger.trim().strip_prefix("urn:tsk:ledger:").unwrap();
+    let document = &mission_json_of(&fx, &a, "M-ID")["documents"][0];
+    assert_eq!(document["id"], id.as_str());
+    assert_eq!(
+        document["urn"],
+        format!("urn:tsk:document:{}:{}", ledger, id)
+    );
+
+    // A move changes the path and keeps the id, so the link and the URN stay.
+    let moved = fx.ok(&a, &["ledger", "doc", "mv", &id, "archive/old-report.md"]);
+    assert_eq!(
+        moved,
+        format!(
+            "doc {} -> archive/old-report.{}.md\nlink M-ID report\n",
+            path, id
+        )
+    );
+    let document = &mission_json_of(&fx, &a, "M-ID")["documents"][0];
+    assert_eq!(
+        document["path"],
+        format!("archive/old-report.{}.md", id).as_str()
+    );
+    assert_eq!(document["id"], id.as_str());
+    assert_eq!(
+        document["urn"],
+        format!("urn:tsk:document:{}:{}", ledger, id)
+    );
+    assert_eq!(
+        fx.ok(&a, &["ledger", "doc", "get", "archive/old-report.md"]),
+        "two\n"
+    );
+    assert!(
+        fx.tsk(&a, &["ledger", "doc", "get", "missions/M-ID/report.md"])
+            .status
+            .code()
+            == Some(1)
+    );
+    // The path column of the link in the table follows the file.
+    assert_eq!(
+        fx.dolt_sql(&a, "select path, doc_id from mission_documents"),
+        format!("path,doc_id\narchive/old-report.{id},{id}\n", id = id)
+            .replace(&format!("report.{}", id), &format!("report.{}.md", id))
+    );
+    // Published, the other clone reads the same id and path.
+    fx.ok(&a, &["ledger", "push", "Ids"]);
+    fx.ok(&b, &["ledger", "fetch"]);
+    assert_eq!(
+        mission_json_of(&fx, &b, "M-ID")["documents"][0]["path"],
+        format!("archive/old-report.{}.md", id).as_str()
+    );
+    assert_eq!(fx.ok(&b, &["ledger", "doc", "get", &id]), "two\n");
+    // A path given with an id that another document has is refused.
+    let clash = fx.tsk_stdin(
+        &a,
+        &["ledger", "doc", "put", &format!("clash.{}.md", id)],
+        "x",
+    );
+    assert_exit(&clash, 1);
+    assert!(
+        stderr(&clash).contains("already used"),
+        "{}",
+        stderr(&clash)
+    );
 }

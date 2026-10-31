@@ -163,10 +163,16 @@ pub fn session_title(actor: Option<&str>, mission: Option<&str>) -> Option<Strin
 /// `missions/<category>/<ID>-<slug>.md` or `missions/<category>/<ID>.md`. The first in
 /// path order when several match.
 pub fn find_briefing(store: &dyn LedgerStore, mission_id: &str) -> Result<Option<String>, String> {
-    Ok(store.doc_list("missions/")?.into_iter().find(|path| {
+    let found = store.doc_list("missions/")?.into_iter().find(|path| {
         let parts: Vec<&str> = path.split('/').collect();
         parts.len() == 3 && mission_id_of_file(parts[2]).as_deref() == Some(mission_id)
-    }))
+    });
+    // A ledger below layout 14 names the document as the upgrade will, so a thread that
+    // stores the path keeps a path that exists once the files are renamed.
+    match found {
+        Some(path) => Ok(Some(store.doc_resolve(&path)?.unwrap_or(path))),
+        None => Ok(None),
+    }
 }
 
 pub fn no_such_mission(mission_id: &str) -> String {

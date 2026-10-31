@@ -19,7 +19,7 @@ use common::templates::{self, Seed, Step};
 
 mod doc_hook;
 
-const BRIEFING: &str = "missions/operational/M-TEST-01-example.md";
+const BRIEFING: &str = "missions/operational/M-TEST-01-example.1c0de060.md";
 
 /// A ledger with the briefing, published from the only clone. The build runs once per test
 /// process (see `common::templates`), and each test gets a copy.
