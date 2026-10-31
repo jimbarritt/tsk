@@ -227,7 +227,7 @@ committed on `main`, is itself a decision
 (`docs/adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md`); a branch rather than
 a custom ref is `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`,
 and a custom ref by default, with branches as the override for a repo used from Claude
-Code cloud sessions, is decided and not built (M-TSK-SCHEMA T-07). That is the mechanism
+Code cloud sessions, is `docs/adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md` and is built. That is the mechanism
 in use, not the definition. `tsk/bootstrap` is retired.
 
 Distinguished from the artefacts: the artefacts are what a mission builds, the ledger is
@@ -272,7 +272,7 @@ nothing opens files in it, and an agent touches it only through `tsk` commands.
 Supersedes "ledger worktree", the file-era term for the detached linked worktree that
 contained the `tsk/ledger` branch at `.../<clone-id>/ledger`
 (`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md` for why it is outside
-`.git/`). The `git` backend still uses one. Write "ledger store" in prose, never
+`.git/`). The `git` backend, removed in 0.16.0, used one. Write "ledger store" in prose, never
 "worktree" alone.
 
 Distinguished from a [code worktree](#code-worktree): the ledger store contains the ledger,
@@ -283,8 +283,8 @@ a code worktree contains the [artefacts](#artefact).
 A worktree of the managed repo's code, the main one or a linked one. Typically one per
 session, so sessions work in parallel without a shared tree.
 
-A session binds to a [thread](#thread) through a row of the ledger's `bindings` table,
-keyed on `<clone-id>/<worktree-name>`: `main` for the main worktree, the worktree's name
+A session binds to a [thread](#thread) through its instance, a row of the ledger's
+`thread_bindings` table, keyed on `<clone-id>/<worktree-name>`: `main` for the main worktree, the worktree's name
 for a linked one. See [Binding](#binding).
 
 Distinguished from the [ledger store](#ledger-store), which there is one of per clone
