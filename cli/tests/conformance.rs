@@ -2867,7 +2867,9 @@ mod cases {
         for (session, format) in [("s-bound", "claude"), ("s-bound-copilot", "copilot")] {
             let bound = fx.session_context(&a, session, format);
             assert!(
-                bound.contains("This thread works mission M-REC (todo): Recorded mission."),
+                bound.contains(
+                    "The current focus of this thread is mission M-REC (todo): Recorded mission."
+                ),
                 "{}",
                 bound
             );
@@ -2969,7 +2971,7 @@ mod cases {
             context
         );
         assert!(
-            context.contains("This thread works mission M-REC"),
+            context.contains("The current focus of this thread is mission M-REC"),
             "{}",
             context
         );
@@ -2991,7 +2993,7 @@ mod cases {
         let context = fx.session_context(&a, "s-legacy", "claude");
         assert!(!context.contains("index.md"), "{}", context);
         assert!(
-            !context.contains("This thread works mission"),
+            !context.contains("The current focus of this thread is mission"),
             "{}",
             context
         );
@@ -3289,7 +3291,11 @@ mod cases {
 
         // No entry yet: the existing text, with nothing about a latest entry.
         let none = fx.session_context(&a, "s-le-1", "claude");
-        assert!(none.contains("This thread works mission M-REC"), "{}", none);
+        assert!(
+            none.contains("The current focus of this thread is mission M-REC"),
+            "{}",
+            none
+        );
         assert!(!none.contains("latest pause entry"), "{}", none);
 
         // An entry by this actor: the task and its description, what is next, who and when.
@@ -3380,7 +3386,7 @@ mod cases {
             );
             assert!(context.contains(&expected), "{}", context);
             assert!(
-                !context.contains("This thread works mission"),
+                !context.contains("The current focus of this thread is mission"),
                 "{}",
                 context
             );
@@ -3401,7 +3407,9 @@ mod cases {
         fx.ok(&a, &["thread", "set", "mission", "M-REC"]);
         let context = fx.session_context(&a, "s-nm-5", "claude");
         assert!(
-            context.contains("This thread works mission M-REC (todo): Recorded mission."),
+            context.contains(
+                "The current focus of this thread is mission M-REC (todo): Recorded mission."
+            ),
             "{}",
             context
         );
