@@ -216,8 +216,8 @@ exits 1 and prints findings, the document is written locally: fix it and put it 
 A `tsk ledger push` that exits 1 with the same findings names a document changed earlier:
 fix that one, then push again. Do not set `TSK_SKIP_DOC_CHECK=1` to get past them.
 
-The first `tsk` write on 0.14.0 upgrades the ledger to layout 8, and an older binary then
-stops with `unsupported ledger version`. Run `tsk self-update` to bring it up to date.
+The first `tsk` write that needs a newer layout upgrades the ledger to it (layout 14 from
+0.41.0), and an older binary then stops with `unsupported ledger version`. Run `tsk self-update` to bring it up to date.
 From 0.18.0, a `tsk` that meets a newer layout prints a warning on stderr, updates itself
 and runs your command again, so the command can take a minute. The hook commands never do
 this. `TSK_AUTO_UPDATE=never` switches it off. A binary from before 0.18.0 cannot: run
@@ -507,7 +507,9 @@ and robot.
 
 ### Switching threads
 
-No single command switches threads. To switch: `tsk thread binding` to find the current
-thread, `tsk thread detach`, optionally `tsk thread stop <old-thread-id>`, then
-`tsk thread resume <new-thread-id>`. `tsk thread list` gives the candidates. To work with no
-thread at all, run `tsk thread skip`.
+A change of mission keeps the thread (ADR 0031): run `/tsk:switch-mission`, which pauses
+on the old focus and runs `tsk thread set mission`. No single command switches a session to
+another thread. To switch: `tsk thread binding` to find the current thread,
+`tsk thread detach`, then `tsk thread resume <new-thread-id>`. `tsk thread list` gives the
+candidates. Run `tsk thread stop <old-thread-id>` only when the line of work is finished,
+because a stopped thread is deleted. To work with no thread at all, run `tsk thread skip`.
