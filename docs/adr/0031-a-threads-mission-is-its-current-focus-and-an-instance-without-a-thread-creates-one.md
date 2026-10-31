@@ -17,7 +17,8 @@ keeps one continuation history. The skills did not follow it. `start-thread` ran
 request that named a mission, and `switch-thread` offered to stop the thread left behind.
 
 The ledger shows threads that cross missions. One thread ran M-DOLT and then M-ENV. This
-session's thread is bound to M-TSK-IDEA, and its work covered five other missions.
+session's thread is bound to M-TSK-IDEA, and its work covered M-TSK-ATTRIB,
+M-TSK-SCALE, M-TSK-COMMS and M-TSK-NAMES.
 
 Jim, 2026-10-31: in a supervised session the thread is the human's attention with one
 robot. A robot that runs on a schedule is different. Its thread and its mission are the
