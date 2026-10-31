@@ -78,8 +78,29 @@ open(sys.argv[2], "wb").write(archive.read(name))
 PY
 install_bin "$tmp/just" just
 
+# The tsk and swe plugins at user scope, so every session of the environment loads them
+# from its first process and a repo needs no committed hook. The plugin's own SessionStart
+# hook installs dolt and tsk when they are missing, fetches the ledger and prints the
+# context. A failure here prints a warning and does not stop the script: the repo's own
+# hook or `/tsk:regenerate-cloud-instance` installs the plugins at the next session.
+MARKETPLACE_SOURCE=jimbarritt/claude-plugins
+MARKETPLACE=jimbarritt-claude-plugins
+if command -v claude >/dev/null 2>&1; then
+  if claude plugin marketplace add "$MARKETPLACE_SOURCE" >"$tmp/plugin.log" 2>&1; then
+    for plugin in tsk swe; do
+      claude plugin install "$plugin@$MARKETPLACE" --scope user -y >"$tmp/plugin.log" 2>&1 ||
+        echo "WARNING: installing the $plugin plugin failed: $(tr '\n' ' ' <"$tmp/plugin.log")" >&2
+    done
+  else
+    echo "WARNING: adding the $MARKETPLACE marketplace failed: $(tr '\n' ' ' <"$tmp/plugin.log")" >&2
+  fi
+else
+  echo "WARNING: claude is not on PATH, so the plugins are not installed" >&2
+fi
+
 mkdir -p "$SETUP_DIR"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$SETUP_DIR/last-run"
 "$BIN/tsk" --version
 "$BIN/dolt" version
 "$BIN/just" --version
+claude plugin list 2>/dev/null || true

@@ -1438,19 +1438,24 @@ fn guide_setup_script() -> String {
 }
 
 #[test]
-fn the_cloud_environment_guide_shows_the_setup_script_of_ops_cloud() {
-    let file = std::fs::read_to_string(
-        workspace()
-            .join("ops")
-            .join("cloud")
-            .join("setup-environment.sh"),
-    )
-    .unwrap();
-    assert_eq!(
-        guide_setup_script(),
-        file,
-        "docs/user-guide/new-cloud-environment.md step 3 and ops/cloud/setup-environment.sh differ"
+fn the_cloud_environment_guide_fetches_the_setup_script_of_ops_cloud_from_main() {
+    let script = guide_setup_script();
+    assert!(
+        script.contains(
+            "curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash"
+        ),
+        "docs/user-guide/new-cloud-environment.md step 3 does not fetch ops/cloud/setup-environment.sh from main:\n{}",
+        script
     );
+    assert!(
+        script.contains("set -euo pipefail"),
+        "a failed fetch must fail the build"
+    );
+    assert!(workspace()
+        .join("ops")
+        .join("cloud")
+        .join("setup-environment.sh")
+        .is_file());
 }
 
 #[test]
