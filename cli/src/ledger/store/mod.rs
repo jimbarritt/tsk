@@ -273,14 +273,24 @@ pub trait LedgerStore {
 
     // --- Documents: free-form text keyed by a ledger-relative path ---
 
+    /// A document by reference: the path with its id, the path without it, or the id alone.
     fn doc_get(&self, path: &str) -> Result<Option<String>, String>;
-    fn doc_put(&self, path: &str, body: &str) -> Result<(), String>;
+    /// Write a document and return the path it has, which carries its id. A new path
+    /// without an id gets a minted one. A path that names an existing document, with or
+    /// without its id, writes that document.
+    fn doc_put(&self, path: &str, body: &str) -> Result<String, String>;
     /// Every document path starting with `prefix` (a plain string prefix), sorted.
     /// Threads, external events and the manifest are not documents.
     fn doc_list(&self, prefix: &str) -> Result<Vec<String>, String>;
     /// Remove a document. Returns false when it did not exist.
     fn doc_remove(&self, path: &str) -> Result<bool, String>;
     fn doc_exists(&self, path: &str) -> Result<bool, String>;
+    /// The path, with its id, of the document a reference names, or `None`.
+    fn doc_resolve(&self, reference: &str) -> Result<Option<String>, String>;
+    /// Rename a document and keep its id. Returns the old and the new path. Fails when the
+    /// document does not exist, when the new path does, and when the new path has another id.
+    /// It changes no link: see `tsk ledger doc mv`.
+    fn doc_mv(&self, from: &str, to: &str) -> Result<(String, String), String>;
     /// The absolute path of a document's file, or `None` when the document does not exist.
     fn doc_path(&self, path: &str) -> Result<Option<PathBuf>, String>;
 

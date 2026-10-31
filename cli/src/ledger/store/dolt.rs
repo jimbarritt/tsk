@@ -36,6 +36,7 @@ use super::{
     ActorKind, ActorNameRow, ActorRole, ActorRow, BindingKind, BindingRow, InstanceRow,
     LedgerStore, PushReport, RefreshOutcome, SessionActorRow, SessionRow, ThreadInfo,
 };
+use crate::ledger::doc_id;
 
 const MANIFEST_SOURCE: &str = "the manifest table";
 
@@ -64,6 +65,9 @@ pub struct DoltStore {
     /// Writes held back for the next commit, which makes them in its own process. See
     /// [`LedgerStore::continuation_append_deferred`].
     queued: RefCell<Vec<QueuedWrite>>,
+    /// The documents worktree of this process has its ids (layout 14): a document with none
+    /// was given the id of its path.
+    docs_ready: Cell<bool>,
 }
 
 /// A write held back for the next commit: the statement, and a query whose first count is
@@ -186,6 +190,7 @@ impl DoltStore {
             no_snapshot: Cell::new(false),
             trust_tips: Cell::new(false),
             queued: RefCell::new(Vec::new()),
+            docs_ready: Cell::new(false),
         })
     }
 
@@ -1000,6 +1005,47 @@ impl DoltStore {
             return Err(missing(format!("{} does not exist", root.display())));
         }
         Ok(DocTree { root })
+    }
+
+    /// The documents for a command that reads one. A read changes nothing: a file with no
+    /// id (one an older tsk wrote) keeps its name, and a reference to it still resolves.
+    fn docs_view(&self) -> Result<DocTree, String> {
+        self.docs_tree()
+    }
+
+    /// The documents for a push. A ledger at layout 14 first renames every document that has
+    /// no id to the name with the id of its path (`doc_id::derived_id`), so the links the
+    /// upgrade wrote name files the push sends. A ledger below 14 is not upgraded by a push.
+    fn docs_for_push(&self) -> Result<DocTree, String> {
+        let tree = self.docs_tree()?;
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        if self.check_current(&db, &location)? >= dolt::DOCUMENT_IDS_LAYOUT_VERSION {
+            tree.heal_ids()?;
+        }
+        Ok(tree)
+    }
+
+    /// The documents for a command that writes one. A ledger below layout 14 is upgraded
+    /// here, as a local write, so the links and the file names change together. Then every
+    /// document with no id is renamed, as in [`Self::docs_for_push`]. A version 1 ledger is
+    /// refused.
+    fn docs_ready(&self) -> Result<DocTree, String> {
+        let tree = self.docs_tree()?;
+        if self.docs_ready.get() {
+            return Ok(tree);
+        }
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        let version = self.check_current(&db, &location)?;
+        if version < dolt::LAYOUT_VERSION {
+            let script = self.upgrade_script(&db, version)?;
+            self.write(&db, &script)?;
+            self.forget_checked();
+        }
+        tree.heal_ids()?;
+        self.docs_ready.set(true);
+        Ok(tree)
     }
 
     /// [`LedgerStore::refresh`], or the lenient refresh of `tsk ledger fetch` and
@@ -2294,7 +2340,7 @@ impl LedgerStore for DoltStore {
         let location = self.repo.location(&self.state_root)?;
         let db = self.db()?;
         self.check_current(&db, &location)?;
-        let docs_path = self.docs_tree()?.root;
+        let docs_path = self.docs_for_push()?.root;
 
         // Stage everything, count the staged tables, list the document links and commit
         // what is staged, in one process. When that fails (a ledger below the layout that
@@ -2453,38 +2499,60 @@ impl LedgerStore for DoltStore {
 
     fn doc_get(&self, path: &str) -> Result<Option<String>, String> {
         let path = super::check_docs_path(path)?;
-        self.docs_tree()?.doc_get(&path)
+        self.docs_view()?.doc_get(&path)
     }
 
-    fn doc_put(&self, path: &str, body: &str) -> Result<(), String> {
+    fn doc_put(&self, path: &str, body: &str) -> Result<String, String> {
         let path = super::check_docs_path(path)?;
-        let tree = self.docs_tree()?;
-        tree.doc_put(&path, body)?;
+        let tree = self.docs_ready()?;
+        let written = tree.doc_put(&path, body)?;
         // The document stays written when the hook fails, so the author can correct it.
-        crate::ledger::doc_hook::run(&self.repo, &tree.root, std::slice::from_ref(&path))?;
-        Ok(())
+        crate::ledger::doc_hook::run(&self.repo, &tree.root, std::slice::from_ref(&written))?;
+        Ok(written)
     }
 
     fn doc_list(&self, prefix: &str) -> Result<Vec<String>, String> {
-        self.docs_tree()?.doc_list(prefix)
+        self.docs_view()?.doc_list(prefix)
     }
 
     fn doc_remove(&self, path: &str) -> Result<bool, String> {
         let path = super::check_docs_path(path)?;
-        self.docs_tree()?.doc_remove(&path)
+        self.docs_ready()?.doc_remove(&path)
     }
 
     fn doc_exists(&self, path: &str) -> Result<bool, String> {
-        match super::check_docs_path(path) {
-            Ok(path) => Ok(self.docs_tree()?.doc_path(&path).is_file()),
-            Err(_) => Ok(false),
+        Ok(self.doc_resolve(path)?.is_some())
+    }
+
+    fn doc_resolve(&self, reference: &str) -> Result<Option<String>, String> {
+        let Ok(path) = super::check_docs_path(reference) else {
+            return Ok(None);
+        };
+        let tree = self.docs_view()?;
+        let Some(found) = tree.resolve(&path)? else {
+            return Ok(None);
+        };
+        // A file with no id is named as the upgrade names it: a link written now is the one
+        // the next write or push leaves.
+        if doc_id::id_of(&found).is_none() && !tree.is_seed_file(&found) {
+            return Ok(Some(doc_id::upgraded(&found).1));
         }
+        Ok(Some(found))
+    }
+
+    fn doc_mv(&self, from: &str, to: &str) -> Result<(String, String), String> {
+        let from = super::check_docs_path(from)?;
+        let to = super::check_docs_path(to)?;
+        self.docs_ready()?.doc_mv(&from, &to)
     }
 
     fn doc_path(&self, path: &str) -> Result<Option<PathBuf>, String> {
         let path = super::check_docs_path(path)?;
-        let file = self.docs_tree()?.doc_path(&path);
-        Ok(file.is_file().then_some(file))
+        let tree = self.docs_view()?;
+        Ok(tree
+            .resolve(&path)?
+            .map(|found| tree.doc_path(&found))
+            .filter(|file| file.is_file()))
     }
 
     fn thread_exists(&self, id: &str) -> Result<bool, String> {
@@ -3134,7 +3202,39 @@ impl DoltStore {
         } else {
             String::new()
         };
-        Ok(dolt::upgrade_sql_moving(version, &moved))
+        // Version 14: the rows that name a document by path are read here, because the new
+        // path is a function of the path, not of SQL.
+        let rows = if (dolt::MISSIONS_LAYOUT_VERSION..dolt::DOCUMENT_IDS_LAYOUT_VERSION)
+            .contains(&version)
+        {
+            let pairs = |sql: &str, a: &str, b: &str| -> Result<Vec<(String, String)>, String> {
+                Ok(db
+                    .rows(sql)?
+                    .iter()
+                    .map(|row| {
+                        (
+                            text(row, a).unwrap_or_default(),
+                            text(row, b).unwrap_or_default(),
+                        )
+                    })
+                    .collect())
+            };
+            let links = pairs(
+                "select mission_id, path from mission_documents order by mission_id, path",
+                "mission_id",
+                "path",
+            )?;
+            let briefings = pairs(
+                "select thread_id, briefing_path from threads where briefing_path is not null \
+                 order by thread_id",
+                "thread_id",
+                "briefing_path",
+            )?;
+            dolt::document_rows_sql(&links, &briefings)
+        } else {
+            String::new()
+        };
+        Ok(dolt::upgrade_sql_full(version, &moved, &rows))
     }
 
     /// Every mission in `db`. A version 2 ledger has no mission tables: it has no
@@ -3534,10 +3634,22 @@ fn save_sql(mission: &Mission) -> String {
         let rows: Vec<String> = mission
             .documents
             .iter()
-            .map(|d| format!("({}, {}, '{}')", id, lit(&d.path), d.role.as_str()))
+            .map(|d| {
+                format!(
+                    "({}, {}, {}, '{}')",
+                    id,
+                    lit(&d.path),
+                    if d.id.is_empty() {
+                        "NULL".to_string()
+                    } else {
+                        lit(&d.id)
+                    },
+                    d.role.as_str()
+                )
+            })
             .collect();
         sql.push_str(&format!(
-            "replace into mission_documents (mission_id, path, role) values {};\n",
+            "replace into mission_documents (mission_id, path, doc_id, role) values {};\n",
             rows.join(", ")
         ));
     }
@@ -3819,13 +3931,25 @@ fn read_missions_with(
     for mission in &mut missions {
         mission.blocked_by.sort();
     }
-    for row in
-        rows("select mission_id, path, role from mission_documents order by mission_id, path")?
-    {
+    let with_ids = version >= dolt::DOCUMENT_IDS_LAYOUT_VERSION;
+    for row in rows(if with_ids {
+        "select mission_id, path, doc_id, role from mission_documents order by mission_id, path"
+    } else {
+        "select mission_id, path, role from mission_documents order by mission_id, path"
+    })? {
         let id = text(&row, "mission_id").unwrap_or_default();
         if let Some(at) = slot(&mut missions, &id) {
+            let stored = text(&row, "path").unwrap_or_default();
+            // A ledger below layout 14 reads as the upgrade will leave it, so a write that
+            // upgrades it does not put the old paths back.
+            let (doc_id, path) = match text(&row, "doc_id").filter(|d| !d.is_empty()) {
+                Some(doc_id) => (doc_id, stored),
+                None if with_ids => (String::new(), stored),
+                None => crate::ledger::doc_id::upgraded(&stored),
+            };
             missions[at].documents.push(Document {
-                path: text(&row, "path").unwrap_or_default(),
+                id: doc_id,
+                path,
                 role: Role::parse(&text(&row, "role").unwrap_or_default())
                     .map_err(|_| bad("role", &id))?,
             });

@@ -283,6 +283,7 @@ mod tests {
             uid: String::new(),
         });
         b.documents.push(model::Document {
+            id: String::new(),
             path: "missions/x.md".to_string(),
             role: model::Role::Report,
         });

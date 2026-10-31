@@ -373,6 +373,7 @@ mod tests {
         a.tasks = vec![task(1, vec![])];
         a.blocked_by = vec!["M-B".to_string()];
         a.documents = vec![model::Document {
+            id: String::new(),
             path: "x.md".to_string(),
             role: model::Role::Report,
         }];

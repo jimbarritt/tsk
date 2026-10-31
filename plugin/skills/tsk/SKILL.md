@@ -123,10 +123,12 @@ tsk ledger path                          print the ledger store path (the Dolt d
 tsk ledger push "<message>"              commit every local ledger change, pull and push; prints the ledger commit
 tsk ledger migrate-transport             convert a ledger that holds Dolt's older git blobstore to a Dolt file remote carried by plain git; run once, other clones follow on their next fetch
 tsk ledger server status|start|stop      inspect or control the local Dolt server of this clone's ledger store; it runs unless TSK_DOLT_SERVER=off or [ledger] server = "off" (on by default since 0.29.0; `tsk config ledger-server` prints and sets the switch); while it runs, `dolt` opens the store read only
-tsk ledger doc get <path>                print a document's body
-tsk ledger doc put <path> [<file>]       write a document from <file>, or from stdin; changes the local store only
-tsk ledger doc list [<prefix>]           list document paths, optionally under a prefix
-tsk ledger doc rm <path>                 remove a document; changes the local store only
+tsk ledger doc get <ref>                 print a document's body; <ref> is the path with or without the id, or the id alone
+tsk ledger doc put <path> [<file>]       write a document from <file>, or from stdin, and print its path; a new path gets an 8 character id before the extension; changes the local store only
+tsk ledger doc list [<prefix>] [--porcelain]  list document paths and ids, optionally under a prefix
+tsk ledger doc rm <ref>                  remove a document; changes the local store only
+tsk ledger doc mv <ref> <path>           rename a document, keep its id, update the path in the mission links
+tsk ledger doc path <ref>                print the absolute path of a document's file
 tsk ledger status [--local] [--porcelain]  print Local (what is not pushed) and Origin (ahead or behind); --local makes no network call and prints Origin as not checked; --porcelain prints tab-separated facts for scripts; read-only
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
 
@@ -197,7 +199,13 @@ purpose, tasks, decisions and questions are records, and a document must not rep
 Link a document to its mission with `tsk mission link`. To write one, run
 `tsk ledger doc put <path>` (body on stdin, or a file argument), then
 `tsk ledger push "<message>"`. `doc put` and `doc rm` change the local worktree only.
-`tsk ledger doc path <path>` prints the absolute path of the document's file, to open it
+A document carries an id of 8 hexadecimal characters in its file name, before the extension
+(`report.3f2a9c1e.md`): `doc put` mints it for a new path and prints the path it wrote, and a
+second `doc put` of the path without the id rewrites the same file. Every doc command and
+`mission link` accept the path with the id, without it, or the id alone. A link names the id,
+so `doc mv` keeps it. `mission list <id> --json` prints `id` and `urn`
+(`urn:tsk:document:<ledger-id>:<id>`) for each linked document.
+`tsk ledger doc path <ref>` prints the absolute path of the document's file, to open it
 in another tool. `tsk ledger push` pushes the documents first and the Dolt data second, so
 a record never names a document the remote lacks. A rejected documents push stops it
 with exit 1 and the Dolt data stays unpushed. Run it again.
@@ -390,7 +398,7 @@ tsk mission rm <id> [--force]                # refused with child missions; with
 had is not used again, and each command prints one line, such as `task M-A T-05 -> M-B T-12`.
 A task with blocks is refused, because a block belongs to one mission: unblock it, or add
 `--force` to drop them. A decision loses its task link unless `--task` names a task of the
-target. `tsk ledger doc mv <from> <to>` renames a document and updates the mission links.
+target. `tsk ledger doc mv <from> <to>` renames a document, keeps its id and updates the path in the mission links.
 
 Text is one line. Every `list` here prints aligned columns: two spaces between columns, no
 tabs, no trailing spaces. `--porcelain` prints the tab-separated lines instead, with no

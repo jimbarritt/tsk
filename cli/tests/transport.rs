@@ -526,7 +526,7 @@ fn documents_and_records_publish_together() {
     let mut child = fx
         .command(
             &fx.clone_dir("a"),
-            &["ledger", "doc", "put", "notes/plan.md"],
+            &["ledger", "doc", "put", "notes/plan.1c0de051.md"],
         )
         .stdin(Stdio::piped())
         .spawn()
@@ -545,7 +545,8 @@ fn documents_and_records_publish_together() {
 
     assert_ne!(fx.origin_tip(), ledger_before);
     assert_eq!(
-        fx.origin_blob(DOCS_REF, "notes/plan.md").as_deref(),
+        fx.origin_blob(DOCS_REF, "notes/plan.1c0de051.md")
+            .as_deref(),
         Some("the plan\n")
     );
     fx.ok("b", &["ledger", "fetch"]);

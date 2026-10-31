@@ -657,55 +657,49 @@ fn document_sort(mission: &mut Mission) {
 
 // --- Documents ---
 
-/// Copy a document to a new path and remove the old one.
+/// Rename a document, which keeps its id. The target carries the id of the old path, so a
+/// plan made from the paths of the links holds.
 fn move_document(store: &dyn LedgerStore, from: &str, to: &str) -> Result<(), String> {
-    let body = store
-        .doc_get(from)?
-        .ok_or_else(|| format!("error: no such document: {}", from))?;
-    store.doc_put(to, &body)?;
-    store.doc_remove(from)?;
+    store.doc_mv(from, to)?;
     Ok(())
 }
 
-/// Rename a document, and update the link of every mission that names its old path. It
-/// prints `doc FROM -> TO` and one `link` line for each mission. Fails for a document that
-/// does not exist and for a target that does.
+/// Rename a document, keep its id, and update the path in the link of every mission that
+/// links the id. It prints `doc FROM -> TO` and one `link` line for each mission. Fails for
+/// a document that does not exist and for a target that does.
 pub fn doc_mv(store: &dyn LedgerStore, from: &str, to: &str) -> Result<(), String> {
-    let from = check_docs_path(from).unwrap_or_else(|_| from.to_string());
-    let to = check_docs_path(to)?;
-    if from == to {
-        return Err(format!("error: {} is already at {}", from, to));
-    }
-    if !store.doc_exists(&from)? {
+    check_docs_path(to)?;
+    let Some(old) = store.doc_resolve(from)? else {
         return Err(format!("error: no such document: {}", from));
-    }
-    if store.doc_exists(&to)? {
-        return Err(format!("error: {} exists; move or remove it first", to));
-    }
-    let missions = store.missions_load()?;
+    };
+    let (old, new) = store.doc_mv(&old, to)?;
+    let id = crate::ledger::doc_id::id_of(&new).unwrap_or_default();
     let mut linked: Vec<Mission> = Vec::new();
-    for mission in &missions {
-        if mission.documents.iter().any(|d| d.path == from) {
+    for mission in store.missions_load()? {
+        if mission
+            .documents
+            .iter()
+            .any(|d| d.path == old || (!id.is_empty() && d.id == id))
+        {
             let mut updated = mission.clone();
             for document in &mut updated.documents {
-                if document.path == from {
-                    document.path = to.clone();
+                if document.path == old || (!id.is_empty() && document.id == id) {
+                    document.path = new.clone();
                 }
             }
             document_sort(&mut updated);
             linked.push(updated);
         }
     }
-    move_document(store, &from, &to)?;
     if !linked.is_empty() {
         store.missions_save(&linked)?;
     }
-    println!("doc {} -> {}", from, to);
+    println!("doc {} -> {}", old, new);
     for mission in &linked {
         let role = mission
             .documents
             .iter()
-            .find(|d| d.path == to)
+            .find(|d| d.path == new)
             .map_or("", |d| d.role.as_str());
         println!("link {} {}", mission.id, role);
     }
@@ -930,10 +924,12 @@ mod tests {
         let mut all = world();
         let mut a = all[0].clone();
         a.documents.push(model::Document {
+            id: String::new(),
             path: "missions/M-A-notes.md".to_string(),
             role: model::Role::Intelligence,
         });
         a.documents.push(model::Document {
+            id: String::new(),
             path: "other/design.md".to_string(),
             role: model::Role::Design,
         });
@@ -984,6 +980,7 @@ mod tests {
             .contains("no such mission"));
         let mut a = all[0].clone();
         a.documents.push(model::Document {
+            id: String::new(),
             path: "m/M-A.md".to_string(),
             role: model::Role::Report,
         });
@@ -999,6 +996,7 @@ mod tests {
     fn a_document_that_another_mission_links_gets_a_link_line() {
         let mut all = world();
         let doc = |path: &str| model::Document {
+            id: String::new(),
             path: path.to_string(),
             role: model::Role::Report,
         };

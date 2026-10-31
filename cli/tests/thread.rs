@@ -29,7 +29,7 @@ const MAIN: Seed = seeded("main");
 const TRUNK: Seed = seeded("trunk");
 
 const LEDGER_REF: &str = "refs/heads/tsk/ledger";
-const BRIEFING: &str = "missions/operational/M-TEST-01-example.md";
+const BRIEFING: &str = "missions/operational/M-TEST-01-example.1c0de060.md";
 /// What resume, detach and set mission print on stderr after a write that does not push.
 const NOT_PUBLISHED: &str = "goes out with the next push";
 const SESSION_VAR: &str = "CLAUDE_CODE_REMOTE_SESSION_ID";

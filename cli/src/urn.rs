@@ -23,6 +23,12 @@ pub fn record_urn(kind: &str, ledger_id: &str, uid: &str) -> Option<String> {
     (!uid.is_empty()).then(|| format!("urn:tsk:{}:{}:{}", kind, ledger_id, uid))
 }
 
+/// `urn:tsk:document:<ledger-id>:<id>`. The id is the 8 hexadecimal characters in the file name
+/// of the document, which a rename of the file keeps.
+pub fn document_urn(ledger_id: &str, doc_id: &str) -> String {
+    format!("urn:tsk:document:{}:{}", ledger_id, doc_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -37,5 +43,6 @@ mod tests {
             Some("urn:tsk:task:L:u1")
         );
         assert_eq!(record_urn("task", "L", ""), None);
+        assert_eq!(document_urn("L", "3f2a9c1e"), "urn:tsk:document:L:3f2a9c1e");
     }
 }

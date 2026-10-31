@@ -169,6 +169,11 @@ where
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
+    /// The id of the document (layout 14): 8 lowercase hexadecimal characters, also in the
+    /// file name. Empty for a path with no id, which only a ledger below layout 14 holds.
+    #[serde(default)]
+    pub id: String,
+    /// The path now, which carries the id. It follows a rename of the file.
     pub path: String,
     pub role: Role,
 }
@@ -637,9 +642,18 @@ pub fn link(
     if !exists {
         return Err(format!("error: no such document: {}", path));
     }
-    match mission.documents.iter_mut().find(|d| d.path == path) {
-        Some(existing) => existing.role = role,
+    let doc_id = crate::ledger::doc_id::id_of(path).unwrap_or_default();
+    match mission
+        .documents
+        .iter_mut()
+        .find(|d| d.path == path || (!doc_id.is_empty() && d.id == doc_id))
+    {
+        Some(existing) => {
+            existing.path = path.to_string();
+            existing.role = role;
+        }
         None => mission.documents.push(Document {
+            id: doc_id,
             path: path.to_string(),
             role,
         }),
@@ -648,12 +662,20 @@ pub fn link(
     Ok(mission)
 }
 
+/// The link of a document by any reference to it: the path with its id, the path without it,
+/// or the id alone.
+fn names_document(document: &Document, reference: &str) -> bool {
+    document.path == reference
+        || (!document.id.is_empty() && document.id == reference)
+        || crate::ledger::doc_id::split_id(&document.path).1 == reference
+}
+
 pub fn unlink(missions: &[Mission], id: &str, path: &str) -> Result<Mission, String> {
     let mut mission = find(missions, id)?.clone();
-    if !mission.documents.iter().any(|d| d.path == path) {
+    if !mission.documents.iter().any(|d| names_document(d, path)) {
         return Err(format!("error: {} does not link {}", id, path));
     }
-    mission.documents.retain(|d| d.path != path);
+    mission.documents.retain(|d| !names_document(d, path));
     Ok(mission)
 }
 
@@ -755,6 +777,12 @@ pub struct JsonBlocker<'a> {
 #[derive(Serialize)]
 pub struct JsonDocument<'a> {
     path: &'a str,
+    /// The id of the document; absent for a link with no id (a ledger below layout 14).
+    #[serde(skip_serializing_if = "str::is_empty")]
+    id: &'a str,
+    /// `urn:tsk:document:<ledger-id>:<id>`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    urn: Option<String>,
     role: &'a str,
 }
 
@@ -828,6 +856,10 @@ pub fn to_json<'a>(
             .iter()
             .map(|d| JsonDocument {
                 path: &d.path,
+                id: &d.id,
+                urn: ledger_id
+                    .filter(|_| !d.id.is_empty())
+                    .map(|ledger| crate::urn::document_urn(ledger, &d.id)),
                 role: d.role.as_str(),
             })
             .collect(),

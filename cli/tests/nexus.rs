@@ -11,7 +11,7 @@ const IN_REPO_REF: &str = "refs/heads/tsk/ledger";
 const NEXUS_REF: &str = "refs/heads/ledgers/work-api";
 const NEXUS_DOCS_REF: &str = "refs/heads/ledgers/work-api-docs";
 const ORIGIN_URL: &str = "https://example.test/acme/work-api";
-const BRIEFING: &str = "missions/operational/M-TEST-01-example.md";
+const BRIEFING: &str = "missions/operational/M-TEST-01-example.1c0de060.md";
 const WORK_API_ENTRY: &str =
     r#"{"id":"work-api","url":"https://example.test/acme/work-api","ledger":"nexus"}"#;
 
@@ -479,7 +479,7 @@ fn an_entry_with_ledger_nexus_holds_the_ledger_in_the_nexus() {
         "ledger",
         "doc",
         "put",
-        "missions/M-1.md",
+        "missions/M-1.1c0de050.md",
         doc.to_str().unwrap(),
     ]));
     let pushed = fx.tsk(&["ledger", "push", "First commit"]);
@@ -489,7 +489,7 @@ fn an_entry_with_ledger_nexus_holds_the_ledger_in_the_nexus() {
     assert!(fx.ref_exists(&fx.nexus(), NEXUS_DOCS_REF));
     assert!(!fx.ref_exists(&fx.managed(), IN_REPO_REF));
     assert_eq!(
-        fx.file_on(&fx.nexus(), NEXUS_DOCS_REF, "missions/M-1.md")
+        fx.file_on(&fx.nexus(), NEXUS_DOCS_REF, "missions/M-1.1c0de050.md")
             .as_deref(),
         Some("mission\n")
     );
@@ -896,7 +896,7 @@ fn a_dolt_nexus_ledger_keeps_its_documents_on_the_id_docs_branch() {
         "ledger",
         "doc",
         "put",
-        "missions/M-1.md",
+        "missions/M-1.1c0de050.md",
         doc.to_str().unwrap(),
     ]));
     let pushed = fx.tsk(&["ledger", "push", "First commit"]);
@@ -909,7 +909,7 @@ fn a_dolt_nexus_ledger_keeps_its_documents_on_the_id_docs_branch() {
     assert!(!fx.ref_exists(&fx.nexus(), "refs/heads/ledgers/work-api/docs"));
     assert!(!fx.ref_exists(&fx.managed(), "refs/heads/tsk/docs"));
     assert_eq!(
-        fx.file_on(&fx.nexus(), NEXUS_DOCS_REF, "missions/M-1.md")
+        fx.file_on(&fx.nexus(), NEXUS_DOCS_REF, "missions/M-1.1c0de050.md")
             .as_deref(),
         Some("in the nexus\n")
     );

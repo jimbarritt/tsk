@@ -1,5 +1,6 @@
 pub mod background;
 pub mod doc_hook;
+pub mod doc_id;
 pub mod docs;
 pub mod dolt;
 pub mod fetch;
@@ -134,39 +135,49 @@ pub enum DocCommands {
         about = "Print the absolute path of a document's file, for opening it in another tool; exit status 1 when it does not exist"
     )]
     Path {
-        #[arg(help = "Document path relative to the ledger root")]
+        #[arg(
+            help = "Document path relative to the ledger root, with or without its id, or the id alone"
+        )]
         path: String,
     },
     #[command(
         about = "Print a document exactly as stored, with no added newline; exit status 1 when it does not exist"
     )]
     Get {
-        #[arg(help = "Document path relative to the ledger root, for example index.md")]
+        #[arg(
+            help = "Document path relative to the ledger root, with or without its id, or the id alone"
+        )]
         path: String,
     },
     #[command(
-        about = "Write a document in the local store from a file or stdin; does not push; prints nothing"
+        about = "Write a document in the local store from a file or stdin, and print its path. A new path gets an 8 character id before its extension (report.md is stored as report.3f2a9c1e.md); a path that names an existing document, with or without the id, rewrites it. Does not push"
     )]
     Put {
-        #[arg(help = "Document path relative to the ledger root")]
+        #[arg(help = "Document path relative to the ledger root, with or without its id")]
         path: String,
         #[arg(help = "File holding the body; reads stdin when omitted")]
         file: Option<PathBuf>,
     },
-    #[command(about = "List document paths that start with a prefix, one per line, sorted")]
+    #[command(
+        about = "List the documents whose path starts with a prefix, sorted: the path, then the id (- for a file with none). With --porcelain the two are separated by a tab and the id is empty for a file with none"
+    )]
     List {
         #[arg(help = "Path prefix, for example missions/; lists every document when omitted")]
         prefix: Option<String>,
+        #[arg(long, help = "Separate the path and the id with a tab, for a script")]
+        porcelain: bool,
     },
     #[command(
         about = "Remove a document from the local store; exit status 1 when it does not exist"
     )]
     Rm {
-        #[arg(help = "Document path relative to the ledger root")]
+        #[arg(
+            help = "Document path relative to the ledger root, with or without its id, or the id alone"
+        )]
         path: String,
     },
     #[command(
-        about = "Rename a document in the local store and update the link of every mission that names its old path. Prints doc FROM -> TO and one link line for each mission. Exit status 1 when the document does not exist or the new path does. Does not push"
+        about = "Rename a document in the local store, keep its id, and update the path in the link of every mission that links it. Prints doc FROM -> TO and one link line for each mission. Exit status 1 when the document does not exist or the new path does. Does not push"
     )]
     Mv {
         #[arg(help = "The document path now")]
@@ -393,11 +404,19 @@ fn run_doc(store: &dyn LedgerStore, action: DocCommands) -> Result<(), String> {
                     text
                 }
             };
-            store.doc_put(&path, &body)
+            println!("{}", store.doc_put(&path, &body)?);
+            Ok(())
         }
-        DocCommands::List { prefix } => {
-            for path in store.doc_list(prefix.as_deref().unwrap_or(""))? {
-                println!("{}", path);
+        DocCommands::List { prefix, porcelain } => {
+            let paths = store.doc_list(prefix.as_deref().unwrap_or(""))?;
+            let width = paths.iter().map(String::len).max().unwrap_or(0);
+            for path in paths {
+                let id = self::doc_id::id_of(&path);
+                if porcelain {
+                    println!("{}\t{}", path, id.unwrap_or_default());
+                } else {
+                    println!("{:width$}  {}", path, id.as_deref().unwrap_or("-"));
+                }
             }
             Ok(())
         }
