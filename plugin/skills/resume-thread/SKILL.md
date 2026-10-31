@@ -28,8 +28,8 @@ refuse.
 
    This binds the current session or code worktree to the thread (additive). The
    binding is a local write: it does not push, and it prints `note: saved in the local
-   ledger store; it goes out with the next push ...` on stderr. The binding goes out
-   with the next thread start, pause or stop, at the end of the session, or with
+   ledger store; it is published with the next push ...` on stderr. The next thread start,
+   pause or stop publishes the binding, as does the end of the session and
    `tsk ledger push`. The command prints one JSON object:
 
    ```json
@@ -46,15 +46,15 @@ refuse.
    This is all the summary needs. Run no further command to look up the mission name or
    the task text.
 
-3. **If `warning` is non-empty**, surface it to me plainly before going further.
-   Do not silently take over a thread another actor is or was working.
+3. **If `warning` is non-empty**, report it to me plainly before going further.
+   Do not silently take over a thread that another actor works or worked.
 
 4. **Present the fixed-shape summary**, from `thread_id`, `mission.name`, `task`
    and `latest.whats_next` (if `latest` is `{}`, say so instead of inventing a summary):
 
    ```
    thread id: <thread-id>
-   we are working on mission <mission name>
+   the current focus of this thread is mission <mission name>
    this is where we are at: <summary of the handover note>
    ```
 
@@ -62,7 +62,7 @@ refuse.
    `task.description` when `task` is set.
 
    A thread can have no mission: `mission` is null and `latest.mission_id` is null, or
-   `latest` is `{}`. Then write `we are working on no mission (this thread has no
+   `latest` is `{}`. Then write `this thread has no current focus mission (it has no
    mission, so it has no tasks)` for the second line. Offer `tsk thread set mission
    <mission-id>` if I want to attach one.
 
