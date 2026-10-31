@@ -287,12 +287,12 @@ pub fn no_mission_context(latest_whats_next: Option<&str>) -> String {
 /// Said instead of the unbound prompt when this session or worktree skipped a thread.
 pub const SKIPPED_MESSAGE: &str = "This session or worktree works without a thread (tsk thread skip). To bind one, run /tsk:start-thread <mission-id>, or /tsk:resume-thread <thread-id> for an existing thread.";
 
-/// The mission a bound thread works and its open tasks, as `tsk task list --porcelain`
+/// The current focus of a bound thread, a mission, and its open tasks, as `tsk task list --porcelain`
 /// prints them. The lines stay tab-separated: they are context for the agent, not for a
 /// terminal, and the tabs keep the columns unambiguous. Do not align them.
 pub fn mission_context(mission: &Mission) -> String {
     let mut text = format!(
-        "This thread works mission {} ({}): {}.",
+        "The current focus of this thread is mission {} ({}): {}.",
         mission.id,
         mission.status.as_str(),
         mission.name
