@@ -1,6 +1,6 @@
 # Supervisory engineering work, and what tsk records of supervision
 
-Status: research note, read 2026-11-01. Annie Vella applies the human factors research on supervisory control to coding agents, and her model fits tsk's objective. tsk records the work a supervisor reads, and records nothing of the supervision itself. The note also records the provenance of the term "dreaming".
+Status: research note, read 2026-11-01. Annie Vella applies the human factors research on supervisory control to coding agents, and her model fits tsk's objective. tsk records the work a supervisor reads, and records nothing of the supervision itself.
 
 Raised by Jim, 2026-11-01, who asked where the article fits. Jim then named two ideas that this note keeps as future ideas: a robot can be a supervisor, and tsk needs an audit history of the feedback that supervisor agents gave to other robots.
 
@@ -79,66 +79,19 @@ No record exists of the supervision process: what feedback a supervisor gave to 
 
 **A future idea, not decided (Jim, 2026-11-01):** an audit history of the feedback that supervisor agents gave to other robots. It would be the evidence trail of supervision. It needs the communication layer of M-TSK-COMMS, so that several agents can interact without a human supervisor in each exchange. Until that layer exists, a robot cannot give feedback to another robot except through a human or through the ledger records.
 
+A related case is a robot that rewrites its own memory between sessions, which the harness calls dreaming. The note [dreaming-memory-consolidation-in-agent-harnesses.md](dreaming-memory-consolidation-in-agent-harnesses.md) records what the vendors keep of such a rewrite.
+
 Questions this idea would have to settle, none answered here:
 
 - Which record stores a piece of feedback, and which robot, session and task it concerns.
 - Who may supervise whom, and how a robot's feedback is attributed in the same way as a robot's commit.
 - What triggers escalation to a human, and what the human answers with.
 
-## Dreaming
-
-Jim, 2026-11-01, hears people say that agents "dream" and asked for the origin of the term. In 2026 the agent community uses it for one thing: an offline job that reads past session transcripts and a memory store, then merges, prunes and rewrites the memory between sessions. This note found no source for who first used the word for agent memory. The marks below show which sources were read and which are search summaries.
-
-### Where the word appears in 2026
-
-- **Anthropic Managed Agents "Dreams".** The official documentation describes a dream that "reads an existing memory store alongside past session transcripts, then produces a new, reorganized memory store". The inputs are one memory store and 1 to 100 past sessions. The output is a separate store, and "the input store is never modified". It is an asynchronous job that takes minutes to a few hours, in research preview, with access by request ([Dreams docs](https://platform.claude.com/docs/en/managed-agents/dreams), read). The announcement date conflicts: the Anthropic blog post is dated 2026-05-19 ([blog](https://claude.com/blog/new-in-claude-managed-agents), read) and SiliconANGLE reports it on 2026-05-06 ([article](https://siliconangle.com/2026/05/06/anthropic-letting-claude-agents-dream-dont-sleep-job/), read). This note does not resolve the conflict.
-- **OpenClaw "Dreaming".** The documentation describes a "background memory consolidation system" in `memory-core`, with three phases named light, REM and deep. Only the deep phase writes `MEMORY.md`. It runs on a cron schedule, by default at 03:00, and it writes a diary file, `DREAMS.md` ([OpenClaw docs](https://docs.openclaw.ai/concepts/dreaming), read). A search summary dates its general availability to release v2026.4.5. The docs show `enabled: true` as the default, and a search summary describes it as opt-in. The conflict is unresolved.
-- **Letta Code "Dreaming".** The documentation states that "Dreaming uses background subagents to review recent conversations". It is set with `/sleeptime`, and the memory is stored in git ([Letta Code docs](https://docs.letta.com/letta-code/memory), read).
-- **Claude Code "auto dream".** A third-party article dated 2026-03-25 describes a background sub-agent that consolidates memory files in four phases, runs only after 24 hours and more than five sessions, and can be started with `/dream` ([article](https://www.implicator.ai/anthropic-adds-auto-dream-to-claude-code-fixing-memory-decay-between-sessions), read). The article states that Anthropic had announced nothing and that no documentation existed. The Claude Code memory page that this note read does not mention it. The name belongs to the community in the sources found.
-
-### Older sources behind the word
-
-The 2026 uses borrow the word. No source found states that a vendor chose it from these papers. The link is the commentators' analogy.
-
-- **Sleep and memory in neuroscience.** Wilson and McNaughton (1994) found that place cells that fired together during a task fired together again in later sleep ([PubMed 8036517](https://pubmed.ncbi.nlm.nih.gov/8036517/), search summary). Diekelmann and Born (2010) review the memory function of sleep ([Nature Reviews Neuroscience](https://www.nature.com/articles/nrn2762), bibliographic record only). This is the closest source to the agent-memory sense.
-- **Replay.** Lin (1992) introduced experience replay ([DOI 10.1007/BF00992699](https://doi.org/10.1007/BF00992699), record only). Shin and colleagues (2017) use a generator to replay data for earlier tasks, inspired by the hippocampus ([arXiv:1705.08690](https://arxiv.org/abs/1705.08690), read).
-- **Wake-sleep.** Hinton, Dayan, Frey and Neal (1995) train a generative model with alternating wake and sleep phases ([Hinton's page](https://www.cs.toronto.edu/~hinton/absps/ws.htm), search summary). DreamCoder (Ellis and others, 2020) applies wake-sleep learning to a library of abstractions and trains on "imagined and replayed problems" ([arXiv:2006.08381](https://arxiv.org/abs/2006.08381), read).
-- **Imagined rollouts.** In World Models (Ha and Schmidhuber, 2018) an agent is trained "entirely within a hallucinated dream" and the policy is transferred to the actual environment ([arXiv:1803.10122](https://arxiv.org/abs/1803.10122), read). Dreamer (Hafner and others, 2019) learns behaviours from trajectories imagined in a learned world model ([arXiv:1912.01603](https://arxiv.org/abs/1912.01603), read). This sense is about planning and does not rewrite a memory.
-- **Image generation.** Google's DeepDream (2015) is unrelated to memory. The dates came from a secondary source and were not verified.
-- **Sleep-time compute.** Letta's April 2025 term is "sleep-time", not "dreaming" ([Letta blog](https://www.letta.com/blog/sleep-time-compute), read; [arXiv:2504.13171](https://arxiv.org/abs/2504.13171), read). The paper precomputes inferences about a context to cut the cost per query. It does not rewrite a memory store. The Letta blog describes a sleep-time agent that edits memory blocks in the background, so its function overlaps with the 2026 uses.
-
-### What the process changes, and what it records
-
-No weights change in any agent-memory use found. The process rewrites text. Anthropic describes it as "a synthesis pass over the inputs, not an editor applied to the text of the store".
-
-Records of the change differ:
-
-- **Anthropic.** The input store stays unchanged and the output is a separate store, so a person reviews it and uses or discards it. Every change to a memory creates an immutable version, kept for 30 days, with an endpoint that redacts content ([Memory docs](https://platform.claude.com/docs/en/managed-agents/memory), read).
-- **OpenClaw.** The previous `MEMORY.md` is saved before an accepted rewrite. `DREAMS.md` records the counts of entries added, merged and superseded, with short diff highlights.
-- **Letta Code.** Memory updates are committed to git. An optional setting makes a second agent review the update before it applies.
-- **Claude Code auto dream.** No record is documented. The third-party article reports that contradicted facts are deleted with "no flag, no comment".
-
-None of these records a typed reason for each edit. They record the result: a version, diff counts or a commit. This is relevant to the audit history of supervision above, because dreaming is a process that changes a robot's memory without a human reading each change.
-
-### Risks the sources name
-
-- **Silent deletion.** A GitHub issue, seen only through a search summary, reports that auto dream deleted 23 memory files in about a day with no record of what or why. It is a single unverified report.
-- **Transcripts not masked.** The OpenClaw documentation states that secret values in transcripts are not masked before consolidation.
-- **Injected content that persists.** Among the sources read, only OpenClaw removes candidates with untrusted provenance before consolidation.
-- **Cost.** Anthropic states that cost grows with the number and length of the input sessions, and that a failed dream produces a partial output store.
-- **Weak instructions.** Anthropic states that instructions aimed at specific lines "generally produce no change".
-
-### How dreaming relates to tsk
-
-This part is the note's own inference. tsk's memory is the ledger: typed records written by commands, with each change recorded in the ledger history. A dreaming process would be a robot that rewrites records or documents without a person reading the change. Anthropic's split of an input store from a reviewable output store is the nearest model to tsk's own habit of writing locally and publishing at set points.
-
 ## Not established
 
 - The wording of the five roles in Sheridan and Verplank's 1978 report. The note quotes the article.
 - The content of the arXiv paper beyond its abstract.
 - Whether the follow-up post on the control system has appeared.
-- Who first used "dreaming" for agent memory, and when. Reddit, Hacker News and Mem0, Zep, Cursor and OpenAI memory features were not searched.
-- Whether Claude Code records anything about an auto dream run, and whether Anthropic documents the feature.
 
 ## References
 
