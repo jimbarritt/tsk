@@ -79,6 +79,8 @@ No record exists of the supervision process: what feedback a supervisor gave to 
 
 **A future idea, not decided (Jim, 2026-11-01):** an audit history of the feedback that supervisor agents gave to other robots. It would be the evidence trail of supervision. It needs the communication layer of M-TSK-COMMS, so that several agents can interact without a human supervisor in each exchange. Until that layer exists, a robot cannot give feedback to another robot except through a human or through the ledger records.
 
+A paper from the product side names the same roles: [agentic-software-cao-2026.md](agentic-software-cao-2026.md) names the human an "outcome auditor" and defines no record of the audit.
+
 A related case is a robot that rewrites its own memory between sessions, which the harness calls dreaming. The note [dreaming-memory-consolidation-in-agent-harnesses.md](dreaming-memory-consolidation-in-agent-harnesses.md) records what the vendors keep of such a rewrite.
 
 Questions this idea would have to settle, none answered here:
