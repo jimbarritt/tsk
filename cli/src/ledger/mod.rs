@@ -35,6 +35,10 @@ pub enum LedgerCommands {
     #[command(about = "Print the ledger worktree path without fetching or writing anything")]
     Path,
     #[command(
+        about = "Create if absent and print the scratch directory: a local place beside the ledger store for input documents (transcripts, chats, web pages) that stay out of Dolt, the documents branch and source control"
+    )]
+    Scratch,
+    #[command(
         about = "Print the ledger's URN, urn:tsk:ledger:<ledger-id>, from the manifest key ledger_id; exit status 1 on a ledger below layout 12, which has none until its next write"
     )]
     Id,
@@ -214,7 +218,13 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
     match action {
         LedgerCommands::Fetch => {
             let outcome = report_refresh(store.refresh_for_fetch()?);
+            ensure_scratch(&outcome.path)?;
             println!("{}", outcome.path.display());
+            Ok(())
+        }
+        LedgerCommands::Scratch => {
+            let scratch = ensure_scratch(&store.path()?)?;
+            println!("{}", scratch.display());
             Ok(())
         }
         LedgerCommands::Path => {
@@ -325,6 +335,14 @@ fn ledger_block(store: &dyn LedgerStore) -> Vec<String> {
 
 /// The `Server` line of `tsk ledger status`: whether the local Dolt server runs, and the
 /// switch. Asks origin nothing.
+/// Create the scratch directory beside the ledger store, if it is absent, and return it.
+fn ensure_scratch(db_path: &std::path::Path) -> Result<PathBuf, String> {
+    let scratch = location::scratch_path(db_path);
+    std::fs::create_dir_all(&scratch)
+        .map_err(|e| format!("error: cannot create {}: {e}", scratch.display()))?;
+    Ok(scratch)
+}
+
 fn server_line(db: &std::path::Path) -> String {
     let status = store::server::status(db);
     let text = match (status.state, &status.info) {

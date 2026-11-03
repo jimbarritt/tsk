@@ -9,6 +9,7 @@ use super::refs::{LedgerRefs, RefsSource};
 
 pub const IN_REPO_REMOTE: &str = "origin";
 pub const DOCS_DIR_NAME: &str = "docs";
+pub const SCRATCH_DIR_NAME: &str = "scratch";
 pub const DOLT_DIR_NAME: &str = "ledger-db";
 pub const CLONE_ID_FILE: &str = "tsk-clone-id";
 const CLONE_ID_SUFFIX_LEN: usize = 8;
@@ -322,6 +323,12 @@ pub fn docs_worktree_path(state_root: &Path, clone_id: &str) -> PathBuf {
     state_root.join("repos").join(clone_id).join(DOCS_DIR_NAME)
 }
 
+/// Where a clone keeps its scratch directory: beside `ledger-db` and `docs`, outside the
+/// Dolt database and outside every git tree, so nothing commits, pushes, lists or drops it.
+pub fn scratch_path(db_path: &Path) -> PathBuf {
+    db_path.with_file_name(SCRATCH_DIR_NAME)
+}
+
 /// Where the Dolt backend keeps its database.
 pub fn dolt_db_path(state_root: &Path, clone_id: &str) -> PathBuf {
     state_root.join("repos").join(clone_id).join(DOLT_DIR_NAME)
@@ -401,6 +408,14 @@ mod tests {
         assert_eq!(
             custom.with_refs(LedgerRefs::Branches, RefsSource::Default),
             branches
+        );
+    }
+
+    #[test]
+    fn scratch_path_is_scratch_beside_the_database() {
+        assert_eq!(
+            scratch_path(&dolt_db_path(Path::new("/s/tsk"), "tsk-180ae86e")),
+            PathBuf::from("/s/tsk/repos/tsk-180ae86e/scratch")
         );
     }
 
