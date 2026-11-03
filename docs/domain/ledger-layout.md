@@ -78,6 +78,27 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 - The documents have their own worktree, `docs`, beside `ledger-db` (see
   [Documents](#documents)).
 
+### Scratch
+
+Each clone has a `scratch` directory beside `ledger-db` and `docs`:
+
+```
+${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/scratch
+```
+
+It holds input documents that must not enter the ledger or source control: a full meeting
+transcript, a Slack conversation, a page from the internet. A record or a document may cite
+what the file says, but the file itself stays local.
+
+- It sits outside the Dolt database and outside the documents worktree and the transport
+  worktree, so it needs no ignore rule. Dolt does not see it, and no git tree holds it.
+- `tsk ledger push` does not publish it, `tsk ledger status` does not list it, and
+  `tsk ledger discard` does not drop it.
+- `tsk ledger scratch` creates it when absent and prints its path. `tsk ledger fetch`
+  creates it too, so every clone has it after its next fetch. `tsk ledger path` stays free of
+  side effects and does not create it.
+- Each clone has its own. Nothing copies it to another clone or machine.
+
 ### Transport
 
 The Dolt data is sent to origin in one of two ways. The ledger ref shows which, and so does the

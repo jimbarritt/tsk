@@ -544,6 +544,44 @@ fn fetch_from_a_linked_worktree_uses_the_same_clone_id() {
     assert_eq!(PathBuf::from(stdout(&output).trim_end()), from_main);
 }
 
+// --- scratch ---
+
+#[test]
+fn scratch_creates_a_directory_beside_the_store_and_prints_it() {
+    let fx = Fixture::with_ledger();
+    let fetched = fx.fetch_ok();
+
+    let output = fx.tsk(&["ledger", "scratch"]);
+
+    assert_success(&output);
+    let scratch = fetched.with_file_name("scratch");
+    assert_eq!(stdout(&output), format!("{}\n", scratch.display()));
+    assert!(scratch.is_dir());
+}
+
+#[test]
+fn fetch_creates_the_scratch_directory() {
+    let fx = Fixture::with_ledger();
+    let fetched = fx.fetch_ok();
+
+    assert!(fetched.with_file_name("scratch").is_dir());
+}
+
+#[test]
+fn scratch_files_are_not_local_changes_and_survive_discard() {
+    let fx = Fixture::with_ledger();
+    fx.fetch_ok();
+    let scratch = std::path::PathBuf::from(stdout(&fx.tsk(&["ledger", "scratch"])).trim());
+    std::fs::write(scratch.join("meeting.txt"), "transcript\n").unwrap();
+
+    let status = fx.tsk(&["ledger", "status", "--local"]);
+    assert_success(&status);
+    assert!(!stdout(&status).contains("meeting.txt"));
+    assert_success(&fx.tsk(&["ledger", "discard", "--yes"]));
+
+    assert!(scratch.join("meeting.txt").is_file());
+}
+
 // --- path ---
 
 #[test]

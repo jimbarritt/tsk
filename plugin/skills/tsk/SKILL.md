@@ -120,6 +120,7 @@ tsk nexus register-repo [--id <id>] [--territory <id>] [--territory-name <name>]
 
 tsk ledger fetch                         fetch the ledger branch (creating a new ledger when it does not exist), refresh the local ledger store, print the path
 tsk ledger path                          print the ledger store path (the Dolt database); no fetch, no writes
+tsk ledger scratch                       create if absent and print the scratch directory: a local place beside the ledger store for input documents (transcripts, chats, web pages) that stay out of Dolt, the documents branch and git; never pushed, listed or discarded
 tsk ledger push "<message>"              commit every local ledger change, pull and push; prints the ledger commit
 tsk ledger migrate-transport             convert a ledger that holds Dolt's older git blobstore to a Dolt file remote carried by plain git; run once, other clones follow on their next fetch
 tsk ledger server status|start|stop      inspect or control the local Dolt server of this clone's ledger store; it runs unless TSK_DOLT_SERVER=off or [ledger] server = "off" (on by default since 0.29.0; `tsk config ledger-server` prints and sets the switch); while it runs, `dolt` opens the store read only
