@@ -30,6 +30,7 @@ Set up and maintain:
   self-update     Upgrade tsk to the latest release
   config          Read and write the user config and the repo config
   nexus           Attach the nexus and list the repos it indexes
+  tmux            Show each agent's mission, robot and state in the tmux session chooser
 
 Daily work:
   mission         Create, change, show and list missions
@@ -153,6 +154,13 @@ enum Commands {
         long_about = "Upgrade tsk to the latest release, by the method it was installed with (Homebrew, Cargo or a release binary).\n\nA command that stops with `unsupported ledger version` because the ledger is newer than this tsk runs this update itself, then runs the command again. `tsk thread session-start` and `tsk thread guard` never do. TSK_AUTO_UPDATE=never or TSK_NO_UPDATE_CHECK=1 switches it off."
     )]
     SelfUpdate(self_update::SelfUpdateArgs),
+    #[command(
+        about = "Show each agent's mission, robot and state in tmux: install the settings, and set the options of this pane"
+    )]
+    Tmux {
+        #[command(subcommand)]
+        action: tmux::TmuxCommands,
+    },
     #[command(about = "Print guides for agents, such as importing an existing plan")]
     Guide {
         #[command(subcommand)]
@@ -210,6 +218,8 @@ fn is_hook_command(cli: &Cli) -> bool {
                     background: true,
                     ..
                 }
+        }) | Some(Commands::Tmux {
+            action: tmux::TmuxCommands::Sync | tmux::TmuxCommands::State { .. }
         })
     )
 }
@@ -236,6 +246,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
             }
             0
         }),
+        Some(Commands::Tmux { action }) => tmux::run(action),
         Some(Commands::Guide { action }) => guide::run(action).map(|()| 0),
         None => Ok(0),
     }
@@ -270,6 +281,8 @@ mod self_update;
 mod auto_update;
 
 mod nexus_cmd;
+
+mod tmux;
 
 // ---------------------------------------------------------------------------
 // Unit tests

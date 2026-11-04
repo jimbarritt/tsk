@@ -2,6 +2,8 @@
 
 Status: research note, 2026-11-04. tmux can show, in its session chooser, the worktree, the agent name and whether the agent waits for input. tmux reads the worktree itself. A hook sets the agent name and the state as per-session or per-pane user options. Tested on tmux 3.4.
 
+Built in tsk 0.43.0 as `tsk tmux install`, `sync` and `state`: [docs/user-guide/tmux.md](../user-guide/tmux.md).
+
 Raised by Jim, 2026-11-04: name tmux sessions after missions, which is close to the iOS app, and customise the session switching popup to show more information. The idea belongs to Mission Control (M-TSK-BOOT-06), and may belong in core tsk.
 
 ## Session names

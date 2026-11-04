@@ -13,6 +13,11 @@
         "type": "command",
         "bash": "r=\"${PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}\"; if [ -z \"$r\" ]; then for d in \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/*/tsk \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/_direct/*tsk*; do if [ -f \"$d/hooks/session-start.sh\" ]; then r=\"$d\"; break; fi; done; fi; exec bash \"$r/hooks/stop.sh\"",
         "timeoutSec": 60
+      },
+      {
+        "type": "command",
+        "bash": "r=\"${PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}\"; if [ -z \"$r\" ]; then for d in \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/*/tsk \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/_direct/*tsk*; do if [ -f \"$d/hooks/session-start.sh\" ]; then r=\"$d\"; break; fi; done; fi; exec bash \"$r/hooks/tmux-state.sh\" waiting",
+        "timeoutSec": 5
       }
     ],
     "sessionEnd": [
@@ -20,6 +25,25 @@
         "type": "command",
         "bash": "r=\"${PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}\"; if [ -z \"$r\" ]; then for d in \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/*/tsk \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/_direct/*tsk*; do if [ -f \"$d/hooks/session-start.sh\" ]; then r=\"$d\"; break; fi; done; fi; exec bash \"$r/hooks/session-end.sh\"",
         "timeoutSec": 12
+      },
+      {
+        "type": "command",
+        "bash": "r=\"${PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}\"; if [ -z \"$r\" ]; then for d in \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/*/tsk \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/_direct/*tsk*; do if [ -f \"$d/hooks/session-start.sh\" ]; then r=\"$d\"; break; fi; done; fi; exec bash \"$r/hooks/tmux-state.sh\" none",
+        "timeoutSec": 5
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "r=\"${PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}\"; if [ -z \"$r\" ]; then for d in \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/*/tsk \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/_direct/*tsk*; do if [ -f \"$d/hooks/session-start.sh\" ]; then r=\"$d\"; break; fi; done; fi; exec bash \"$r/hooks/tmux-state.sh\" working",
+        "timeoutSec": 5
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "r=\"${PLUGIN_ROOT:-${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}\"; if [ -z \"$r\" ]; then for d in \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/*/tsk \"${COPILOT_HOME:-$HOME/.copilot}\"/installed-plugins/_direct/*tsk*; do if [ -f \"$d/hooks/session-start.sh\" ]; then r=\"$d\"; break; fi; done; fi; exec bash \"$r/hooks/tmux-state.sh\" working",
+        "timeoutSec": 5
       }
     ]
   }
