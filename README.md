@@ -106,6 +106,11 @@ To add the `swe` plugin (Software English checks) in the same step, run
 for this repo only. `claude plugin install` on its own defaults to user scope, which
 applies to every repo on the machine.
 
+**tmux.** `tsk tmux install` sets up the tmux session chooser (`prefix s`) to show each
+agent's state (waiting for input or working), a short form of its mission name, and its
+robot name, and names each tmux session after the mission code of its thread. See
+[docs/user-guide/tmux.md](docs/user-guide/tmux.md).
+
 A copy of `tsk` from an earlier install, for example `~/.cargo/bin/tsk` after
 `cargo install`, shadows a new one when it precedes the new one on `PATH`. A stale copy lacks the
 commands of later releases. `tsk doctor` lists every `tsk` on `PATH` with its version and
