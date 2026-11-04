@@ -537,7 +537,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.43";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.44";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -655,6 +655,9 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
                 {
                     let _ = crate::sessions::continue_actors(session, &urn);
                 }
+                // A bound thread from an earlier session names its mission and robot on
+                // the tmux pane at once, and the new agent waits for input.
+                crate::tmux::sync_if_in_tmux(session);
             })
         })
         .unwrap_or_else(|e| failure_context(&e));

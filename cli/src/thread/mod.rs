@@ -260,6 +260,51 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
     }
 
     let session = Session::discover()?;
+    // A command that changes the binding or its mission updates the tmux pane after it.
+    let sync_tmux = matches!(
+        action,
+        ThreadCommands::Start { .. }
+            | ThreadCommands::Resume { .. }
+            | ThreadCommands::Set { .. }
+            | ThreadCommands::Detach
+            | ThreadCommands::Stop { .. }
+    );
+    let result = run_with(&session, action);
+    if sync_tmux {
+        crate::tmux::sync_if_in_tmux(&session);
+    }
+    result
+}
+
+/// The tmux pane options for this session: the actor name, the mission code of its thread,
+/// and the mission name cut short. Reads the ledger store as it is.
+pub fn pane_values(session: &Session) -> crate::tmux::PaneValues {
+    let actor = crate::actor::current(session)
+        .ok()
+        .flatten()
+        .map(|actor| actor.name);
+    let mission = resolve_local(session)
+        .ok()
+        .flatten()
+        .and_then(|binding| session.store.thread_info(binding.thread_id()).ok())
+        .and_then(|info| ops::thread_mission(&info));
+    let mission_name = mission.as_deref().and_then(|code| {
+        session
+            .store
+            .missions_load()
+            .ok()?
+            .into_iter()
+            .find(|m| m.id == code)
+            .map(|m| crate::tmux::short_name(&m.name, crate::tmux::MISSION_NAME_MAX))
+    });
+    crate::tmux::PaneValues {
+        actor,
+        mission,
+        mission_name,
+    }
+}
+
+fn run_with(session: &Session, action: ThreadCommands) -> Result<i32, String> {
     match action {
         ThreadCommands::Start {
             mission_id,
@@ -270,7 +315,7 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                     "note: the briefing path argument of tsk thread start is no longer needed and is ignored"
                 );
             }
-            match ops::start(&session, mission_id.as_deref())? {
+            match ops::start(session, mission_id.as_deref())? {
                 StartOutcome::Started(id) => {
                     println!("started:{}", id);
                     Ok(0)
@@ -296,7 +341,7 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                             .to_string(),
                     );
                 }
-                let binding = resolve_local(&session)?.ok_or_else(|| {
+                let binding = resolve_local(session)?.ok_or_else(|| {
                     "error: this session or worktree is bound to no thread, so --bound has none to pause. Pass the thread ID: tsk thread pause <thread-id> <task-id> <whats-next>"
                         .to_string()
                 })?;
@@ -314,9 +359,9 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                     None => (thread_id, task_id, whats_next),
                 }
             };
-            ops::pause(&session, &thread_id, &task_id, &whats_next)?;
+            ops::pause(session, &thread_id, &task_id, &whats_next)?;
             println!("paused:{}", thread_id);
-            for line in ops::pause_report(&session) {
+            for line in ops::pause_report(session) {
                 println!("{}", line);
             }
             Ok(0)
@@ -341,7 +386,7 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
             } else {
                 (mission_id, thread_id)
             };
-            let done = ops::set_mission(&session, mission_id.as_deref(), thread_id.as_deref())?;
+            let done = ops::set_mission(session, mission_id.as_deref(), thread_id.as_deref())?;
             match done.mission_id {
                 Some(mission_id) => println!("mission-set:{}:{}", done.thread_id, mission_id),
                 None => println!("mission-cleared:{}", done.thread_id),
@@ -349,27 +394,27 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
             Ok(0)
         }
         ThreadCommands::Skip => {
-            write_skip(&session)?;
+            write_skip(session)?;
             println!("skipped");
             Ok(0)
         }
         ThreadCommands::Resume { thread_id } => {
-            let outcome = ops::resume(&session, &thread_id)?;
+            let outcome = ops::resume(session, &thread_id)?;
             println!("{}", ops::render_resume(&outcome));
             Ok(0)
         }
         ThreadCommands::Detach => {
-            let id = ops::detach(&session)?;
+            let id = ops::detach(session)?;
             println!("detached:{}", id);
             Ok(0)
         }
         ThreadCommands::Stop { thread_id } => {
-            let id = ops::stop(&session, thread_id.as_deref())?;
+            let id = ops::stop(session, thread_id.as_deref())?;
             println!("stopped:{}", id);
             Ok(0)
         }
         ThreadCommands::List => {
-            for row in ops::list(&session)? {
+            for row in ops::list(session)? {
                 println!(
                     "{}",
                     serde_json::to_string(&row)
@@ -382,7 +427,7 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
             older_than,
             dry_run,
         } => {
-            let rows = ops::prune_bindings(&session, older_than, dry_run)?;
+            let rows = ops::prune_bindings(session, older_than, dry_run)?;
             for line in ops::render_prune(&rows, dry_run) {
                 println!("{}", line);
             }
@@ -390,10 +435,10 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
         }
         ThreadCommands::Binding { no_fetch } => {
             let binding = if no_fetch {
-                resolve_local(&session)?
+                resolve_local(session)?
             } else {
                 session.refresh()?;
-                resolve(&session)?
+                resolve(session)?
             };
             match binding {
                 Some(binding) => {
@@ -401,7 +446,7 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                     // The actor, on a line of its own, so the first line stays the
                     // binding alone. The session, the instance and the session's actors
                     // are in the session start context and `tsk session actor` (ADR 0030).
-                    if let Some(actor) = crate::actor::current(&session)? {
+                    if let Some(actor) = crate::actor::current(session)? {
                         println!("actor: {}", actor.label());
                     }
                     Ok(0)
@@ -410,8 +455,8 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
             }
         }
         ThreadCommands::Title => {
-            let actor = crate::actor::current(&session)?.map(|actor| actor.name);
-            let mission = match resolve_local(&session)? {
+            let actor = crate::actor::current(session)?.map(|actor| actor.name);
+            let mission = match resolve_local(session)? {
                 Some(binding) => session
                     .store
                     .thread_info(binding.thread_id())

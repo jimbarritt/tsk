@@ -32,6 +32,7 @@ this repository. They contain the minimum logic: see
 | `Stop` | `hooks/stop.sh`: `tsk thread guard`. Asks for a thread when none is bound. When the ledger store contains unpushed changes it publishes them in the background (`tsk ledger push --background`) and prints nothing; a failure shows as a warning on the next `tsk` command |
 | `PreToolUse` | `hooks/pre-tool-use.sh`: `tsk ledger guard`. Denies a `Bash` call that runs `git` or `dolt` against the ledger store, its refs (`tsk/ledger`, `tsk/docs`, `refs/tsk/*`) or its branches, and an `Edit`, `Write` or `NotebookEdit` call on a file in the ledger store (ADR 0028). Allows every `tsk` command. Fails open: a missing or older `tsk` allows the call. `TSK_LEDGER_GUARD=off` in the environment that starts the agent switches it off |
 | `SessionEnd` | `hooks/session-end.sh`: `tsk ledger push "End of session"` under a timeout when `tsk ledger status --local` shows unpushed work. Best effort, always exits 0 |
+| `UserPromptSubmit`, `PostToolUse`, `Notification`, `Stop`, `SessionEnd` | `hooks/tmux-state.sh <state>`: `tsk tmux state`, which sets the agent state of the tmux pane (`working`, `waiting`, or none at the end) for the session chooser of `tsk tmux install`. Does nothing outside tmux. Always exits 0 |
 
 Records are published at thread start, thread pause or stop, the end of the session and
 when asked ([ADR 0019](../docs/adr/0019-publish-less-often-by-rule.md)).
@@ -57,6 +58,7 @@ plugin root, in Copilot's format (`version` 1, the events `sessionStart` and
 - `agentStop` runs `hooks/stop.sh`. `tsk thread guard` prints `decision` and `reason`,
   the fields Copilot's `agentStop` reads.
 - `sessionEnd` runs `hooks/session-end.sh`.
+- `userPromptSubmitted` and `postToolUse` run `hooks/tmux-state.sh working`, `agentStop` also runs `hooks/tmux-state.sh waiting`, and `sessionEnd` also runs `hooks/tmux-state.sh none`.
 - The hook commands find the plugin directory from `PLUGIN_ROOT`, `COPILOT_PLUGIN_ROOT`
   or `CLAUDE_PLUGIN_ROOT`, and otherwise from Copilot's `installed-plugins` directory.
   The scripts find their own directory, so they read no harness variable.
