@@ -102,6 +102,7 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk question rm <mission> <question>` | Removes a question, open or answered | Local store only (0.35.0) |
 | `tsk mission rm <id> [--force]` | Removes a mission. Always refused while it has child missions. Refused while it holds tasks, decisions or questions, has threads, blocks or blockers, or links documents, unless `--force` removes the records with it, drops the blocks, unlinks the documents and detaches the threads. Documents and threads are kept | Local store only (0.35.0) |
 | `tsk mission show <id>` | Prints one mission as plain text | Read only (0.34.0) |
+| `tsk mission summary [--json] [--porcelain]` | Counts the missions by status (`todo`, `in-progress`, `done`) with the total, and for each mission its tasks by status. Every count is of records. A mission counts under its own status and its own tasks: a parent does not roll up its children. `--porcelain` prints tab-separated lines that start with `missions` or `tasks`, with no header | Read only (0.44.0) |
 | `tsk ledger push "<message>"` | Commits everything in the ledger store, pulls the latest ledger and pushes to `tsk/ledger` | Commits and pushes |
 | `tsk thread start [<mission-id>]` | Mints and binds a thread, for a mission or with none | Writes and pushes |
 | `tsk thread set mission <mission-id> [<thread-id>]` | Attaches a mission to a thread, or changes it; `--none` removes it | Local store only (0.24.0) |
