@@ -34,7 +34,7 @@ pub fn with_prefix(prefix: &str, id: &str) -> String {
 }
 
 /// The ID without its trailing number, when it has one: `M-TSK-BOOT` for `M-TSK-BOOT-01`.
-fn whole_of(id: &str) -> Option<&str> {
+pub fn whole_of(id: &str) -> Option<&str> {
     let (whole, last) = id.rsplit_once('-')?;
     (!last.is_empty() && last.chars().all(|c| c.is_ascii_digit())).then_some(whole)
 }
