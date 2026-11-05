@@ -9320,6 +9320,98 @@ fn mission_mv_changes_the_code_and_every_record_follows() {
     assert_eq!(fx.record(&b, "M-NEW")["tasks"].as_array().unwrap().len(), 2);
 }
 
+/// M-TSK-ADHOC T-59. A part moves under another parent: it takes the next free number
+/// there, and its tasks, a thread binding, a block and its URNs follow.
+#[test]
+fn mission_reparent_moves_a_part_under_another_parent() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new();
+    let a = fx.a();
+    fx.ok(&a, &["ledger", "fetch"]);
+    fx.ok(&a, &["mission", "prefix", "TSK"]);
+    for (id, name) in [
+        ("M-BOOT", "Boot"),
+        ("M-AUTO", "Auto"),
+        ("M-DEP", "Dependency"),
+        ("M-OTHER", "Other"),
+    ] {
+        fx.ok(&a, &["mission", "create", id, name]);
+    }
+    fx.ok(&a, &["mission", "create", "M-BOOT-03", "Part three"]);
+    fx.ok(&a, &["mission", "block", "M-TSK-BOOT-03", "M-TSK-DEP"]);
+    fx.ok(&a, &["mission", "block", "M-TSK-OTHER", "M-TSK-BOOT-03"]);
+    fx.ok(&a, &["task", "add", "M-TSK-BOOT-03", "First"]);
+    fx.ok(&a, &["task", "add", "M-TSK-BOOT-03", "Second"]);
+    let thread = fx.started(&a, &["thread", "start", "M-TSK-BOOT-03"]);
+    let before = json(&fx.ok(&a, &["mission", "list", "M-TSK-BOOT-03", "--json"]));
+    assert_eq!(before["parent"], "M-TSK-BOOT");
+
+    let lines = "mission M-TSK-BOOT-03 -> M-TSK-AUTO-01\n\
+                 parent M-TSK-AUTO-01 M-TSK-BOOT -> M-TSK-AUTO\n";
+    let dry = fx.tsk(
+        &a,
+        &[
+            "mission",
+            "reparent",
+            "M-TSK-BOOT-03",
+            "M-TSK-AUTO",
+            "--dry-run",
+        ],
+    );
+    assert_success(&dry);
+    assert_eq!(stdout(&dry), lines);
+    assert!(stderr(&dry).contains("dry run"), "{}", stderr(&dry));
+    assert!(fx.ok(&a, &["mission", "list"]).contains("M-TSK-BOOT-03"));
+
+    for (args, needle) in [
+        (
+            ["mission", "reparent", "M-TSK-BOOT", "M-TSK-BOOT"],
+            "or a part of it",
+        ),
+        (
+            ["mission", "reparent", "M-TSK-BOOT", "M-TSK-BOOT-03"],
+            "or a part of it",
+        ),
+        (
+            ["mission", "reparent", "M-TSK-BOOT-03", "M-TSK-NONE"],
+            "no such parent",
+        ),
+        (
+            ["mission", "reparent", "M-TSK-BOOT-03", "M-TSK-BOOT"],
+            "already a part of",
+        ),
+    ] {
+        let refused = fx.tsk(&a, &args);
+        assert_exit(&refused, 1);
+        assert!(stderr(&refused).contains(needle), "{}", stderr(&refused));
+    }
+
+    assert_eq!(
+        fx.ok(&a, &["mission", "reparent", "M-TSK-BOOT-03", "M-TSK-AUTO"]),
+        lines
+    );
+    assert!(stderr(&fx.tsk(&a, &["mission", "list", "M-TSK-BOOT-03"])).contains("no such mission"));
+    let after = json(&fx.ok(&a, &["mission", "list", "M-TSK-AUTO-01", "--json"]));
+    assert_eq!(after["parent"], "M-TSK-AUTO");
+    assert_eq!(after["uid"], before["uid"]);
+    assert_eq!(after["urn"], before["urn"]);
+    assert_eq!(after["blocked_by"][0]["id"], "M-TSK-DEP");
+    assert_eq!(after["tasks"], before["tasks"]);
+    assert_eq!(after["tasks"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        fx.record(&a, "M-TSK-OTHER")["blocked_by"][0]["id"],
+        "M-TSK-AUTO-01"
+    );
+    assert_eq!(fx.thread_row(&a, &thread)["mission_id"], "M-TSK-AUTO-01");
+    // The next part under M-TSK-BOOT-03's old parent is free again, and a second move counts on.
+    fx.ok(&a, &["mission", "create", "M-BOOT-04", "Part four"]);
+    fx.ok(&a, &["mission", "reparent", "M-TSK-BOOT-04", "M-TSK-AUTO"]);
+    assert_eq!(fx.record(&a, "M-TSK-AUTO-02")["parent"], "M-TSK-AUTO");
+}
+
 /// M-ADMIN-02 T-30. A thread made from a briefing document stores the path of the document
 /// and not the internal ID of a mission. A rename moves the document, so the thread follows
 /// the new path and reads the new code in `thread list` and `thread title`.
