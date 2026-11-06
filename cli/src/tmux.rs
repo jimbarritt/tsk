@@ -18,6 +18,8 @@ use clap::{Subcommand, ValueEnum};
 
 use crate::thread::session::Session;
 
+mod sidebar;
+
 pub const TMUX_BIN_VAR: &str = "TSK_TMUX_BIN";
 
 /// The line that marks the `source-file` line in the tmux config.
@@ -56,6 +58,31 @@ pub enum TmuxCommands {
         #[arg(value_enum)]
         state: AgentState,
     },
+    #[command(
+        about = "Run the tsk sidebar in this pane: every tmux session with its agent's state, mission and robot. j and k move, Enter or a digit switches to the session, q closes it. prefix b opens it, focuses it, or closes it when focused, and while it is open it follows you to each session and window (tsk tmux install sets up the key and the hooks)"
+    )]
+    Sidebar {
+        #[command(subcommand)]
+        action: Option<SidebarCommands>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SidebarCommands {
+    #[command(
+        about = "Open the sidebar in the window, focus it when it is open and not focused, or close it when it is focused. The prefix b binding runs it"
+    )]
+    Toggle {
+        #[arg(value_name = "WINDOW_ID")]
+        window: String,
+    },
+    #[command(
+        about = "Move the open sidebar into the window, and keep the focus where it is. The tmux hooks run it when the client changes session or window"
+    )]
+    Follow {
+        #[arg(value_name = "WINDOW_ID")]
+        window: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -92,6 +119,17 @@ pub fn run(action: TmuxCommands) -> Result<i32, String> {
             }
             Ok(0)
         }
+        TmuxCommands::Sidebar { action } => match action {
+            None => sidebar::run(),
+            Some(SidebarCommands::Toggle { window }) => {
+                sidebar::toggle(&window);
+                Ok(0)
+            }
+            Some(SidebarCommands::Follow { window }) => {
+                sidebar::follow(&window);
+                Ok(0)
+            }
+        },
         TmuxCommands::State { state } => {
             if let Some(pane) = current_pane() {
                 set_option(&pane, "@tsk_state", state.value());
@@ -231,7 +269,15 @@ pub fn tsk_conf() -> String {
          \n\
          # The session chooser: state, mission, robot and directory on each line.\n\
          # ● waits for input, ◐ works, ✗ ended with an error.\n\
-         bind s choose-tree -Zs -F '{}'\n",
+         bind s choose-tree -Zs -F '{}'\n\
+         \n\
+         # The sidebar: prefix b opens it, focuses it, or closes it when it is focused. While\n\
+         # it is open it follows you to each session and window. Set @tsk_sidebar_width in\n\
+         # your tmux config to change its width.\n\
+         if -F '#{{==:#{{@tsk_sidebar_width}},}}' 'set -g @tsk_sidebar_width 32'\n\
+         bind b run-shell -b 'tsk tmux sidebar toggle #{{window_id}}'\n\
+         set-hook -g 'client-session-changed[42]' \"run-shell -b 'tsk tmux sidebar follow #{{window_id}}'\"\n\
+         set-hook -g 'session-window-changed[42]' \"run-shell -b 'tsk tmux sidebar follow #{{window_id}}'\"\n",
         CHOOSER_FORMAT
     )
 }
