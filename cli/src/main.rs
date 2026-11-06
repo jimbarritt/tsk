@@ -219,7 +219,9 @@ fn is_hook_command(cli: &Cli) -> bool {
                     ..
                 }
         }) | Some(Commands::Tmux {
-            action: tmux::TmuxCommands::Sync | tmux::TmuxCommands::State { .. }
+            action: tmux::TmuxCommands::Sync
+                | tmux::TmuxCommands::State { .. }
+                | tmux::TmuxCommands::Sidebar { .. }
         })
     )
 }
