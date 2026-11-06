@@ -1327,6 +1327,57 @@ mod cases {
         assert_eq!(stdout(&out), "");
     }
 
+    pub fn mission_summary_counts_records_by_status_without_roll_up() {
+        let fx = Fixture::fetched();
+        let a = fx.a();
+        assert_eq!(
+            fx.ok(&a, &["mission", "summary", "--porcelain"]),
+            "missions\ttodo\t0\nmissions\tin-progress\t0\nmissions\tdone\t0\nmissions\ttotal\t0\n"
+        );
+        fx.ok(&a, &["mission", "create", "M-P", "Parent"]);
+        fx.ok(
+            &a,
+            &["mission", "create", "M-K", "Child", "--parent", "M-P"],
+        );
+        fx.ok(&a, &["mission", "create", "M-D", "Finished"]);
+        fx.ok(&a, &["task", "add", "M-P", "One"]);
+        fx.ok(&a, &["task", "add", "M-K", "Two"]);
+        fx.ok(&a, &["task", "add", "M-K", "Three"]);
+        fx.ok(&a, &["task", "set", "M-K", "T-01", "status", "done"]);
+        fx.ok(&a, &["task", "set", "M-K", "T-02", "status", "in-progress"]);
+        fx.ok(&a, &["mission", "set", "M-D", "status", "done"]);
+        fx.ok(&a, &["mission", "set", "M-K", "status", "in-progress"]);
+        assert_eq!(
+            fx.ok(&a, &["mission", "summary", "--porcelain"]),
+            "missions\ttodo\t1\nmissions\tin-progress\t1\nmissions\tdone\t1\nmissions\ttotal\t3\n\
+             tasks\tM-D\tdone\t0\t0\t0\t0\n\
+             tasks\tM-K\tin-progress\t0\t1\t1\t2\n\
+             tasks\tM-P\ttodo\t1\t0\t0\t1\n\
+             tasks\ttotal\t-\t1\t1\t1\t3\n"
+        );
+        let human = fx.ok(&a, &["mission", "summary"]);
+        assert!(
+            human.starts_with("status       missions\ntodo         1\n"),
+            "{}",
+            human
+        );
+        assert!(human.contains("\n\nmission  status"), "{}", human);
+        assert!(!human.contains('\t'), "{}", human);
+        let v = json(&fx.ok(&a, &["mission", "summary", "--json"]));
+        assert_eq!(v["missions"]["in-progress"], 1);
+        assert_eq!(v["missions"]["total"], 3);
+        assert_eq!(v["tasks"]["total"], 3);
+        let k = v["by_mission"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["mission"] == "M-K")
+            .unwrap();
+        assert_eq!(k["tasks"]["done"], 1);
+        assert_eq!(k["tasks"]["in-progress"], 1);
+        assert_eq!(k["tasks"]["total"], 2);
+    }
+
     pub fn missions_are_created_and_listed_one_per_line() {
         let fx = Fixture::fetched();
         let a = fx.a();
@@ -5014,6 +5065,7 @@ conformance!(
     doc_path_prints_the_file_and_bad_paths_are_refused,
     documents_have_no_reserved_names,
     missions_are_created_and_listed_one_per_line,
+    mission_summary_counts_records_by_status_without_roll_up,
     every_mission_field_round_trips,
     status_accepts_three_values_and_an_administrative_mission_keeps_one,
     blocks_are_checked_and_blocked_is_derived,
@@ -9266,6 +9318,98 @@ fn mission_mv_changes_the_code_and_every_record_follows() {
     fx.ok(&b, &["mission", "create", "M-OLD", "Reuses the ID"]);
     assert_ne!(fx.internal_id(&b, "M-OLD"), internal);
     assert_eq!(fx.record(&b, "M-NEW")["tasks"].as_array().unwrap().len(), 2);
+}
+
+/// M-TSK-ADHOC T-59. A part moves under another parent: it takes the next free number
+/// there, and its tasks, a thread binding, a block and its URNs follow.
+#[test]
+fn mission_reparent_moves_a_part_under_another_parent() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::new();
+    let a = fx.a();
+    fx.ok(&a, &["ledger", "fetch"]);
+    fx.ok(&a, &["mission", "prefix", "TSK"]);
+    for (id, name) in [
+        ("M-BOOT", "Boot"),
+        ("M-AUTO", "Auto"),
+        ("M-DEP", "Dependency"),
+        ("M-OTHER", "Other"),
+    ] {
+        fx.ok(&a, &["mission", "create", id, name]);
+    }
+    fx.ok(&a, &["mission", "create", "M-BOOT-03", "Part three"]);
+    fx.ok(&a, &["mission", "block", "M-TSK-BOOT-03", "M-TSK-DEP"]);
+    fx.ok(&a, &["mission", "block", "M-TSK-OTHER", "M-TSK-BOOT-03"]);
+    fx.ok(&a, &["task", "add", "M-TSK-BOOT-03", "First"]);
+    fx.ok(&a, &["task", "add", "M-TSK-BOOT-03", "Second"]);
+    let thread = fx.started(&a, &["thread", "start", "M-TSK-BOOT-03"]);
+    let before = json(&fx.ok(&a, &["mission", "list", "M-TSK-BOOT-03", "--json"]));
+    assert_eq!(before["parent"], "M-TSK-BOOT");
+
+    let lines = "mission M-TSK-BOOT-03 -> M-TSK-AUTO-01\n\
+                 parent M-TSK-AUTO-01 M-TSK-BOOT -> M-TSK-AUTO\n";
+    let dry = fx.tsk(
+        &a,
+        &[
+            "mission",
+            "reparent",
+            "M-TSK-BOOT-03",
+            "M-TSK-AUTO",
+            "--dry-run",
+        ],
+    );
+    assert_success(&dry);
+    assert_eq!(stdout(&dry), lines);
+    assert!(stderr(&dry).contains("dry run"), "{}", stderr(&dry));
+    assert!(fx.ok(&a, &["mission", "list"]).contains("M-TSK-BOOT-03"));
+
+    for (args, needle) in [
+        (
+            ["mission", "reparent", "M-TSK-BOOT", "M-TSK-BOOT"],
+            "or a part of it",
+        ),
+        (
+            ["mission", "reparent", "M-TSK-BOOT", "M-TSK-BOOT-03"],
+            "or a part of it",
+        ),
+        (
+            ["mission", "reparent", "M-TSK-BOOT-03", "M-TSK-NONE"],
+            "no such parent",
+        ),
+        (
+            ["mission", "reparent", "M-TSK-BOOT-03", "M-TSK-BOOT"],
+            "already a part of",
+        ),
+    ] {
+        let refused = fx.tsk(&a, &args);
+        assert_exit(&refused, 1);
+        assert!(stderr(&refused).contains(needle), "{}", stderr(&refused));
+    }
+
+    assert_eq!(
+        fx.ok(&a, &["mission", "reparent", "M-TSK-BOOT-03", "M-TSK-AUTO"]),
+        lines
+    );
+    assert!(stderr(&fx.tsk(&a, &["mission", "list", "M-TSK-BOOT-03"])).contains("no such mission"));
+    let after = json(&fx.ok(&a, &["mission", "list", "M-TSK-AUTO-01", "--json"]));
+    assert_eq!(after["parent"], "M-TSK-AUTO");
+    assert_eq!(after["uid"], before["uid"]);
+    assert_eq!(after["urn"], before["urn"]);
+    assert_eq!(after["blocked_by"][0]["id"], "M-TSK-DEP");
+    assert_eq!(after["tasks"], before["tasks"]);
+    assert_eq!(after["tasks"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        fx.record(&a, "M-TSK-OTHER")["blocked_by"][0]["id"],
+        "M-TSK-AUTO-01"
+    );
+    assert_eq!(fx.thread_row(&a, &thread)["mission_id"], "M-TSK-AUTO-01");
+    // The next part under M-TSK-BOOT-03's old parent is free again, and a second move counts on.
+    fx.ok(&a, &["mission", "create", "M-BOOT-04", "Part four"]);
+    fx.ok(&a, &["mission", "reparent", "M-TSK-BOOT-04", "M-TSK-AUTO"]);
+    assert_eq!(fx.record(&a, "M-TSK-AUTO-02")["parent"], "M-TSK-AUTO");
 }
 
 /// M-ADMIN-02 T-30. A thread made from a briefing document stores the path of the document

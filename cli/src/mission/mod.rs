@@ -8,6 +8,7 @@ pub mod prefix;
 pub mod records;
 pub mod rm;
 pub mod show;
+pub mod summary;
 pub mod table;
 
 use std::io::Read;
@@ -103,6 +104,22 @@ pub enum MissionCommands {
         rewrite: bool,
     },
     #[command(
+        about = "Move a mission under another parent, and everything follows: records, tasks, decisions, questions, threads, blocks, linked documents and the parent field. A numbered part takes the next free number under the new parent (M-TSK-BOOT-03 under M-TSK-AUTO becomes M-TSK-AUTO-01) and is renamed as mission mv does; any other mission keeps its ID. Task IDs, and the uid and URN of the mission and its records, stay. Refused for an unknown parent, a cycle (the parent is the mission or a part of it) and a numbered mission that has parts. Prints one line per change, then one line for each record whose text names the old ID; those references are listed, not changed, unless --rewrite is given. A local write"
+    )]
+    Reparent {
+        #[arg(help = "The mission to move")]
+        id: String,
+        #[arg(help = "The mission that becomes its parent")]
+        parent: String,
+        #[arg(long, help = "Print the lines and change nothing")]
+        dry_run: bool,
+        #[arg(
+            long,
+            help = "Also replace the old ID with the new one in the text of every mission, as tsk mission rewrite does, in place of the mentions lines"
+        )]
+        rewrite: bool,
+    },
+    #[command(
         about = "Replace an ID with another, as a whole word, in the text of every mission: names, purposes, objectives, constraints, out-of-scope items, tasks, decisions, questions and answers. Prints one line for each text it changed. The old ID can be that of a mission renamed earlier; the new one has to be a mission. Documents are not changed. A local write"
     )]
     Rewrite {
@@ -141,6 +158,18 @@ pub enum MissionCommands {
         #[arg(
             long,
             help = "Print tab-separated columns, the stable form for scripts, instead of aligned columns"
+        )]
+        porcelain: bool,
+    },
+    #[command(
+        about = "Count the missions by status (todo, in-progress, done) with the total, and for each mission its tasks by status. Every count is of records, from the ledger only. A mission counts under its own status and its own tasks: a parent does not roll up its children. Aligned columns; --porcelain prints tab-separated lines that start with missions or tasks; --json prints the full counts"
+    )]
+    Summary {
+        #[arg(long, help = "Print the counts as JSON")]
+        json: bool,
+        #[arg(
+            long,
+            help = "Print tab-separated lines with no header, the stable form for scripts"
         )]
         porcelain: bool,
     },
@@ -286,12 +315,19 @@ pub fn run_with(store: &dyn LedgerStore, action: MissionCommands) -> Result<(), 
             dry_run,
             rewrite,
         } => mv::mission_mv(store, &from, &to, dry_run, rewrite)?,
+        MissionCommands::Reparent {
+            id,
+            parent,
+            dry_run,
+            rewrite,
+        } => mv::mission_reparent(store, &id, &parent, dry_run, rewrite)?,
         MissionCommands::Rewrite { from, to, dry_run } => mv::rewrite(store, &from, &to, dry_run)?,
         MissionCommands::List {
             id,
             json,
             porcelain,
         } => list(store, id.as_deref(), json, porcelain)?,
+        MissionCommands::Summary { json, porcelain } => summary_cmd(store, json, porcelain)?,
     }
     Ok(())
 }
@@ -399,6 +435,26 @@ fn list(
             None => "no missions yet: create one with tsk mission create, or run tsk thread start",
         };
         table::print_lines_or(lines, porcelain, empty);
+    }
+    Ok(())
+}
+
+fn summary_cmd(store: &dyn LedgerStore, json: bool, porcelain: bool) -> Result<(), String> {
+    let summary = summary::summarize(&store.missions_load()?);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&summary)
+                .map_err(|e| format!("error: could not print JSON: {}", e))?
+        );
+        return Ok(());
+    }
+    let blocks = summary::lines(&summary, porcelain);
+    for (i, block) in blocks.into_iter().enumerate() {
+        if i > 0 && !porcelain && !block.is_empty() {
+            println!();
+        }
+        table::print_lines(block, porcelain);
     }
     Ok(())
 }

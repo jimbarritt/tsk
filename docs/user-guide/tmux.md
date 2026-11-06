@@ -1,6 +1,6 @@
 # Agents in tmux: the session chooser and the sidebar
 
-`tsk tmux install` sets up tmux to show each agent's state, mission and robot in the session chooser (`prefix s`), and in a sidebar that stays open beside your work (`prefix b`). It also names each tmux session after the mission code of its thread. It needs tsk 0.44.0 or later for the sidebar, and the tsk plugin 0.3.44 or later.
+`tsk tmux install` sets up tmux to show each agent's state, mission and robot in the session chooser (`prefix s`), and in a sidebar that stays open beside your work (`prefix b`). It also names each tmux session after the mission code of its thread. It needs tsk 0.45.0 or later for the sidebar, and the tsk plugin 0.3.44 or later.
 
 ## Install
 
