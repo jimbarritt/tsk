@@ -542,10 +542,114 @@ pub fn mission_mv(
             parent.as_deref().unwrap_or("none")
         ));
     }
-    let to = placed.id.as_str();
-    let mut plan = plan_rename(&missions, from, to, &|path| {
-        store.doc_exists(path).unwrap_or(false)
-    })?;
+    apply_rename(
+        store,
+        &missions,
+        from,
+        &placed.id,
+        None,
+        dry_run,
+        rewrite_text,
+    )
+}
+
+/// The ID a part takes under a new parent, or `None` when `id` is not numbered, so it keeps
+/// its ID: the new parent and the next free number there, such as `M-TSK-AUTO-01`.
+pub fn reparented_id(missions: &[Mission], id: &str, parent: &str) -> Option<String> {
+    super::prefix::whole_of(id)?;
+    let next = missions
+        .iter()
+        .filter_map(|m| m.id.strip_prefix(parent)?.strip_prefix('-'))
+        .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        .filter_map(|n| n.parse::<u32>().ok())
+        .max()
+        .map_or(1, |n| n + 1);
+    Some(format!("{}-{:02}", parent, next))
+}
+
+/// Check a move of mission `id` under `parent`: the parent exists, is not the mission, is
+/// not a part of it at any depth, and a numbered mission has no parts of its own (their IDs
+/// carry its ID).
+fn check_reparent(missions: &[Mission], id: &str, parent: &str) -> Result<(), String> {
+    let mission = model::find(missions, id)?;
+    model::find(missions, parent)
+        .map_err(|_| format!("error: no such parent mission: {}", parent))?;
+    let mut cursor = Some(parent);
+    while let Some(current) = cursor {
+        if current == id {
+            return Err(format!(
+                "error: {} cannot move under {}, which is {} or a part of it",
+                id, parent, id
+            ));
+        }
+        cursor = missions
+            .iter()
+            .find(|m| m.id == current)
+            .and_then(|m| m.parent.as_deref());
+    }
+    if mission.parent.as_deref() == Some(parent) {
+        return Err(format!("error: {} is already a part of {}", id, parent));
+    }
+    if super::prefix::whole_of(id).is_some()
+        && missions.iter().any(|m| m.parent.as_deref() == Some(id))
+    {
+        return Err(format!(
+            "error: {} has parts, and their IDs carry its ID; move them first",
+            id
+        ));
+    }
+    Ok(())
+}
+
+/// Move a mission under another parent: `tsk mission reparent`. A numbered part takes the
+/// next free number under the new parent and is renamed as `mission mv` does; any other
+/// mission keeps its ID. Every record follows, and the parent changes. With `dry_run` it
+/// prints the lines and changes nothing.
+pub fn mission_reparent(
+    store: &dyn LedgerStore,
+    id: &str,
+    parent: &str,
+    dry_run: bool,
+    rewrite_text: bool,
+) -> Result<(), String> {
+    let missions = store.missions_load()?;
+    check_reparent(&missions, id, parent)?;
+    let old_parent = model::find(&missions, id)?.parent.clone();
+    let to = reparented_id(&missions, id, parent).unwrap_or_else(|| id.to_string());
+    apply_rename(
+        store,
+        &missions,
+        id,
+        &to,
+        Some((old_parent.as_deref(), parent)),
+        dry_run,
+        rewrite_text,
+    )
+}
+
+/// The rename and parent change shared by `mv` and `reparent`. `parent` is the old and new
+/// parent when the parent changes.
+fn apply_rename(
+    store: &dyn LedgerStore,
+    missions: &[Mission],
+    from: &str,
+    to: &str,
+    parent: Option<(Option<&str>, &str)>,
+    dry_run: bool,
+    rewrite_text: bool,
+) -> Result<(), String> {
+    let missions = missions.to_vec();
+    let renames = to != from;
+    let mut plan = if renames || parent.is_none() {
+        plan_rename(&missions, from, to, &|path| {
+            store.doc_exists(path).unwrap_or(false)
+        })?
+    } else {
+        Rename {
+            docs: Vec::new(),
+            lines: Vec::new(),
+        }
+    };
     let threads = threads_to_follow(store, &plan.docs)?;
     // The thread lines come after the document lines and before the mentions.
     let at = 1 + plan.docs.len();
@@ -558,6 +662,12 @@ pub fn mission_mv(
     let at = at + threads.len();
     for (offset, link) in links.iter().enumerate() {
         plan.lines.insert(at + offset, link.clone());
+    }
+    if let Some((old, new)) = parent {
+        plan.lines.insert(
+            at + links.len(),
+            format!("parent {} {} -> {}", to, old.unwrap_or("-"), new),
+        );
     }
     if rewrite_text {
         // The mentions lines give way to the lines of the rewrite, which names each mission
@@ -580,7 +690,14 @@ pub fn mission_mv(
     for (old, new) in &plan.docs {
         move_document(store, old, new)?;
     }
-    store.mission_rename(from, to)?;
+    if renames {
+        store.mission_rename(from, to)?;
+    }
+    if let Some((_, new)) = parent {
+        let mut moved = model::find(&store.missions_load()?, to)?.clone();
+        moved.parent = Some(new.to_string());
+        store.missions_save(&[moved])?;
+    }
     // A thread that stores the path of its briefing, and not the internal ID of a mission,
     // reads its mission from the file name. It now names the mission by the internal ID.
     for (id, _, new) in &threads {
@@ -755,6 +872,64 @@ mod tests {
             );
         }
         all
+    }
+
+    fn parts_world() -> Vec<Mission> {
+        let mut all = Vec::new();
+        for (id, parent) in [
+            ("M-T-BOOT", None),
+            ("M-T-BOOT-03", Some("M-T-BOOT")),
+            ("M-T-AUTO", None),
+            ("M-T-AUTO-01", Some("M-T-AUTO")),
+            ("M-T-AUTO-04", Some("M-T-AUTO")),
+            ("M-T-FREE", None),
+        ] {
+            all.push(model::create(&all, id, "A mission", Category::Operational, parent).unwrap());
+        }
+        all
+    }
+
+    #[test]
+    fn a_part_takes_the_next_free_number_under_the_new_parent() {
+        let all = parts_world();
+        assert_eq!(
+            reparented_id(&all, "M-T-BOOT-03", "M-T-AUTO").as_deref(),
+            Some("M-T-AUTO-05")
+        );
+        assert_eq!(
+            reparented_id(&all, "M-T-BOOT-03", "M-T-FREE").as_deref(),
+            Some("M-T-FREE-01")
+        );
+        assert_eq!(reparented_id(&all, "M-T-FREE", "M-T-AUTO"), None);
+    }
+
+    #[test]
+    fn a_reparent_refuses_a_cycle_an_unknown_parent_and_a_part_with_parts() {
+        let all = parts_world();
+        for (id, parent, needle) in [
+            ("M-T-BOOT", "M-T-BOOT", "or a part of it"),
+            ("M-T-BOOT", "M-T-BOOT-03", "or a part of it"),
+            ("M-T-BOOT-03", "M-T-NONE", "no such parent mission"),
+            ("M-T-BOOT-03", "M-T-BOOT", "already a part of"),
+            ("M-T-NONE", "M-T-AUTO", "no such mission"),
+        ] {
+            let err = check_reparent(&all, id, parent).unwrap_err();
+            assert!(err.contains(needle), "{}", err);
+        }
+        let mut all = all;
+        all.push(
+            model::create(
+                &all,
+                "M-T-AUTO-04-01",
+                "Deep",
+                Category::Operational,
+                Some("M-T-AUTO-04"),
+            )
+            .unwrap(),
+        );
+        let err = check_reparent(&all, "M-T-AUTO-04", "M-T-BOOT").unwrap_err();
+        assert!(err.contains("has parts"), "{}", err);
+        assert!(check_reparent(&all, "M-T-FREE", "M-T-AUTO").is_ok());
     }
 
     #[test]
