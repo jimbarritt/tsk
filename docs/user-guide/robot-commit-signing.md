@@ -22,7 +22,7 @@ To turn it on for yourself in every repo, add the same two keys under `[attribut
 value came from. `tsk config attribution default` turns it off for a repo.
 
 A robot commit is signed and shows Verified only after steps 1 to 5 are done, and a session
-reads the key from the environment secret `TSK_ROBOT_SIGNING_KEY`. Without the key, `tsk`
+reads the key from the environment variable `TSK_ROBOT_SIGNING_KEY`. Without the key, `tsk`
 prints a warning and commits keep the default author. It needs `tsk` 0.37.0 or later.
 
 ## What a robot commit looks like
@@ -100,8 +100,9 @@ signatures.
 
 1. Open claude.ai/code.
 2. Open the cloud environment menu in the session's title bar, then Edit.
-3. Under Network secrets, add a secret named `TSK_ROBOT_SIGNING_KEY`. If the environment
-   offers no such section, add an environment variable of the same name.
+3. Add an **environment variable** named `TSK_ROBOT_SIGNING_KEY`. Do not use Network secrets
+   (API credentials): the network proxy adds a network secret to requests for one host, and
+   a session cannot read it as a variable.
 4. Print the private key with `cat ~/tsk-robot-signing-key`.
 5. Copy the whole output, including the `-----BEGIN OPENSSH PRIVATE KEY-----` and
    `-----END OPENSSH PRIVATE KEY-----` lines, into the value.
@@ -115,7 +116,8 @@ signatures.
 Do not paste the key into a chat. A session started after you save the environment reads
 the variable. A session that was already running does not.
 
-Every process in a session can read the variable. Revoke the key on GitHub (Settings, SSH
+The environment stores variable values in plain text, and every person who can edit the
+environment can read them. Every process in a session can read the variable. Revoke the key on GitHub (Settings, SSH
 and GPG keys, Delete) if you suspect a leak. A revoked key stops new commits from showing
 Verified. I did not check what GitHub shows for commits signed before the revocation.
 
