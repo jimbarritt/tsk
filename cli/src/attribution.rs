@@ -20,6 +20,7 @@ pub const KEY_ENV: &str = "TSK_ROBOT_SIGNING_KEY";
 
 /// The name of the file the key is written to, beside the ledger store of the clone.
 const KEY_FILE_NAME: &str = "robot-signing-key";
+const SIGNERS_FILE_NAME: &str = "robot-allowed-signers";
 
 const KEY_HEADER: &str = "-----BEGIN OPENSSH PRIVATE KEY-----";
 
@@ -281,7 +282,12 @@ pub fn normalise_key(raw: &str) -> Result<String, String> {
 }
 
 /// The git config keys and values the `robot` identity writes.
-pub fn git_settings(name: &str, email: &str, key_file: &Path) -> Vec<(&'static str, String)> {
+pub fn git_settings(
+    name: &str,
+    email: &str,
+    key_file: &Path,
+    signers_file: &Path,
+) -> Vec<(&'static str, String)> {
     vec![
         ("user.name", name.to_string()),
         ("user.email", email.to_string()),
@@ -290,8 +296,41 @@ pub fn git_settings(name: &str, email: &str, key_file: &Path) -> Vec<(&'static s
         // `user.signingkey`. `ssh-keygen` signs with the key file named here.
         ("gpg.ssh.program", "ssh-keygen".to_string()),
         ("user.signingkey", key_file.display().to_string()),
+        // `git log --format=%G?` verifies a signature against this file.
+        (
+            "gpg.ssh.allowedSignersFile",
+            signers_file.display().to_string(),
+        ),
         ("commit.gpgsign", "true".to_string()),
     ]
+}
+
+/// The line of an allowed signers file: the principal, then the public key.
+pub fn signers_line(email: &str, public_key: &str) -> String {
+    format!("{} {}\n", email, public_key.trim())
+}
+
+/// The public key of a private key file, from `ssh-keygen -y`.
+fn public_key(key_file: &Path) -> Result<String, String> {
+    let output = std::process::Command::new("ssh-keygen")
+        .arg("-y")
+        .arg("-f")
+        .arg(key_file)
+        .output()
+        .map_err(|e| {
+            format!(
+                "error: could not run ssh-keygen: {}: install openssh-client",
+                e
+            )
+        })?;
+    if !output.status.success() {
+        return Err(format!(
+            "error: ssh-keygen could not read the key in {}: {}",
+            KEY_ENV,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// The problem with a name that git cannot hold as a user name, if any.
@@ -344,6 +383,11 @@ pub fn apply(session: &Session) -> Result<Applied, String> {
     let key = normalise_key(&key)?;
     let key_file = key_file_path(session)?;
     write_key_file(&key_file, &key)?;
+    let signers_file = key_file.with_file_name(SIGNERS_FILE_NAME);
+    write_key_file(
+        &signers_file,
+        &signers_line(&email, &public_key(&key_file)?),
+    )?;
     // Worktrees of one clone share `.git/config`. With `extensions.worktreeConfig`, each
     // worktree keeps its own settings in `config.worktree`, so two robots on two worktrees
     // keep their own name, email and key.
@@ -351,7 +395,7 @@ pub fn apply(session: &Session) -> Result<Applied, String> {
         .repo
         .git
         .run(["config", "--local", "extensions.worktreeConfig", "true"])?;
-    for (config_key, value) in git_settings(&name, &email, &key_file) {
+    for (config_key, value) in git_settings(&name, &email, &key_file, &signers_file) {
         session
             .repo
             .git
@@ -568,7 +612,12 @@ mod tests {
 
     #[test]
     fn the_git_settings_name_the_actor_the_email_and_the_signing_key() {
-        let settings = git_settings("Credit Where It's Due", "r@example.com", Path::new("/k"));
+        let settings = git_settings(
+            "Credit Where It's Due",
+            "r@example.com",
+            Path::new("/k"),
+            Path::new("/s"),
+        );
         assert_eq!(
             settings,
             vec![
@@ -577,8 +626,17 @@ mod tests {
                 ("gpg.format", "ssh".to_string()),
                 ("gpg.ssh.program", "ssh-keygen".to_string()),
                 ("user.signingkey", "/k".to_string()),
+                ("gpg.ssh.allowedSignersFile", "/s".to_string()),
                 ("commit.gpgsign", "true".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn a_signers_line_names_the_email_then_the_public_key() {
+        assert_eq!(
+            signers_line("r@example.com", "ssh-ed25519 AAAA\n"),
+            "r@example.com ssh-ed25519 AAAA\n"
         );
     }
 

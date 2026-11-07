@@ -139,6 +139,7 @@ config. `tsk actor git-identity` writes them on request.
 | `gpg.format` | `ssh` |
 | `gpg.ssh.program` | `ssh-keygen`. The cloud image sets a platform signer in the global config, which ignores `user.signingkey`. |
 | `user.signingkey` | A file that tsk writes from `TSK_ROBOT_SIGNING_KEY`, with mode 0600, outside the repo. |
+| `gpg.ssh.allowedSignersFile` | A file that tsk writes with the robot email and the public key of `TSK_ROBOT_SIGNING_KEY`, outside the repo. `git log --format=%G?` prints `G` for a robot commit when it exists. |
 | `commit.gpgsign` | `true` |
 
 tsk writes these settings to the worktree's own config file, `config.worktree`, and sets `extensions.worktreeConfig` in the repo config. Each worktree of one clone keeps its own robot name, email and key. The worktree config takes precedence over the cloud environment's global config, which
