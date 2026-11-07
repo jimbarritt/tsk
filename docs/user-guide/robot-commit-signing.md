@@ -208,3 +208,12 @@ If the badge reads Unverified, check these in order:
 
 New commits use the new key. I did not check what GitHub shows for commits signed with the
 old key after you delete it.
+
+## Install ssh-keygen in the cloud environment
+
+Git calls `ssh-keygen` to sign a commit. The cloud image does not include it. Add this line
+to the setup script of the environment that holds `TSK_ROBOT_SIGNING_KEY`:
+
+```bash
+command -v ssh-keygen >/dev/null || apt-get install -y openssh-client
+```
