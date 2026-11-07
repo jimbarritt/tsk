@@ -262,46 +262,22 @@ pub fn with_section(
     Ok(out)
 }
 
-/// The footer line of an OpenSSH private key.
-const KEY_FOOTER: &str = "-----END OPENSSH PRIVATE KEY-----";
-
-/// The width of a line of the base64 body in an OpenSSH private key file.
-const KEY_LINE_WIDTH: usize = 70;
-
-/// The key rebuilt as a file: the header, the body in lines of 70 characters, the footer and
-/// one trailing line break. The body is every character between the header and the footer
-/// that is not white space, so a key is accepted whether its line breaks are real, written
-/// as `\n`, or lost and replaced by spaces, as a one-line field of an environment may do. The
-/// error never holds the key.
+/// The key text with real line breaks and one trailing line break. A key stored on one
+/// line, with `\n` in place of each line break, is accepted.
 pub fn normalise_key(raw: &str) -> Result<String, String> {
-    let text = raw.trim().replace("\\n", "\n");
-    let Some(rest) = text.strip_prefix(KEY_HEADER) else {
+    let raw = raw.trim();
+    let text = if raw.contains('\n') {
+        raw.to_string()
+    } else {
+        raw.replace("\\n", "\n")
+    };
+    if !text.starts_with(KEY_HEADER) {
         return Err(format!(
             "error: {} does not hold an OpenSSH private key: it must start with {}",
             KEY_ENV, KEY_HEADER
         ));
-    };
-    let Some(body) = rest.trim_end().strip_suffix(KEY_FOOTER) else {
-        return Err(format!(
-            "error: {} does not hold a whole OpenSSH private key: it must end with {}",
-            KEY_ENV, KEY_FOOTER
-        ));
-    };
-    let body: Vec<char> = body.chars().filter(|c| !c.is_whitespace()).collect();
-    if body.is_empty() {
-        return Err(format!(
-            "error: {} holds an OpenSSH private key with no body",
-            KEY_ENV
-        ));
     }
-    let mut out = format!("{}\n", KEY_HEADER);
-    for line in body.chunks(KEY_LINE_WIDTH) {
-        out.extend(line);
-        out.push('\n');
-    }
-    out.push_str(KEY_FOOTER);
-    out.push('\n');
-    Ok(out)
+    Ok(format!("{}\n", text.trim_end()))
 }
 
 /// The git config keys and values the `robot` identity writes.
@@ -567,42 +543,10 @@ mod tests {
 
     #[test]
     fn a_key_with_line_breaks_or_with_backslash_n_is_accepted() {
-        let multi = format!("{}\nabc\n{}\n", KEY_HEADER, KEY_FOOTER);
-        let single = format!("{}\\nabc\\n{}", KEY_HEADER, KEY_FOOTER);
+        let multi = format!("{}\nabc\n-----END OPENSSH PRIVATE KEY-----\n", KEY_HEADER);
+        let single = format!("{}\\nabc\\n-----END OPENSSH PRIVATE KEY-----", KEY_HEADER);
         assert_eq!(normalise_key(&multi).unwrap(), multi);
         assert_eq!(normalise_key(&single).unwrap(), multi);
-    }
-
-    #[test]
-    fn a_key_whose_line_breaks_became_spaces_is_rebuilt() {
-        let body = "A".repeat(70) + &"B".repeat(70) + "CCC";
-        let wanted = format!(
-            "{}\n{}\n{}\nCCC\n{}\n",
-            KEY_HEADER,
-            "A".repeat(70),
-            "B".repeat(70),
-            KEY_FOOTER
-        );
-        let flat = format!("{} {} {}", KEY_HEADER, body, KEY_FOOTER);
-        assert_eq!(normalise_key(&flat).unwrap(), wanted);
-        let spaced = format!(
-            "{} {} {} {} {}",
-            KEY_HEADER,
-            "A".repeat(70),
-            "B".repeat(70),
-            "CCC",
-            KEY_FOOTER
-        );
-        assert_eq!(normalise_key(&spaced).unwrap(), wanted);
-    }
-
-    #[test]
-    fn a_key_without_its_footer_or_body_is_refused_without_printing_it() {
-        let err = normalise_key(&format!("{}\nsecretbody", KEY_HEADER)).unwrap_err();
-        assert!(err.contains("must end with"), "{}", err);
-        assert!(!err.contains("secretbody"), "{}", err);
-        let err = normalise_key(&format!("{}\n{}", KEY_HEADER, KEY_FOOTER)).unwrap_err();
-        assert!(err.contains("no body"), "{}", err);
     }
 
     #[test]
