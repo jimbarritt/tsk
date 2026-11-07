@@ -137,10 +137,11 @@ config. `tsk actor git-identity` writes them on request.
 | `user.name` | The registered actor name. |
 | `user.email` | The `email` setting. This repo sets `robots@jimbarritt.com`. |
 | `gpg.format` | `ssh` |
+| `gpg.ssh.program` | `ssh-keygen`. The cloud image sets a platform signer in the global config, which ignores `user.signingkey`. |
 | `user.signingkey` | A file that tsk writes from `TSK_ROBOT_SIGNING_KEY`, with mode 0600, outside the repo. |
 | `commit.gpgsign` | `true` |
 
-The repo's local config takes precedence over the cloud environment's global config, which
+tsk writes these settings to the worktree's own config file, `config.worktree`, and sets `extensions.worktreeConfig` in the repo config. Each worktree of one clone keeps its own robot name, email and key. The worktree config takes precedence over the cloud environment's global config, which
 names Claude and Anthropic's key. tsk never prints the key. The command exits 1 and names
 the problem when no actor is registered or `TSK_ROBOT_SIGNING_KEY` is unset. It accepts the
 key with real line breaks, or with `\n` in place of them. `tsk actor register` and the session

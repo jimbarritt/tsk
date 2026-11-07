@@ -1,5 +1,5 @@
 //! Robot commit attribution: the `[attribution]` settings, and the git identity that
-//! `tsk actor git-identity` writes to the repo's local git config.
+//! `tsk actor git-identity` writes to the git config of the current worktree.
 //!
 //! `identity` is `default` or `robot`, `default` when unset. `default` writes no git config.
 //! `robot` writes the registered actor's name, the `email` setting, and the SSH signing
@@ -286,6 +286,9 @@ pub fn git_settings(name: &str, email: &str, key_file: &Path) -> Vec<(&'static s
         ("user.name", name.to_string()),
         ("user.email", email.to_string()),
         ("gpg.format", "ssh".to_string()),
+        // A cloud image can set `gpg.ssh.program` to a platform signer that ignores
+        // `user.signingkey`. `ssh-keygen` signs with the key file named here.
+        ("gpg.ssh.program", "ssh-keygen".to_string()),
         ("user.signingkey", key_file.display().to_string()),
         ("commit.gpgsign", "true".to_string()),
     ]
@@ -311,7 +314,7 @@ pub enum Applied {
     Written { name: String, email: String },
 }
 
-/// Write the git identity of the registered actor to the repo's local git config, when the
+/// Write the git identity of the registered actor to the current worktree's git config, when the
 /// identity is `robot` and the actor is a robot. Does nothing for the `default` identity
 /// and for a human actor.
 pub fn apply(session: &Session) -> Result<Applied, String> {
@@ -341,11 +344,18 @@ pub fn apply(session: &Session) -> Result<Applied, String> {
     let key = normalise_key(&key)?;
     let key_file = key_file_path(session)?;
     write_key_file(&key_file, &key)?;
+    // Worktrees of one clone share `.git/config`. With `extensions.worktreeConfig`, each
+    // worktree keeps its own settings in `config.worktree`, so two robots on two worktrees
+    // keep their own name, email and key.
+    session
+        .repo
+        .git
+        .run(["config", "--local", "extensions.worktreeConfig", "true"])?;
     for (config_key, value) in git_settings(&name, &email, &key_file) {
         session
             .repo
             .git
-            .run(["config", "--local", config_key, value.as_str()])?;
+            .run(["config", "--worktree", config_key, value.as_str()])?;
     }
     Ok(Applied::Written { name, email })
 }
@@ -565,6 +575,7 @@ mod tests {
                 ("user.name", "Credit Where It's Due".to_string()),
                 ("user.email", "r@example.com".to_string()),
                 ("gpg.format", "ssh".to_string()),
+                ("gpg.ssh.program", "ssh-keygen".to_string()),
                 ("user.signingkey", "/k".to_string()),
                 ("commit.gpgsign", "true".to_string()),
             ]
