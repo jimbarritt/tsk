@@ -102,14 +102,6 @@ else
   echo "WARNING: claude is not on PATH, so the plugins are not installed" >&2
 fi
 
-# Robot commit attribution, on for every session of a cloud environment that runs this
-# script (M-TSK-ATTRIB). It goes in the user config, so a clone of the repo elsewhere stays
-# at the default, off. The signing key is a secret of the environment, TSK_ROBOT_SIGNING_KEY,
-# which tsk thread session-start reads. A tsk older than 0.49.0 has no --user: the script
-# prints a warning and goes on.
-"$BIN/tsk" config attribution robot --email robots@jimbarritt.com --user ||
-  echo "WARNING: tsk could not turn on robot attribution in the user config" >&2
-
 mkdir -p "$SETUP_DIR"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$SETUP_DIR/last-run"
 "$BIN/tsk" --version
