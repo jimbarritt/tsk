@@ -18,9 +18,16 @@ To turn it on for yourself on one machine, in every repo, write the user config
 tsk config attribution robot --email robots@jimbarritt.com --user
 ```
 
-A cloud environment for this repo does this in its setup script,
-`ops/cloud/setup-environment.sh`, so every cloud session has it and a clone elsewhere stays
-off. To turn it on for everyone who clones a repo, run the command without `--user` at the
+To turn it on for every session of one cloud environment, set these variables of the
+environment, beside the secret `TSK_ROBOT_SIGNING_KEY`:
+
+```
+TSK_ATTRIBUTION_IDENTITY=robot
+TSK_ATTRIBUTION_EMAIL=robots@jimbarritt.com
+```
+
+The variables outrank both config files. An environment without them stays off, and a clone
+elsewhere stays off. This repo's cloud environment does this. To turn it on for everyone who clones a repo, run the command without `--user` at the
 top of the repo and commit `.tsk/config.toml`. A repo config outranks the user config, so
 nobody can turn it off for themselves in that repo. `tsk config attribution` prints what is
 in force and where each value came from.
@@ -167,9 +174,11 @@ email = "robots@jimbarritt.com"
 - Put the keys in the repo config, `.tsk/config.toml`, to choose for everyone who clones
   the repo.
 - Put the keys in the user config, `~/.config/tsk/config.toml`, to choose for one person on
-  one machine. This repo's cloud environment does that.
-- Precedence: the variable `TSK_ATTRIBUTION_EMAIL`, then the repo config, then the user
-  config.
+  one machine.
+- Put `TSK_ATTRIBUTION_IDENTITY` and `TSK_ATTRIBUTION_EMAIL` in the variables of a cloud
+  environment to choose for its sessions. This repo's cloud environment does that.
+- Precedence: the variables `TSK_ATTRIBUTION_IDENTITY` and `TSK_ATTRIBUTION_EMAIL`, then
+  the repo config, then the user config.
 - `tsk config attribution` prints the values and where each came from.
   `tsk config attribution robot --email <address>` writes them to `.tsk/config.toml`, and
   with `--user` to the user config.

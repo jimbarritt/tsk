@@ -15,6 +15,11 @@ use crate::thread::session::Session;
 /// The environment variable that overrides `[attribution] email`.
 pub const EMAIL_ENV: &str = "TSK_ATTRIBUTION_EMAIL";
 
+/// The environment variable that overrides `[attribution] identity`. A cloud environment
+/// sets it, with `TSK_ATTRIBUTION_EMAIL` and `TSK_ROBOT_SIGNING_KEY`, to turn attribution on
+/// for its own sessions only.
+pub const IDENTITY_ENV: &str = "TSK_ATTRIBUTION_IDENTITY";
+
 /// The environment variable that holds the private SSH signing key.
 pub const KEY_ENV: &str = "TSK_ROBOT_SIGNING_KEY";
 
@@ -143,11 +148,17 @@ fn parse_section(text: &str, file: &Path) -> Result<Section, String> {
 /// Resolve the settings. `identity`: the repo config, then the user config, then `default`.
 /// `email`: the environment, then the repo config, then the user config. An empty
 /// environment value counts as unset.
-pub fn resolve(env_email: Option<&str>, repo: &Section, user: &Section) -> Settings {
-    let (identity, identity_source) = match (repo.identity, user.identity) {
-        (Some(value), _) => (value, Source::RepoConfig),
-        (None, Some(value)) => (value, Source::UserConfig),
-        (None, None) => (Identity::Default, Source::Default),
+pub fn resolve(
+    env_identity: Option<Identity>,
+    env_email: Option<&str>,
+    repo: &Section,
+    user: &Section,
+) -> Settings {
+    let (identity, identity_source) = match (env_identity, repo.identity, user.identity) {
+        (Some(value), _, _) => (value, Source::Env),
+        (None, Some(value), _) => (value, Source::RepoConfig),
+        (None, None, Some(value)) => (value, Source::UserConfig),
+        (None, None, None) => (Identity::Default, Source::Default),
     };
     let env_email = env_email.map(str::trim).filter(|v| !v.is_empty());
     let (email, email_source) = match (env_email, &repo.email, &user.email) {
@@ -174,7 +185,20 @@ pub fn settings(repo_file: Option<&Path>, user_file: Option<&Path>) -> Result<Se
         Some(file) => read_section(file)?,
         None => Section::default(),
     };
+    let env_identity = match std::env::var(IDENTITY_ENV) {
+        Ok(value) if !value.trim().is_empty() => {
+            Some(Identity::parse(&value).ok_or_else(|| {
+                format!(
+                    "error: {} is {:?}: use default or robot",
+                    IDENTITY_ENV,
+                    value.trim()
+                )
+            })?)
+        }
+        _ => None,
+    };
     Ok(resolve(
+        env_identity,
         std::env::var(EMAIL_ENV).ok().as_deref(),
         &repo,
         &user,
@@ -744,7 +768,7 @@ mod tests {
 
     #[test]
     fn with_nothing_set_the_identity_is_default_and_there_is_no_email() {
-        let settings = resolve(None, &Section::default(), &Section::default());
+        let settings = resolve(None, None, &Section::default(), &Section::default());
         assert_eq!(settings.identity, Identity::Default);
         assert_eq!(settings.identity_source, Source::Default);
         assert_eq!(settings.email, None);
@@ -752,13 +776,30 @@ mod tests {
     }
 
     #[test]
+    fn the_environment_outranks_both_configs_for_the_identity() {
+        let repo = section(Some(Identity::Robot), None);
+        let user = section(Some(Identity::Robot), None);
+        let settings = resolve(Some(Identity::Default), None, &repo, &user);
+        assert_eq!(settings.identity, Identity::Default);
+        assert_eq!(settings.identity_source, Source::Env);
+        let settings = resolve(
+            Some(Identity::Robot),
+            None,
+            &Section::default(),
+            &Section::default(),
+        );
+        assert_eq!(settings.identity, Identity::Robot);
+        assert_eq!(settings.identity_source, Source::Env);
+    }
+
+    #[test]
     fn the_repo_config_outranks_the_user_config_for_the_identity() {
         let repo = section(Some(Identity::Default), None);
         let user = section(Some(Identity::Robot), None);
-        let settings = resolve(None, &repo, &user);
+        let settings = resolve(None, None, &repo, &user);
         assert_eq!(settings.identity, Identity::Default);
         assert_eq!(settings.identity_source, Source::RepoConfig);
-        let settings = resolve(None, &Section::default(), &user);
+        let settings = resolve(None, None, &Section::default(), &user);
         assert_eq!(settings.identity, Identity::Robot);
         assert_eq!(settings.identity_source, Source::UserConfig);
     }
@@ -767,13 +808,13 @@ mod tests {
     fn the_email_comes_from_the_environment_then_the_repo_then_the_user() {
         let repo = section(None, Some("repo@example.com"));
         let user = section(None, Some("user@example.com"));
-        let settings = resolve(Some("env@example.com"), &repo, &user);
+        let settings = resolve(None, Some("env@example.com"), &repo, &user);
         assert_eq!(settings.email.as_deref(), Some("env@example.com"));
         assert_eq!(settings.email_source, Some(Source::Env));
-        let settings = resolve(None, &repo, &user);
+        let settings = resolve(None, None, &repo, &user);
         assert_eq!(settings.email.as_deref(), Some("repo@example.com"));
         assert_eq!(settings.email_source, Some(Source::RepoConfig));
-        let settings = resolve(Some("  "), &Section::default(), &user);
+        let settings = resolve(None, Some("  "), &Section::default(), &user);
         assert_eq!(settings.email.as_deref(), Some("user@example.com"));
         assert_eq!(settings.email_source, Some(Source::UserConfig));
     }
