@@ -259,3 +259,5 @@ command -v ssh-keygen >/dev/null || { apt-get update -qq && apt-get install -y o
 ```
 
 A fresh container has no package lists, so `apt-get install` alone fails with `has no installation candidate`. The `apt-get update` fixes that. A check in a new session confirms the signature with `git log -1 --format='%an <%ae>%n%G?'`.
+
+To see the trailers as well, run `git log -1 --format='%an <%ae> %G?%n%(trailers:only,unfold)'`. A robot commit carries the `Agent-Session` trailer.
