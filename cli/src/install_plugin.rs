@@ -73,19 +73,20 @@ impl Scope {
 }
 
 pub const TARGETS_HELP: &str = "Targets:
-  claude-cli   Claude Code. Installs the plugins at project scope and writes the SessionStart hook to .claude/settings.json
+  claude-cli   Claude Code. Installs the plugins at user scope. With --scope project or local, it also writes the SessionStart hook to .claude/settings.json
   copilot-cli  GitHub Copilot CLI. Installs the plugins per user
 
 Run the command inside the git repository that will use tsk. Examples:
   tsk install-plugin claude-cli
   tsk install-plugin claude-cli --plugin tsk --plugin swe
+  tsk install-plugin claude-cli --scope project
   tsk install-plugin copilot-cli";
 
 #[derive(Debug, Args)]
 #[command(
     arg_required_else_help = true,
     after_help = TARGETS_HELP,
-    long_about = "Add the plugin marketplace, then install and update the tsk plugin through a coding agent's CLI.\n\nRun it inside the git repository that will use tsk. It writes the SessionStart hook to .claude/settings.json in that repository and needs a git repository. Outside one it stops and says so."
+    long_about = "Add the plugin marketplace, then install and update the tsk plugin through a coding agent's CLI.\n\nFor claude-cli the plugins go at user scope by default, so every repo on the machine gets one install. --scope project or --scope local installs them for one repo and writes the SessionStart hook to .claude/settings.json; it prints a warning, because an install at user scope and one at project scope of the same plugin make it unclear which version loads.\n\nRun it inside a git repository. Outside one it stops and says so."
 )]
 pub struct InstallPluginArgs {
     #[arg(
@@ -96,7 +97,7 @@ pub struct InstallPluginArgs {
     #[arg(
         long,
         value_enum,
-        help = "Scope the plugins are installed and updated at (claude-cli only, default project; copilot-cli installs per user and rejects this option)"
+        help = "Scope the plugins are installed and updated at (claude-cli only, default user; project and local print a warning; copilot-cli installs per user and rejects this option)"
     )]
     pub scope: Option<Scope>,
     #[arg(
@@ -139,7 +140,7 @@ impl InstallPluginArgs {
     }
 
     fn claude_scope(&self) -> Scope {
-        self.scope.unwrap_or(Scope::Project)
+        self.scope.unwrap_or(Scope::User)
     }
 
     /// The arguments of `tsk install-plugin claude-cli` with every default.
@@ -556,8 +557,26 @@ pub fn install(args: &InstallPluginArgs, report: &mut dyn FnMut(String)) -> Resu
     )
 }
 
+/// The warning for an install at project or local scope, or None at user scope.
+pub fn scope_warning(args: &InstallPluginArgs) -> Option<String> {
+    if args.target != Target::ClaudeCli {
+        return None;
+    }
+    match args.claude_scope() {
+        Scope::User => None,
+        scope => Some(format!(
+            "warning: installing at {} scope. Prefer user scope, the default: an install at user scope and one at {} scope of the same plugin make it unclear which version loads. Run tsk install-plugin claude-cli with no --scope to install at user scope.",
+            scope.as_str(),
+            scope.as_str()
+        )),
+    }
+}
+
 pub fn run(args: InstallPluginArgs) -> Result<(), String> {
     let root = install_root()?;
+    if let Some(warning) = scope_warning(&args) {
+        eprintln!("{}", warning);
+    }
     println!("installing into the repo {}", root.display());
     install(&args, &mut |line| println!("{}", line))?;
     let hook = if args.target != Target::ClaudeCli {

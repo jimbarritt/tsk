@@ -88,9 +88,9 @@ tsk install-plugin claude-cli
 It runs, through the `claude` binary on `PATH`:
 
 1. `claude plugin marketplace add jimbarritt/claude-plugins`
-2. `claude plugin install tsk@jimbarritt-claude-plugins --scope project -y`
+2. `claude plugin install tsk@jimbarritt-claude-plugins --scope user -y`
 3. `claude plugin marketplace update jimbarritt-claude-plugins`
-4. `claude plugin update tsk@jimbarritt-claude-plugins --scope project`
+4. `claude plugin update tsk@jimbarritt-claude-plugins --scope user`
 
 It prints one line per step. A second run changes nothing and exits 0. When `claude` is
 not on `PATH`, or a step fails, it exits 1 and names the step with the step's stderr.
@@ -98,13 +98,19 @@ not on `PATH`, or a step fails, it exits 1 and names the step with the step's st
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--scope <project\|local\|user>` | `project` | The scope the plugins are installed and updated at. |
+| `--scope <user\|project\|local>` | `user` | The scope the plugins are installed and updated at. `project` and `local` print a warning. |
 | `--plugin <name>` | `tsk` | A plugin to install and update. Repeat it for more than one: `--plugin swe --plugin tsk`. |
 | `--marketplace <source>` | `jimbarritt/claude-plugins` | The marketplace source passed to `marketplace add`. |
 | `--marketplace-name <name>` | `jimbarritt-claude-plugins` | The name the marketplace is registered under. |
 | `--no-hook` | off | Skip writing the `SessionStart` hook into the repo. |
 
-After the four steps succeed, the command writes the repo's `SessionStart` hook into
+Install the plugins at user scope, the default. A user-scope install covers every repo on
+the machine. An install at user scope and one at project scope of the same plugin make it
+unclear which version loads, so `--scope project` and `--scope local` print a warning and
+then install as asked.
+
+With `--scope project` or `--scope local`, after the four steps succeed, the command
+writes the repo's `SessionStart` hook into
 `<repo root>/.claude/settings.json`. The repo root comes from
 `git rev-parse --show-toplevel`, so the command must run inside a git repo, or take
 `--no-hook`. The hook runs `tsk thread session-start --install-plugin claude-cli`. The
@@ -114,12 +120,12 @@ entry, and does not add a second hook when a `SessionStart` command already cont
 command leaves it as it was. Commit `.claude/settings.json` so every clone and every
 cloud session of the repo has the hook.
 
-The hook installs the plugin only when `CLAUDE_CODE_REMOTE` is `true`, which is the case
+The hook installs the plugin, at user scope, only when `CLAUDE_CODE_REMOTE` is `true`, which is the case
 in a Claude Code cloud session. In any other session the flag does nothing. A failed
 install step does not stop the session start. It adds a warning to the session context.
 
-`--scope user` does not write the hook, because a user-scope install is not about one
-repo. `copilot-cli` does not write it either, because Copilot reads the plugin's hooks.
+At user scope the command does not write the hook, because a user-scope install is not
+about one repo. `copilot-cli` does not write it either, because Copilot reads the plugin's hooks.
 
 The plugin's `SessionStart` hook installs the `tsk` version the plugin requires when
 The hook installs `tsk` when none is on the path or the one found is older than that version.

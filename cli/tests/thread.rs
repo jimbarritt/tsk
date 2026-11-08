@@ -2074,7 +2074,7 @@ fn session_start_install_plugin_runs_the_four_steps_in_a_cloud_session() {
     assert_eq!(logged_calls(&log).len(), 4);
     assert_eq!(
         logged_calls(&log)[1],
-        "plugin install tsk@jimbarritt-claude-plugins --scope project -y"
+        "plugin install tsk@jimbarritt-claude-plugins --scope user -y"
     );
     assert_eq!(stderr(&output).lines().count(), 4);
 }
