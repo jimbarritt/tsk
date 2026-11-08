@@ -135,6 +135,7 @@ The stamp shows reuse only when the cache keeps the container's filesystem.
 | `tsk ledger push` stops with `origin refused the push to refs/tsk/...` | The cloud sandbox proxy refuses writes outside `refs/heads/*`, and the ledger is on a custom ref. | Run `tsk config ledger-refs branches` and push again. See [ADR 0008](../adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md) and [ADR 0016](../adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md). |
 | `git merge-base` reports unrelated branches | The clone is shallow. | `git fetch --unshallow origin`. The hook does this at session start. |
 | A new `tsk` release is not picked up | The setup script result is cached for the environment. | Change the script, for example a comment line, so the environment rebuilds. |
+| A file or setting that `setup-environment.sh` writes is missing, after a change to that file on `main` | Each new session, a regenerated one included, starts from a disk saved by an earlier setup run. Compare `/usr/local/share/tsk-setup/last-run` with the commit time of the change. | Run the environment's setup line by hand in the session. Change the environment's setup script, for example a comment line, so the next session gets a new build. |
 | The context warns that `tsk` could not be upgraded | `github.com` is blocked, or the release asset is missing for the platform. | Allow `github.com`, then run `tsk self-update` in the session and read the error. |
 
 ## Observed
@@ -148,6 +149,23 @@ On 2026-10-08, with the earlier script that built `tsk` with `cargo install` (th
 - Two sessions read stamps two seconds apart, 05:48:39Z and 05:48:41Z. The cause is not
   established.
 - `/clear` keeps the same container and does not test the cache.
+
+On 2026-11-08, in a session made by `/tsk:regenerate-cloud-instance`:
+
+- Regeneration starts a new machine from the environment's saved disk. The machine booted
+  at 21:07:13Z. `/usr/local/share/tsk-setup/last-run` read 12:43:07Z, and
+  `~/.config/tsk/config.toml` had the same time. The setup script did not run for the
+  session.
+- The saved disk holds the repo clone too. `.git/tsk-clone-id` was from 12:43:08Z. Only
+  `.git/HEAD` changed at session start (21:07:22Z), when the platform updated the checkout
+  to `main`.
+- A change to `ops/cloud/setup-environment.sh` on `main` does not reach a session started
+  from a disk saved before it. Commit 905e16e (21:06Z) adds `~/.claude/AGENTS.md` and
+  `~/.claude/CLAUDE.md`. The new session had neither file. The fetched script on `main`
+  held the step, so the URL and its cache were not the cause.
+- Running the environment's setup line by hand in the session wrote both files and exited
+  0. Claude Code reads `~/.claude/CLAUDE.md` when its process starts, so a file written by
+  hand loads in the next process, not the current one.
 
 ## Not verified
 
