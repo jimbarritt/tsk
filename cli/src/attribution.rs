@@ -281,15 +281,14 @@ pub fn normalise_key(raw: &str) -> Result<String, String> {
     Ok(format!("{}\n", text.trim_end()))
 }
 
-/// The git config keys and values the `robot` identity writes.
-pub fn git_settings(
-    name: &str,
+/// The git config keys and values of the robot's signing, without `user.name`: the session
+/// start writes them before an actor is registered.
+pub fn signing_settings(
     email: &str,
     key_file: &Path,
     signers_file: &Path,
 ) -> Vec<(&'static str, String)> {
     vec![
-        ("user.name", name.to_string()),
         ("user.email", email.to_string()),
         ("gpg.format", "ssh".to_string()),
         // A cloud image can set `gpg.ssh.program` to a platform signer that ignores
@@ -353,23 +352,49 @@ pub enum Applied {
     Written { name: String, email: String },
 }
 
-/// Write the git identity of the registered actor to the current worktree's git config, when the
-/// identity is `robot` and the actor is a robot. Does nothing for the `default` identity
-/// and for a human actor.
-pub fn apply(session: &Session) -> Result<Applied, String> {
+/// What `set_up_signing` did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Signing {
+    /// The identity is not `robot`, and there was no robot set-up to remove.
+    Off,
+    /// The identity is not `robot`: the robot set-up of an earlier session was removed.
+    Removed,
+    /// The identity is `robot`: the key, the signing config and the commit-msg hook are
+    /// written. `hook` is false when a commit-msg hook that tsk did not write is in place.
+    Written { email: String, hook: bool },
+}
+
+/// The first line of the commit-msg hook that tsk writes. tsk replaces or removes a hook
+/// only when it holds this line.
+const HOOK_MARKER: &str = "# tsk: robot attribution commit-msg hook";
+
+/// The keys `signing_settings` writes, and `user.name`, which `write_name` writes.
+const ROBOT_KEYS: [&str; 8] = [
+    "user.name",
+    "user.email",
+    "gpg.format",
+    "gpg.ssh.program",
+    "user.signingkey",
+    "gpg.ssh.allowedSignersFile",
+    "commit.gpgsign",
+    "tsk.attribution",
+];
+
+fn current_settings(session: &Session) -> Result<Settings, String> {
     let repo_file = refs::repo_config_path(&session.repo);
     let user_file = crate::config::config_file_from_env();
-    let settings = settings(repo_file.as_deref(), user_file.as_deref())?;
+    settings(repo_file.as_deref(), user_file.as_deref())
+}
+
+/// The session start step of robot attribution (T-15). With `identity = "robot"`: write the
+/// key file and the allowed signers file from `TSK_ROBOT_SIGNING_KEY`, the signing settings
+/// in the worktree's git config, and the commit-msg hook. With any other identity: remove
+/// what an earlier robot session wrote. Needs no registered actor.
+pub fn set_up_signing(session: &Session) -> Result<Signing, String> {
+    let settings = current_settings(session)?;
     if settings.identity != Identity::Robot {
-        return Ok(Applied::Unchanged);
+        return remove_signing(session);
     }
-    let Some(Current { name, kind, .. }) = actor::current(session)? else {
-        return Err("error: no actor is registered: run tsk actor register first".to_string());
-    };
-    if kind != Some(ActorKind::Robot) {
-        return Ok(Applied::Unchanged);
-    }
-    check_git_name(&name)?;
     let email = settings.email.ok_or_else(|| {
         format!(
             "error: [attribution] identity is robot and no email is set: run tsk config attribution robot --email <address>, or set {}",
@@ -391,17 +416,222 @@ pub fn apply(session: &Session) -> Result<Applied, String> {
     // Worktrees of one clone share `.git/config`. With `extensions.worktreeConfig`, each
     // worktree keeps its own settings in `config.worktree`, so two robots on two worktrees
     // keep their own name, email and key.
+    let git = &session.repo.git;
+    git.run(["config", "--local", "extensions.worktreeConfig", "true"])?;
+    for (config_key, value) in signing_settings(&email, &key_file, &signers_file) {
+        git.run(["config", "--worktree", config_key, value.as_str()])?;
+    }
+    // A marker for `remove_signing`: this worktree's signing settings were written by tsk.
+    git.run(["config", "--worktree", "tsk.attribution", "robot"])?;
+    let hook = install_hook(session)?;
+    Ok(Signing::Written { email, hook })
+}
+
+/// Remove the robot set-up of an earlier session: the settings `set_up_signing` and
+/// `write_name` wrote, the commit-msg hook tsk wrote, and the key files.
+fn remove_signing(session: &Session) -> Result<Signing, String> {
+    let git = &session.repo.git;
+    let mut removed = false;
+    let (_, marker) = git.output(["config", "--worktree", "--get", "tsk.attribution"])?;
+    if marker.status.success() {
+        for config_key in ROBOT_KEYS {
+            // Exit 5 means the key is not set, which is the state wanted.
+            let _ = git.output(["config", "--worktree", "--unset-all", config_key])?;
+        }
+        removed = true;
+    }
+    if let Some(hook) = hook_path(session)? {
+        if is_tsk_hook(&hook) {
+            std::fs::remove_file(&hook)
+                .map_err(|e| format!("error: could not remove {}: {}", hook.display(), e))?;
+            removed = true;
+        }
+    }
+    if let Ok(key_file) = key_file_path(session) {
+        for file in [key_file.with_file_name(SIGNERS_FILE_NAME), key_file] {
+            if file.exists() {
+                std::fs::remove_file(&file)
+                    .map_err(|e| format!("error: could not remove {}: {}", file.display(), e))?;
+                removed = true;
+            }
+        }
+    }
+    Ok(if removed {
+        Signing::Removed
+    } else {
+        Signing::Off
+    })
+}
+
+/// The path of the commit-msg hook of this worktree, or `None` when git names no hooks
+/// directory.
+fn hook_path(session: &Session) -> Result<Option<PathBuf>, String> {
+    // `session.repo.git` turns hooks off, and git then names its stand-in hooks path. A
+    // code worktree helper reads the repository's own hooks path.
+    let git = crate::ledger::git::Git::in_code_worktree(session.repo.git.dir());
+    let dir = git.run_line(["rev-parse", "--git-path", "hooks"])?;
+    if dir.is_empty() || Path::new(&dir) == Path::new("/dev/null") {
+        return Ok(None);
+    }
+    let dir = PathBuf::from(dir);
+    let dir = if dir.is_absolute() {
+        dir
+    } else {
+        session.repo.git.dir().join(dir)
+    };
+    Ok(Some(dir.join("commit-msg")))
+}
+
+/// Whether `hook` is a commit-msg hook that tsk wrote: it holds the marker line, or it is a
+/// link to the script `ops/local/git-commit-msg.sh` that tsk's own repo linked before T-15.
+fn is_tsk_hook(hook: &Path) -> bool {
+    if let Ok(target) = std::fs::read_link(hook) {
+        if target.ends_with("ops/local/git-commit-msg.sh") {
+            return true;
+        }
+    }
+    std::fs::read_to_string(hook)
+        .map(|text| text.lines().any(|line| line == HOOK_MARKER))
+        .unwrap_or(false)
+}
+
+/// The text of the commit-msg hook. It exits 0 when `tsk` is not on the PATH or has no
+/// `actor commit-msg` (older than 0.48.0), so a commit never fails because of the hook.
+pub fn hook_text() -> String {
+    format!(
+        "#!/bin/sh\n{}\n# Written by tsk thread session-start. It writes the Agent-Session trailer.\ncommand -v tsk >/dev/null 2>&1 || exit 0\ntsk actor commit-msg \"$1\" 2>/dev/null\nexit 0\n",
+        HOOK_MARKER
+    )
+}
+
+/// Write the commit-msg hook, unless a hook that tsk did not write is in place. Returns
+/// whether the tsk hook is in place.
+fn install_hook(session: &Session) -> Result<bool, String> {
+    let Some(hook) = hook_path(session)? else {
+        return Ok(false);
+    };
+    if hook.symlink_metadata().is_ok() && !is_tsk_hook(&hook) {
+        return Ok(false);
+    }
+    if let Some(parent) = hook.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("error: could not create {}: {}", parent.display(), e))?;
+    }
+    // A link from before T-15 is replaced by a file.
+    let _ = std::fs::remove_file(&hook);
+    std::fs::write(&hook, hook_text())
+        .map_err(|e| format!("error: could not write {}: {}", hook.display(), e))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("error: could not make {} executable: {}", hook.display(), e))?;
+    }
+    Ok(true)
+}
+
+/// Write `user.name` of the registered robot, when the identity is `robot` and the actor is a
+/// robot. Does nothing for the `default` identity and for a human actor.
+pub fn write_name(session: &Session) -> Result<Applied, String> {
+    let settings = current_settings(session)?;
+    if settings.identity != Identity::Robot {
+        return Ok(Applied::Unchanged);
+    }
+    let Some(Current { name, kind, .. }) = actor::current(session)? else {
+        return Err("error: no actor is registered: run tsk actor register first".to_string());
+    };
+    if kind != Some(ActorKind::Robot) {
+        return Ok(Applied::Unchanged);
+    }
+    check_git_name(&name)?;
+    let git = &session.repo.git;
+    git.run(["config", "--local", "extensions.worktreeConfig", "true"])?;
+    git.run(["config", "--worktree", "user.name", name.as_str()])?;
+    let email = settings.email.unwrap_or_default();
+    Ok(Applied::Written { name, email })
+}
+
+/// Whether this worktree holds the signing settings that `set_up_signing` writes.
+pub fn signing_is_set_up(session: &Session) -> bool {
     session
         .repo
         .git
-        .run(["config", "--local", "extensions.worktreeConfig", "true"])?;
-    for (config_key, value) in git_settings(&name, &email, &key_file, &signers_file) {
-        session
-            .repo
-            .git
-            .run(["config", "--worktree", config_key, value.as_str()])?;
+        .output(["config", "--worktree", "--get", "tsk.attribution"])
+        .map(|(_, output)| output.status.success())
+        .unwrap_or(false)
+}
+
+/// Write the whole git identity: the signing set-up, then `user.name`. Does nothing for the
+/// `default` identity, and writes no `user.name` for a human actor.
+pub fn apply(session: &Session) -> Result<Applied, String> {
+    if let Signing::Off | Signing::Removed = set_up_signing(session)? {
+        return Ok(Applied::Unchanged);
     }
-    Ok(Applied::Written { name, email })
+    write_name(session)
+}
+
+/// The commit message with the harness's session trailers replaced: `Claude-Session`,
+/// `Agent-Session` and `Co-Authored-By: Claude` lines go, so the caller can add one
+/// `Agent-Session` trailer.
+pub fn strip_session_trailers(message: &str) -> String {
+    let mut out = String::new();
+    for line in message.lines() {
+        let lower = line.to_ascii_lowercase();
+        if lower.starts_with("claude-session:")
+            || lower.starts_with("agent-session:")
+            || lower.starts_with("co-authored-by: claude")
+        {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// `tsk actor commit-msg <file>`: the commit-msg hook. With `identity = "robot"` and a known
+/// session URN, it writes `Agent-Session: <session URN>` (ADR 0029) in place of the
+/// harness's session trailers. It opens no ledger store, and exits 0 whatever happens, so a
+/// commit never fails because of it.
+pub fn run_commit_msg(file: &Path) -> Result<i32, String> {
+    let Ok(cwd) = std::env::current_dir() else {
+        return Ok(0);
+    };
+    let Ok(repo) = crate::ledger::location::Repo::discover(&cwd) else {
+        return Ok(0);
+    };
+    let repo_file = refs::repo_config_path(&repo);
+    let user_file = crate::config::config_file_from_env();
+    let Ok(settings) = settings(repo_file.as_deref(), user_file.as_deref()) else {
+        return Ok(0);
+    };
+    if settings.identity != Identity::Robot {
+        return Ok(0);
+    }
+    let cloud = std::env::var(crate::thread::session::CLOUD_SESSION_VAR)
+        .ok()
+        .filter(|v| !v.is_empty());
+    let Some(urn) = crate::thread::session::session_urn_of(cloud.as_deref(), &repo.git_dir) else {
+        return Ok(0);
+    };
+    let Ok(message) = std::fs::read_to_string(file) else {
+        return Ok(0);
+    };
+    if std::fs::write(file, strip_session_trailers(&message)).is_err() {
+        return Ok(0);
+    }
+    let trailer = format!("Agent-Session: {}", urn);
+    let file_arg = file.display().to_string();
+    let _ = repo.git.run([
+        "interpret-trailers",
+        "--in-place",
+        "--if-exists",
+        "replace",
+        "--trailer",
+        trailer.as_str(),
+        file_arg.as_str(),
+    ]);
+    Ok(0)
 }
 
 fn key_file_path(session: &Session) -> Result<PathBuf, String> {
@@ -611,17 +841,11 @@ mod tests {
     }
 
     #[test]
-    fn the_git_settings_name_the_actor_the_email_and_the_signing_key() {
-        let settings = git_settings(
-            "Credit Where It's Due",
-            "r@example.com",
-            Path::new("/k"),
-            Path::new("/s"),
-        );
+    fn the_signing_settings_name_the_email_and_the_signing_key_and_no_user_name() {
+        let settings = signing_settings("r@example.com", Path::new("/k"), Path::new("/s"));
         assert_eq!(
             settings,
             vec![
-                ("user.name", "Credit Where It's Due".to_string()),
                 ("user.email", "r@example.com".to_string()),
                 ("gpg.format", "ssh".to_string()),
                 ("gpg.ssh.program", "ssh-keygen".to_string()),
@@ -630,6 +854,41 @@ mod tests {
                 ("commit.gpgsign", "true".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn the_session_trailers_of_the_harness_are_stripped_and_other_trailers_kept() {
+        let message = "Subject\n\nBody.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nco-authored-by: claude <x@y>\nClaude-Session: https://claude.ai/code/session_1\nAgent-Session: urn:tsk:session:claude-cloud:cse_old\nCo-Authored-By: Jim Barritt <jim@example.com>\n";
+        assert_eq!(
+            strip_session_trailers(message),
+            "Subject\n\nBody.\n\nCo-Authored-By: Jim Barritt <jim@example.com>\n"
+        );
+    }
+
+    #[test]
+    fn the_hook_holds_the_marker_and_does_nothing_without_tsk() {
+        let text = hook_text();
+        assert!(text.starts_with("#!/bin/sh\n"));
+        assert!(text.lines().any(|line| line == HOOK_MARKER));
+        assert!(text.contains("command -v tsk >/dev/null 2>&1 || exit 0"));
+        assert!(text.contains("tsk actor commit-msg \"$1\" 2>/dev/null\nexit 0\n"));
+    }
+
+    #[test]
+    fn a_hook_is_the_tsk_hook_only_with_the_marker_or_the_old_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let ours = dir.path().join("ours");
+        std::fs::write(&ours, hook_text()).unwrap();
+        assert!(is_tsk_hook(&ours));
+        let theirs = dir.path().join("theirs");
+        std::fs::write(&theirs, "#!/bin/sh\nexit 0\n").unwrap();
+        assert!(!is_tsk_hook(&theirs));
+        #[cfg(unix)]
+        {
+            let old = dir.path().join("old");
+            std::os::unix::fs::symlink("/repo/ops/local/git-commit-msg.sh", &old).unwrap();
+            assert!(is_tsk_hook(&old));
+        }
     }
 
     #[test]

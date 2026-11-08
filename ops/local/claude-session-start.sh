@@ -15,12 +15,6 @@ if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
   git fetch --unshallow origin >/dev/null 2>&1 || true
 fi
 
-# Install the commit-msg hook that writes the Agent-Session trailer (ADR 0029). A link
-# keeps the installed hook current when the script changes.
-hook_dir="$(git rev-parse --git-path hooks)"
-mkdir -p "$hook_dir" 2>/dev/null || true
-ln -sf "$REPO_ROOT/ops/local/git-commit-msg.sh" "$hook_dir/commit-msg" 2>/dev/null || true
-
 INPUT="$(cat)"
 SOURCE="$(printf '%s' "$INPUT" | jq -r '.source // empty')"
 

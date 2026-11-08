@@ -170,11 +170,18 @@ email = "robots@jimbarritt.com"
   `tsk config attribution robot --email <address>` writes them to `.tsk/config.toml`.
 - The default identity leaves the `Co-Authored-By: Claude` and `Claude-Session` trailers
   in place.
-- In a cloud session, the `commit-msg` hook `ops/local/git-commit-msg.sh` removes both and
-  writes `Agent-Session: urn:tsk:session:claude-cloud:<cse id>` (ADR 0029). The
-  `SessionStart` script `ops/local/claude-session-start.sh` links the hook into
-  `.git/hooks/commit-msg`. The cloud environment variable `CLAUDE_CODE_REMOTE_SESSION_ID`
-  supplies the ID. Outside a cloud session the hook changes nothing.
+- `tsk thread session-start`, which the `SessionStart` hook runs, does the set-up before
+  the first turn of a session (T-15). With `identity = "robot"` it writes the key file, the
+  allowed signers file, the signing settings and the `commit-msg` hook, and prints
+  `Attribution: robot` in the session context. No tool call of the session reads
+  `TSK_ROBOT_SIGNING_KEY`. `tsk actor register` then writes `user.name` only.
+- The `commit-msg` hook runs `tsk actor commit-msg`. It removes the `Claude-Session` and
+  `Co-Authored-By: Claude` trailers and writes `Agent-Session: <session URN>` (ADR 0029).
+  It exits 0 when `tsk` is missing or older than 0.48.0, so a commit never fails because
+  of it. tsk does not replace a `commit-msg` hook that it did not write.
+- With `identity = "default"`, or with the key removed from the settings, the next session
+  start removes what an earlier robot session wrote: the signing settings, `user.name`,
+  the hook and the key files.
 
 ## 7. Check a robot commit locally
 
