@@ -679,18 +679,32 @@ pub fn run_git_identity() -> Result<i32, String> {
 }
 
 /// `tsk config attribution`: print the settings, or write them to the repo config.
-pub fn run_config(identity: Option<String>, email: Option<String>) -> Result<(), String> {
-    let session_repo = {
-        let cwd = std::env::current_dir()
-            .map_err(|e| format!("error: could not read the current directory: {}", e))?;
-        crate::ledger::location::Repo::discover(&cwd)?
+pub fn run_config(
+    identity: Option<String>,
+    email: Option<String>,
+    user: bool,
+) -> Result<(), String> {
+    // With --user the command needs no repo, so a cloud setup script can run it from any
+    // directory. Outside a repo it reads the user config alone.
+    let cwd = std::env::current_dir()
+        .map_err(|e| format!("error: could not read the current directory: {}", e))?;
+    let session_repo = match crate::ledger::location::Repo::discover(&cwd) {
+        Ok(repo) => Some(repo),
+        Err(_) if user => None,
+        Err(e) => return Err(e),
     };
-    let repo_file = refs::repo_config_path(&session_repo);
+    let repo_file = session_repo.as_ref().and_then(refs::repo_config_path);
     let user_file = crate::config::config_file_from_env();
     if identity.is_some() || email.is_some() {
-        let file = repo_file.clone().ok_or_else(|| {
-            "error: tsk config attribution needs a repo with a working tree: it writes .tsk/config.toml at the top of it".to_string()
-        })?;
+        let file = if user {
+            user_file.clone().ok_or_else(|| {
+                "error: no user config path: set HOME or XDG_CONFIG_HOME".to_string()
+            })?
+        } else {
+            repo_file.clone().ok_or_else(|| {
+                "error: tsk config attribution needs a repo with a working tree: it writes .tsk/config.toml at the top of it; use --user for the user config".to_string()
+            })?
+        };
         let identity = match identity {
             Some(value) => Some(Identity::parse(&value).ok_or_else(|| {
                 format!("error: unknown identity {}: use default or robot", value)
