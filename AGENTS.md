@@ -278,6 +278,34 @@ M-STORY: a session spent real time and real concern diagnosing `main` as
 force-pushed with a disjoint history, when the clone was simply shallow at two
 different boundaries.
 
+## Recovery from a main rewrite
+
+M-TSK-ATTRIB (T-08) rewrites `main` once: `git filter-repo` corrects the author,
+committer and trailers of every commit for attribution, re-signs each commit with the
+robot key, and force-pushes the result. The rewrite changes commit metadata only. Every
+tree stays identical to the commit it replaces.
+
+A clone made before that force-push shares no commit with the new `main`. After it,
+`git merge-base` between the old local `main` and the new `origin/main` finds no common
+ancestor, the same symptom as the shallow-clone case above. Check `git rev-parse
+--is-shallow-repository` to tell them apart: `true` means the clone is shallow (see
+above); `false` means the rewrite happened.
+
+A cloud session recovers through regeneration (`/tsk:regenerate-cloud-instance`): the
+new session clones `main` fresh, so there is nothing to reconcile, and the old session
+is marked for archive. This runs case by case, as Jim returns to each session, the rule
+M-TSK-BOOT-07 set for the bootstrap migration. No bulk migration.
+
+A local clone, or any worktree that outlives a cloud container, recovers by hand:
+
+1. `git fetch origin main`, then the two checks above, to confirm the rewrite.
+2. A clean tree with nothing unpushed: `git reset --hard origin/main`. Safe, because the
+   tree content does not change.
+3. Uncommitted changes: `git stash -u`, then step 2, then `git stash pop`.
+4. Local commits made after the rewrite: `git rebase --onto origin/main <old main tip
+   sha> HEAD`. This replays only the local-only commits onto the new tip, and applies
+   cleanly for the same reason as step 2.
+
 ## Commit attribution
 
 Attribution follows whoever runs the commit and push, not a fixed rule for the repo.
