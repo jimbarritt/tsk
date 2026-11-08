@@ -217,5 +217,7 @@ Git calls `ssh-keygen` to sign a commit. The cloud image does not include it. Ad
 to the setup script of the environment that holds `TSK_ROBOT_SIGNING_KEY`:
 
 ```bash
-command -v ssh-keygen >/dev/null || apt-get install -y openssh-client
+command -v ssh-keygen >/dev/null || { apt-get update -qq && apt-get install -y openssh-client; }
 ```
+
+A fresh container has no package lists, so `apt-get install` alone fails with `has no installation candidate`. The `apt-get update` fixes that.
