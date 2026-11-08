@@ -147,7 +147,6 @@ impl Machine {
             .env_remove("TSK_SETUP_REFRESH")
             .env_remove("TSK_SETUP_URL")
             .env_remove("DOLT_ROOT_PATH")
-            .env_remove("TSK_PLUGIN_ENSURE_MINUTES")
             .env_remove("CLAUDE_ENV_FILE")
             .env("CLAUDE_LOG", self.log("claude"))
             .env("DOLT_LOG", self.log("dolt"))
@@ -273,112 +272,76 @@ fn the_dolt_installer_reads_the_identity_from_the_file_and_asks_dolt_when_it_is_
     );
 }
 
-#[test]
-fn the_repo_script_adds_and_refreshes_the_marketplace_once_for_both_plugins() {
-    let Some(machine) = Machine::new() else {
-        return;
-    };
-    machine.write_identity();
-    let out = machine.repo_hook(&[]);
-    let context: serde_json::Value = serde_json::from_str(&out).unwrap();
-    assert_eq!(
-        context["hookSpecificOutput"]["additionalContext"],
-        "tsk context"
-    );
-    assert_eq!(
-        machine.lines("claude"),
-        vec![
-            "plugin marketplace add jimbarritt/claude-plugins",
-            "plugin install swe@jimbarritt-claude-plugins --scope project -y",
-            "plugin install tsk@jimbarritt-claude-plugins --scope project -y",
-            "plugin marketplace update jimbarritt-claude-plugins",
-            "plugin update swe@jimbarritt-claude-plugins --scope project",
-            "plugin update tsk@jimbarritt-claude-plugins --scope project",
-        ]
-    );
-    assert!(machine.stamp("plugin-ensure-ok").is_file());
-}
-
-#[test]
-fn the_repo_script_skips_the_plugin_steps_within_the_hour_and_on_demand_runs_them() {
-    let Some(machine) = Machine::new() else {
-        return;
-    };
-    machine.write_identity();
-    machine.repo_hook(&[]);
-    machine.clear();
-
-    // Within the hour nothing is run, and the output is the same.
-    let out = machine.repo_hook(&[]);
-    assert_eq!(machine.lines("claude"), Vec::<String>::new());
-    let context: serde_json::Value = serde_json::from_str(&out).unwrap();
-    assert_eq!(
-        context["hookSpecificOutput"]["additionalContext"],
-        "tsk context"
-    );
-
-    // Zero minutes means every time.
-    machine.repo_hook(&[("TSK_PLUGIN_ENSURE_MINUTES", "0")]);
-    assert_eq!(machine.lines("claude").len(), 6);
-
-    // A stamp older than the limit runs them again.
-    machine.clear();
-    let past = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600);
-    std::fs::File::options()
-        .write(true)
-        .open(machine.stamp("plugin-ensure-ok"))
-        .unwrap()
-        .set_modified(past)
-        .unwrap();
-    machine.repo_hook(&[]);
-    assert_eq!(machine.lines("claude").len(), 6);
-}
-
-#[test]
-fn a_failed_plugin_step_is_a_warning_in_the_context_and_leaves_no_stamp() {
-    let Some(machine) = Machine::new() else {
-        return;
-    };
-    machine.write_identity();
-    let out = machine.repo_hook(&[("CLAUDE_FAIL", "install")]);
-    let context: serde_json::Value = serde_json::from_str(&out).unwrap();
-    let text = context["hookSpecificOutput"]["additionalContext"]
-        .as_str()
-        .unwrap();
-    assert!(text.starts_with("tsk context "), "{}", text);
-    assert!(
-        text.contains("WARNING: installing the swe plugin failed: it broke"),
-        "{}",
-        text
-    );
-    assert!(
-        text.contains("WARNING: installing the tsk plugin failed: it broke"),
-        "{}",
-        text
-    );
-    // Neither plugin installed, so neither is updated; the marketplace is still refreshed.
-    let lines = machine.lines("claude");
-    assert!(lines
+/// Writes installed_plugins.json with a user-scope install of each plugin in `plugins`.
+fn install_at_user_scope(machine: &Machine, plugins: &[&str]) {
+    let dir = machine.home().join(".claude").join("plugins");
+    std::fs::create_dir_all(&dir).unwrap();
+    let entries: Vec<String> = plugins
         .iter()
-        .any(|l| l.starts_with("plugin marketplace update")));
-    assert!(!lines.iter().any(|l| l.starts_with("plugin update")));
-    assert!(!machine.stamp("plugin-ensure-ok").exists());
+        .map(|p| {
+            format!(
+                "\"{p}@jimbarritt-claude-plugins\":[{{\"scope\":\"user\",\"version\":\"1.0.0\"}}]"
+            )
+        })
+        .collect();
+    std::fs::write(
+        dir.join("installed_plugins.json"),
+        format!("{{\"version\":2,\"plugins\":{{{}}}}}", entries.join(",")),
+    )
+    .unwrap();
+}
 
-    // A failed marketplace refresh warns once for each plugin.
-    let out = machine.repo_hook(&[("CLAUDE_FAIL", "marketplace")]);
+#[test]
+fn the_repo_script_installs_no_plugin_and_adds_nothing_when_both_are_at_user_scope() {
+    let Some(machine) = Machine::new() else {
+        return;
+    };
+    machine.write_identity();
+    install_at_user_scope(&machine, &["tsk", "swe"]);
+    let out = machine.repo_hook(&[]);
+    let context: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        context["hookSpecificOutput"]["additionalContext"],
+        "tsk context"
+    );
+    assert!(machine.lines("claude").is_empty());
+}
+
+#[test]
+fn the_repo_script_warns_for_each_plugin_missing_at_user_scope() {
+    let Some(machine) = Machine::new() else {
+        return;
+    };
+    machine.write_identity();
+    install_at_user_scope(&machine, &["swe"]);
+    let out = machine.repo_hook(&[]);
     let context: serde_json::Value = serde_json::from_str(&out).unwrap();
     let text = context["hookSpecificOutput"]["additionalContext"]
         .as_str()
         .unwrap();
+    assert!(text.starts_with("tsk context "), "{text}");
     assert!(
-        text.contains("WARNING: adding the jimbarritt-claude-plugins marketplace failed: it broke"),
-        "{}",
-        text
+        text.contains("WARNING: the tsk plugin is not installed at user scope.")
+            && text.contains("claude plugin install tsk@jimbarritt-claude-plugins --scope user"),
+        "{text}"
     );
+    assert!(!text.contains("the swe plugin"), "{text}");
+    assert!(machine.lines("claude").is_empty());
+
+    // With no installed_plugins.json, both are missing.
+    std::fs::remove_file(
+        machine
+            .home()
+            .join(".claude")
+            .join("plugins")
+            .join("installed_plugins.json"),
+    )
+    .unwrap();
+    let out = machine.repo_hook(&[]);
     assert_eq!(
-        text.matches("adding the jimbarritt-claude-plugins marketplace failed")
-            .count(),
-        2
+        out.matches("is not installed at user scope").count(),
+        2,
+        "{out}"
     );
 }
 
@@ -611,76 +574,19 @@ fn the_setup_refresh_updates_a_plugin_older_than_its_release() {
     }
     let out = refresh_plugins(&machine, "0.3.9", "0.3.10");
     assert!(
-        out.contains("updated the tsk plugin at user scope from 0.3.9 to 0.3.10")
-            && out.contains("updated the tsk plugin at project scope from 0.3.9 to 0.3.10"),
+        out.contains("updated the tsk plugin from 0.3.9 to 0.3.10"),
         "{out}"
     );
     assert!(!out.contains("swe"), "{out}");
+    // The project-scope install is left alone.
     assert_eq!(
         machine.lines("claude"),
         vec![
             "plugin marketplace update jimbarritt-claude-plugins",
             "plugin update tsk@jimbarritt-claude-plugins --scope user",
-            "plugin update tsk@jimbarritt-claude-plugins --scope project",
         ]
     );
     assert!(machine.lines("setup").is_empty());
-}
-
-#[test]
-fn the_setup_refresh_updates_a_project_scope_install_older_than_the_user_scope_one() {
-    let Some(machine) = Machine::new() else {
-        return;
-    };
-    if !have("curl") || !have("sha256sum") {
-        return;
-    }
-    refresh_plugins(&machine, "0.3.10", "0.3.10");
-    let plugins = machine.home().join(".claude").join("plugins");
-    let path = plugins.join("installed_plugins.json");
-    let text = std::fs::read_to_string(&path).unwrap();
-    // The user-scope tsk entry stays at 0.3.10; the project-scope one drops to 0.3.9.
-    let mut json: serde_json::Value = serde_json::from_str(&text).unwrap();
-    json["plugins"]["tsk@jimbarritt-claude-plugins"][1]["version"] = "0.3.9".into();
-    std::fs::write(&path, json.to_string()).unwrap();
-    let script = machine.root.path().join("setup-environment.sh");
-    let hook = machine
-        .repo()
-        .join("plugin")
-        .join("hooks")
-        .join("refresh-setup.sh");
-    let output = machine
-        .command(&hook)
-        .env("TSK_SETUP_URL", format!("file://{}", script.display()))
-        .env(
-            "TSK_PLUGIN_MANIFEST_URL_TSK",
-            format!(
-                "file://{}",
-                machine.root.path().join("tsk-plugin.json").display()
-            ),
-        )
-        .env(
-            "TSK_PLUGIN_MANIFEST_URL_SWE",
-            format!(
-                "file://{}",
-                machine.root.path().join("swe-plugin.json").display()
-            ),
-        )
-        .output()
-        .unwrap();
-    let out = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        out.contains("updated the tsk plugin at project scope from 0.3.9 to 0.3.10"),
-        "{out}"
-    );
-    assert!(!out.contains("user scope"), "{out}");
-    assert_eq!(
-        machine.lines("claude"),
-        vec![
-            "plugin marketplace update jimbarritt-claude-plugins",
-            "plugin update tsk@jimbarritt-claude-plugins --scope project",
-        ]
-    );
 }
 
 #[test]

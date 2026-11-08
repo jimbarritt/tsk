@@ -71,9 +71,17 @@ ledger-refs branches|custom` writes the file. Whichever refs a ledger uses, a gi
 command you run by hand names the ref in full, such as `refs/tsk/ledger`. Agents only ever touch the ledger through the `tsk` commands and the ledger
 store, a Dolt database at a fixed path outside the repository.
 
-The repo's `SessionStart` script (`ops/local/claude-session-start.sh`) installs the
-`tsk` plugin (`plugin/`) from the `jimbarritt/claude-plugins` marketplace, whose
-`git-subdir` entry points at `plugin/` in this repo, installs `dolt` 2.5.0 when no
+The `tsk` and `swe` plugins are installed at user scope, never at project scope. The
+`tsk` plugin (`plugin/`) comes from the `jimbarritt/claude-plugins` marketplace, whose
+`git-subdir` entry points at `plugin/` in this repo. A cloud environment's setup script
+(`ops/cloud/setup-environment.sh`) installs both. On any other machine, a person installs
+them once with `claude plugin install <plugin>@jimbarritt-claude-plugins --scope user`.
+
+The repo's `SessionStart` script (`ops/local/claude-session-start.sh`) installs no plugin.
+It adds a `WARNING:` line to the context for each plugin with no user-scope install. It
+runs `plugin/hooks/refresh-setup.sh`, which in a cloud container runs the set-up again
+when `setup-environment.sh` changed on `main`, and updates a user-scope plugin older than
+its release (see `docs/user-guide/new-cloud-environment.md`). It installs `dolt` 2.5.0 when no
 `dolt` 2.5.0 or later is installed, installs `tsk` from the latest release when the
 installed binary is older than `plugin/tsk-version`, then runs `tsk thread session-start`.
 Neither hook builds `tsk` from source, and a build at or above that version (from
@@ -95,16 +103,11 @@ only: stop it with `tsk ledger server stop` before a write by hand. An idle serv
 after 1800 s (since 0.25.0; `TSK_DOLT_SERVER_IDLE_SECS` overrides it). See
 `docs/adr/0018-a-local-dolt-server-per-ledger-store-behind-a-switch.md`.
 
-The plugin steps take about 4 s for each plugin, so the script runs them in the
-background while `tsk` starts, and skips them for 60 minutes after a run with no warning
-(`TSK_PLUGIN_ENSURE_MINUTES=0` runs them at every start). A new plugin version is picked up
-within that time. See `docs/arch/2026-10-20-session-start-and-pause.md`.
-
 The repo script runs the command itself because Claude Code reads plugin hooks and
 skills once, when its process starts. A plugin installed during startup has no hooks in
 that process, and `/clear` starts a new session in the same process without reading them
 again. For the same reason, the first `/clear` after a plugin version bump runs the old
-version's hooks and skills, even though the repo script installs the new version. A new
+version's hooks and skills, even though session start installs the new version. A new
 process loads the new version: open a new cloud session, or restart this one.
 
 **Before anything else this session**, confirm `$TSK_LEDGER_WT` is set and the

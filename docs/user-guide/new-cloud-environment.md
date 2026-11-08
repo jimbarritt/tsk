@@ -20,8 +20,9 @@ API call creates one. See
 
 A cloud session does not load plugins installed on your machine, or plugins that the
 repo's `.claude/settings.json` enables. A plugin installed from the command line works in a
-cloud session. The setup script installs it at user scope (step 3), and a repo's own
-`SessionStart` hook can install it at project scope. See
+cloud session. The setup script installs it at user scope (step 3). Install the plugins at
+user scope only: two install records of one plugin, at user and project scope, make it
+unclear which version loads. See
 [claude-code-plugin-packaging.md](../kb/claude-code-plugin-packaging.md#where-plugins-load).
 
 ## 1. Create the environment
@@ -84,10 +85,8 @@ install --scope user`, and updates each with `claude plugin update --scope user`
 the environment, in any repo, so a repo needs no committed `SessionStart` hook and no
 regeneration. The plugin's own hook installs `dolt` and `tsk` when they are missing, fetches
 the ledger and prints the context. A failed plugin step prints a `WARNING:` line and does
-not stop the script. A repo that also installs the plugin at project scope, as this repo
-does, has two install records of one plugin. `claude plugin list` shows both, and the
-plugin loads once. When the two versions differ, the Claude Code docs do not say which
-loads: keep them equal.
+not stop the script. This repo's own `SessionStart` script installs no plugin: it adds a
+`WARNING:` line to the context when `tsk` or `swe` has no user-scope install.
 
 Every download is checked against a SHA-256 before it is installed:
 
@@ -127,10 +126,9 @@ stores the new SHA-256. It prints one line in the session context, and the text 
 `~/.claude/AGENTS.md` when that file exists, because Claude Code can read
 `~/.claude/CLAUDE.md` before the hook writes it. A disk saved before the `args` file existed
 takes `--use-robot-attribution <email>` from the user tsk config when it sets robot
-attribution. When the script has not changed, the check compares the
+attribution. After that, the check compares the
 user-scope version of the `tsk` and `swe` plugins in `~/.claude/plugins/installed_plugins.json`
-with the version in each plugin's manifest on `main`, and updates an older one, at project
-scope too when the repo has a project-scope install. A plugin release then reaches a new
+with the version in each plugin's manifest on `main`, and updates an older one. A project-scope install is left alone. A plugin release then reaches a new
 session with no rebuild. The update loads in the next Claude Code process, and the context
 line says so. The check fetches each file by the commit SHA of `main`, which `git
 ls-remote` reads from `github.com`, because the CDN keeps a file under `main` for up to 5
@@ -153,7 +151,7 @@ The stamp shows reuse only when the cache keeps the container's filesystem.
 | The script stops with `checksum mismatch for <name>` | A download is corrupt or incomplete, or a pinned value is out of date. | Run the script again. If it repeats, check that the version in the script is the one whose checksum is pinned. |
 | The script stops at the `just` step with a pip error | `pip` or `python3` is missing, or `pypi.org` and `files.pythonhosted.org` are blocked. | Allow those hosts in step 2, or install `just` another way. |
 | The `SessionStart` context reports `WARNING: adding the ... marketplace failed` | `github.com` is blocked, or the marketplace repo is not readable. | Allow `github.com`. Confirm `jimbarritt/claude-plugins` is readable from the session. |
-| A session starts with no tsk context, and `/tsk:` commands are missing | The setup script did not install the plugins, or the environment still holds an older script. | Run `claude plugin list` in the session. Run `tsk install-plugin claude-cli` in the repo to add a project-scope install and the repo hook. |
+| A session starts with no tsk context, and `/tsk:` commands are missing | The setup script did not install the plugins, or the environment still holds an older script. | Run `claude plugin list` in the session. Install a missing plugin with `claude plugin install <plugin>@jimbarritt-claude-plugins --scope user`, then start a new session. |
 | `$TSK_LEDGER_WT` is empty | The hook did not run, or `tsk thread session-start` failed. | Run `WT="${TSK_LEDGER_WT:-$(tsk ledger fetch)}"` and read any error. |
 | `tsk ledger push` stops with `origin refused the push to refs/tsk/...` | The cloud sandbox proxy refuses writes outside `refs/heads/*`, and the ledger is on a custom ref. | Run `tsk config ledger-refs branches` and push again. See [ADR 0008](../adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md) and [ADR 0016](../adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md). |
 | `git merge-base` reports unrelated branches | The clone is shallow. | `git fetch --unshallow origin`. The hook does this at session start. |
