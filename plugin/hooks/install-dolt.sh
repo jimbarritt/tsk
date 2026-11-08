@@ -60,8 +60,20 @@ install_dolt() {
   asset="dolt-$os-$arch"
 
   tmp="$(mktemp -d)"
-  if ! curl -fsSL "https://github.com/dolthub/dolt/releases/download/v$DOLT_VERSION/$asset.tar.gz" \
-    -o "$tmp/$asset.tar.gz" 2>"$tmp/curl.log"; then
+  # GitHub's release downloads fail now and then with a 503, a 504 or a dropped
+  # connection. curl's --retry repeats a 5xx and a timeout. The loop repeats the other
+  # errors. --retry-all-errors would do both, but curl before 7.71 has no such option.
+  downloaded=no
+  for attempt in 1 2 3; do
+    if curl -fsSL --retry 3 --retry-delay 5 \
+      "https://github.com/dolthub/dolt/releases/download/v$DOLT_VERSION/$asset.tar.gz" \
+      -o "$tmp/$asset.tar.gz" 2>"$tmp/curl.log"; then
+      downloaded=yes
+      break
+    fi
+    [ "$attempt" = 3 ] || sleep 10
+  done
+  if [ "$downloaded" != yes ]; then
     warn "downloading dolt $DOLT_VERSION failed: $(tr '\n' ' ' <"$tmp/curl.log")"
     rm -rf "$tmp"
     return 1
