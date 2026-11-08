@@ -117,6 +117,10 @@ fi
 # binary claims the event by session ID and source, and the second run exits
 # with no output.
 TSK_MSG=""
+# A cloud container runs its environment's set-up again when the set-up script on main
+# changed since its disk was saved. It runs before the installers, which then bring dolt
+# and tsk up to the versions this checkout needs.
+SETUP_MSG="$("$REPO_ROOT/plugin/hooks/refresh-setup.sh" | tr '\n' ' ')"
 # tsk's ledger runs the dolt binary, so install it before tsk
 # runs. The installer prints a WARNING on failure and always exits 0.
 DOLT_MSG="$("$REPO_ROOT/plugin/hooks/install-dolt.sh" | tr '\n' ' ')"
@@ -143,7 +147,7 @@ fi
 PLUGIN_MSG="$(tr '\n' ' ' <"$PLUGIN_MSG_FILE" | sed 's/ *$//')"
 rm -f "$PLUGIN_LOG" "$PLUGIN_MSG_FILE"
 
-CONTEXT="$(printf '%s %s' "$TSK_MSG" "$TSK_INSTALL_MSG $PLUGIN_MSG $DOLT_MSG" | sed 's/^ *//; s/ *$//')"
+CONTEXT="$(printf '%s %s' "$TSK_MSG" "$SETUP_MSG $TSK_INSTALL_MSG $PLUGIN_MSG $DOLT_MSG" | sed 's/^ *//; s/ *$//')"
 if [ -n "$CONTEXT" ]; then
   jq -n --arg context "$CONTEXT" '{
     hookSpecificOutput: {

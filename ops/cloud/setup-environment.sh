@@ -9,6 +9,12 @@ SETUP_DIR="${SETUP_DIR:-/usr/local/share/tsk-setup}"
 # --use-robot-attribution <email>: turn on robot commit attribution (M-TSK-ATTRIB) for the
 # sessions of this environment, with <email> as the robot's git email. The environment also
 # needs the secret TSK_ROBOT_SIGNING_KEY. Without the option, attribution stays off.
+# The options go to a file in home, so plugin/hooks/refresh-setup.sh can run this script
+# again with them at session start, when this file on main changes.
+SETUP_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsk/setup"
+mkdir -p "$SETUP_STATE_DIR"
+if [ "$#" -gt 0 ]; then printf '%s\n' "$@"; fi > "$SETUP_STATE_DIR/args"
+
 ROBOT_EMAIL=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
