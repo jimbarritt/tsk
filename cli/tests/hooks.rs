@@ -611,7 +611,8 @@ fn the_setup_refresh_updates_a_plugin_older_than_its_release() {
     }
     let out = refresh_plugins(&machine, "0.3.9", "0.3.10");
     assert!(
-        out.contains("updated the tsk plugin from 0.3.9 to 0.3.10"),
+        out.contains("updated the tsk plugin at user scope from 0.3.9 to 0.3.10")
+            && out.contains("updated the tsk plugin at project scope from 0.3.9 to 0.3.10"),
         "{out}"
     );
     assert!(!out.contains("swe"), "{out}");
@@ -624,6 +625,62 @@ fn the_setup_refresh_updates_a_plugin_older_than_its_release() {
         ]
     );
     assert!(machine.lines("setup").is_empty());
+}
+
+#[test]
+fn the_setup_refresh_updates_a_project_scope_install_older_than_the_user_scope_one() {
+    let Some(machine) = Machine::new() else {
+        return;
+    };
+    if !have("curl") || !have("sha256sum") {
+        return;
+    }
+    refresh_plugins(&machine, "0.3.10", "0.3.10");
+    let plugins = machine.home().join(".claude").join("plugins");
+    let path = plugins.join("installed_plugins.json");
+    let text = std::fs::read_to_string(&path).unwrap();
+    // The user-scope tsk entry stays at 0.3.10; the project-scope one drops to 0.3.9.
+    let mut json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    json["plugins"]["tsk@jimbarritt-claude-plugins"][1]["version"] = "0.3.9".into();
+    std::fs::write(&path, json.to_string()).unwrap();
+    let script = machine.root.path().join("setup-environment.sh");
+    let hook = machine
+        .repo()
+        .join("plugin")
+        .join("hooks")
+        .join("refresh-setup.sh");
+    let output = machine
+        .command(&hook)
+        .env("TSK_SETUP_URL", format!("file://{}", script.display()))
+        .env(
+            "TSK_PLUGIN_MANIFEST_URL_TSK",
+            format!(
+                "file://{}",
+                machine.root.path().join("tsk-plugin.json").display()
+            ),
+        )
+        .env(
+            "TSK_PLUGIN_MANIFEST_URL_SWE",
+            format!(
+                "file://{}",
+                machine.root.path().join("swe-plugin.json").display()
+            ),
+        )
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        out.contains("updated the tsk plugin at project scope from 0.3.9 to 0.3.10"),
+        "{out}"
+    );
+    assert!(!out.contains("user scope"), "{out}");
+    assert_eq!(
+        machine.lines("claude"),
+        vec![
+            "plugin marketplace update jimbarritt-claude-plugins",
+            "plugin update tsk@jimbarritt-claude-plugins --scope project",
+        ]
+    );
 }
 
 #[test]
