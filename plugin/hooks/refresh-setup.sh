@@ -33,7 +33,17 @@ set -uo pipefail
 [ "${TSK_SETUP_REFRESH:-on}" = "off" ] && exit 0
 [ -f "${SETUP_DIR:-/usr/local/share/tsk-setup}/last-run" ] || exit 0
 
-URL="${TSK_SETUP_URL:-https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh}"
+# raw_url REPO PATH: the URL of PATH at the tip of main in REPO on GitHub. The CDN keeps a
+# file under main for up to 5 minutes (max-age=300), and a query string does not change
+# that, so the URL names the commit SHA that git ls-remote reads from github.com. With no
+# SHA, it falls back to main.
+raw_url() {
+  local sha
+  sha="$(GIT_TERMINAL_PROMPT=0 timeout 10 git ls-remote "https://github.com/$1" refs/heads/main 2>/dev/null | cut -f 1)"
+  echo "https://raw.githubusercontent.com/$1/${sha:-main}/$2"
+}
+
+URL="${TSK_SETUP_URL:-$(raw_url jimbarritt/tsk ops/cloud/setup-environment.sh)}"
 STATE_DIR="${XDG_STATE_HOME:-${HOME:-/nonexistent}/.local/state}/tsk/setup"
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 
@@ -55,8 +65,8 @@ INSTALLED="${CLAUDE_CONFIG_DIR:-${HOME:-/nonexistent}/.claude}/plugins/installed
 
 manifest_url() {
   case "$1" in
-    tsk) echo "${TSK_PLUGIN_MANIFEST_URL_TSK:-https://raw.githubusercontent.com/jimbarritt/tsk/main/plugin/.claude-plugin/plugin.json}" ;;
-    swe) echo "${TSK_PLUGIN_MANIFEST_URL_SWE:-https://raw.githubusercontent.com/jimbarritt/claude-plugins/main/swe/.claude-plugin/plugin.json}" ;;
+    tsk) echo "${TSK_PLUGIN_MANIFEST_URL_TSK:-$(raw_url jimbarritt/tsk plugin/.claude-plugin/plugin.json)}" ;;
+    swe) echo "${TSK_PLUGIN_MANIFEST_URL_SWE:-$(raw_url jimbarritt/claude-plugins swe/.claude-plugin/plugin.json)}" ;;
   esac
 }
 
