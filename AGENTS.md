@@ -239,6 +239,15 @@ environment in that file: a package install, a tool, a Claude Code setting. Do n
 step to the environment's own setup script, and do not ask Jim to. A step in the repo file
 is under version control, and every environment that runs the file gets it.
 
+A step that only some environments want is an option of the script, which the
+environment's line passes with `bash -s --`. Robot commit attribution is one:
+`--use-robot-attribution <email>` turns it on, and the robot key stays in the secret
+`TSK_ROBOT_SIGNING_KEY`. TSK BASE's line is:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash -s -- --use-robot-attribution robots@jimbarritt.com
+```
+
 ## Branches
 
 Work on `main` in the main repo. Commit and push there directly. Do not create a
