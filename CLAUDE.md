@@ -231,6 +231,14 @@ Disabled. Do not push session transcripts anywhere. The transcript repo
 `jimbarritt/ksobr-transcripts` is not set up yet. When it is, this section states how
 to push to it (see M-BOOT-02, T-06).
 
+## Cloud environment set-up
+
+The setup script of a cloud environment for this repo holds one line: it downloads
+`ops/cloud/setup-environment.sh` from `main` and runs it. Put every set-up step for the
+environment in that file: a package install, a tool, a Claude Code setting. Do not add a
+step to the environment's own setup script, and do not ask Jim to. A step in the repo file
+is under version control, and every environment that runs the file gets it.
+
 ## Branches
 
 Work on `main` in the main repo. Commit and push there directly. Do not create a

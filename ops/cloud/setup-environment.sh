@@ -12,6 +12,10 @@ case "$(uname -m)" in
   *) echo "unsupported machine: $(uname -m)" >&2; exit 1 ;;
 esac
 
+# ssh-keygen: git signs a robot commit with it (M-TSK-ATTRIB). A fresh container has no
+# package lists, so apt-get install alone fails: update them first.
+command -v ssh-keygen >/dev/null || { apt-get update -qq && apt-get install -y openssh-client; }
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
