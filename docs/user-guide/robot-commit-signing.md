@@ -11,15 +11,19 @@ and 8 check the result.
 The feature is off unless a repo or a user turns it on. With nothing set, tsk writes no git
 config, and commits keep the author that the environment gives them.
 
-To turn it on for a repo, run this at the top of the repo, then commit `.tsk/config.toml`:
+To turn it on for yourself on one machine, in every repo, write the user config
+(`~/.config/tsk/config.toml`). The command needs no repo:
 
 ```bash
-tsk config attribution robot --email robots@jimbarritt.com
+tsk config attribution robot --email robots@jimbarritt.com --user
 ```
 
-To turn it on for yourself in every repo, add the same two keys under `[attribution]` in
-`~/.config/tsk/config.toml`. `tsk config attribution` prints what is in force and where each
-value came from. `tsk config attribution default` turns it off for a repo.
+A cloud environment for this repo does this in its setup script,
+`ops/cloud/setup-environment.sh`, so every cloud session has it and a clone elsewhere stays
+off. To turn it on for everyone who clones a repo, run the command without `--user` at the
+top of the repo and commit `.tsk/config.toml`. A repo config outranks the user config, so
+nobody can turn it off for themselves in that repo. `tsk config attribution` prints what is
+in force and where each value came from.
 
 A robot commit is signed and shows Verified only after steps 1 to 5 are done, and a session
 reads the key from the environment variable `TSK_ROBOT_SIGNING_KEY`. Without the key, `tsk`
@@ -161,13 +165,14 @@ email = "robots@jimbarritt.com"
 - `email` has no built-in value. With `identity = "robot"` and no email, the command exits
   1 and names the missing setting.
 - Put the keys in the repo config, `.tsk/config.toml`, to choose for everyone who clones
-  the repo. This repo does that.
+  the repo.
 - Put the keys in the user config, `~/.config/tsk/config.toml`, to choose for one person on
-  one machine.
+  one machine. This repo's cloud environment does that.
 - Precedence: the variable `TSK_ATTRIBUTION_EMAIL`, then the repo config, then the user
   config.
 - `tsk config attribution` prints the values and where each came from.
-  `tsk config attribution robot --email <address>` writes them to `.tsk/config.toml`.
+  `tsk config attribution robot --email <address>` writes them to `.tsk/config.toml`, and
+  with `--user` to the user config.
 - The default identity leaves the `Co-Authored-By: Claude` and `Claude-Session` trailers
   in place.
 - `tsk thread session-start`, which the `SessionStart` hook runs, does the set-up before

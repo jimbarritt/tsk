@@ -42,8 +42,8 @@ pub enum ConfigCommands {
     },
     #[command(
         name = "attribution",
-        about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml",
-        long_about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml.\n\nidentity is default or robot, default when unset. default writes no git config. robot makes tsk actor git-identity write the registered robot's name, the email, and the SSH signing settings to the repo's local git config. email has no built-in value. identity is read from .tsk/config.toml, then the user config. email is read from the environment variable TSK_ATTRIBUTION_EMAIL, then .tsk/config.toml, then the user config. The private key comes from TSK_ROBOT_SIGNING_KEY."
+        about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml or, with --user, the user config",
+        long_about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml, or with --user to the user config.\n\nidentity is default or robot, default when unset, so attribution is off until a config turns it on. default writes no git config, and the session start removes an earlier robot set-up. robot makes tsk thread session-start and tsk actor git-identity write the registered robot's name, the email, and the SSH signing settings to the repo's local git config. email has no built-in value. identity is read from .tsk/config.toml, then the user config. email is read from the environment variable TSK_ATTRIBUTION_EMAIL, then .tsk/config.toml, then the user config. The private key comes from TSK_ROBOT_SIGNING_KEY."
     )]
     Attribution {
         #[arg(
@@ -53,6 +53,11 @@ pub enum ConfigCommands {
         identity: Option<String>,
         #[arg(long, help = "The email to write to .tsk/config.toml")]
         email: Option<String>,
+        #[arg(
+            long,
+            help = "Write the identity and the email to the user config (~/.config/tsk/config.toml) in place of .tsk/config.toml. Needs no repo"
+        )]
+        user: bool,
     },
     LedgerRefs {
         #[arg(
@@ -327,8 +332,13 @@ fn ledger_server(mode: Option<String>) -> Result<(), String> {
 }
 
 pub fn run(action: ConfigCommands) -> Result<(), String> {
-    if let ConfigCommands::Attribution { identity, email } = action {
-        return crate::attribution::run_config(identity, email);
+    if let ConfigCommands::Attribution {
+        identity,
+        email,
+        user,
+    } = action
+    {
+        return crate::attribution::run_config(identity, email, user);
     }
     if let ConfigCommands::LedgerServer { mode } = action {
         return ledger_server(mode);
