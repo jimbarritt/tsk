@@ -489,6 +489,62 @@ fn a_failed_setup_refresh_is_a_warning_and_runs_again_next_time() {
     assert_eq!(machine.lines("setup").len(), 2);
 }
 
+#[test]
+fn the_plugin_hook_prints_the_setup_line_when_another_hook_claimed_the_session_start() {
+    let Some(machine) = Machine::new() else {
+        return;
+    };
+    if !have("curl") {
+        return;
+    }
+    // A plugin directory with the real hook scripts.
+    let plugin = machine.root.path().join("plugin");
+    let hooks = plugin.join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    std::fs::create_dir_all(plugin.join(".claude-plugin")).unwrap();
+    for name in [
+        "session-start.sh",
+        "install-dolt.sh",
+        "install-tsk.sh",
+        "refresh-setup.sh",
+    ] {
+        std::fs::copy(
+            workspace().join("plugin").join("hooks").join(name),
+            hooks.join(name),
+        )
+        .unwrap();
+    }
+    std::fs::write(plugin.join("tsk-version"), "0.0.0\n").unwrap();
+    std::fs::write(
+        plugin.join(".claude-plugin").join("plugin.json"),
+        "{\"version\":\"0.0.0\"}",
+    )
+    .unwrap();
+    machine.write_identity();
+    // tsk prints nothing for the session start: another hook claimed it.
+    write_script(
+        &machine.bin().join("tsk"),
+        "#!/bin/sh\ncase \"$1\" in --version) echo \"tsk 0.0.0\" ;; esac\nexit 0\n",
+    );
+    with_last_run(&machine);
+    setup_args(&machine, "");
+    let script = setup_script(&machine, "v1", 0);
+    let output = machine
+        .command(&hooks.join("session-start.sh"))
+        .env("TSK_SETUP_URL", format!("file://{}", script.display()))
+        .env("SETUP_LOG", machine.log("setup"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim()).expect(&stdout);
+    let context = json["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap();
+    assert!(context.contains("ran it again"), "{context}");
+}
+
 fn session_end(status: &str, status_fails: bool, push_sleep: u32, push_fails: bool) -> EndRun {
     let root = tempfile::tempdir().unwrap();
     let bin = root.path().join("bin");

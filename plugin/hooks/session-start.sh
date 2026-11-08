@@ -80,6 +80,12 @@ fi
 # Add the dolt and install warnings to the context that tsk prints, and convert it to the
 # harness's shape. tsk prints nothing when another hook already claimed the event.
 TSK_OUTPUT="$(tsk thread session-start ${PLUGIN_VERSION_ARGS[@]+"${PLUGIN_VERSION_ARGS[@]}"})"
-[ -n "$TSK_OUTPUT" ] || exit 0
+# When another hook claimed the event, tsk prints nothing. The set-up and install messages
+# come from this hook alone, so print them on their own.
+if [ -z "$TSK_OUTPUT" ]; then
+  REST="$(printf '%s %s %s' "$SETUP_MSG" "$TSK_INSTALL_MSG" "$DOLT_MSG" | sed 's/^ *//; s/ *$//')"
+  [ -n "$REST" ] && emit "$REST"
+  exit 0
+fi
 TSK_MSG="$(printf '%s' "$TSK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
 emit "$(printf '%s %s %s %s' "$TSK_MSG" "$SETUP_MSG" "$TSK_INSTALL_MSG" "$DOLT_MSG" | sed 's/^ *//; s/ *$//')"
