@@ -26,7 +26,8 @@ TSK_ATTRIBUTION_IDENTITY=robot
 TSK_ATTRIBUTION_EMAIL=robots@jimbarritt.com
 ```
 
-The variables outrank both config files. An environment without them stays off, and a clone
+The variables outrank both config files. A session that was running when the variables were
+added picks them up at its next start, or at once with `tsk actor git-identity`. An environment without them stays off, and a clone
 elsewhere stays off. This repo's cloud environment does this. To turn it on for everyone who clones a repo, run the command without `--user` at the
 top of the repo and commit `.tsk/config.toml`. A repo config outranks the user config, so
 nobody can turn it off for themselves in that repo. `tsk config attribution` prints what is
