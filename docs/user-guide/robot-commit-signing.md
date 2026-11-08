@@ -169,7 +169,12 @@ email = "robots@jimbarritt.com"
 - `tsk config attribution` prints the values and where each came from.
   `tsk config attribution robot --email <address>` writes them to `.tsk/config.toml`.
 - The default identity leaves the `Co-Authored-By: Claude` and `Claude-Session` trailers
-  in place. The cloud session adds them (tasks T-09 and T-10).
+  in place.
+- In a cloud session, the `commit-msg` hook `ops/local/git-commit-msg.sh` removes both and
+  writes `Agent-Session: urn:tsk:session:claude-cloud:<cse id>` (ADR 0029). The
+  `SessionStart` script `ops/local/claude-session-start.sh` links the hook into
+  `.git/hooks/commit-msg`. The cloud environment variable `CLAUDE_CODE_REMOTE_SESSION_ID`
+  supplies the ID. Outside a cloud session the hook changes nothing.
 
 ## 7. Check a robot commit locally
 
