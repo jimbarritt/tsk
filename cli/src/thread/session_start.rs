@@ -242,9 +242,7 @@ pub fn actor_context(label: &str) -> String {
 
 /// The context line of the robot attribution step, or `None` when the identity is not
 /// `robot` and there was nothing to remove.
-pub fn signing_context(
-    signing: &Result<crate::attribution::Signing, String>,
-) -> Option<String> {
+pub fn signing_context(signing: &Result<crate::attribution::Signing, String>) -> Option<String> {
     use crate::attribution::Signing;
     match signing {
         Ok(Signing::Off) => None,
