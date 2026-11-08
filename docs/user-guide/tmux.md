@@ -2,6 +2,21 @@
 
 `tsk tmux install` sets up tmux to show each agent's state, mission and robot in the session chooser (`prefix s`), and in a sidebar that stays open beside your work (`prefix b`). It also names each tmux session after the mission code of its thread. It needs tsk 0.45.0 or later for the sidebar, and the tsk plugin 0.3.44 or later.
 
+## Quick start
+
+On a machine with tmux and Homebrew, in the repo you work in:
+
+```bash
+brew install jimbarritt/tap/tsk     # or: tsk self-update
+tsk tmux install
+tsk install-plugin claude-cli       # and/or: tsk install-plugin copilot-cli
+```
+
+Start a new agent session in a tmux pane. Then:
+
+- `prefix s` opens the session chooser.
+- `prefix b` opens the sidebar. `j` and `k` select a session, `Enter` switches to it, and `q` closes the sidebar.
+
 ## Install
 
 ```bash
