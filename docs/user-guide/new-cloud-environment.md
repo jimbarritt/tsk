@@ -79,7 +79,8 @@ Rust toolchain. Each file is written to a temporary name and renamed, so a runni
 not overwritten.
 
 The script then installs the `tsk` and `swe` plugins at user scope, with `claude plugin
-install --scope user`. A user-scope plugin loads in the first process of every session of
+install --scope user`, and updates each with `claude plugin update --scope user`, because
+`install` does not upgrade an installed plugin. A user-scope plugin loads in the first process of every session of
 the environment, in any repo, so a repo needs no committed `SessionStart` hook and no
 regeneration. The plugin's own hook installs `dolt` and `tsk` when they are missing, fetches
 the ledger and prints the context. A failed plugin step prints a `WARNING:` line and does
@@ -127,7 +128,9 @@ stores the new SHA-256. It prints one line in the session context, and the text 
 `~/.claude/CLAUDE.md` before the hook writes it. A disk saved before the `args` file existed
 takes `--use-robot-attribution <email>` from the user tsk config when it sets robot
 attribution. `TSK_SETUP_REFRESH=off` switches the check off. The first session after a build
-runs the script once more, because the build stores no SHA-256.
+runs the script once more, because the build stores no SHA-256. A disk saved with a plugin older than 0.3.46 has
+no check in the plugin hook, so in a repo other than this one the check starts only after
+one rebuild.
 
 The `last-run` lines write the run time to `/usr/local/share/tsk-setup/last-run`. They
 support the cache test below and can be removed afterwards.

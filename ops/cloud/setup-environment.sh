@@ -114,9 +114,15 @@ MARKETPLACE_SOURCE=jimbarritt/claude-plugins
 MARKETPLACE=jimbarritt-claude-plugins
 if command -v claude >/dev/null 2>&1; then
   if claude plugin marketplace add "$MARKETPLACE_SOURCE" >"$tmp/plugin.log" 2>&1; then
+    # install does not upgrade an installed plugin, so a run of this script on a saved disk
+    # (plugin/hooks/refresh-setup.sh) refreshes the marketplace and updates each plugin too.
+    claude plugin marketplace update "$MARKETPLACE" >"$tmp/plugin.log" 2>&1 ||
+      echo "WARNING: refreshing the $MARKETPLACE marketplace failed: $(tr '\n' ' ' <"$tmp/plugin.log")" >&2
     for plugin in tsk swe; do
       claude plugin install "$plugin@$MARKETPLACE" --scope user -y >"$tmp/plugin.log" 2>&1 ||
         echo "WARNING: installing the $plugin plugin failed: $(tr '\n' ' ' <"$tmp/plugin.log")" >&2
+      claude plugin update "$plugin@$MARKETPLACE" --scope user >"$tmp/plugin.log" 2>&1 ||
+        echo "WARNING: updating the $plugin plugin failed: $(tr '\n' ' ' <"$tmp/plugin.log")" >&2
     done
   else
     echo "WARNING: adding the $MARKETPLACE marketplace failed: $(tr '\n' ' ' <"$tmp/plugin.log")" >&2
