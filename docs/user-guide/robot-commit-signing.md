@@ -18,17 +18,27 @@ To turn it on for yourself on one machine, in every repo, write the user config
 tsk config attribution robot --email robots@jimbarritt.com --user
 ```
 
-To turn it on for every session of one cloud environment, set these variables of the
-environment, beside the secret `TSK_ROBOT_SIGNING_KEY`:
+To turn it on for every session of one cloud environment, pass the robot email to
+`ops/cloud/setup-environment.sh` in the environment's setup script, and keep the robot key
+in the secret `TSK_ROBOT_SIGNING_KEY`:
 
-```
-TSK_ATTRIBUTION_IDENTITY=robot
-TSK_ATTRIBUTION_EMAIL=robots@jimbarritt.com
+```bash
+curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash -s -- --use-robot-attribution robots@jimbarritt.com
 ```
 
-The variables outrank both config files. A session that was running when the variables were
-added picks them up at its next start, or at once with `tsk actor git-identity`. An environment without them stays off, and a clone
-elsewhere stays off. This repo's cloud environment does this. To turn it on for everyone who clones a repo, run the command without `--user` at the
+With the option, the script writes the user config with `--user`, and adds three permission
+rules to `~/.claude/settings.json`: `Bash(git add:*)`, `Bash(git commit:*)` and
+`Bash(git push origin main:*)`. A robot commit has a different author from the harness's own,
+and auto mode asks before each one without the rules. Every other git command still goes
+through the auto mode check. An environment without the option stays off, and a clone
+elsewhere stays off. This repo's cloud environment does this. The setup script runs when a
+container is built, so a change takes effect in the next new container.
+
+The variables `TSK_ATTRIBUTION_IDENTITY` and `TSK_ATTRIBUTION_EMAIL` outrank both config
+files, for a case that needs an override. A session that was running when they were set
+picks them up at its next start, or at once with `tsk actor git-identity`.
+
+To turn it on for everyone who clones a repo, run the command without `--user` at the
 top of the repo and commit `.tsk/config.toml`. A repo config outranks the user config, so
 nobody can turn it off for themselves in that repo. `tsk config attribution` prints what is
 in force and where each value came from.
@@ -176,8 +186,9 @@ email = "robots@jimbarritt.com"
   the repo.
 - Put the keys in the user config, `~/.config/tsk/config.toml`, to choose for one person on
   one machine.
-- Put `TSK_ATTRIBUTION_IDENTITY` and `TSK_ATTRIBUTION_EMAIL` in the variables of a cloud
-  environment to choose for its sessions. This repo's cloud environment does that.
+- Pass `--use-robot-attribution <email>` to `ops/cloud/setup-environment.sh` to choose for
+  the sessions of a cloud environment. It writes the user config. This repo's cloud
+  environment does that.
 - Precedence: the variables `TSK_ATTRIBUTION_IDENTITY` and `TSK_ATTRIBUTION_EMAIL`, then
   the repo config, then the user config.
 - `tsk config attribution` prints the values and where each came from.

@@ -4,6 +4,23 @@ set -euo pipefail
 BIN="${BIN:-/usr/local/bin}"
 SETUP_DIR="${SETUP_DIR:-/usr/local/share/tsk-setup}"
 
+# Options, passed by the environment's setup script as
+#   curl -sSfL <this file's URL> | bash -s -- [--use-robot-attribution <email>]
+# --use-robot-attribution <email>: turn on robot commit attribution (M-TSK-ATTRIB) for the
+# sessions of this environment, with <email> as the robot's git email. The environment also
+# needs the secret TSK_ROBOT_SIGNING_KEY. Without the option, attribution stays off.
+ROBOT_EMAIL=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --use-robot-attribution)
+      [ -n "${2:-}" ] || { echo "--use-robot-attribution needs an email" >&2; exit 1; }
+      ROBOT_EMAIL="$2"
+      shift 2
+      ;;
+    *) echo "unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
 case "$(uname -m)" in
   x86_64) TSK_TARGET=x86_64-unknown-linux-gnu; DOLT_ARCH=amd64
           DOLT_SHA256=639b8042d1ea46ebf6b645a002fc787134dbe1dc02888cc51a51d1d3eb557c93 ;;
@@ -100,6 +117,28 @@ if command -v claude >/dev/null 2>&1; then
   fi
 else
   echo "WARNING: claude is not on PATH, so the plugins are not installed" >&2
+fi
+
+# Robot attribution, with --use-robot-attribution only. The user config turns it on, and
+# tsk thread session-start then writes the signing set-up from TSK_ROBOT_SIGNING_KEY. A robot
+# commit has a different author from the harness's own, and auto mode asks before each one,
+# so three permission rules let a session add, commit and push to main without a prompt.
+# Every other git command, a force-push and a reset among them, still goes through the auto
+# mode check. The rules are added to ~/.claude/settings.json, and each is kept once.
+if [ -n "$ROBOT_EMAIL" ]; then
+  "$BIN/tsk" config attribution robot --email "$ROBOT_EMAIL" --user
+  python3 - "$HOME/.claude/settings.json" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+allow = ["Bash(git add:*)", "Bash(git commit:*)", "Bash(git push origin main:*)"]
+settings = json.load(open(path)) if os.path.exists(path) else {}
+rules = settings.setdefault("permissions", {}).setdefault("allow", [])
+rules.extend(r for r in allow if r not in rules)
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+PY
 fi
 
 mkdir -p "$SETUP_DIR"
