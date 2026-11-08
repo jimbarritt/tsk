@@ -86,6 +86,14 @@ impl Machine {
             repo.join("plugin").join("hooks").join("install-tsk.sh"),
         )
         .unwrap();
+        std::fs::copy(
+            workspace()
+                .join("plugin")
+                .join("hooks")
+                .join("refresh-setup.sh"),
+            repo.join("plugin").join("hooks").join("refresh-setup.sh"),
+        )
+        .unwrap();
         // The stand-in tsk reports 0.0.0, so the hook tests start with a current tsk.
         std::fs::write(repo.join("plugin").join("tsk-version"), "0.0.0\n").unwrap();
         let init = Command::new("git")
@@ -135,6 +143,9 @@ impl Machine {
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.home().join("state"))
             .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
+            .env("SETUP_DIR", self.root.path().join("setup"))
+            .env_remove("TSK_SETUP_REFRESH")
+            .env_remove("TSK_SETUP_URL")
             .env_remove("DOLT_ROOT_PATH")
             .env_remove("TSK_PLUGIN_ENSURE_MINUTES")
             .env_remove("CLAUDE_ENV_FILE")
@@ -378,6 +389,104 @@ struct EndRun {
     exit_ok: bool,
     calls: Vec<String>,
     seconds: u64,
+}
+
+/// refresh-setup.sh on the machine, with the set-up script at `script` as the one on main.
+fn refresh_setup(machine: &Machine, script: &Path) -> String {
+    let path = machine
+        .repo()
+        .join("plugin")
+        .join("hooks")
+        .join("refresh-setup.sh");
+    let output = machine
+        .command(&path)
+        .env("TSK_SETUP_URL", format!("file://{}", script.display()))
+        .env("SETUP_LOG", machine.log("setup"))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// A stand-in set-up script that logs its options and exits with `status`.
+fn setup_script(machine: &Machine, version: &str, status: u32) -> PathBuf {
+    let path = machine.root.path().join("setup-environment.sh");
+    write_script(
+        &path,
+        &format!("#!/bin/sh\n# {version}\necho \"$@\" >> \"$SETUP_LOG\"\nexit {status}\n"),
+    );
+    path
+}
+
+fn with_last_run(machine: &Machine) {
+    let dir = machine.root.path().join("setup");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("last-run"), "2026-11-08T12:43:07Z\n").unwrap();
+}
+
+fn setup_args(machine: &Machine, args: &str) {
+    let dir = machine.home().join("state").join("tsk").join("setup");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("args"), args).unwrap();
+}
+
+#[test]
+fn the_setup_refresh_does_nothing_where_the_setup_script_never_ran() {
+    let Some(machine) = Machine::new() else {
+        return;
+    };
+    if !have("curl") {
+        return;
+    }
+    let script = setup_script(&machine, "v1", 0);
+    let out = refresh_setup(&machine, &script);
+    assert_eq!(out, "");
+    assert!(machine.lines("setup").is_empty());
+}
+
+#[test]
+fn the_setup_refresh_runs_a_changed_script_once_with_the_saved_options() {
+    let Some(machine) = Machine::new() else {
+        return;
+    };
+    if !have("curl") {
+        return;
+    }
+    with_last_run(&machine);
+    setup_args(&machine, "--use-robot-attribution\nrobots@example.test\n");
+    let script = setup_script(&machine, "v1", 0);
+    let out = refresh_setup(&machine, &script);
+    assert!(out.contains("ran it again"), "{out}");
+    assert_eq!(
+        machine.lines("setup"),
+        vec!["--use-robot-attribution robots@example.test"]
+    );
+    assert_eq!(refresh_setup(&machine, &script), "");
+    assert_eq!(machine.lines("setup").len(), 1);
+    let script = setup_script(&machine, "v2", 0);
+    assert!(refresh_setup(&machine, &script).contains("ran it again"));
+    assert_eq!(machine.lines("setup").len(), 2);
+}
+
+#[test]
+fn a_failed_setup_refresh_is_a_warning_and_runs_again_next_time() {
+    let Some(machine) = Machine::new() else {
+        return;
+    };
+    if !have("curl") {
+        return;
+    }
+    with_last_run(&machine);
+    setup_args(&machine, "");
+    let script = setup_script(&machine, "v1", 1);
+    let out = refresh_setup(&machine, &script);
+    assert!(
+        out.starts_with("WARNING: running the environment set-up script again failed"),
+        "{out}"
+    );
+    let out = refresh_setup(&machine, &script);
+    assert!(out.starts_with("WARNING:"), "{out}");
+    assert_eq!(machine.lines("setup").len(), 2);
 }
 
 fn session_end(status: &str, status_fails: bool, push_sleep: u32, push_fails: bool) -> EndRun {

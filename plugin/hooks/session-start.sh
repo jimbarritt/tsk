@@ -26,6 +26,10 @@ emit() {
   fi
 }
 
+# A cloud container runs its environment's set-up again when the set-up script on main
+# changed since its disk was saved. Prints nothing otherwise, or off a cloud container.
+SETUP_MSG="$("$PLUGIN_DIR/hooks/refresh-setup.sh" | tr '\n' ' ' | sed 's/ *$//')"
+
 # The ledger runs the dolt binary. Install it first. A failure
 # is a warning in the session context and does not stop session start.
 DOLT_MSG="$("$PLUGIN_DIR/hooks/install-dolt.sh" | tr '\n' ' ' | sed 's/ *$//')"
@@ -59,7 +63,7 @@ installed_is_current() {
 }
 
 if ! installed_is_current; then
-  emit "tsk $REQUIRED or later is required and could not be installed automatically. Run \`plugin/hooks/install-tsk.sh\` from the plugin directory or \`tsk self-update\`, then run \`tsk thread session-start </dev/null\` (or restart the session) to complete session start. $TSK_INSTALL_MSG $DOLT_MSG"
+  emit "tsk $REQUIRED or later is required and could not be installed automatically. Run \`plugin/hooks/install-tsk.sh\` from the plugin directory or \`tsk self-update\`, then run \`tsk thread session-start </dev/null\` (or restart the session) to complete session start. $SETUP_MSG $TSK_INSTALL_MSG $DOLT_MSG"
   exit 0
 fi
 
@@ -69,7 +73,7 @@ if [ -n "$PLUGIN_VERSION" ] &&
   PLUGIN_VERSION_ARGS=(--plugin-version "$PLUGIN_VERSION")
 fi
 
-if [ -z "$DOLT_MSG$TSK_INSTALL_MSG" ] && [ "$FORMAT" != "copilot" ]; then
+if [ -z "$SETUP_MSG$DOLT_MSG$TSK_INSTALL_MSG" ] && [ "$FORMAT" != "copilot" ]; then
   exec tsk thread session-start ${PLUGIN_VERSION_ARGS[@]+"${PLUGIN_VERSION_ARGS[@]}"}
 fi
 
@@ -78,4 +82,4 @@ fi
 TSK_OUTPUT="$(tsk thread session-start ${PLUGIN_VERSION_ARGS[@]+"${PLUGIN_VERSION_ARGS[@]}"})"
 [ -n "$TSK_OUTPUT" ] || exit 0
 TSK_MSG="$(printf '%s' "$TSK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
-emit "$(printf '%s %s %s' "$TSK_MSG" "$TSK_INSTALL_MSG" "$DOLT_MSG" | sed 's/^ *//; s/ *$//')"
+emit "$(printf '%s %s %s %s' "$TSK_MSG" "$SETUP_MSG" "$TSK_INSTALL_MSG" "$DOLT_MSG" | sed 's/^ *//; s/ *$//')"

@@ -116,6 +116,19 @@ so `dolt` is present before the first session.
 Setup scripts and sessions both run as root, observed on 2026-10-08, so the binaries
 are readable in the session.
 
+A new session starts from a disk that the platform saved after the setup script ran, and
+a change to `setup-environment.sh` on `main` does not cause a new build. So both
+`SessionStart` scripts run `plugin/hooks/refresh-setup.sh` first. Where `last-run` exists,
+it fetches `setup-environment.sh` from `main` and compares its SHA-256 with
+`~/.local/state/tsk/setup/script.sha256`. When they differ, it runs the fetched script with
+the options in `~/.local/state/tsk/setup/args`, which `setup-environment.sh` writes, then
+stores the new SHA-256. It prints one line in the session context, and the text of
+`~/.claude/AGENTS.md` when that file exists, because Claude Code can read
+`~/.claude/CLAUDE.md` before the hook writes it. A disk saved before the `args` file existed
+takes `--use-robot-attribution <email>` from the user tsk config when it sets robot
+attribution. `TSK_SETUP_REFRESH=off` switches the check off. The first session after a build
+runs the script once more, because the build stores no SHA-256.
+
 The `last-run` lines write the run time to `/usr/local/share/tsk-setup/last-run`. They
 support the cache test below and can be removed afterwards.
 
@@ -135,7 +148,7 @@ The stamp shows reuse only when the cache keeps the container's filesystem.
 | `tsk ledger push` stops with `origin refused the push to refs/tsk/...` | The cloud sandbox proxy refuses writes outside `refs/heads/*`, and the ledger is on a custom ref. | Run `tsk config ledger-refs branches` and push again. See [ADR 0008](../adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md) and [ADR 0016](../adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md). |
 | `git merge-base` reports unrelated branches | The clone is shallow. | `git fetch --unshallow origin`. The hook does this at session start. |
 | A new `tsk` release is not picked up | The setup script result is cached for the environment. | Change the script, for example a comment line, so the environment rebuilds. |
-| A file or setting that `setup-environment.sh` writes is missing, after a change to that file on `main` | Each new session, a regenerated one included, starts from a disk saved by an earlier setup run. Compare `/usr/local/share/tsk-setup/last-run` with the commit time of the change. | Run the environment's setup line by hand in the session. Change the environment's setup script, for example a comment line, so the next session gets a new build. |
+| A file or setting that `setup-environment.sh` writes is missing, after a change to that file on `main` | Each new session, a regenerated one included, starts from a disk saved by an earlier setup run. Compare `/usr/local/share/tsk-setup/last-run` with the commit time of the change. | Session start runs the script again when it changed: read the set-up line in the session context. A `WARNING:` line there names the failure. Run the environment's setup line by hand in the session to see the full output. |
 | The context warns that `tsk` could not be upgraded | `github.com` is blocked, or the release asset is missing for the platform. | Allow `github.com`, then run `tsk self-update` in the session and read the error. |
 
 ## Observed
