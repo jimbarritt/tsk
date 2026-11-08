@@ -65,6 +65,15 @@ pub enum ActorCommands {
     )]
     GitIdentity,
     #[command(
+        name = "commit-msg",
+        hide = true,
+        about = "The commit-msg hook that tsk thread session-start writes when [attribution] identity is robot: replace the Claude-Session and Co-Authored-By: Claude trailers of the message in <FILE> with Agent-Session: <session URN>. Exit 0 whatever happens"
+    )]
+    CommitMsg {
+        #[arg(help = "The commit message file git passes to the hook")]
+        file: std::path::PathBuf,
+    },
+    #[command(
         about = "List the actors, one per line: name, kind, uid, and the harness instances that ran as it (- for none, comma-separated otherwise). The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records with the URN and the name history"
     )]
     List {
@@ -457,7 +466,14 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
             if urn.is_none() && instance_kind == BindingKind::Worktree {
                 eprintln!("note: this session has no recorded URN (the session start did not run), so the actor is recorded on the harness instance only");
             }
-            if let Err(error) = crate::attribution::apply(&session) {
+            // The session start writes the signing set-up, so the registration writes only
+            // user.name. A session whose start did not run gets the whole set-up here.
+            let identity = if crate::attribution::signing_is_set_up(&session) {
+                crate::attribution::write_name(&session)
+            } else {
+                crate::attribution::apply(&session)
+            };
+            if let Err(error) = identity {
                 eprintln!(
                     "warning: the registration stands, and the git identity is not set: {}",
                     error.trim_start_matches("error: ")
@@ -506,6 +522,7 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
             Ok(0)
         }
         ActorCommands::GitIdentity => crate::attribution::run_git_identity(),
+        ActorCommands::CommitMsg { file } => crate::attribution::run_commit_msg(&file),
         ActorCommands::Name => {
             let session = Session::discover()?;
             match current(&session)? {

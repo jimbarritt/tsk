@@ -51,19 +51,7 @@ impl Session {
     /// The URN of the session `tsk` runs in (ADR 0029): from the environment in a cloud
     /// session, else from the file the session start wrote. `None` when neither is known.
     pub fn session_urn(&self) -> Option<String> {
-        if let Some(id) = &self.cloud_session {
-            return Some(crate::sessions::session_urn(
-                crate::sessions::harness_name(
-                    crate::thread::session_start::HookFormat::Claude,
-                    true,
-                ),
-                id,
-            ));
-        }
-        let text = std::fs::read_to_string(self.git_dir.join(SESSION_URN_FILE)).ok()?;
-        let urn = text.trim();
-        urn.starts_with(crate::sessions::URN_PREFIX)
-            .then(|| urn.to_string())
+        session_urn_of(self.cloud_session.as_deref(), &self.git_dir)
     }
 
     /// Record the URN of the session that runs in this code worktree, for later commands of
@@ -131,6 +119,22 @@ pub fn worktree_actor(clone_id: &str, git_dir: &Path) -> String {
 /// or `worktree` and `<key>` is the instance key (ADR 0029).
 pub fn instance_urn(kind: BindingKind, key: &str) -> String {
     format!("urn:tsk:instance:{}:{}", kind.as_str(), key)
+}
+
+/// The URN of the session that runs with the cloud session ID `cloud_session`, or in the
+/// code worktree whose git directory is `git_dir`: see [`Session::session_urn`]. Opens no
+/// ledger store, so a git hook can call it.
+pub fn session_urn_of(cloud_session: Option<&str>, git_dir: &Path) -> Option<String> {
+    if let Some(id) = cloud_session {
+        return Some(crate::sessions::session_urn(
+            crate::sessions::harness_name(crate::thread::session_start::HookFormat::Claude, true),
+            id,
+        ));
+    }
+    let text = std::fs::read_to_string(git_dir.join(SESSION_URN_FILE)).ok()?;
+    let urn = text.trim();
+    urn.starts_with(crate::sessions::URN_PREFIX)
+        .then(|| urn.to_string())
 }
 
 /// The URN of an instance that has no instance key: a code worktree of a clone with no clone

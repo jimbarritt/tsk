@@ -240,6 +240,33 @@ pub fn actor_context(label: &str) -> String {
     format!("Actor: {}.", label)
 }
 
+/// The context line of the robot attribution step, or `None` when the identity is not
+/// `robot` and there was nothing to remove.
+pub fn signing_context(
+    signing: &Result<crate::attribution::Signing, String>,
+) -> Option<String> {
+    use crate::attribution::Signing;
+    match signing {
+        Ok(Signing::Off) => None,
+        Ok(Signing::Removed) => Some(
+            "Attribution: default. The robot signing set-up of an earlier session was removed."
+                .to_string(),
+        ),
+        Ok(Signing::Written { email, hook: true }) => Some(format!(
+            "Attribution: robot. Commits are signed as {} and carry the Agent-Session trailer.",
+            email
+        )),
+        Ok(Signing::Written { email, hook: false }) => Some(format!(
+            "Attribution: robot. Commits are signed as {}. WARNING: a commit-msg hook that tsk did not write is in place, so commits carry no Agent-Session trailer.",
+            email
+        )),
+        Err(error) => Some(format!(
+            "WARNING: the robot signing set-up failed, so commits are not signed: {}",
+            error.trim_start_matches("error: ")
+        )),
+    }
+}
+
 /// What the session start says about the session title in a cloud session: the two values
 /// for one `set_session_title` call. The tool takes the ID with the prefix `session_`; the
 /// environment holds the same ID with the prefix `cse_`. Nothing is said outside a cloud
@@ -476,17 +503,25 @@ fn context_after_fetch(
         thread_text.push(' ');
         thread_text.push_str(&no_mission);
     }
+    // Robot attribution (T-15): the signing set-up is written here, in the hook, so no tool
+    // call of the session reads the key. The `default` identity removes an earlier set-up.
+    let signing = crate::attribution::set_up_signing(session);
+    if let Some(line) = signing_context(&signing) {
+        push_part(&mut thread_text, &line);
+    }
     if let Some(actor) = crate::actor::current(session).ok().flatten() {
         push_part(&mut thread_text, &actor_context(&actor.label()));
-        // A new container has no repo-local git identity: write it again from the settings.
-        if let Err(error) = crate::attribution::apply(session) {
-            push_part(
-                &mut thread_text,
-                &format!(
-                    "WARNING: the git identity of the robot is not set, so commits keep the default author: {}",
-                    error.trim_start_matches("error: ")
-                ),
-            );
+        // A new container has no repo-local git identity: write the name again.
+        if let Ok(crate::attribution::Signing::Written { .. }) = signing {
+            if let Err(error) = crate::attribution::write_name(session) {
+                push_part(
+                    &mut thread_text,
+                    &format!(
+                        "WARNING: the git name of the robot is not set, so commits keep the default author name: {}",
+                        error.trim_start_matches("error: ")
+                    ),
+                );
+            }
         }
     }
     // The bindings of this session: the session, the instance and the session's actors
