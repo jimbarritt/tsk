@@ -139,9 +139,9 @@ fn assert_success(output: &Output) {
 
 const DEFAULT_STEPS: [&str; 4] = [
     "plugin marketplace add jimbarritt/claude-plugins",
-    "plugin install tsk@jimbarritt-claude-plugins --scope project -y",
+    "plugin install tsk@jimbarritt-claude-plugins --scope user -y",
     "plugin marketplace update jimbarritt-claude-plugins",
-    "plugin update tsk@jimbarritt-claude-plugins --scope project",
+    "plugin update tsk@jimbarritt-claude-plugins --scope user",
 ];
 
 #[test]
@@ -159,7 +159,7 @@ fn install_plugin_runs_the_four_steps_through_the_override_binary() {
     assert_eq!(fx.logged(), DEFAULT_STEPS);
     let text = stdout(&output);
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines.len(), 13);
+    assert_eq!(lines.len(), 12);
     assert!(
         lines[0].starts_with("installing into the repo "),
         "{}",
@@ -167,7 +167,7 @@ fn install_plugin_runs_the_four_steps_through_the_override_binary() {
     );
     assert_eq!(
         lines[2],
-        "install tsk@jimbarritt-claude-plugins at project scope: claude plugin install tsk@jimbarritt-claude-plugins --scope project -y"
+        "install tsk@jimbarritt-claude-plugins at user scope: claude plugin install tsk@jimbarritt-claude-plugins --scope user -y"
     );
 }
 
@@ -447,7 +447,7 @@ fn claude_cli_writes_the_hook_into_an_empty_repo() {
     let output = fx.tsk(
         &fx.empty_dir(),
         Some(&claude),
-        &["install-plugin", "claude-cli"],
+        &["install-plugin", "claude-cli", "--scope", "project"],
     );
 
     assert_success(&output);
@@ -478,7 +478,7 @@ fn claude_cli_writes_the_hook_into_an_empty_repo() {
 fn a_second_run_leaves_the_hook_alone() {
     let fx = Fixture::new();
     let claude = fx.fake_claude(None);
-    let args = ["install-plugin", "claude-cli"];
+    let args = ["install-plugin", "claude-cli", "--scope", "project"];
     assert_success(&fx.tsk(&fx.empty_dir(), Some(&claude), &args));
 
     let output = fx.tsk(&fx.empty_dir(), Some(&claude), &args);
@@ -502,7 +502,13 @@ fn no_hook_writes_no_settings_file() {
     let output = fx.tsk(
         &fx.empty_dir(),
         Some(&claude),
-        &["install-plugin", "claude-cli", "--no-hook"],
+        &[
+            "install-plugin",
+            "claude-cli",
+            "--scope",
+            "project",
+            "--no-hook",
+        ],
     );
 
     assert_success(&output);
@@ -521,15 +527,44 @@ fn user_scope_writes_no_hook_and_says_so() {
     let fx = Fixture::new();
     let claude = fx.fake_claude(None);
 
-    let output = fx.tsk(
-        &fx.empty_dir(),
-        Some(&claude),
-        &["install-plugin", "claude-cli", "--scope", "user"],
-    );
+    for args in [
+        &["install-plugin", "claude-cli", "--scope", "user"][..],
+        &["install-plugin", "claude-cli"][..],
+    ] {
+        let output = fx.tsk(&fx.empty_dir(), Some(&claude), args);
+        assert_success(&output);
+        assert!(!fx.settings().exists());
+        assert!(stdout(&output).contains("skipped the SessionStart hook"));
+        assert!(!stderr(&output).contains("warning"), "{}", stderr(&output));
+    }
+}
 
-    assert_success(&output);
-    assert!(!fx.settings().exists());
-    assert!(stdout(&output).contains("skipped the SessionStart hook"));
+#[test]
+fn project_and_local_scope_warn_that_user_scope_is_better() {
+    let fx = Fixture::new();
+    let claude = fx.fake_claude(None);
+
+    for scope in ["project", "local"] {
+        let output = fx.tsk(
+            &fx.empty_dir(),
+            Some(&claude),
+            &[
+                "install-plugin",
+                "claude-cli",
+                "--scope",
+                scope,
+                "--no-hook",
+            ],
+        );
+        assert_success(&output);
+        assert!(
+            stderr(&output).contains(&format!(
+                "warning: installing at {scope} scope. Prefer user scope, the default"
+            )),
+            "{}",
+            stderr(&output)
+        );
+    }
 }
 
 #[test]
@@ -542,7 +577,7 @@ fn a_malformed_settings_file_is_an_error_and_stays_as_it_was() {
     let output = fx.tsk(
         &fx.empty_dir(),
         Some(&claude),
-        &["install-plugin", "claude-cli"],
+        &["install-plugin", "claude-cli", "--scope", "project"],
     );
 
     assert_eq!(output.status.code(), Some(1));
@@ -560,7 +595,7 @@ fn an_existing_settings_file_keeps_its_other_keys() {
     assert_success(&fx.tsk(
         &fx.empty_dir(),
         Some(&claude),
-        &["install-plugin", "claude-cli"],
+        &["install-plugin", "claude-cli", "--scope", "project"],
     ));
 
     let text = std::fs::read_to_string(fx.settings()).unwrap();

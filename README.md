@@ -102,9 +102,9 @@ claude                           # or: copilot
 ```
 
 To add the `swe` plugin (Software English checks) in the same step, run
-`tsk install-plugin claude-cli --plugin tsk --plugin swe`. It installs at project scope,
-for this repo only. `claude plugin install` on its own defaults to user scope, which
-applies to every repo on the machine.
+`tsk install-plugin claude-cli --plugin tsk --plugin swe`. It installs at user scope, which
+applies to every repo on the machine. `--scope project` installs for one repo only, and
+prints a warning: an install at both scopes makes it unclear which version loads.
 
 **tmux.** `tsk tmux install` sets up the tmux session chooser (`prefix s`) and a sidebar
 (`prefix b`) to show each agent's state (waiting for input or working), a short form of
