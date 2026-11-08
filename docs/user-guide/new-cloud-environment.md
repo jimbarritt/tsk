@@ -127,7 +127,12 @@ stores the new SHA-256. It prints one line in the session context, and the text 
 `~/.claude/AGENTS.md` when that file exists, because Claude Code can read
 `~/.claude/CLAUDE.md` before the hook writes it. A disk saved before the `args` file existed
 takes `--use-robot-attribution <email>` from the user tsk config when it sets robot
-attribution. `TSK_SETUP_REFRESH=off` switches the check off. The first session after a build
+attribution. When the script has not changed, the check compares the
+user-scope version of the `tsk` and `swe` plugins in `~/.claude/plugins/installed_plugins.json`
+with the version in each plugin's manifest on `main`, and updates an older one, at project
+scope too when the repo has a project-scope install. A plugin release then reaches a new
+session with no rebuild. The update loads in the next Claude Code process, and the context
+line says so. `TSK_SETUP_REFRESH=off` switches the check off. The first session after a build
 runs the script once more, because the build stores no SHA-256. A disk saved with a plugin older than 0.3.46 has
 no check in the plugin hook, so in a repo other than this one the check starts only after
 one rebuild.

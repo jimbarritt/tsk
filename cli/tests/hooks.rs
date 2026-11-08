@@ -545,6 +545,100 @@ fn the_plugin_hook_prints_the_setup_line_when_another_hook_claimed_the_session_s
     assert!(context.contains("ran it again"), "{context}");
 }
 
+/// refresh-setup.sh with the set-up script current, `installed` as the user-scope and
+/// project-scope version of each plugin, and `released` as the version on main.
+fn refresh_plugins(machine: &Machine, installed: &str, released: &str) -> String {
+    with_last_run(machine);
+    let script = setup_script(machine, "v1", 0);
+    let state = machine.home().join("state").join("tsk").join("setup");
+    std::fs::create_dir_all(&state).unwrap();
+    let hash = Command::new("sha256sum").arg(&script).output().unwrap();
+    let hash = String::from_utf8_lossy(&hash.stdout);
+    std::fs::write(state.join("script.sha256"), hash.split(' ').next().unwrap()).unwrap();
+    let repo = machine.repo().canonicalize().unwrap();
+    let plugins = machine.home().join(".claude").join("plugins");
+    std::fs::create_dir_all(&plugins).unwrap();
+    let entries = |version: &str| {
+        format!(
+            "[{{\"scope\":\"user\",\"version\":\"{version}\"}},\
+             {{\"scope\":\"project\",\"projectPath\":\"{}\",\"version\":\"{version}\"}}]",
+            repo.display()
+        )
+    };
+    std::fs::write(
+        plugins.join("installed_plugins.json"),
+        format!(
+            "{{\"version\":2,\"plugins\":{{\"tsk@jimbarritt-claude-plugins\":{},\"swe@jimbarritt-claude-plugins\":{}}}}}",
+            entries(installed),
+            entries("1.0.0")
+        ),
+    )
+    .unwrap();
+    let tsk_manifest = machine.root.path().join("tsk-plugin.json");
+    let swe_manifest = machine.root.path().join("swe-plugin.json");
+    std::fs::write(&tsk_manifest, format!("{{\"version\":\"{released}\"}}")).unwrap();
+    std::fs::write(&swe_manifest, "{\"version\":\"1.0.0\"}").unwrap();
+    let path = machine
+        .repo()
+        .join("plugin")
+        .join("hooks")
+        .join("refresh-setup.sh");
+    let output = machine
+        .command(&path)
+        .env("TSK_SETUP_URL", format!("file://{}", script.display()))
+        .env(
+            "TSK_PLUGIN_MANIFEST_URL_TSK",
+            format!("file://{}", tsk_manifest.display()),
+        )
+        .env(
+            "TSK_PLUGIN_MANIFEST_URL_SWE",
+            format!("file://{}", swe_manifest.display()),
+        )
+        .env("SETUP_LOG", machine.log("setup"))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+#[test]
+fn the_setup_refresh_updates_a_plugin_older_than_its_release() {
+    let Some(machine) = Machine::new() else {
+        return;
+    };
+    if !have("curl") || !have("sha256sum") {
+        return;
+    }
+    let out = refresh_plugins(&machine, "0.3.9", "0.3.10");
+    assert!(
+        out.contains("updated the tsk plugin from 0.3.9 to 0.3.10"),
+        "{out}"
+    );
+    assert!(!out.contains("swe"), "{out}");
+    assert_eq!(
+        machine.lines("claude"),
+        vec![
+            "plugin marketplace update jimbarritt-claude-plugins",
+            "plugin update tsk@jimbarritt-claude-plugins --scope user",
+            "plugin update tsk@jimbarritt-claude-plugins --scope project",
+        ]
+    );
+    assert!(machine.lines("setup").is_empty());
+}
+
+#[test]
+fn the_setup_refresh_leaves_a_current_plugin_alone() {
+    let Some(machine) = Machine::new() else {
+        return;
+    };
+    if !have("curl") || !have("sha256sum") {
+        return;
+    }
+    assert_eq!(refresh_plugins(&machine, "0.3.10", "0.3.10"), "");
+    assert_eq!(refresh_plugins(&machine, "0.3.11", "0.3.10"), "");
+    assert!(machine.lines("claude").is_empty());
+}
+
 fn session_end(status: &str, status_fails: bool, push_sleep: u32, push_fails: bool) -> EndRun {
     let root = tempfile::tempdir().unwrap();
     let bin = root.path().join("bin");

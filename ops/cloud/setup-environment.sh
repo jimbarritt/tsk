@@ -116,6 +116,8 @@ if command -v claude >/dev/null 2>&1; then
   if claude plugin marketplace add "$MARKETPLACE_SOURCE" >"$tmp/plugin.log" 2>&1; then
     # install does not upgrade an installed plugin, so a run of this script on a saved disk
     # (plugin/hooks/refresh-setup.sh) refreshes the marketplace and updates each plugin too.
+    # From plugin 0.3.48 the session start check also updates a plugin older than its
+    # release when this script has not changed.
     claude plugin marketplace update "$MARKETPLACE" >"$tmp/plugin.log" 2>&1 ||
       echo "WARNING: refreshing the $MARKETPLACE marketplace failed: $(tr '\n' ' ' <"$tmp/plugin.log")" >&2
     for plugin in tsk swe; do
