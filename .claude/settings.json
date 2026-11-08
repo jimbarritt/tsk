@@ -19,17 +19,5 @@
       }
     ]
   },
-  "enabledPlugins": {
-    "swe@jimbarritt-claude-plugins": true,
-    "tsk@jimbarritt-claude-plugins": true
-  },
-  "extraKnownMarketplaces": {
-    "jimbarritt-claude-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "jimbarritt/claude-plugins"
-      }
-    }
-  },
   "outputStyle": "swe:Software English"
 }
