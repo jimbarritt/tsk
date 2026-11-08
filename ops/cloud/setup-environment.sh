@@ -120,25 +120,9 @@ else
 fi
 
 # Robot attribution, with --use-robot-attribution only. The user config turns it on, and
-# tsk thread session-start then writes the signing set-up from TSK_ROBOT_SIGNING_KEY. A robot
-# commit has a different author from the harness's own, and auto mode asks before each one,
-# so three permission rules let a session add, commit and push to main without a prompt.
-# Every other git command, a force-push and a reset among them, still goes through the auto
-# mode check. The rules are added to ~/.claude/settings.json, and each is kept once.
+# tsk thread session-start then writes the signing set-up from TSK_ROBOT_SIGNING_KEY.
 if [ -n "$ROBOT_EMAIL" ]; then
   "$BIN/tsk" config attribution robot --email "$ROBOT_EMAIL" --user
-  python3 - "$HOME/.claude/settings.json" <<'PY'
-import json, os, sys
-path = sys.argv[1]
-allow = ["Bash(git add:*)", "Bash(git commit:*)", "Bash(git push origin main:*)"]
-settings = json.load(open(path)) if os.path.exists(path) else {}
-rules = settings.setdefault("permissions", {}).setdefault("allow", [])
-rules.extend(r for r in allow if r not in rules)
-os.makedirs(os.path.dirname(path), exist_ok=True)
-with open(path, "w") as f:
-    json.dump(settings, f, indent=2)
-    f.write("\n")
-PY
 fi
 
 mkdir -p "$SETUP_DIR"

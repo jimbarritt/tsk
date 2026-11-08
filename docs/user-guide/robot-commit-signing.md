@@ -26,11 +26,8 @@ in the secret `TSK_ROBOT_SIGNING_KEY`:
 curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash -s -- --use-robot-attribution robots@jimbarritt.com
 ```
 
-With the option, the script writes the user config with `--user`, and adds three permission
-rules to `~/.claude/settings.json`: `Bash(git add:*)`, `Bash(git commit:*)` and
-`Bash(git push origin main:*)`. A robot commit has a different author from the harness's own,
-and auto mode asks before each one without the rules. Every other git command still goes
-through the auto mode check. An environment without the option stays off, and a clone
+With the option, the script writes the user config with `--user`. It adds no Claude Code
+permission rules. An environment without the option stays off, and a clone
 elsewhere stays off. This repo's cloud environment does this. The setup script runs when a
 container is built, so a change takes effect in the next new container.
 
