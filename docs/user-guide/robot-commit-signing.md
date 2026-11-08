@@ -30,6 +30,7 @@ With the option, the script writes the user config with `--user`. It adds no Cla
 permission rules. An environment without the option stays off, and a clone
 elsewhere stays off. This repo's cloud environment does this. The setup script runs when a
 container is built, so a change takes effect in the next new container.
+A session with no permission rules confirmed robot signing works unaided (T-15, 2026-11-08).
 
 The variables `TSK_ATTRIBUTION_IDENTITY` and `TSK_ATTRIBUTION_EMAIL` outrank both config
 files, for a case that needs an override. A session that was running when they were set
