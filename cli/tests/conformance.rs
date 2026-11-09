@@ -1734,6 +1734,43 @@ mod cases {
         );
     }
 
+    /// A link that another clone pushed comes into this clone with the merge of a push,
+    /// and its document does not: the push moves the Dolt data only. The next push checks
+    /// that link against a documents worktree that predates it, so the check fetches
+    /// origin's documents before it stops on a missing one.
+    pub fn a_link_merged_from_another_clone_passes_the_next_push_check() {
+        let fx = Fixture::fetched();
+        let (a, other) = (fx.a(), fx.b());
+        fx.ok(&a, &["mission", "create", "M-D", "Documents"]);
+        fx.ok(&a, &["ledger", "push", "Base"]);
+        fx.ok(&other, &["ledger", "fetch"]);
+
+        fx.put(&a, "missions/M-D/report.1a2b3c4d.md", "# Report\n");
+        fx.ok(
+            &a,
+            &[
+                "mission",
+                "link",
+                "M-D",
+                "missions/M-D/report.md",
+                "--role",
+                "report",
+            ],
+        );
+        fx.ok(&a, &["ledger", "push", "A links a report"]);
+
+        // The first push from the other clone merges the link in with the data.
+        fx.ok(&other, &["task", "add", "M-D", "First"]);
+        fx.ok(&other, &["ledger", "push", "B one"]);
+        // The second push checks the merged link.
+        fx.ok(&other, &["task", "add", "M-D", "Second"]);
+        fx.ok(&other, &["ledger", "push", "B two"]);
+        assert_eq!(
+            stdout(&fx.get(&other, "missions/M-D/report.md")),
+            "# Report\n"
+        );
+    }
+
     pub fn documents_are_linked_by_id_and_checked_at_push() {
         let fx = Fixture::fetched();
         let a = fx.a();
@@ -5071,6 +5108,7 @@ conformance!(
     blocks_are_checked_and_blocked_is_derived,
     objective_outcomes_are_numbered_and_numbers_are_not_reused,
     documents_are_linked_by_id_and_checked_at_push,
+    a_link_merged_from_another_clone_passes_the_next_push_check,
     mission_writes_stay_local_until_the_push,
     two_clones_add_missions_that_merge_and_one_field_conflicts,
     the_json_record_has_every_field,

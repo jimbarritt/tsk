@@ -2464,11 +2464,24 @@ impl LedgerStore for DoltStore {
             .as_ref()
             .is_some_and(|paths| paths.iter().all(|path| docs_tree.doc_path(path).is_file()));
         if !all_exist {
-            model::check_links(
-                &self.missions_in(&db, &location)?,
-                &|path| docs_tree.doc_path(path).is_file(),
-                "The documents are pushed. The Dolt data stays committed locally and is not pushed yet",
-            )?;
+            let missions = self.missions_in(&db, &location)?;
+            let exists = |path: &str| docs_tree.doc_path(path).is_file();
+            if model::check_links(&missions, &exists, "").is_err() {
+                // A link that another clone pushed comes in with the merge of the Dolt
+                // data, and its document does not, so the documents worktree can predate
+                // it. Bring origin's documents in, keeping local commits, and check again.
+                // A path still missing after that is missing on origin too.
+                self.synced.borrow_mut().docs = None;
+                let tip = self.docs_tip_fetched(&location.docs())?;
+                self.note_docs_tip(&location, tip.as_deref());
+                docs::fetch_with_tip(&self.repo, &self.state_root, &location, true, tip)?;
+                let docs_tree = self.docs_tree()?;
+                model::check_links(
+                    &missions,
+                    &|path| docs_tree.doc_path(path).is_file(),
+                    "The documents are pushed. The Dolt data stays committed locally and is not pushed yet",
+                )?;
+            }
         }
 
         let request = PushRequest {
