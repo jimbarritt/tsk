@@ -79,6 +79,11 @@ that version for the machine. It installs `tsk` into `/usr/local/bin`, which is 
 Rust toolchain. Each file is written to a temporary name and renamed, so a running copy is
 not overwritten.
 
+The script builds `cargo-edit` 0.13.14 (the `set-version` feature only) from crates.io into
+`/usr/local/bin` when `cargo set-version` is missing, for `just bump`. No prebuilt binary is
+reachable through the cloud proxy, so the first build takes a few minutes, and a later run
+skips it. A failure prints a warning and does not stop the script.
+
 The script then installs the `tsk` and `swe` plugins at user scope, with `claude plugin
 install --scope user`, and updates each with `claude plugin update --scope user`, because
 `install` does not upgrade an installed plugin. A user-scope plugin loads in the first process of every session of
