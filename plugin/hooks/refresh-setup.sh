@@ -53,7 +53,7 @@ flock -w 300 9 || { echo "WARNING: the environment set-up check timed out waitin
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-if ! curl -sSfL --max-time 20 "$URL" -o "$tmp/setup-environment.sh" 2>"$tmp/curl.log"; then
+if ! curl -sSfL --max-time 20 --retry 2 --retry-delay 2 "$URL" -o "$tmp/setup-environment.sh" 2>"$tmp/curl.log"; then
   echo "WARNING: fetching the environment set-up script failed: $(tr '\n' ' ' <"$tmp/curl.log")"
   exit 0
 fi
@@ -84,7 +84,7 @@ update_plugins() {
     key="$plugin@$MARKETPLACE"
     installed="$(jq -r --arg k "$key" '[.plugins[$k][]? | select(.scope == "user") | .version][0] // empty' "$INSTALLED")"
     [ -n "$installed" ] || continue
-    latest="$(curl -sSfL --max-time 10 "$(manifest_url "$plugin")" 2>/dev/null | jq -r '.version // empty' 2>/dev/null)"
+    latest="$(curl -sSfL --max-time 10 --retry 2 --retry-delay 2 "$(manifest_url "$plugin")" 2>/dev/null | jq -r '.version // empty' 2>/dev/null)"
     [ -n "$latest" ] && older "$installed" "$latest" || continue
     if [ "$refreshed" = 0 ]; then
       claude plugin marketplace update "$MARKETPLACE" >"$tmp/plugin.log" 2>&1 || {

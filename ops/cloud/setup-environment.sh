@@ -64,12 +64,12 @@ install_bin() {
 # SHA-256 of each archive, written by the release workflow a few minutes after it publishes
 # a release, so the formula names the newest release that has a checksum. A session start
 # installs a newer tsk when the plugin needs one.
-formula="$(curl -sSfL https://raw.githubusercontent.com/jimbarritt/homebrew-tap/main/Formula/tsk.rb)"
+formula="$(curl -sSfL --retry 3 --retry-delay 2 https://raw.githubusercontent.com/jimbarritt/homebrew-tap/main/Formula/tsk.rb)"
 TSK_VERSION="$(printf '%s\n' "$formula" | sed -n 's/^ *version "\(.*\)"$/\1/p' | head -n 1)"
 [ -n "$TSK_VERSION" ] || { echo "no version in the Homebrew formula" >&2; exit 1; }
 TSK_SHA256="$(printf '%s\n' "$formula" | awk -v t="$TSK_TARGET.tar.gz" 'index($0, t) { found = 1; next } found && /sha256/ { gsub(/[" ]/, "", $2); print $2; exit }')"
 [ -n "$TSK_SHA256" ] || { echo "no checksum for $TSK_TARGET in the Homebrew formula" >&2; exit 1; }
-curl -sSfL "https://github.com/jimbarritt/tsk/releases/download/v$TSK_VERSION/tsk-$TSK_VERSION-$TSK_TARGET.tar.gz" -o "$tmp/tsk.tar.gz"
+curl -sSfL --retry 3 --retry-delay 2 "https://github.com/jimbarritt/tsk/releases/download/v$TSK_VERSION/tsk-$TSK_VERSION-$TSK_TARGET.tar.gz" -o "$tmp/tsk.tar.gz"
 check "$tmp/tsk.tar.gz" "$TSK_SHA256" "tsk $TSK_VERSION"
 tar -xz --no-same-owner -C "$tmp" -f "$tmp/tsk.tar.gz" tsk
 install_bin "$tmp/tsk" tsk
@@ -78,7 +78,7 @@ install_bin "$tmp/tsk" tsk
 # dolt publishes no checksum file, so the SHA-256 of each archive is pinned here, taken from
 # the download on 2026-10-25. Work out new values when DOLT_VERSION changes.
 DOLT_VERSION=2.5.0
-curl -sSfL "https://github.com/dolthub/dolt/releases/download/v$DOLT_VERSION/dolt-linux-$DOLT_ARCH.tar.gz" -o "$tmp/dolt.tar.gz"
+curl -sSfL --retry 3 --retry-delay 2 "https://github.com/dolthub/dolt/releases/download/v$DOLT_VERSION/dolt-linux-$DOLT_ARCH.tar.gz" -o "$tmp/dolt.tar.gz"
 check "$tmp/dolt.tar.gz" "$DOLT_SHA256" "dolt $DOLT_VERSION"
 tar -xz --no-same-owner -C "$tmp" -f "$tmp/dolt.tar.gz"
 install_bin "$tmp/dolt-linux-$DOLT_ARCH/bin/dolt" dolt
