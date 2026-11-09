@@ -2,7 +2,7 @@
 
 ## Usage
 
-Run `tsk` from inside any working tree of a repository whose `origin` holds a ledger
+Run `tsk` from inside any working tree of a repository whose `origin` has a ledger
 ref: `refs/tsk/ledger` for a new ledger, or the branch
 `refs/heads/tsk/ledger` for one that uses branches (see
 [Which mode a repo uses](../domain/ledger-layout.md#which-mode-a-repo-uses)). The `ledger`, `thread` and `events` commands run in the `tsk`
@@ -12,11 +12,11 @@ client alone, with no daemon. The default ledger backend is Dolt and needs the `
 are in [session-continuation-design.md](../domain/session-continuation-design.md).
 
 To bring an existing plan into a ledger, run `tsk guide import`. It prints a guide for an
-agent: what the ledger holds, how a plan maps onto records, and the steps to write
+agent: what the ledger contains, how a plan maps onto records, and the steps to write
 missions, tasks, decisions and questions through the `tsk` commands. The session start
-context names the command while the ledger holds no missions.
+context names the command while the ledger has no missions.
 
-The ledger holds records and documents. Missions, tasks, decisions and questions are
+The ledger contains records and documents. Missions, tasks, decisions and questions are
 records, and `tsk mission list` is the index of them. Documents are free text, such as
 research and reports. Agents do not edit either by hand.
 
@@ -43,7 +43,7 @@ It clones the ledger as a Dolt database, the ledger store, outside the repositor
 (`.../tsk/repos/<clone-id>/ledger-db`) and prints its path. `tsk ledger path` prints the
 same path without fetching. Do not open files in it.
 
-The ledger has a second branch, `tsk/docs`, that holds the documents as plain Markdown
+The ledger has a second branch, `tsk/docs`, that contains the documents as plain Markdown
 files. `tsk ledger fetch` checks it out beside the database, at
 `.../tsk/repos/<clone-id>/docs`. Read and write documents with `tsk ledger doc`:
 
@@ -70,12 +70,12 @@ After a failed `doc put` the document is written locally: correct it and put it 
 code repo never run for the ledger. See [the ledger layout](../domain/ledger-layout.md#the-documents-hook-point).
 It pushes the documents branch first and the Dolt data second, so a record never names a
 document the remote lacks. If the documents push fails, the Dolt data stays unpushed and
-the next `tsk ledger push` tries both again. `doc path` exits 1 when the document does not
+the next `tsk ledger push` runs both again. `doc path` exits 1 when the document does not
 exist.
 
 A ledger created before version 0.8.0 keeps its documents in a Dolt table. Run
-`tsk ledger migrate-docs` once to move them to `tsk/docs`. Until then every command
-except `tsk ledger fetch` stops and says so.
+`tsk ledger migrate-docs` once to copy them to `tsk/docs`. Until then every command
+except `tsk ledger fetch` stops with an error that names it.
 
 **2. Start a thread for a mission:**
 
@@ -86,7 +86,7 @@ tsk thread start M-TSK-BOOT-04
 The mission has a record (see `tsk mission list`). With no mission ID the thread has no
 mission and no tasks, and `tsk thread set mission <id>` attaches one later. The command mints a thread ID, stores the thread
 and its mission on the ledger, binds the current code worktree (or cloud session) to
-it, pushes, and prints `started:<thread-id>`. It refuses an unknown mission ID. With a
+it, pushes, and prints `started:<thread-id>`. It fails with an error for an unknown mission ID. With a
 binding already in place it prints `resume-required:<thread-id>` and exits with status 2.
 To work without a thread, run `tsk thread skip`.
 
@@ -96,9 +96,9 @@ To work without a thread, run `tsk thread skip`.
 tsk thread pause <thread-id> T-05 "Thread commands done; next: T-06"
 ```
 
-The mission comes from the thread. When the mission has a record, the task must be one of
+The mission is the thread's mission. When the mission has a record, the task must be one of
 its tasks. The command appends a continuation state entry, pushes, and prints `paused:<thread-id>`. It
-refuses when the repository's `HEAD` is not on origin's default branch (for example
+fails when the repository's `HEAD` is not on origin's default branch (for example
 `main`, `master` or `trunk`).
 
 **4. Resume a thread:**
@@ -160,11 +160,11 @@ tsk nexus list --json       # the same as one JSON object
 tsk nexus register-repo     # add this repo's entry to nexus.json, commit and push it
 ```
 
-A repo whose `nexus.json` entry has `"ledger": "nexus"` holds its ledger in the nexus. See
+A repo whose `nexus.json` entry has `"ledger": "nexus"` has its ledger in the nexus. See
 [new-nexus-on-a-clean-machine.md](new-nexus-on-a-clean-machine.md). With no nexus attached,
 `tsk nexus list` prints `nexus: none attached` and exits 0. When the nexus cannot be
-fetched, it lists the copy held from an earlier fetch, with a note on stderr, or exits 1
-when no copy is held.
+fetched, it lists the local copy from an earlier fetch, with a note on stderr, or exits 1
+when there is no local copy.
 
 `tsk nexus register-repo` runs in the managed repo. It takes `--id`, `--territory`,
 `--territory-name`, `--ledger nexus|repo` and `--local`, and prints `already registered`
@@ -189,7 +189,7 @@ The integration tests are one test binary, `integration`, and each file under `c
 cargo build --workspace --release
 ```
 
-The binary arrives in `target/release/`: `tsk`.
+The build writes the binary to `target/release/tsk`.
 
 Or install locally with `just`:
 
@@ -208,7 +208,7 @@ tag yet. The workflow `.github/workflows/release.yml`:
    `cargo fmt --all --check` and `cargo clippy --workspace --all-targets --locked -- -D
    warnings` must pass. `cargo test --workspace --locked` must pass with `dolt` installed. A failure stops the
    release before it creates a tag, and nothing is published. A missing `dolt` is also a
-   failure, because the ledger tests pass without running when it is missing.
+   failure, because the ledger tests pass without running when it is absent.
 2. Creates the tag `v<version>` on the pushed commit and the GitHub release
    `tsk <version>`.
 3. Writes the notes: `docs/releases/v<version>.md` when that file exists, then the
@@ -222,19 +222,20 @@ tag yet. The workflow `.github/workflows/release.yml`:
 
 To release:
 
-1. Bump the workspace version with `just bump <version>` (requires cargo-edit:
-   `cargo install cargo-edit`).
+1. Bump the workspace version with `just bump <version>`. It runs
+   `ops/local/bump-version.py`, which sets the version in `Cargo.toml` and `Cargo.lock`
+   and needs only Python 3 and cargo.
 2. Optional: write a summary in `docs/releases/v<version>.md`.
 3. Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D
    warnings` and `cargo test --workspace --locked`, and read the exit status of each. Do not pipe it into
    another command, which replaces the status with its own.
 4. Commit and push to `main`.
 
-A push that leaves the version unchanged releases nothing.
+A push with the version unchanged releases nothing.
 
 `publish-crates.yml` also runs when someone publishes a release on GitHub by hand, and
 from the Actions tab with a tag. It skips a crate whose version is already on crates.io,
-so a rerun after a failure publishes only what is missing.
+so a rerun after a failure publishes only what is absent.
 
 The release secrets are in the GitHub environment `release`:
 
