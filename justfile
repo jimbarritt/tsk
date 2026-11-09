@@ -21,9 +21,9 @@ build:
 uninstall:
     cargo uninstall tsk-bin
 
-# Bump the workspace version (requires cargo-edit: cargo install cargo-edit)
+# Bump the workspace version in Cargo.toml and Cargo.lock (no cargo-edit needed)
 bump VERSION:
-    cargo set-version --workspace {{VERSION}}
+    python3 ops/local/bump-version.py {{VERSION}}
 
 # Publish tsk-bin to crates.io
 publish:

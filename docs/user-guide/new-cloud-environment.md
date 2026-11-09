@@ -63,7 +63,7 @@ If a host is blocked, use Custom and add it, or use Full.
 
 Paste this into the environment's setup script field. It fetches
 [`ops/cloud/setup-environment.sh`](../../ops/cloud/setup-environment.sh) from the `main`
-branch and runs it, so a change to that file reaches the next environment build with no
+branch and runs it, so the next environment build runs a change to that file with no
 edit to the field. The script is not pinned: the downloads inside it are checked against
 pinned SHA-256 values, and the script itself is the text on `main` at build time.
 
@@ -79,16 +79,11 @@ that version for the machine. It installs `tsk` into `/usr/local/bin`, which is 
 Rust toolchain. Each file is written to a temporary name and renamed, so a running copy is
 not overwritten.
 
-The script builds `cargo-edit` 0.13.14 (the `set-version` feature only) from crates.io into
-`/usr/local/bin` when `cargo set-version` is missing, for `just bump`. No prebuilt binary is
-reachable through the cloud proxy, so the first build takes a few minutes, and a later run
-skips it. A failure prints a warning and does not stop the script.
-
 The script then installs the `tsk` and `swe` plugins at user scope, with `claude plugin
 install --scope user`, and updates each with `claude plugin update --scope user`, because
 `install` does not upgrade an installed plugin. A user-scope plugin loads in the first process of every session of
 the environment, in any repo, so a repo needs no committed `SessionStart` hook and no
-regeneration. The plugin's own hook installs `dolt` and `tsk` when they are missing, fetches
+regeneration. The plugin's own hook installs `dolt` and `tsk` when they are absent, fetches
 the ledger and prints the context. A failed plugin step prints a `WARNING:` line and does
 not stop the script. This repo's own `SessionStart` script installs no plugin: it adds a
 `WARNING:` line to the context when `tsk` or `swe` has no user-scope install.
@@ -107,7 +102,7 @@ Every download is checked against a SHA-256 before it is installed:
   each architecture. This takes under a second. Building `just` with `cargo install` takes
   about two minutes.
 
-The pinned values come from the downloads of 2026-10-25. They protect against a corrupt
+The pinned values are from the downloads of 2026-10-25. They protect against a corrupt
 download and a later change to a file. They do not protect against a bad first download.
 Work out new values when you change `DOLT_VERSION` or `JUST_VERSION`.
 
@@ -133,9 +128,9 @@ stores the new SHA-256. It prints one line in the session context, and the text 
 takes `--use-robot-attribution <email>` from the user tsk config when it sets robot
 attribution. After that, the check compares the
 user-scope version of the `tsk` and `swe` plugins in `~/.claude/plugins/installed_plugins.json`
-with the version in each plugin's manifest on `main`, and updates an older one. A project-scope install is left alone. A plugin release then reaches a new
+with the version in each plugin's manifest on `main`, and updates an older one. A project-scope install is left alone. A plugin release then installs in a new
 session with no rebuild. The update loads in the next Claude Code process, and the context
-line says so. The check fetches each file by the commit SHA of `main`, which `git
+line names it. The check fetches each file by the commit SHA of `main`, which `git
 ls-remote` reads from `github.com`, because the CDN keeps a file under `main` for up to 5
 minutes. `TSK_SETUP_REFRESH=off` switches the check off. The first session after a build
 runs the script once more, because the build stores no SHA-256. A disk saved with a plugin older than 0.3.46 has
@@ -154,15 +149,15 @@ The stamp shows reuse only when the cache keeps the container's filesystem.
 | `tsk: command not found` or `dolt is not installed` | The setup script failed. | Run the setup script's commands in the session and read the error. |
 | A download in the setup script fails | A GitHub download host is blocked by the network access level. | Add the hosts in step 2 under Custom, or use Full. |
 | The script stops with `checksum mismatch for <name>` | A download is corrupt or incomplete, or a pinned value is out of date. | Run the script again. If it repeats, check that the version in the script is the one whose checksum is pinned. |
-| The script stops at the `just` step with a pip error | `pip` or `python3` is missing, or `pypi.org` and `files.pythonhosted.org` are blocked. | Allow those hosts in step 2, or install `just` another way. |
+| The script stops at the `just` step with a pip error | `pip` or `python3` is absent, or `pypi.org` and `files.pythonhosted.org` are blocked. | Allow those hosts in step 2, or install `just` another way. |
 | The `SessionStart` context reports `WARNING: adding the ... marketplace failed` | `github.com` is blocked, or the marketplace repo is not readable. | Allow `github.com`. Confirm `jimbarritt/claude-plugins` is readable from the session. |
-| A session starts with no tsk context, and `/tsk:` commands are missing | The setup script did not install the plugins, or the environment still holds an older script. | Run `claude plugin list` in the session. Install a missing plugin with `claude plugin install <plugin>@jimbarritt-claude-plugins --scope user`, then start a new session. |
+| A session starts with no tsk context, and `/tsk:` commands are absent | The setup script did not install the plugins, or the environment still has an older script. | Run `claude plugin list` in the session. Install a missing plugin with `claude plugin install <plugin>@jimbarritt-claude-plugins --scope user`, then start a new session. |
 | `$TSK_LEDGER_WT` is empty | The hook did not run, or `tsk thread session-start` failed. | Run `WT="${TSK_LEDGER_WT:-$(tsk ledger fetch)}"` and read any error. |
-| `tsk ledger push` stops with `origin refused the push to refs/tsk/...` | The cloud sandbox proxy refuses writes outside `refs/heads/*`, and the ledger is on a custom ref. | Run `tsk config ledger-refs branches` and push again. See [ADR 0008](../adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md) and [ADR 0016](../adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md). |
+| `tsk ledger push` stops with `origin refused the push to refs/tsk/...` | The cloud sandbox proxy rejects writes outside `refs/heads/*`, and the ledger is on a custom ref. | Run `tsk config ledger-refs branches` and push again. See [ADR 0008](../adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md) and [ADR 0016](../adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md). |
 | `git merge-base` reports unrelated branches | The clone is shallow. | `git fetch --unshallow origin`. The hook does this at session start. |
 | A new `tsk` release is not picked up | The setup script result is cached for the environment. | Change the script, for example a comment line, so the environment rebuilds. |
-| A file or setting that `setup-environment.sh` writes is missing, after a change to that file on `main` | Each new session, a regenerated one included, starts from a disk saved by an earlier setup run. Compare `/usr/local/share/tsk-setup/last-run` with the commit time of the change. | Session start runs the script again when it changed: read the set-up line in the session context. A `WARNING:` line there names the failure. Run the environment's setup line by hand in the session to see the full output. |
-| The context warns that `tsk` could not be upgraded | `github.com` is blocked, or the release asset is missing for the platform. | Allow `github.com`, then run `tsk self-update` in the session and read the error. |
+| A file or setting that `setup-environment.sh` writes is absent, after a change to that file on `main` | Each new session, a regenerated one included, starts from a disk saved by an earlier setup run. Compare `/usr/local/share/tsk-setup/last-run` with the commit time of the change. | Session start runs the script again when it changed: read the set-up line in the session context. A `WARNING:` line there names the failure. Run the environment's setup line by hand in the session to see the full output. |
+| The context warns that `tsk` could not be upgraded | `github.com` is blocked, or the release has no asset for the platform. | Allow `github.com`, then run `tsk self-update` in the session and read the error. |
 
 ## Observed
 
@@ -182,13 +177,13 @@ On 2026-11-08, in a session made by `/tsk:regenerate-cloud-instance`:
   at 21:07:13Z. `/usr/local/share/tsk-setup/last-run` read 12:43:07Z, and
   `~/.config/tsk/config.toml` had the same time. The setup script did not run for the
   session.
-- The saved disk holds the repo clone too. `.git/tsk-clone-id` was from 12:43:08Z. Only
+- The saved disk contains the repo clone too. `.git/tsk-clone-id` was from 12:43:08Z. Only
   `.git/HEAD` changed at session start (21:07:22Z), when the platform updated the checkout
   to `main`.
-- A change to `ops/cloud/setup-environment.sh` on `main` does not reach a session started
+- A change to `ops/cloud/setup-environment.sh` on `main` does not run in a session started
   from a disk saved before it. Commit 905e16e (21:06Z) adds `~/.claude/AGENTS.md` and
   `~/.claude/CLAUDE.md`. The new session had neither file. The fetched script on `main`
-  held the step, so the URL and its cache were not the cause.
+  contained the step, so the URL and its cache were not the cause.
 - Running the environment's setup line by hand in the session wrote both files and exited
   0. Claude Code reads `~/.claude/CLAUDE.md` when its process starts, so a file written by
   hand loads in the next process, not the current one.
