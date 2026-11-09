@@ -77,7 +77,8 @@ The fetched script reads the version in the Homebrew formula and downloads the p
 that version for the machine. It installs `tsk` into `/usr/local/bin`, which is on `PATH`, and installs `dolt`
 2.5.0 and `just` 1.59.0 beside it. It sets a Dolt identity when none is set. It needs no
 Rust toolchain. Each file is written to a temporary name and renamed, so a running copy is
-not overwritten.
+not overwritten. Each download retries up to 3 times on a timeout or a 5xx response, such as a 504
+from GitHub.
 
 The script then installs the `tsk` and `swe` plugins at user scope, with `claude plugin
 install --scope user`, and updates each with `claude plugin update --scope user`, because
@@ -132,7 +133,8 @@ with the version in each plugin's manifest on `main`, and updates an older one. 
 session with no rebuild. The update loads in the next Claude Code process, and the context
 line names it. The check fetches each file by the commit SHA of `main`, which `git
 ls-remote` reads from `github.com`, because the CDN keeps a file under `main` for up to 5
-minutes. `TSK_SETUP_REFRESH=off` switches the check off. The first session after a build
+minutes. Each fetch retries up to 2 times on a timeout or a 5xx response.
+`TSK_SETUP_REFRESH=off` switches the check off. The first session after a build
 runs the script once more, because the build stores no SHA-256. A disk saved with a plugin older than 0.3.46 has
 no check in the plugin hook, so in a repo other than this one the check starts only after
 one rebuild.
