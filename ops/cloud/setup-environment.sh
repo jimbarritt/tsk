@@ -105,6 +105,21 @@ open(sys.argv[2], "wb").write(archive.read(name))
 PY
 install_bin "$tmp/just" just
 
+# cargo-edit: `just bump <version>` runs `cargo set-version`. No prebuilt binary is
+# reachable through the cloud proxy, so cargo builds the set-version feature alone from
+# crates.io, pinned, with its lock file. It runs only when the command is missing, so a
+# second run of this script costs nothing. A failure prints a warning and does not stop
+# the script.
+CARGO_EDIT_VERSION=0.13.14
+CARGO="$(command -v cargo || echo "$HOME/.cargo/bin/cargo")"
+if [ ! -x "$CARGO" ]; then
+  echo "WARNING: cargo is not installed, so cargo-edit is not installed" >&2
+elif ! PATH="$BIN:$PATH" "$CARGO" set-version --help >/dev/null 2>&1; then
+  "$CARGO" install cargo-edit --version "$CARGO_EDIT_VERSION" --locked \
+    --no-default-features --features set-version --root "${BIN%/bin}" >"$tmp/cargo-edit.log" 2>&1 ||
+    echo "WARNING: installing cargo-edit $CARGO_EDIT_VERSION failed: $(tail -n 3 "$tmp/cargo-edit.log" | tr '\n' ' ')" >&2
+fi
+
 # The tsk and swe plugins at user scope, so every session of the environment loads them
 # from its first process and a repo needs no committed hook. The plugin's own SessionStart
 # hook installs dolt and tsk when they are missing, fetches the ledger and prints the
