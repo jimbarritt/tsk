@@ -127,7 +127,15 @@ pub enum ThreadCommands {
     #[command(
         about = "Print what this session does next about threads, from the local ledger store with no fetch: bound:<thread-id> and a line naming the thread and its mission when it is bound; otherwise the question the Stop hook asks, robot first: the registered robots and their threads, then the missions. Run it on the first turn, once the ledger is fetched, so the robot is chosen before other work. Exit 0; exit 1 when there is no ledger store"
     )]
-    Next,
+    Next {
+        #[arg(
+            long,
+            value_delimiter = ',',
+            value_name = "SESSION_ID",
+            help = "The IDs of the cloud sessions that are not archived (list_sessions), comma-separated. A robot that ran in one of them is taken, and is not offered"
+        )]
+        open: Option<Vec<String>>,
+    },
     #[command(
         about = "SessionStart hook: reads the session ID and source from stdin, exits with no output when another run already claimed that event, fetches the ledger, exports TSK_LEDGER_WT to CLAUDE_ENV_FILE when set, and prints the hook JSON with the session context in the --format shape (claude by default, or copilot); accepts session_id or sessionId on stdin; exits 0 even when the fetch fails"
     )]
@@ -198,7 +206,7 @@ fn guard() -> Option<String> {
     let Ok(session) = Session::discover() else {
         return Some(UNBOUND_PROMPT.to_string());
     };
-    if let Some(reason) = unbound_reason(&session) {
+    if let Some(reason) = unbound_reason(&session, None) {
         return Some(reason);
     }
     if crate::ledger::background::enabled() {
@@ -213,7 +221,7 @@ fn guard() -> Option<String> {
 }
 
 /// The reason to block because nothing binds this session or worktree to a thread.
-fn unbound_reason(session: &Session) -> Option<String> {
+fn unbound_reason(session: &Session, open: Option<&[String]>) -> Option<String> {
     if is_skipped(session) {
         return None;
     }
@@ -232,6 +240,7 @@ fn unbound_reason(session: &Session) -> Option<String> {
         (Ok(missions), _) => Some(session_unbound_prompt(
             session,
             &open_mission_lines(&missions),
+            open,
         )),
         _ => Some(UNBOUND_PROMPT.to_string()),
     }
@@ -239,7 +248,7 @@ fn unbound_reason(session: &Session) -> Option<String> {
 
 /// The text of `tsk thread next`: the binding when there is one, else what the Stop hook
 /// would ask.
-fn next_text(session: &Session) -> Result<String, String> {
+fn next_text(session: &Session, open: Option<&[String]>) -> Result<String, String> {
     if !session.store.exists_locally()? {
         return Err(
             "error: this clone has no ledger store; run tsk ledger status and do what its Next line says"
@@ -262,7 +271,7 @@ fn next_text(session: &Session) -> Result<String, String> {
                 .unwrap_or_default()
         ));
     }
-    Ok(unbound_reason(session).unwrap_or_else(|| {
+    Ok(unbound_reason(session, open).unwrap_or_else(|| {
         "This session works with no thread (tsk thread skip), or the ledger holds no missions."
             .to_string()
     }))
@@ -278,9 +287,9 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
         return Ok(0);
     }
 
-    if let ThreadCommands::Next = action {
+    if let ThreadCommands::Next { open } = action {
         let session = Session::discover()?;
-        println!("{}", next_text(&session)?);
+        println!("{}", next_text(&session, open.as_deref())?);
         return Ok(0);
     }
 
@@ -516,7 +525,9 @@ fn run_with(session: &Session, action: ThreadCommands) -> Result<i32, String> {
                 None => Ok(1),
             }
         }
-        ThreadCommands::Guard | ThreadCommands::Next | ThreadCommands::SessionStart { .. } => Ok(0),
+        ThreadCommands::Guard
+        | ThreadCommands::Next { .. }
+        | ThreadCommands::SessionStart { .. } => Ok(0),
     }
 }
 

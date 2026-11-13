@@ -42,12 +42,37 @@ pub struct RobotThread {
 pub struct Robot {
     pub name: String,
     pub threads: Vec<RobotThread>,
+    /// The harness instances that ran as the robot: its own registrations, and the
+    /// instances of the sessions it was the primary actor of.
+    pub instances: Vec<String>,
+}
+
+/// The part of a session or instance key that a cloud session ID and its harness instance
+/// share: `session_X`, `cse_X` and `cloud:cse_X` all give `X`.
+pub fn session_key(id: &str) -> &str {
+    let id = id.rsplit(':').next().unwrap_or(id);
+    id.strip_prefix("session_")
+        .or_else(|| id.strip_prefix("cse_"))
+        .unwrap_or(id)
+}
+
+impl Robot {
+    /// True when one of the robot's instances is one of the `open` sessions.
+    pub fn is_open(&self, open: &[String]) -> bool {
+        self.instances.iter().any(|instance| {
+            open.iter()
+                .any(|id| session_key(id) == session_key(instance))
+        })
+    }
 }
 
 /// The registered robots, the one with the latest thread first and robots with no thread
 /// last, from the actors and the thread bindings.
 pub fn robots(store: &dyn crate::ledger::store::LedgerStore) -> Result<Vec<Robot>, String> {
     let rows = super::ops::list_rows(store)?;
+    let registrations = store.instances_list()?;
+    let sessions = store.sessions_list()?;
+    let session_actors = store.session_actors_list()?;
     let mut robots: Vec<Robot> = store
         .actors_list()?
         .into_iter()
@@ -67,9 +92,25 @@ pub fn robots(store: &dyn crate::ledger::store::LedgerStore) -> Result<Vec<Robot
                 })
                 .collect();
             threads.sort_by(|a, b| b.latest.cmp(&a.latest));
+            let mut instances: Vec<String> = registrations
+                .iter()
+                .filter(|row| row.actor_name == actor.name)
+                .map(|row| row.instance.clone())
+                .collect();
+            for row in session_actors.iter().filter(|row| {
+                Some(row.actor_uid.as_str()) == actor.uid.as_deref()
+                    && row.role == crate::ledger::store::ActorRole::Primary
+            }) {
+                if let Some(session) = sessions.iter().find(|s| s.session == row.session) {
+                    if !instances.contains(&session.instance) {
+                        instances.push(session.instance.clone());
+                    }
+                }
+            }
             Robot {
                 name: actor.name,
                 threads,
+                instances,
             }
         })
         .collect();
@@ -118,24 +159,70 @@ fn missions_part(mission_lines: &[String]) -> String {
     }
 }
 
+/// Which sessions are open, for the robot choice: a robot whose session is open is taken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenSessions<'a> {
+    /// No list of open sessions, outside a cloud session: every robot is offered.
+    NotKnown,
+    /// A cloud session with no list yet: the prompt asks the agent for one.
+    NotAsked,
+    /// The IDs of the sessions that are not archived.
+    Listed(&'a [String]),
+}
+
+/// The text that tells the agent to list the open cloud sessions and run
+/// `tsk thread next --open` with them.
+pub const OPEN_SESSIONS_STEP: &str = "No thread binding was found for this session, and no robot is registered for it. Choose the robot first, from the robots that no open session uses. Call the list_sessions tool of the claude-code-remote server (mine: true, limit: 100), take the id of every session whose session_status is not SESSION_STATUS_ARCHIVED, and run `tsk thread next --open <id>,<id>,...` with them. It prints the robots to offer.";
+
+fn choose_robot_prompt(robots: &[Robot], mission_lines: &[String], open: OpenSessions) -> String {
+    let (free, taken): (Vec<&Robot>, Vec<&Robot>) = match open {
+        OpenSessions::NotAsked => return OPEN_SESSIONS_STEP.to_string(),
+        OpenSessions::NotKnown => (robots.iter().collect(), Vec::new()),
+        OpenSessions::Listed(ids) => robots.iter().partition(|robot| !robot.is_open(ids)),
+    };
+    let taken_part = if taken.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<&str> = taken.iter().map(|robot| robot.name.as_str()).collect();
+        format!(
+            " Taken by a session that is not archived, so not offered: {}.",
+            names.join(", ")
+        )
+    };
+    if free.is_empty() {
+        return format!(
+            "No thread binding was found for this session, and no robot is registered for it. Every registered robot is taken by a session that is not archived.{} Run /tsk:construct-robot to construct a new robot, then /tsk:start-thread <mission-id>. {}\n{}",
+            taken_part,
+            missions_part(mission_lines),
+            SKIP_SENTENCE
+        );
+    }
+    let lines: Vec<String> = free.iter().map(|robot| robot_line(robot)).collect();
+    format!(
+        "No thread binding was found for this session or worktree, and no robot is registered for it. Choose the robot first. The robots to offer are listed below, one per line: name, then its threads (thread id, mission, date of the latest pause), tab-separated, the robot with the latest thread first.\n{}\n{}Use the AskUserQuestion tool to ask which robot this session is: offer up to three robots from the list, the one with the latest thread first, and \"Construct a new robot\", and leave free text open. Once answered, run `tsk actor register \"<name>\" --kind robot` for a robot from the list, or /tsk:construct-robot for a new one. Then use the AskUserQuestion tool again: offer that robot's threads, latest first, to resume with /tsk:resume-thread <thread-id>, and a new thread on a mission with /tsk:start-thread <mission-id>. {}\n{}",
+        lines.join("\n"),
+        if taken_part.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", taken_part.trim_start())
+        },
+        missions_part(mission_lines),
+        SKIP_SENTENCE
+    )
+}
+
 /// The prompt for an unbound session, robot first. With no robot registered for this
-/// session and robots in the ledger, it asks which robot this session is. With a robot that
-/// has threads, it offers them. Otherwise it is [`unbound_prompt`].
+/// session and robots in the ledger, it asks which robot this session is, from the robots
+/// no open session uses. With a robot that has threads, it offers them. Otherwise it is
+/// [`unbound_prompt`].
 pub fn robot_first_prompt(
     current: Option<&str>,
     robots: &[Robot],
     mission_lines: &[String],
+    open: OpenSessions,
 ) -> String {
     match current {
-        None if !robots.is_empty() => {
-            let lines: Vec<String> = robots.iter().map(robot_line).collect();
-            format!(
-                "No thread binding was found for this session or worktree, and no robot is registered for it. Choose the robot first. The registered robots are listed below, one per line: name, then its threads (thread id, mission, date of the latest pause), tab-separated, the robot with the latest thread first.\n{}\nUse the AskUserQuestion tool to ask which robot this session is: offer up to three robots from the list, the one with the latest thread first, and \"Construct a new robot\", and leave free text open. Once answered, run `tsk actor register \"<name>\" --kind robot` for a robot from the list, or /tsk:construct-robot for a new one. Then use the AskUserQuestion tool again: offer that robot's threads, latest first, to resume with /tsk:resume-thread <thread-id>, and a new thread on a mission with /tsk:start-thread <mission-id>. {}\n{}",
-                lines.join("\n"),
-                missions_part(mission_lines),
-                SKIP_SENTENCE
-            )
-        }
+        None if !robots.is_empty() => choose_robot_prompt(robots, mission_lines, open),
         Some(name) => match robots
             .iter()
             .find(|robot| robot.name == name && !robot.threads.is_empty())
@@ -156,14 +243,24 @@ pub fn robot_first_prompt(
     }
 }
 
-/// [`robot_first_prompt`] for this session, read from its ledger store.
-pub fn session_unbound_prompt(session: &Session, mission_lines: &[String]) -> String {
+/// [`robot_first_prompt`] for this session, read from its ledger store. `open` lists the
+/// cloud sessions that are not archived, when the agent passed them.
+pub fn session_unbound_prompt(
+    session: &Session,
+    mission_lines: &[String],
+    open: Option<&[String]>,
+) -> String {
     let current = crate::actor::current(session)
         .ok()
         .flatten()
         .map(|actor| actor.name);
+    let open = match open {
+        Some(ids) => OpenSessions::Listed(ids),
+        None if super::session_start::is_remote() => OpenSessions::NotAsked,
+        None => OpenSessions::NotKnown,
+    };
     match robots(session.store.as_ref()) {
-        Ok(robots) => robot_first_prompt(current.as_deref(), &robots, mission_lines),
+        Ok(robots) => robot_first_prompt(current.as_deref(), &robots, mission_lines, open),
         Err(_) => unbound_prompt(mission_lines),
     }
 }
@@ -382,6 +479,7 @@ mod tests {
     fn robot(name: &str, threads: &[(&str, &str, &str)]) -> Robot {
         Robot {
             name: name.to_string(),
+            instances: vec![format!("cse_{}", name.len())],
             threads: threads
                 .iter()
                 .map(|(id, mission, latest)| RobotThread {
@@ -403,7 +501,7 @@ mod tests {
             robot("Noted, Not Expanded", &[]),
         ];
         let missions = vec!["M-ENV\tin-progress\t-\t-\tEnvironment".to_string()];
-        let text = robot_first_prompt(None, &robots, &missions);
+        let text = robot_first_prompt(None, &robots, &missions, OpenSessions::NotKnown);
         assert!(text.contains("no robot is registered for it. Choose the robot first."));
         assert!(text.contains("Credit Where It's Due\te6b3c55c M-ENV 2026-11-13\n"));
         assert!(text.contains("Noted, Not Expanded\tno threads"));
@@ -411,6 +509,39 @@ mod tests {
         assert!(text.contains("/tsk:construct-robot"));
         assert!(text.contains("M-ENV\tin-progress"));
         assert!(text.ends_with(SKIP_SENTENCE));
+    }
+
+    #[test]
+    fn a_robot_with_an_open_session_is_not_offered() {
+        let mut busy = robot("Busy", &[("aaaaaaaa", "M-A", "2026-11-13T10:00:00Z")]);
+        busy.instances = vec!["cse_01OPEN".to_string()];
+        let mut free = robot("Free", &[("bbbbbbbb", "M-B", "2026-11-12T10:00:00Z")]);
+        free.instances = vec!["cse_01DONE".to_string()];
+        let robots = vec![busy, free];
+        let open = vec!["session_01OPEN".to_string()];
+
+        let text = robot_first_prompt(None, &robots, &[], OpenSessions::Listed(&open));
+        assert!(text.contains("Free\tbbbbbbbb M-B 2026-11-12"), "{}", text);
+        assert!(!text.contains("Busy\t"), "{}", text);
+        assert!(text.contains("not offered: Busy."), "{}", text);
+
+        let all = vec!["session_01OPEN".to_string(), "session_01DONE".to_string()];
+        let none = robot_first_prompt(None, &robots, &[], OpenSessions::Listed(&all));
+        assert!(none.contains("Every registered robot is taken"), "{}", none);
+        assert!(none.contains("/tsk:construct-robot"), "{}", none);
+
+        assert_eq!(
+            robot_first_prompt(None, &robots, &[], OpenSessions::NotAsked),
+            OPEN_SESSIONS_STEP
+        );
+    }
+
+    #[test]
+    fn session_keys_match_across_the_id_forms() {
+        assert_eq!(session_key("session_01ABC"), "01ABC");
+        assert_eq!(session_key("cse_01ABC"), "01ABC");
+        assert_eq!(session_key("urn:tsk:instance:cloud:cse_01ABC"), "01ABC");
+        assert_eq!(session_key("laptop-tsk"), "laptop-tsk");
     }
 
     #[test]
@@ -422,7 +553,12 @@ mod tests {
                 ("01d143d5", "M-ADHOC", "2026-11-01T10:00:00Z"),
             ],
         )];
-        let text = robot_first_prompt(Some("Credit Where It's Due"), &robots, &[]);
+        let text = robot_first_prompt(
+            Some("Credit Where It's Due"),
+            &robots,
+            &[],
+            OpenSessions::NotKnown,
+        );
         assert!(text.contains("This session's robot is Credit Where It's Due."));
         assert!(text.contains("e6b3c55c M-ENV 2026-11-13\n01d143d5 M-ADHOC 2026-11-01"));
         assert!(text.contains("/tsk:resume-thread <thread-id>"));
@@ -432,12 +568,12 @@ mod tests {
     fn with_no_robots_or_no_threads_the_prompt_offers_the_missions() {
         let missions = vec!["M-ENV\tin-progress\t-\t-\tEnvironment".to_string()];
         assert_eq!(
-            robot_first_prompt(None, &[], &missions),
+            robot_first_prompt(None, &[], &missions, OpenSessions::NotKnown),
             unbound_prompt(&missions)
         );
         let robots = vec![robot("Lone", &[])];
         assert_eq!(
-            robot_first_prompt(Some("Lone"), &robots, &missions),
+            robot_first_prompt(Some("Lone"), &robots, &missions, OpenSessions::NotKnown),
             unbound_prompt(&missions)
         );
     }

@@ -3480,7 +3480,7 @@ mod cases {
         fx.ok(&b, &["ledger", "push", "Publish"]);
         fx.ok(&a, &["ledger", "fetch"]);
 
-        let unbound = fx.ok(&a, &["thread", "next"]);
+        let unbound = fx.ok(&a, &["thread", "next", "--open", "session_01NONE"]);
         assert!(unbound.contains("Choose the robot first."), "{}", unbound);
         assert!(
             unbound.contains(&format!("Robot Bee\t{} M-REC", id)),
