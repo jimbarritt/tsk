@@ -153,7 +153,7 @@ tsk thread binding [--no-fetch]                                       print the 
 tsk actor register <name> --kind human|robot                          make the actor (a new name) and make it the primary actor of this session; prints its URN; local, tsk ledger push publishes
 tsk actor join <uid> [--primary] [--session <urn>]                    add an actor to this session (or the named one) as supporting, or as primary; local
 tsk actor name                                                        print the name of the primary actor of this session
-tsk actor list [--porcelain|--json]                                   list the actors: name, kind, uid, and the instances that ran as each; --json adds the URN and the name history
+tsk actor list [--porcelain|--json] [--open <id>,...]                list the actors: name, kind, state (a robot is free, taken, or unknown in a cloud session without --open), uid, and the instances that ran as each; --json adds the URN and the name history
 tsk session actor [--session <urn>]                                   list the actors of this session: role, name, kind, uid
 tsk ledger id                                                         print the ledger's URN, urn:tsk:ledger:<ledger-id>
                                                                       (tsk mission list <id> --json prints a urn for the mission and for each task, decision and question)
@@ -453,7 +453,7 @@ to stderr.
 | `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>`, then `actor: <name> (<kind>)` on a second line when registered | exit 1, nothing on stdout, with no binding |
 | `actor register` | `registered <name> (<kind>)` for a new name; `<name> (<kind>) is now this session's actor` or `... this worktree's actor` for a name already registered with that kind | exit 1 with `<name> is registered as a <kind>` for the other kind, or for a name that is empty, over 200 characters or starts with `/` |
 | `actor name` | the actor name, or `no actor registered` | |
-| `actor list` | one actor per line: name, kind, instances (comma-separated keys, or `-`); tab-separated with `--porcelain`; the records with their `instances` with `--json` | |
+| `actor list` | one actor per line: name, kind, state, uid, instances (comma-separated keys, or `-`); tab-separated with `--porcelain`; the records with their `instances` with `--json` | |
 | `thread prune-bindings` | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; with `--dry-run`, `would remove <actor> <thread-id>` lines and `<n> bindings would be removed`, and nothing changes | |
 | `thread guard` | nothing when bound, after `thread skip`, or when the ledger has no missions; `{"decision":"block","reason":"..."}` otherwise, asking for a thread. With unpushed changes it also starts `tsk ledger push --background` and prints nothing | |
 

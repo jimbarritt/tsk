@@ -29,8 +29,10 @@ pub const SOURCE_MARKER: &str = "# tsk tmux install: shows the mission, the robo
 pub const MISSION_NAME_MAX: usize = 24;
 
 /// One line of the chooser: the state, the short mission name, the actor and the last
-/// component of the pane's working directory.
-pub const CHOOSER_FORMAT: &str = "#{?#{==:#{@tsk_state},waiting},● ,#{?#{==:#{@tsk_state},working},◐ ,#{?#{==:#{@tsk_state},error},✗ ,  }}}#{?#{@tsk_mission_name},#{@tsk_mission_name}  ,}#{?#{@tsk_actor},#{@tsk_actor}  ,}#{b:pane_current_path}";
+/// component of the pane's working directory, in columns. tmux prints the session name
+/// before the format, so the format starts with spaces that make the name 18 characters
+/// wide; the mission name is padded to 24 and the actor to 32. Needs tmux 3.2 or later.
+pub const CHOOSER_FORMAT: &str = "#{s/^#{session_name}//:#{p18:session_name}}#{?#{==:#{@tsk_state},waiting},● ,#{?#{==:#{@tsk_state},working},◐ ,#{?#{==:#{@tsk_state},error},✗ ,  }}}#{p24:#{@tsk_mission_name}}  #{p32:#{@tsk_actor}}  #{b:pane_current_path}";
 
 #[derive(Subcommand)]
 pub enum TmuxCommands {

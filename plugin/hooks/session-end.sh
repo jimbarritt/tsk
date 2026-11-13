@@ -7,7 +7,6 @@ set -uo pipefail
 # session for long: a missing tsk, a missing ledger, no network or a slow origin all
 # end with exit status 0. A container reclaimed before the hook runs loses the records.
 #
-# TSK_SESSION_END_TIMEOUT_SECS (default 8) bounds the push.
 INPUT="$(cat 2>/dev/null || true)"
 
 command -v tsk >/dev/null 2>&1 || exit 0
@@ -23,10 +22,7 @@ case "$STATUS" in
   *) exit 0 ;;
 esac
 
-LIMIT="${TSK_SESSION_END_TIMEOUT_SECS:-8}"
-if command -v timeout >/dev/null 2>&1; then
-  timeout "$LIMIT" tsk ledger push "End of session" >/dev/null 2>&1 || true
-else
-  tsk ledger push "End of session" >/dev/null 2>&1 || true
-fi
+# A detached push, so the hook exits at once: Claude Code cancels a SessionEnd hook that
+# is still running when it exits (tsk 0.63.0).
+tsk ledger push --background "End of session" >/dev/null 2>&1 || true
 exit 0

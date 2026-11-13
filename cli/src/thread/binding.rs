@@ -58,7 +58,77 @@ pub fn session_key(id: &str) -> &str {
         .unwrap_or(id)
 }
 
+/// Whether a robot is in use, as `tsk actor list` shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RobotState {
+    Free,
+    /// Taken, with what takes it: a tmux pane, or a session that is open.
+    Taken(String),
+    /// In a cloud session with no list of open sessions (`--open`).
+    Unknown,
+}
+
+impl RobotState {
+    pub fn render(&self) -> String {
+        match self {
+            RobotState::Free => "free".to_string(),
+            RobotState::Taken(why) => format!("taken ({})", why),
+            RobotState::Unknown => "unknown".to_string(),
+        }
+    }
+}
+
+/// The state of each robot, by name. In a cloud session it needs the open sessions
+/// (`open`); in a terminal it reads this machine's liveness files and tmux panes.
+pub fn robot_states(
+    store: &dyn crate::ledger::store::LedgerStore,
+    open: Option<&[String]>,
+) -> Result<Vec<(String, RobotState)>, String> {
+    let robots = robots(store)?;
+    let cloud = super::session_start::is_remote();
+    let (local, tmux) = if open.is_none() && !cloud {
+        (
+            crate::ledger::location::state_root_from_env()
+                .map(|root| crate::live::open_session_ids(&root))
+                .unwrap_or_default(),
+            crate::live::tmux_robots(),
+        )
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    Ok(robots
+        .iter()
+        .map(|robot| {
+            let state = match open {
+                None if cloud => RobotState::Unknown,
+                Some(ids) => match robot.open_match(ids) {
+                    Some(id) => RobotState::Taken(format!("session {}", id)),
+                    None => RobotState::Free,
+                },
+                None if tmux.contains(&robot.name) => RobotState::Taken("tmux pane".to_string()),
+                None => match robot.open_match(&local) {
+                    Some(id) => RobotState::Taken(format!("session {}", id)),
+                    None => RobotState::Free,
+                },
+            };
+            (robot.name.clone(), state)
+        })
+        .collect())
+}
+
 impl Robot {
+    /// The first of the `open` sessions that is one of the robot's instances or sessions.
+    pub fn open_match<'a>(&self, open: &'a [String]) -> Option<&'a str> {
+        open.iter()
+            .find(|id| {
+                self.instances
+                    .iter()
+                    .chain(self.sessions.iter())
+                    .any(|key| session_key(id) == session_key(key))
+            })
+            .map(String::as_str)
+    }
+
     /// True when one of the robot's instances or sessions is one of the `open` sessions.
     pub fn is_open(&self, open: &[String]) -> bool {
         self.instances
