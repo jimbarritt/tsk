@@ -251,6 +251,27 @@ environment's line passes with `bash -s --`. Robot commit attribution is one:
 curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash -s -- --use-robot-attribution robots@jimbarritt.com
 ```
 
+## Private setup details stay out of the repo and the ledger
+
+This repo and its ledger branches (`tsk/ledger`, `tsk/docs`) are public. Never write
+these into a ledger record, a ledger document, a file in the repo, a commit message or a
+pull request:
+
+- The names of Jim's cloud environments, their network settings and allowed hosts, and
+  their setup scripts.
+- The names of environment variables and network secrets in those environments, and the
+  hosts a secret is sent to.
+- The names of GitHub tokens, keys and other credentials, and where each is stored.
+- Any analysis of a weakness in Jim's setup: which environment can leak a key, which
+  credential has admin rights, which control does not exist.
+
+Report such details to Jim in the conversation only. When the private nexus exists, they
+go into its ledger. A name that the code itself reads, such as `TSK_ROBOT_SIGNING_KEY`,
+is public by design and is not covered by this rule; what it is set in, and where, is.
+
+Before writing anything about Jim's accounts, credentials or environments, check whether
+the destination is public. If it is, or if you cannot tell, do not write it there.
+
 ## Branches
 
 Work on `main` in the main repo. Commit and push there directly. Do not create a
