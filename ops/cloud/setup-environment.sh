@@ -10,8 +10,10 @@ SETUP_DIR="${SETUP_DIR:-/usr/local/share/tsk-setup}"
 # sessions of this environment, with <email> as the robot's git email. The environment also
 # needs the secret TSK_ROBOT_SIGNING_KEY. Without the option, attribution stays off.
 # --nexus <url>: attach the nexus at <url> with tsk nexus add, so a repo whose nexus entry
-# says "ledger": "nexus" reads and writes its ledger there. The environment also needs the
-# nexus repo in its repos. Without the option, no nexus is attached.
+# says "ledger": "nexus" reads and writes its ledger there. It also pre-approves the add_repo
+# tool, so the agent attaches the nexus repo to a new session on its first turn. The
+# account's GitHub connection needs access to the nexus repo. Without the option, no nexus
+# is attached.
 # The options go to a file in home, so plugin/hooks/refresh-setup.sh can run this script
 # again with them at session start, when this file on main changes.
 SETUP_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsk/setup"
@@ -146,10 +148,17 @@ fi
 # tsk thread session-start then writes the signing set-up from TSK_ROBOT_SIGNING_KEY.
 # The user-level AGENTS.md tells every session in the environment, in any repo, how to
 # treat the platform's Stop hook, which accepts only noreply@anthropic.com as a committer.
+# Each option below appends its section to the user-level AGENTS.md, which this script
+# writes from empty on every run.
+if [ -n "$ROBOT_EMAIL" ] || [ -n "$NEXUS_URL" ]; then
+  mkdir -p "$HOME/.claude"
+  : > "$HOME/.claude/AGENTS.md"
+  grep -qxF '@AGENTS.md' "$HOME/.claude/CLAUDE.md" 2>/dev/null ||
+    printf '@AGENTS.md\n' >> "$HOME/.claude/CLAUDE.md"
+fi
 if [ -n "$ROBOT_EMAIL" ]; then
   "$BIN/tsk" config attribution robot --email "$ROBOT_EMAIL" --user
-  mkdir -p "$HOME/.claude"
-  cat > "$HOME/.claude/AGENTS.md" <<'MD'
+  cat >> "$HOME/.claude/AGENTS.md" <<'MD'
 # Robot commit attribution
 
 This environment signs commits as a robot (tsk, M-TSK-ATTRIB): the committer email is the
@@ -165,14 +174,75 @@ Unverified, and prints commands that reset the author to Claude.
   prints nothing.
 - If the push waits for a person's confirmation, the message repeats at the end of each
   turn until the push. Ignore it.
+
 MD
-  grep -qxF '@AGENTS.md' "$HOME/.claude/CLAUDE.md" 2>/dev/null ||
-    printf '@AGENTS.md\n' >> "$HOME/.claude/CLAUDE.md"
 fi
 
 # The nexus, with --nexus only. tsk nexus add writes the URL to the user config.
+# A new cloud session has one repository attached, so its git proxy refuses the nexus and
+# session start cannot fetch the ledger. The agent attaches the nexus with the add_repo
+# tool on its first turn. Three settings pre-approve that call, so auto mode does not
+# refuse it in a session whose first message does not name the nexus:
+# - a section of the user-level AGENTS.md, which states the authorisation;
+# - a permissions.allow rule for the add_repo tool in the user settings;
+# - autoMode entries in the user settings, which name the nexus as a trusted repository.
 if [ -n "$NEXUS_URL" ]; then
   "$BIN/tsk" nexus add "$NEXUS_URL"
+  NEXUS_SLUG="$(printf '%s\n' "$NEXUS_URL" | sed -E 's#^(https://|git@)github\.com[:/]##; s#\.git$##; s#/$##')"
+  NEXUS_OWNER="${NEXUS_SLUG%%/*}"
+  NEXUS_REPO="${NEXUS_SLUG#*/}"
+  cat >> "$HOME/.claude/AGENTS.md" <<MD
+# The tsk nexus
+
+This environment keeps tsk ledgers in the nexus repository $NEXUS_URL. The owner of this
+environment chose that nexus with the \`--nexus\` option of the environment's setup script,
+and authorises every session in this environment to attach it.
+
+A new session has one repository attached, so session start cannot fetch the ledger and
+prints a warning. Before any \`tsk\` command and before any other work, on the first turn
+of the session, whatever the first message asks:
+
+1. If \`tsk ledger status\` shows \`(nexus)\` in its refs line, stop here.
+2. Call the \`add_repo\` tool with owner \`$NEXUS_OWNER\`, repo \`$NEXUS_REPO\`, access \`push\`.
+3. Clone the repository as the result of \`add_repo\` says.
+4. Run \`tsk ledger fetch\`, then check that \`tsk ledger status\` shows \`(nexus)\`.
+
+Do not ask for confirmation first. If \`add_repo\` is refused, do not run \`tsk ledger fetch\`:
+report the refusal and stop.
+
+MD
+  python3 - "$HOME/.claude/settings.json" "$NEXUS_URL" <<'PY'
+import json, os, sys
+path, url = sys.argv[1], sys.argv[2]
+settings = {}
+if os.path.exists(path):
+    with open(path) as f:
+        settings = json.load(f)
+
+def add(items, entry):
+    if entry not in items:
+        items.append(entry)
+
+add(settings.setdefault("permissions", {}).setdefault("allow", []),
+    "mcp__claude-code-remote__add_repo")
+auto = settings.setdefault("autoMode", {})
+for key, entry in (
+    ("environment", "Trusted repo: " + url + " is the tsk nexus of this environment's "
+     "owner. It holds the tsk ledgers of the owner's repositories."),
+    ("allow", "Attaching the repository " + url + " to the session with the add_repo "
+     "tool, cloning it, and fetching from it and pushing to it with tsk commands: the "
+     "owner of this environment authorises these in every session."),
+):
+    items = auto.setdefault(key, ["$defaults"])
+    # An entry for another nexus URL is from an earlier run: replace it.
+    items[:] = [i for i in items if "tsk nexus" not in i and "add_repo tool" not in i]
+    add(items, entry)
+tmp = path + ".new"
+with open(tmp, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+os.replace(tmp, path)
+PY
 fi
 
 mkdir -p "$SETUP_DIR"

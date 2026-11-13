@@ -268,7 +268,9 @@ curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup
 ```
 
 `--nexus <nexus url>` attaches the nexus that has this repo's ledger. Every environment
-that works on this repo needs it, and needs the nexus repo in its repos.
+that works on this repo needs it. The option also writes a section to `~/.claude/AGENTS.md`
+and an allow rule for the `add_repo` tool to `~/.claude/settings.json`, so the agent
+attaches the nexus repo on the first turn of a new session with no prompt from a person.
 
 ## Private setup details stay out of the repo and the ledger
 
