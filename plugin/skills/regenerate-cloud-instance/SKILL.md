@@ -1,6 +1,6 @@
 ---
 name: regenerate-cloud-instance
-description: Replace this cloud session with a new one that attaches to the same thread and reuses the robot name, then mark this session for archive. Invoke explicitly as /tsk:regenerate-cloud-instance, or when asked to regenerate this cloud session.
+description: Replace this cloud session with a new one that attaches to the same thread and reuses the robot name, then mark this session for archive. Invoke explicitly as /tsk:regenerate-cloud-instance [<environment name>], or when asked to regenerate this cloud session, optionally in a named environment.
 ---
 
 Backs the `/tsk:regenerate-cloud-instance` command. A cloud session keeps the plugin, hooks
@@ -49,7 +49,18 @@ tell me.
    stop. The new session reads the ledger from its remote, so an unpushed pause is lost.
 
 3. **Start the new session.** Call `create_session` of the `claude-code-remote` MCP server.
-   Leave `environment_id` out: the new session inherits this one. Set:
+   Choose the environment of the new session:
+   - With no environment named, leave `environment_id` out. The new session inherits the
+     environment of this one.
+   - With an environment named (an argument, or in my request), call `list_environments`
+     of the `claude-code-remote` MCP server and take the `environment_id` of the
+     environment with that name. Set `environment_id` to it. With no match, or more than
+     one, tell me the names that exist and stop: create no session.
+
+   Never write an environment name into a file of a repository. The name comes from me, in
+   the conversation, each time.
+
+   Set:
    - `source_url` to the `url` of the first repository in `session_context.sources`, and
      `source_revision` to its `revision`, or this session's branch when it has none.
    - `title` to the current title from step 1.
@@ -91,6 +102,9 @@ tell me.
 
 ## Notes
 
+- An environment is tied to one nexus. A named environment must have the nexus in its
+  repository list and `--nexus` in its setup script, or the `SessionStart` hook cannot
+  fetch the ledger.
 - The new session runs the `SessionStart` hook, which installs the latest plugin and `tsk`.
   This is the reason to regenerate.
 - The robot name is the actor name. A second `tsk actor register` of an existing name joins
