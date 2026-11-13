@@ -28,8 +28,12 @@ tell me.
      registered as an actor.
    - `tsk thread title` prints the current title.
 
-   Read this session's ID, repository and title from `get_session` of the
-   `claude-code-remote` MCP server, called with no `session_id`.
+   Read this session's ID and title from `get_session` of the `claude-code-remote` MCP
+   server, called with no `session_id`. Read its repositories from
+   `session_context.sources`: each `git_repository` has a `url`, and the first may have a
+   `revision`. The list has every repository of this session, those attached after it
+   started included. The first is the repository the session started with. Call the others
+   the attached repositories.
 
    Choose the robot name in this order:
    1. The name `tsk actor name` prints.
@@ -42,17 +46,20 @@ tell me.
 2. **Pause the thread.** The new session resumes from the latest continuation state entry.
    Run the `/tsk:pause-thread` steps. The pause pushes the ledger itself: run no ledger
    command by hand. Exit 1, or a `ledger:` line other than `ledger: pushed`: report it and
-   stop. The new session reads the ledger from origin, so an unpushed pause is lost.
+   stop. The new session reads the ledger from its remote, so an unpushed pause is lost.
 
 3. **Start the new session.** Call `create_session` of the `claude-code-remote` MCP server.
    Leave `environment_id` out: the new session inherits this one. Set:
-   - `source_url` to the repository URL of this session, and `source_revision` to its
-     branch.
+   - `source_url` to the `url` of the first repository in `session_context.sources`, and
+     `source_revision` to its `revision`, or this session's branch when it has none.
    - `title` to the current title from step 1.
    - `prompt` to the text below, with the thread ID and the robot name filled in.
 
    ```text
    This session replaces cloud session <this session ID>. Do these in order.
+   0. Attach each of these repositories with add_repo, push access, and clone each as
+      add_repo says: <the attached repositories, one owner/name per line>.
+      Then run: tsk ledger fetch
    1. Run /tsk:resume-thread <thread ID>.
    2. Run: tsk actor register "<robot name>" --kind robot
       This registers the name, or joins the actor that has it. Do not choose a new name.
@@ -60,6 +67,10 @@ tell me.
    3. Set the session title to "<title>" with set_session_title.
    Then tell me the thread, the robot name and what is next.
    ```
+
+   With no attached repositories, leave out line 0 of the prompt. Write each attached
+   repository as `owner/name`, taken from its `url`. Take the list from this session at run
+   time: do not add or drop a repository.
 
    Without a robot name, leave out lines 2 and 3 of the prompt and add: "Run
    /tsk:construct-robot after the resume."
