@@ -611,7 +611,7 @@ fn session_end(status: &str, status_fails: bool, push_sleep: u32, push_fails: bo
         "#!/bin/sh\necho \"$@\" >> \"$TSK_LOG\"\n\
          case \"$2\" in\n\
            status) [ -n \"$STATUS_FAIL\" ] && exit 1; printf '%b' \"$STATUS\"; exit 0 ;;\n\
-           push) sleep \"$PUSH_SLEEP\"; [ -n \"$PUSH_FAIL\" ] && exit 1; exit 0 ;;\n\
+           push) [ \"$3\" = --background ] && exit 0; sleep \"$PUSH_SLEEP\"; [ -n \"$PUSH_FAIL\" ] && exit 1; exit 0 ;;\n\
          esac\nexit 0\n",
     );
     let log = root.path().join("tsk.log");
@@ -685,7 +685,7 @@ fn the_session_end_script_pushes_when_the_store_holds_unpushed_work() {
             vec![
                 "session end".to_string(),
                 "ledger status --local".to_string(),
-                "ledger push End of session".to_string()
+                "ledger push --background End of session".to_string()
             ]
         );
     }
@@ -726,13 +726,11 @@ fn the_session_end_script_exits_0_whatever_tsk_does() {
     let run = session_end(DIRTY, false, 0, true);
     assert!(run.exit_ok);
     assert_eq!(run.calls.len(), 3);
-    // A push that hangs is cut off by the timeout.
-    if have("timeout") {
-        let run = session_end(DIRTY, false, 30, false);
-        assert!(run.exit_ok);
-        assert_eq!(run.calls.len(), 3);
-        assert!(run.seconds < 10, "took {} s", run.seconds);
-    }
+    // The push is detached, so a push that would hang does not hold the hook.
+    let run = session_end(DIRTY, false, 30, false);
+    assert!(run.exit_ok);
+    assert_eq!(run.calls.len(), 3);
+    assert!(run.seconds < 10, "took {} s", run.seconds);
 }
 
 #[test]

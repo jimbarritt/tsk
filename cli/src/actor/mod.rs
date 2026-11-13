@@ -74,11 +74,18 @@ pub enum ActorCommands {
         file: std::path::PathBuf,
     },
     #[command(
-        about = "List the actors, one per line: name, kind, uid, and the harness instances that ran as it (- for none, comma-separated otherwise). The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records with the URN and the name history"
+        about = "List the actors, one per line: name, kind, state, uid, and the harness instances that ran as it (- for none, comma-separated otherwise). The state of a robot is free, taken (with what takes it: a tmux pane running claude, or a session that is open), or unknown; a human has -. In a terminal the state comes from this machine's sessions and tmux panes; in a cloud session it needs --open, else it is unknown. The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records with the URN, the name history and the state"
     )]
     List {
         #[arg(long, help = "Print the full records as JSON")]
         json: bool,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            value_name = "SESSION_ID",
+            help = "The IDs of the cloud sessions that are not archived (list_sessions), comma-separated, for the state in a cloud session"
+        )]
+        open: Option<Vec<String>>,
         #[arg(
             long,
             help = "Print tab-separated columns, the stable form for scripts, instead of aligned columns"
@@ -363,6 +370,8 @@ pub struct JsonActor {
     pub names: Vec<JsonName>,
     /// The harness instances registered as the actor, oldest registration first.
     pub instances: Vec<JsonInstance>,
+    /// For a robot: free, taken (with what takes it) or unknown. Null for a human.
+    pub state: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -411,6 +420,7 @@ pub fn listed(
                     registered_at: row.registered_at.clone(),
                 })
                 .collect(),
+            state: None,
         })
         .collect()
 }
@@ -429,9 +439,10 @@ pub fn list_line(actor: &JsonActor) -> String {
             .join(",")
     };
     format!(
-        "{}\t{}\t{}\t{}",
+        "{}\t{}\t{}\t{}\t{}",
         actor.name,
         actor.kind,
+        actor.state.as_deref().unwrap_or("-"),
         actor.uid.as_deref().unwrap_or("-"),
         instances
     )
@@ -534,14 +545,25 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
             }
             Ok(0)
         }
-        ActorCommands::List { json, porcelain } => {
+        ActorCommands::List {
+            json,
+            porcelain,
+            open,
+        } => {
             let session = Session::discover()?;
             let store = session.store.as_ref();
-            let actors = listed(
+            let mut actors = listed(
                 &store.actors_list()?,
                 &store.instances_list()?,
                 &store.actor_names_list()?,
             );
+            let states = crate::thread::binding::robot_states(store, open.as_deref())?;
+            for actor in actors.iter_mut() {
+                actor.state = states
+                    .iter()
+                    .find(|(name, _)| *name == actor.name)
+                    .map(|(_, state)| state.render());
+            }
             if json {
                 println!(
                     "{}",
@@ -660,8 +682,8 @@ mod tests {
         assert_eq!(
             listed.iter().map(list_line).collect::<Vec<_>>(),
             vec![
-                "bob\thuman\tuid-bob\t-",
-                "alice\trobot\tuid-alice\tcse_1,c1/main"
+                "bob\thuman\t-\tuid-bob\t-",
+                "alice\trobot\t-\tuid-alice\tcse_1,c1/main"
             ]
         );
         assert_eq!(
@@ -670,7 +692,8 @@ mod tests {
              \"uid\":\"uid-alice\",\"urn\":\"urn:tsk:actor:uid-alice\",\
              \"names\":[{\"name\":\"alice\",\"from\":\"2026-10-24T00:00:00Z\",\"until\":null}],\
              \"instances\":[{\"instance\":\"cse_1\",\"kind\":\"cloud\",\"registered_at\":\"2026-10-24T00:00:01Z\"},\
-             {\"instance\":\"c1/main\",\"kind\":\"cloud\",\"registered_at\":\"2026-10-24T00:00:01Z\"}]}"
+             {\"instance\":\"c1/main\",\"kind\":\"cloud\",\"registered_at\":\"2026-10-24T00:00:01Z\"}],\
+             \"state\":null}"
         );
     }
 }

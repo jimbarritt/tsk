@@ -10229,9 +10229,10 @@ fn a_layout_11_ledger_upgrades_the_same_way_on_two_clones_and_merges() {
     assert_eq!(fx.manifest_version(&b), "11");
 
     // Reads work on layout 11 and upgrade nothing.
-    assert!(fx
-        .ok(&b, &["actor", "list", "--porcelain"])
-        .starts_with("alice\trobot\t-\t"));
+    let listed = fx.ok(&b, &["actor", "list", "--porcelain"]);
+    let first: Vec<&str> = listed.lines().next().unwrap().split('\t').collect();
+    assert_eq!(&first[..2], &["alice", "robot"], "{}", listed);
+    assert_eq!(first[3], "-", "{}", listed);
     assert_eq!(fx.tsk(&b, &["ledger", "id"]).status.code(), Some(1));
     assert_eq!(fx.manifest_version(&b), "11");
 

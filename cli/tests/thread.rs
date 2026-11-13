@@ -2532,10 +2532,12 @@ fn actor_list_prints_each_actor_with_its_instances() {
     assert_eq!(lines.len(), 2, "{}", porcelain);
     assert_eq!(lines[0][0], "alice");
     assert_eq!(lines[0][1], "robot");
-    assert_eq!(lines[0][2].len(), 36, "{}", porcelain);
-    assert_eq!(lines[0][3], main);
+    assert!(["free", "unknown"].contains(&lines[0][2]), "{}", porcelain);
+    assert_eq!(lines[0][3].len(), 36, "{}", porcelain);
+    assert_eq!(lines[0][4], main);
     assert_eq!(lines[1][0], "bob");
-    assert_eq!(lines[1][3], "cse_2,cse_3");
+    assert_eq!(lines[1][2], "-");
+    assert_eq!(lines[1][4], "cse_2,cse_3");
     let aligned = fx.ok_list(&["actor", "list"]);
     assert!(aligned.starts_with("alice  robot  "), "{}", aligned);
     assert!(aligned.contains(&format!("  {}\n", main)), "{}", aligned);

@@ -326,7 +326,8 @@ mod tests {
             Some(Commands::Actor {
                 action: actor::ActorCommands::List {
                     json: true,
-                    porcelain: false
+                    porcelain: false,
+                    open: None
                 }
             })
         ));
