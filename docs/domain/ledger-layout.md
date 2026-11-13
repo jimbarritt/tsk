@@ -1248,6 +1248,16 @@ the new entry. When the repo's entry exists without a prefix, registering again 
 - The territory is `--territory`, required when `nexus.json` has more than one. With one
   territory, that one is used. With none, `--territory` creates it, named
   `--territory-name` or, without that option, its ID.
+- A nexus with no `nexus.json` on its default branch, or with no commits at all, is empty.
+  On an empty nexus the command needs `--territory`, and without it stops with
+  `has no nexus.json on <branch>; pass --territory <id>, and --territory-name <name>, to
+  create it with that territory`. With it, the command writes
+  `{"version": 1, "territories": [<the territory with the entry>]}` and prints
+  `created nexus.json on <branch>` first. On a default branch with other files the commit
+  keeps them and has the tip as its parent. A nexus with no commits has no `HEAD` branch
+  to read, so the command writes `refs/heads/main`, in a commit with no parent, and pushes
+  it only when the branch does not exist yet. The commit message is
+  `Create nexus.json and register <id> in territory <territory>`.
 - `ledger` is `--ledger`, `nexus` by default, and is always written. `ledger_refs` is
   `--ledger-refs`, written only when the option is given.
 - An entry with the same normalised `url` and the same ID, or the same ID and the same
@@ -1301,7 +1311,10 @@ tsk keeps a bare clone of the nexus under the state root, at
 `git show refs/heads/nexus:nexus.json`. No working copy of the nexus exists. When the
 fetch fails and an earlier fetch left `refs/heads/nexus`, tsk prints a note to stderr
 and reads that copy. When the fetch fails and no copy exists, the command stops with an
-error.
+error, except for an empty nexus: when `git ls-remote <url>` succeeds and lists no refs,
+the nexus has no territories. A default branch with no `nexus.json` also reads as no
+territories, so a repo resolves to an in-repo ledger, as with no entry, and
+`tsk nexus register-repo` creates the file.
 
 The clone is replaced by fetching from the attached URL each time, so attaching a
 different URL needs no clean-up.

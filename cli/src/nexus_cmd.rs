@@ -5,7 +5,9 @@ use serde_json::{json, Value};
 
 use crate::config;
 use crate::ledger::location::{state_root_from_env, Repo};
-use crate::ledger::nexus::{load_index, machine_name, valid_repo_id, Entry, NexusIndex};
+use crate::ledger::nexus::{
+    load_index, machine_name, valid_repo_id, Entry, NexusIndex, NEXUS_FILE,
+};
 use crate::ledger::register::{
     derive_repo_id, register, repo_name_from_url, NewEntry, Outcome, TerritoryChoice,
 };
@@ -42,7 +44,7 @@ pub enum NexusCommands {
         json: bool,
     },
     #[command(
-        about = "Add this repo's entry to nexus.json on the nexus's default branch, then commit and push it with the machine's git credentials"
+        about = "Add this repo's entry to nexus.json on the nexus's default branch, then commit and push it with the machine's git credentials. On an empty nexus it creates nexus.json"
     )]
     RegisterRepo {
         #[arg(
@@ -53,7 +55,7 @@ pub enum NexusCommands {
         #[arg(
             long,
             value_name = "TERRITORY_ID",
-            help = "Territory to add the entry to; required when the nexus has more than one, and creates it when the nexus has none"
+            help = "Territory to add the entry to; required when the nexus has more than one, and creates it when the nexus has none or has no nexus.json"
         )]
         territory: Option<String>,
         #[arg(
@@ -238,11 +240,15 @@ pub fn outcome_text(outcome: &Outcome, entry: &NewEntry, nexus: &str) -> String 
         Outcome::Registered {
             territory,
             created,
+            created_file,
             commit,
             branch,
             ..
         } => {
             let mut text = String::new();
+            if *created_file {
+                text.push_str(&format!("created {} on {}\n", NEXUS_FILE, branch));
+            }
             if *created {
                 text.push_str(&format!("created territory {}\n", territory));
             }
@@ -428,6 +434,7 @@ mod tests {
         let outcome = Outcome::Registered {
             territory: "work".to_string(),
             created: true,
+            created_file: false,
             commit: "abc123".to_string(),
             branch: "refs/heads/main".to_string(),
             attempts: 1,
@@ -438,6 +445,24 @@ mod tests {
              registered in territory work: {\"id\":\"work-api\",\"url\":\"https://example.test/acme/work-api\",\"ledger\":\"nexus\"}\n\
              pushed abc123 to refs/heads/main of https://example.test/o/nexus\n\
              next: run tsk ledger fetch in this repo\n"
+        );
+    }
+
+    #[test]
+    fn registered_text_names_a_created_nexus_json_first() {
+        let outcome = Outcome::Registered {
+            territory: "work".to_string(),
+            created: true,
+            created_file: true,
+            commit: "abc123".to_string(),
+            branch: "refs/heads/main".to_string(),
+            attempts: 1,
+        };
+        let text = outcome_text(&outcome, &work_api(), "n");
+        assert!(
+            text.starts_with("created nexus.json on refs/heads/main\ncreated territory work\n"),
+            "{}",
+            text
         );
     }
 

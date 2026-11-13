@@ -647,6 +647,92 @@ fn register_repo_creates_a_territory_when_the_nexus_has_none() {
 }
 
 #[test]
+fn register_repo_creates_nexus_json_in_an_empty_nexus_and_pushes_it() {
+    let fx = Fixture::new();
+    fx.attach();
+
+    let listed = fx.tsk(&["nexus", "list"]);
+    assert_success(&listed);
+    assert!(
+        stdout(&listed).ends_with("territories: none\n"),
+        "{}",
+        stdout(&listed)
+    );
+    assert_success(&fx.tsk(&["mission", "prefix", "WRK"]));
+
+    let refused = fx.register(&[]);
+    assert_failure_mentioning(&refused, "has no nexus.json on refs/heads/main");
+    assert_failure_mentioning(&refused, "pass --territory <id>");
+    assert_eq!(git(&fx.nexus(), &["for-each-ref"]), "");
+
+    let output = fx.register(&["--territory", "work", "--territory-name", "Work"]);
+
+    assert_success(&output);
+    assert!(
+        stdout(&output)
+            .starts_with("created nexus.json on refs/heads/main\ncreated territory work\n"),
+        "{}",
+        stdout(&output)
+    );
+    assert_eq!(fx.nexus_commits(), 1);
+    assert_eq!(
+        fx.nexus_json(),
+        format!(
+            "{{\n  \"version\": 1,\n  \"territories\": [\n    {{\n      \"id\": \"work\",\n      \"name\": \"Work\",\n      \"repos\": [\n        {{\n          \"id\": \"work-api\",\n          \"url\": \"{}\",\n          \"ledger\": \"nexus\",\n          \"prefix\": \"WRK\"\n        }}\n      ]\n    }}\n  ]\n}}\n",
+            ORIGIN_URL
+        )
+    );
+    assert_eq!(
+        git(
+            &fx.nexus(),
+            &["log", "-1", "--format=%s", "refs/heads/main"]
+        )
+        .trim(),
+        "Create nexus.json and register work-api in territory work"
+    );
+
+    let again = fx.register(&[]);
+    assert_success(&again);
+    assert!(
+        stdout(&again).starts_with("already registered in territory work: "),
+        "{}",
+        stdout(&again)
+    );
+    assert_eq!(fx.nexus_commits(), 1);
+}
+
+#[test]
+fn register_repo_adds_nexus_json_to_a_default_branch_without_one() {
+    let fx = Fixture::new();
+    std::fs::write(fx.nexus_seed().join("README.md"), "nexus\n").unwrap();
+    git(&fx.nexus_seed(), &["add", "-A"]);
+    git(&fx.nexus_seed(), &["commit", "--quiet", "-m", "Add README"]);
+    git(
+        &fx.nexus_seed(),
+        &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
+    );
+    fx.attach();
+    assert!(stdout(&fx.tsk(&["nexus", "list"])).ends_with("territories: none\n"));
+
+    assert_failure_mentioning(&fx.register(&[]), "pass --territory <id>");
+
+    let output = fx.register(&["--territory", "work"]);
+
+    assert_success(&output);
+    assert_eq!(fx.nexus_commits(), 2);
+    let doc = fx.nexus_doc();
+    assert_eq!(doc["version"], 1);
+    assert_eq!(doc["territories"][0]["name"], "work");
+    assert_eq!(doc["territories"][0]["repos"][0]["id"], "work-api");
+    assert_eq!(
+        git(&fx.nexus(), &["show", "refs/heads/main:README.md"]),
+        "nexus\n"
+    );
+    assert!(stdout(&fx.register(&[])).starts_with("already registered"));
+    assert_eq!(fx.nexus_commits(), 2);
+}
+
+#[test]
 fn register_repo_local_names_this_machine_and_writes_the_repo_id() {
     let fx = Fixture::new();
     fx.write_nexus_json(ONE_TERRITORY);

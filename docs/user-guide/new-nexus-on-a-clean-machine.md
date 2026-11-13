@@ -54,13 +54,13 @@ git remote add origin <nexus url>
 
 ### What the nexus repo holds
 
-One file, `nexus.json`, on the default branch. You write it in step 4, and
-`tsk nexus register-repo` adds each managed repo's entry in step 6. tsk creates the ledger
-branches. Nothing else is required.
+One file, `nexus.json`, on the default branch. `tsk nexus register-repo` creates it on
+the first registration in step 6, or you write it in step 4, and the command adds each
+managed repo's entry. tsk creates the ledger branches. Nothing else is required.
 
 ```
 <name>-nexus
-├── main                     branch you write
+├── main                     default branch
 │   └── nexus.json           the index of territories and repos
 ├── ledgers/work-api         branch tsk creates in step 7: the Dolt database
 ├── ledgers/work-api-docs    branch tsk creates in step 7: the documents, as Markdown files
@@ -74,10 +74,14 @@ The nexus URL is the repo's clone URL, in HTTPS or SSH form, for example
 pushes with the machine's own git credentials, so use the form those credentials work
 with.
 
-## 4. Write `nexus.json`
+## 4. Write `nexus.json` (optional)
 
-In the nexus repo, create `nexus.json` at the root with one territory and no repos. Pick
-the territory's ID and name:
+Skip this step to leave the nexus empty: step 6 then creates `nexus.json`, with
+`--territory <id> --territory-name <name>`. The nexus repo can have no commits at all.
+With no commits, the command creates the branch `main`.
+
+To write it by hand, create `nexus.json` at the root of the nexus repo with one territory
+and no repos. Pick the territory's ID and name:
 
 ```json
 {
@@ -158,6 +162,23 @@ next: run tsk ledger fetch in this repo
 
 With more than one territory in `nexus.json`, name one with `--territory <id>`. With none,
 `--territory <id> --territory-name <name>` creates it.
+
+On an empty nexus (step 4 skipped), the first registration needs the territory:
+
+```bash
+tsk nexus register-repo --territory work --territory-name Work
+```
+
+```
+created nexus.json on refs/heads/main
+created territory work
+registered in territory work: {"id":"work-api","url":"<origin url>","ledger":"nexus","prefix":"<PREFIX>"}
+pushed <commit> to refs/heads/main of <nexus url>
+next: run tsk ledger fetch in this repo
+```
+
+Without `--territory`, it exits 1 and names the option. Until `nexus.json` exists,
+`tsk nexus list` prints `territories: none`.
 
 A second run prints `already registered` and changes nothing. An ID or URL that another
 entry already uses stops the command with exit status 1 and an error naming that entry.

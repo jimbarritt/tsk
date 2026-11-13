@@ -3,10 +3,13 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 use super::git::{failure_message, split_nul, Git};
-use super::nexus::{normalise_url, open_clone, valid_repo_id, NEXUS_FILE, TRACKING_REF};
+use super::nexus::{
+    is_empty_remote, normalise_url, open_clone, valid_repo_id, NEXUS_FILE, TRACKING_REF,
+};
 use super::push::parse_push_status;
 
 pub const PUSH_ATTEMPTS: usize = 2;
+pub const EMPTY_NEXUS_BRANCH: &str = "refs/heads/main";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewEntry {
@@ -61,6 +64,7 @@ pub enum Outcome {
     Registered {
         territory: String,
         created: bool,
+        created_file: bool,
         commit: String,
         branch: String,
         attempts: usize,
@@ -325,12 +329,53 @@ pub fn parse_default_branch(ls_remote: &str) -> Option<String> {
 
 fn default_branch(git: &Git, nexus_url: &str) -> Result<String, String> {
     let listing = git.run(["ls-remote", "--symref", nexus_url, "HEAD"])?;
-    parse_default_branch(&listing).ok_or_else(|| {
-        format!(
-            "error: could not read the default branch of the nexus {}; it has no HEAD branch",
-            nexus_url
-        )
-    })
+    if let Some(branch) = parse_default_branch(&listing) {
+        return Ok(branch);
+    }
+    if is_empty_remote(git, nexus_url) {
+        return Ok(EMPTY_NEXUS_BRANCH.to_string());
+    }
+    Err(format!(
+        "error: could not read the default branch of the nexus {}; it has no HEAD branch",
+        nexus_url
+    ))
+}
+
+fn remote_tip(git: &Git, nexus_url: &str, branch: &str) -> Result<Option<String>, String> {
+    match fetch_branch(git, nexus_url, branch) {
+        Ok(tip) => Ok(Some(tip)),
+        Err(fetch_error) => match git.run(["ls-remote", nexus_url, branch]) {
+            Ok(listing) if listing.trim().is_empty() => Ok(None),
+            _ => Err(fetch_error),
+        },
+    }
+}
+
+fn new_nexus() -> Value {
+    json!({"version": 1, "territories": []})
+}
+
+fn read_nexus(
+    git: &Git,
+    nexus_url: &str,
+    branch: &str,
+    tip: Option<&str>,
+    territory: &TerritoryChoice,
+) -> Result<(Value, bool), String> {
+    let text = tip.and_then(|tip| {
+        let object = format!("{}:{}", tip, NEXUS_FILE);
+        git.run(["show", object.as_str()]).ok()
+    });
+    match text {
+        Some(text) => serde_json::from_str(&text)
+            .map(|doc| (doc, false))
+            .map_err(|e| format!("error: {} in the nexus is not valid: {}", NEXUS_FILE, e)),
+        None if territory.id.is_none() => Err(format!(
+            "error: the nexus {} has no {} on {}; pass --territory <id>, and --territory-name <name>, to create it with that territory",
+            nexus_url, NEXUS_FILE, branch
+        )),
+        None => Ok((new_nexus(), true)),
+    }
 }
 
 fn fetch_branch(git: &Git, nexus_url: &str, branch: &str) -> Result<String, String> {
@@ -346,9 +391,17 @@ fn fetch_branch(git: &Git, nexus_url: &str, branch: &str) -> Result<String, Stri
     git.run_line(["rev-parse", "--verify", TRACKING_REF])
 }
 
-fn commit_nexus_json(git: &Git, tip: &str, text: &str, message: &str) -> Result<String, String> {
+fn commit_nexus_json(
+    git: &Git,
+    tip: Option<&str>,
+    text: &str,
+    message: &str,
+) -> Result<String, String> {
     let blob = git.run_stdin(["hash-object", "-w", "--stdin"], text)?;
-    let listing = git.run(["ls-tree", "-z", tip])?;
+    let listing = match tip {
+        Some(tip) => git.run(["ls-tree", "-z", tip])?,
+        None => String::new(),
+    };
     let mut records: Vec<String> = split_nul(&listing)
         .into_iter()
         .filter(|record| record.split_once('\t').map(|(_, name)| name) != Some(NEXUS_FILE))
@@ -357,7 +410,10 @@ fn commit_nexus_json(git: &Git, tip: &str, text: &str, message: &str) -> Result<
     records.push(format!("100644 blob {}\t{}", blob, NEXUS_FILE));
     let input: String = records.iter().map(|r| format!("{}\0", r)).collect();
     let tree = git.run_stdin(["mktree", "-z"], &input)?;
-    git.run_line(["commit-tree", tree.as_str(), "-p", tip, "-m", message])
+    match tip {
+        Some(tip) => git.run_line(["commit-tree", tree.as_str(), "-p", tip, "-m", message]),
+        None => git.run_line(["commit-tree", tree.as_str(), "-m", message]),
+    }
 }
 
 fn push_commit(
@@ -398,28 +454,30 @@ pub fn register(
     let git = open_clone(state_root)?;
     let branch = default_branch(&git, nexus_url)?;
     for attempt in 1..=PUSH_ATTEMPTS {
-        let tip = fetch_branch(&git, nexus_url, &branch)?;
-        let object = format!("{}:{}", tip, NEXUS_FILE);
-        let text = git.run(["show", object.as_str()]).map_err(|_| {
-            format!(
-                "error: the nexus {} has no {} on {}",
-                nexus_url, NEXUS_FILE, branch
-            )
-        })?;
-        let mut doc: Value = serde_json::from_str(&text)
-            .map_err(|e| format!("error: {} in the nexus is not valid: {}", NEXUS_FILE, e))?;
+        let tip = remote_tip(&git, nexus_url, &branch)?;
+        let (mut doc, created_file) =
+            read_nexus(&git, nexus_url, &branch, tip.as_deref(), territory)?;
         let (territory_id, created) = match add_entry(&mut doc, entry, territory)? {
             Edit::AlreadyRegistered { territory, entry } => {
                 return Ok(Outcome::AlreadyRegistered { territory, entry })
             }
             Edit::Added { territory, created } => (territory, created),
         };
-        let message = format!("Register {} in territory {}", entry.id, territory_id);
-        let commit = commit_nexus_json(&git, &tip, &render(&doc)?, &message)?;
-        if push_commit(&git, nexus_url, &branch, &commit, &tip)? {
+        let message = if created_file {
+            format!(
+                "Create {} and register {} in territory {}",
+                NEXUS_FILE, entry.id, territory_id
+            )
+        } else {
+            format!("Register {} in territory {}", entry.id, territory_id)
+        };
+        let commit = commit_nexus_json(&git, tip.as_deref(), &render(&doc)?, &message)?;
+        let expected = tip.as_deref().unwrap_or("");
+        if push_commit(&git, nexus_url, &branch, &commit, expected)? {
             return Ok(Outcome::Registered {
                 territory: territory_id,
                 created,
+                created_file,
                 commit,
                 branch,
                 attempts: attempt,
