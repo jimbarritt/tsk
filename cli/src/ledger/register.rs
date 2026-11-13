@@ -451,27 +451,171 @@ pub fn register(
     territory: &TerritoryChoice,
     on_retry: &mut dyn FnMut(),
 ) -> Result<Outcome, String> {
+    update_nexus(
+        state_root,
+        nexus_url,
+        territory,
+        "tsk nexus register-repo",
+        on_retry,
+        &mut |doc| add_entry(doc, entry, territory),
+        &|created_file, territory_id| {
+            if created_file {
+                format!(
+                    "Create {} and register {} in territory {}",
+                    NEXUS_FILE, entry.id, territory_id
+                )
+            } else {
+                format!("Register {} in territory {}", entry.id, territory_id)
+            }
+        },
+    )
+}
+
+/// Set the entry of `entry.id` to hold its ledger in the nexus on `entry.ledger_refs`,
+/// adding the entry when the nexus has none. Used by `tsk nexus move-ledger`.
+pub fn point_at_nexus(
+    state_root: &Path,
+    nexus_url: &str,
+    entry: &NewEntry,
+    territory: &TerritoryChoice,
+    on_retry: &mut dyn FnMut(),
+) -> Result<Outcome, String> {
+    update_nexus(
+        state_root,
+        nexus_url,
+        territory,
+        "tsk nexus move-ledger",
+        on_retry,
+        &mut |doc| mark_nexus(doc, entry, territory),
+        &|_, territory_id| {
+            format!(
+                "Hold the ledger of {} in the nexus (territory {})",
+                entry.id, territory_id
+            )
+        },
+    )
+}
+
+/// Point the matching entry at the nexus ledger: `ledger` becomes `"nexus"`, and
+/// `ledger_refs` and a missing `prefix` are set from `entry`. An entry that already says so
+/// is left alone. With no matching entry, the entry is added as `tsk nexus register-repo`
+/// adds one.
+pub fn mark_nexus(
+    doc: &mut Value,
+    entry: &NewEntry,
+    territory: &TerritoryChoice,
+) -> Result<Edit, String> {
+    if let Some(prefix) = entry.prefix.as_deref() {
+        if let Some(holder) = prefix_holder(doc, prefix, &entry.id) {
+            return Err(prefix_taken(prefix, &holder));
+        }
+    }
+    let Some(territories) = doc.get_mut("territories").and_then(Value::as_array_mut) else {
+        return add_entry(doc, entry, territory);
+    };
+    for t in territories.iter_mut() {
+        let territory_id = t["id"].as_str().unwrap_or("").to_string();
+        let Some(repos) = t.get_mut("repos").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for existing in repos.iter_mut() {
+            let url_match = match (&entry.url, existing["url"].as_str()) {
+                (Some(new), Some(old)) => same_url(new, old),
+                _ => false,
+            };
+            let id_match = existing["id"].as_str() == Some(entry.id.as_str());
+            if url_match && !id_match {
+                return Err(format!(
+                    "error: the nexus already lists {} under the id \"{}\" in territory \"{}\"; \
+                     run with --id {} to match it",
+                    entry.url.as_deref().unwrap_or(""),
+                    existing["id"].as_str().unwrap_or(""),
+                    territory_id,
+                    existing["id"].as_str().unwrap_or("")
+                ));
+            }
+            if !id_match {
+                continue;
+            }
+            if !url_match && entry.url.is_some() {
+                return Err(format!(
+                    "error: the nexus already has an entry with the id \"{}\" in territory \"{}\", for {}; \
+                     choose another id with --id",
+                    entry.id,
+                    territory_id,
+                    describe(existing)
+                ));
+            }
+            if let (Some(held), Some(prefix)) =
+                (existing["prefix"].as_str(), entry.prefix.as_deref())
+            {
+                if held != prefix {
+                    return Err(format!(
+                        "error: the nexus entry \"{}\" has the mission prefix {}, and the ledger has {}",
+                        entry.id, held, prefix
+                    ));
+                }
+            }
+            let object = existing.as_object_mut().ok_or_else(|| {
+                format!(
+                    "error: the entry \"{}\" in {} is not a JSON object",
+                    entry.id, NEXUS_FILE
+                )
+            })?;
+            let mut changed = false;
+            let mut set = |key: &str, value: Value| {
+                if object.get(key) != Some(&value) {
+                    object.insert(key.to_string(), value);
+                    changed = true;
+                }
+            };
+            set("ledger", json!("nexus"));
+            if let Some(refs) = &entry.ledger_refs {
+                set("ledger_refs", json!(refs));
+            }
+            if let Some(prefix) = &entry.prefix {
+                set("prefix", json!(prefix));
+            }
+            if !changed {
+                return Ok(Edit::AlreadyRegistered {
+                    territory: territory_id,
+                    entry: existing.clone(),
+                });
+            }
+            return Ok(Edit::Added {
+                territory: territory_id,
+                created: false,
+            });
+        }
+    }
+    add_entry(doc, entry, territory)
+}
+
+/// Fetch `nexus.json` from the nexus's default branch, apply `edit`, and push the result,
+/// fetching again and retrying when the branch moved.
+fn update_nexus(
+    state_root: &Path,
+    nexus_url: &str,
+    territory: &TerritoryChoice,
+    command: &str,
+    on_retry: &mut dyn FnMut(),
+    edit: &mut dyn FnMut(&mut Value) -> Result<Edit, String>,
+    message: &dyn Fn(bool, &str) -> String,
+) -> Result<Outcome, String> {
     let git = open_clone(state_root)?;
     let branch = default_branch(&git, nexus_url)?;
     for attempt in 1..=PUSH_ATTEMPTS {
         let tip = remote_tip(&git, nexus_url, &branch)?;
         let (mut doc, created_file) =
             read_nexus(&git, nexus_url, &branch, tip.as_deref(), territory)?;
-        let (territory_id, created) = match add_entry(&mut doc, entry, territory)? {
+        let (territory_id, created) = match edit(&mut doc)? {
             Edit::AlreadyRegistered { territory, entry } => {
                 return Ok(Outcome::AlreadyRegistered { territory, entry })
             }
             Edit::Added { territory, created } => (territory, created),
         };
-        let message = if created_file {
-            format!(
-                "Create {} and register {} in territory {}",
-                NEXUS_FILE, entry.id, territory_id
-            )
-        } else {
-            format!("Register {} in territory {}", entry.id, territory_id)
-        };
-        let commit = commit_nexus_json(&git, tip.as_deref(), &render(&doc)?, &message)?;
+        let text = message(created_file, &territory_id);
+        let commit = commit_nexus_json(&git, tip.as_deref(), &render(&doc)?, &text)?;
         let expected = tip.as_deref().unwrap_or("");
         if push_commit(&git, nexus_url, &branch, &commit, expected)? {
             return Ok(Outcome::Registered {
@@ -488,8 +632,8 @@ pub fn register(
         }
     }
     Err(format!(
-        "error: the nexus's {} moved between each fetch and push, {} times; re-run tsk nexus register-repo",
-        branch, PUSH_ATTEMPTS
+        "error: the nexus's {} moved between each fetch and push, {} times; re-run {}",
+        branch, PUSH_ATTEMPTS, command
     ))
 }
 
@@ -810,5 +954,70 @@ mod tests {
         );
         assert_eq!(parse_default_branch("1111\tHEAD\n"), None);
         assert_eq!(parse_default_branch(""), None);
+    }
+
+    fn moving(id: &str) -> NewEntry {
+        NewEntry {
+            ledger_refs: Some("branches".to_string()),
+            prefix: Some("TSK".to_string()),
+            ..url_entry(id, "https://github.com/acme/tsk")
+        }
+    }
+
+    fn one_entry(entry: Value) -> Value {
+        json!({"version": 1, "territories": [{"id": "t", "name": "T", "repos": [entry]}]})
+    }
+
+    fn no_territory() -> TerritoryChoice {
+        TerritoryChoice {
+            id: None,
+            name: None,
+        }
+    }
+
+    #[test]
+    fn mark_nexus_sets_ledger_refs_and_prefix_on_the_existing_entry() {
+        let mut doc = one_entry(json!({"id": "tsk", "url": "https://github.com/acme/tsk"}));
+        let edit = mark_nexus(&mut doc, &moving("tsk"), &no_territory()).unwrap();
+        assert_eq!(
+            edit,
+            Edit::Added {
+                territory: "t".to_string(),
+                created: false
+            }
+        );
+        let entry = &doc["territories"][0]["repos"][0];
+        assert_eq!(entry["ledger"], "nexus");
+        assert_eq!(entry["ledger_refs"], "branches");
+        assert_eq!(entry["prefix"], "TSK");
+        assert_eq!(doc["territories"][0]["repos"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn mark_nexus_leaves_an_entry_that_already_says_so() {
+        let mut doc = one_entry(json!({"id": "tsk", "url": "git@github.com:acme/tsk.git",
+            "ledger": "nexus", "ledger_refs": "branches", "prefix": "TSK"}));
+        let edit = mark_nexus(&mut doc, &moving("tsk"), &no_territory()).unwrap();
+        assert!(matches!(edit, Edit::AlreadyRegistered { .. }));
+    }
+
+    #[test]
+    fn mark_nexus_adds_a_missing_entry() {
+        let mut doc = one_entry(json!({"id": "other", "url": "https://github.com/acme/other"}));
+        mark_nexus(&mut doc, &moving("tsk"), &no_territory()).unwrap();
+        let repos = doc["territories"][0]["repos"].as_array().unwrap();
+        assert_eq!(repos.len(), 2);
+        assert_eq!(repos[1]["ledger"], "nexus");
+    }
+
+    #[test]
+    fn mark_nexus_refuses_a_different_prefix_and_a_different_id() {
+        let mut doc =
+            one_entry(json!({"id": "tsk", "url": "https://github.com/acme/tsk", "prefix": "ABC"}));
+        let err = mark_nexus(&mut doc, &moving("tsk"), &no_territory()).unwrap_err();
+        assert!(err.contains("has the mission prefix ABC"), "{}", err);
+        let mut doc = one_entry(json!({"id": "tsk-main", "url": "https://github.com/acme/tsk"}));
+        let err = mark_nexus(&mut doc, &moving("tsk"), &no_territory()).unwrap_err();
+        assert!(err.contains("--id tsk-main"), "{}", err);
     }
 }

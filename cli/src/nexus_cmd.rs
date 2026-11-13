@@ -8,8 +8,10 @@ use crate::ledger::location::{state_root_from_env, Repo};
 use crate::ledger::nexus::{
     load_index, machine_name, valid_repo_id, Entry, NexusIndex, NEXUS_FILE,
 };
+use crate::ledger::refs::{LedgerRefs, RefsSource};
 use crate::ledger::register::{
-    derive_repo_id, register, repo_name_from_url, NewEntry, Outcome, TerritoryChoice,
+    derive_repo_id, point_at_nexus, register, repo_name_from_url, NewEntry, Outcome,
+    TerritoryChoice,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -84,6 +86,28 @@ pub enum NexusCommands {
         )]
         local: bool,
     },
+    #[command(
+        about = "Move this repo's ledger (records and documents) from its own repo into the attached nexus: copy both refs with their history, then set the nexus.json entry to ledger nexus. The old refs on origin stay until you delete them"
+    )]
+    MoveLedger {
+        #[arg(
+            long,
+            help = "Repo ID for the entry; defaults to the repo name, lowercased, with other characters as hyphens"
+        )]
+        id: Option<String>,
+        #[arg(
+            long,
+            value_name = "TERRITORY_ID",
+            help = "Territory to add the entry to when the nexus has no entry for this repo"
+        )]
+        territory: Option<String>,
+        #[arg(
+            long,
+            value_parser = ["branches", "custom"],
+            help = "Which refs hold the ledger in the nexus; defaults to the refs it uses now"
+        )]
+        ledger_refs: Option<String>,
+    },
 }
 
 pub fn run(action: NexusCommands) -> Result<(), String> {
@@ -129,7 +153,160 @@ pub fn run(action: NexusCommands) -> Result<(), String> {
             ledger_refs,
             local,
         ),
+        NexusCommands::MoveLedger {
+            id,
+            territory,
+            ledger_refs,
+        } => move_ledger(&file, id, territory, ledger_refs),
     }
+}
+
+fn move_ledger(
+    config_file: &Path,
+    id: Option<String>,
+    territory: Option<String>,
+    ledger_refs: Option<String>,
+) -> Result<(), String> {
+    let nexus = config::read_nexus_url(config_file)?
+        .ok_or_else(|| "error: no nexus is attached; run tsk nexus add <url> first".to_string())?;
+    let cwd = std::env::current_dir()
+        .map_err(|e| format!("error: could not read the current directory: {}", e))?;
+    let repo = Repo::discover(&cwd)?;
+    let state_root = state_root_from_env()?;
+    let source = repo.location(&state_root)?;
+    if source.repo_id().is_some() {
+        return Err(format!(
+            "error: this repo's ledger is already held in the nexus, on {}",
+            source.ref_name()
+        ));
+    }
+
+    // Nothing that is only on this machine may be left behind.
+    let store = crate::ledger::store::open(&cwd)?;
+    let status = store.status()?;
+    if let Some(note) = &status.fetch_note {
+        return Err(format!(
+            "error: could not check the ledger against origin, so it cannot be moved: {}",
+            note.trim_start_matches("error: ")
+        ));
+    }
+    if status.has_unpushed() {
+        return Err(
+            "error: the ledger store on this machine holds changes that origin lacks; run tsk ledger push first"
+                .to_string(),
+        );
+    }
+    let prefix = ledger_prefix(&cwd)?;
+    drop(store);
+
+    let refs = match ledger_refs.as_deref() {
+        Some(text) => LedgerRefs::parse(text)
+            .ok_or_else(|| format!("error: \"{}\" is not branches or custom", text))?,
+        None => source.refs(),
+    };
+    let entry = new_entry(
+        &repo,
+        id,
+        LedgerChoice::Nexus,
+        Some(refs.as_str().to_string()),
+        false,
+        prefix,
+    )?;
+    let target = crate::ledger::location::LedgerLocation::nexus(&nexus, &entry.id)
+        .with_refs(refs, RefsSource::Nexus);
+
+    let pairs = [
+        (source.clone(), target.clone()),
+        (source.docs(), target.docs()),
+    ];
+    let git = &repo.git;
+    let mut moved = Vec::new();
+    for (from, to) in &pairs {
+        let tip = crate::ledger::store::dolt::remote_tip(git, from)?;
+        let Some(tip) = tip else {
+            if from.ref_name() == source.ref_name() {
+                return Err(format!(
+                    "error: origin has no {}, so there is no ledger to move",
+                    from.ref_name()
+                ));
+            }
+            continue;
+        };
+        match crate::ledger::store::dolt::remote_tip(git, to)? {
+            Some(held) if held == tip => {
+                moved.push(format!("{} already holds {}", to.ref_name(), short(&tip)));
+                continue;
+            }
+            Some(held) => {
+                return Err(format!(
+                    "error: the nexus already holds {} at {}, which is not origin's {} at {}; tsk does not overwrite a ledger",
+                    to.ref_name(),
+                    short(&held),
+                    from.ref_name(),
+                    short(&tip)
+                ))
+            }
+            None => {}
+        }
+        git.run(["fetch", "--quiet", from.remote(), from.ref_name()])?;
+        let refspec = format!("{}:{}", tip, to.ref_name());
+        git.run(["push", "--quiet", to.remote(), refspec.as_str()])
+            .map_err(|e| {
+                format!(
+                    "error: could not push {} to the nexus:\n{}",
+                    to.ref_name(),
+                    e.trim_start_matches("error: ")
+                )
+            })?;
+        moved.push(format!(
+            "copied {} {} to {} in the nexus",
+            from.ref_name(),
+            short(&tip),
+            to.ref_name()
+        ));
+    }
+
+    let outcome = point_at_nexus(
+        &state_root,
+        &nexus,
+        &entry,
+        &TerritoryChoice {
+            id: territory,
+            name: None,
+        },
+        &mut || {
+            eprintln!("note: the nexus's default branch moved before the push; fetching again and retrying once")
+        },
+    )?;
+    crate::ledger::refs::forget_cache(&repo, &state_root);
+    crate::ledger::refs::memo_forget();
+
+    for line in &moved {
+        println!("{}", line);
+    }
+    match &outcome {
+        Outcome::AlreadyRegistered { .. } => println!(
+            "{} already says the entry \"{}\" holds its ledger in the nexus",
+            NEXUS_FILE, entry.id
+        ),
+        Outcome::Registered { territory, .. } => println!(
+            "set the entry \"{}\" in territory \"{}\" of {} to ledger nexus, ledger_refs {}",
+            entry.id,
+            territory,
+            NEXUS_FILE,
+            refs.as_str()
+        ),
+    }
+    println!(
+        "The old refs on origin are unchanged. When every clone has run tsk ledger fetch, delete them with:\n  git push origin --delete {} {}",
+        source.ref_name(),
+        source.docs_ref_name()
+    );
+    Ok(())
+}
+
+fn short(sha: &str) -> &str {
+    &sha[..sha.len().min(12)]
 }
 
 fn register_repo(
