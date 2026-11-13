@@ -187,7 +187,7 @@ impl Report {
         match self.next {
             Next::AttachNexus => match github_owner_repo(url) {
                 Some((owner, repo)) => format!(
-                    "attach the nexus to this cloud session with the add_repo tool (owner {}, repo {}, access push), clone it as add_repo says, then run tsk ledger fetch",
+                    "attach the nexus to this cloud session with the add_repo tool (owner {}, repo {}, access push), do not clone it (tsk fetches it itself), then run tsk ledger fetch",
                     owner, repo
                 ),
                 None => format!(

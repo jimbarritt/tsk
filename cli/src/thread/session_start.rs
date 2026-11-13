@@ -397,6 +397,10 @@ pub fn latest_entry_context(entry: &Entry, facts: &Facts, warning: &str) -> Stri
     if !warning.is_empty() {
         text.push_str(&format!(" WARNING: {}.", warning));
     }
+    if let Some(note) = super::entry::version_note(entry, env!("CARGO_PKG_VERSION")) {
+        text.push(' ');
+        text.push_str(&note);
+    }
     text.push_str(
         " Write the resume summary from this and run no command until the person confirms the thread.",
     );
@@ -435,7 +439,7 @@ pub fn nexus_attach_hint(nexus: Option<&str>, remote: bool) -> Option<String> {
         })
         .unwrap_or_else(|| nexus.to_string());
     Some(format!(
-        "The nexus {} is attached, and a cloud session can read only the repositories attached to it. Attach the nexus repository now with the add_repo tool ({}, access push), clone it as add_repo says, then run `tsk ledger status` and do what its `Next` line says. Do this before any other ledger command.",
+        "This session cannot read the nexus {} yet: a cloud session reads only the repositories attached to it, so the fetch at session start failed, as it does in every new session. Attach it with the add_repo tool ({}, access push). Do not clone it: tsk fetches the nexus itself. Then run `tsk ledger status` and do what its `Next` line says, before any other ledger command.",
         nexus, target
     ))
 }
@@ -639,7 +643,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.59";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.60";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -782,14 +786,23 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
             })
         })
         .unwrap_or_else(|e| {
-            let mut context = failure_context(&e);
+            // In a cloud session the nexus cannot be read until the agent attaches it, so
+            // the failed fetch is expected: the context is the step, not a warning.
+            let hint = nexus_attach_hint(attached_nexus().as_deref(), is_remote())
+                .filter(|_| e.contains("could not fetch the nexus"));
+            let mut context = match &hint {
+                Some(hint) => hint.clone(),
+                None => failure_context(&e),
+            };
             if let Some(line) = signing.as_ref().and_then(signing_context) {
                 context.push(' ');
                 context.push_str(&line);
             }
-            if let Some(hint) = nexus_attach_hint(attached_nexus().as_deref(), is_remote()) {
-                context.push(' ');
-                context.push_str(&hint);
+            if hint.is_none() {
+                if let Some(hint) = nexus_attach_hint(attached_nexus().as_deref(), is_remote()) {
+                    context.push(' ');
+                    context.push_str(&hint);
+                }
             }
             context
         });
@@ -799,7 +812,11 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
             context.push_str(&notice);
         }
     }
-    if let Some(note) = plugin_version_note(plugin_version, EXPECTED_PLUGIN_VERSION) {
+    // A cloud session start installs the newer plugin itself, so there the note names a
+    // version that is out of date by the time a skill loads.
+    if let Some(note) =
+        plugin_version_note(plugin_version, EXPECTED_PLUGIN_VERSION).filter(|_| !is_remote())
+    {
         context.push(' ');
         context.push_str(&note);
     }
@@ -1096,6 +1113,8 @@ mod tests {
         let hint = nexus_attach_hint(Some("https://github.com/acme/acme-nexus"), true).unwrap();
         assert!(hint.contains("owner acme, repo acme-nexus"), "{}", hint);
         assert!(hint.contains("add_repo"), "{}", hint);
+        assert!(hint.contains("Do not clone it"), "{}", hint);
+        assert!(!hint.contains("Warning"), "{}", hint);
         assert!(nexus_attach_hint(Some("https://github.com/acme/acme-nexus"), false).is_none());
         assert!(nexus_attach_hint(None, true).is_none());
         let local = nexus_attach_hint(Some("/srv/nexus.git"), true).unwrap();

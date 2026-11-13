@@ -17,12 +17,6 @@ the layout before the move.
 - With no nexus attached, `tsk ledger fetch` finds no ledger on `origin` and creates a new,
   empty one there, which a push makes public. If `tsk ledger status` does not show
   `(nexus)`, stop and attach the nexus before any write.
-- In a clone with no ledger store, `tsk ledger status` prints what the nexus and origin
-  say and a `Next` line (0.57.0). With a nexus attached that has no entry for the repo,
-  and no ledger on origin, every ledger command stops, and `tsk ledger init` creates the
-  ledger.
-- In a cloud session that starts in `/home/user` (a session with more than one
-  repository), `tsk` changes to the one repository below it that is not the nexus.
 
 ## Migration note (2026-10-17)
 
