@@ -374,6 +374,9 @@ pub trait LedgerStore {
     /// first call on a Dolt ledger below version 9 upgrades it. The change is local until
     /// the caller pushes it.
     fn instance_set(&self, row: &InstanceRow) -> Result<(), String>;
+    /// Remove the actor `name` with uid `uid`: its row, its name history, the instance
+    /// rows registered as it, and its links to sessions. Threads and pause entries stay.
+    fn actor_remove(&self, name: &str, uid: Option<&str>) -> Result<(), String>;
     /// Every session recorded, sorted by start time and then URN. Empty on a Dolt ledger below
     /// version 11, which has no `sessions` table; a read upgrades nothing.
     fn sessions_list(&self) -> Result<Vec<SessionRow>, String>;

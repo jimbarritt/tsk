@@ -76,6 +76,13 @@ pub enum ActorCommands {
     #[command(
         about = "List the actors, one per line: name, kind, state, uid, and the harness instances that ran as it (- for none, comma-separated otherwise). The state of a robot is free, taken (with what takes it: a tmux pane running claude, or a session that is open), or unknown; a human has -. In a terminal the state comes from this machine's sessions and tmux panes; in a cloud session it needs --open, else it is unknown. The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records with the URN, the name history and the state"
     )]
+    #[command(
+        about = "Remove an actor, by name: its record, its name history, the harness instances registered as it and its links to sessions. Threads and pause entries stay, and a pause it wrote keeps its writer. Prints removed <name> (<kind>). Exit status 1 when no actor has the name. A local write: it goes out with the next push"
+    )]
+    Remove {
+        #[arg(help = "The actor's name")]
+        name: String,
+    },
     List {
         #[arg(long, help = "Print the full records as JSON")]
         json: bool,
@@ -543,6 +550,18 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
                 Some(actor) => println!("{}", actor.name),
                 None => println!("no actor registered"),
             }
+            Ok(0)
+        }
+        ActorCommands::Remove { name } => {
+            let session = Session::discover()?;
+            let store = session.store.as_ref();
+            let Some(actor) = store.actors_list()?.into_iter().find(|a| a.name == name) else {
+                eprintln!("error: no actor is named {}", name);
+                return Ok(1);
+            };
+            store.actor_remove(&actor.name, actor.uid.as_deref())?;
+            eprintln!("{}", NOT_PUBLISHED_NOTE);
+            println!("removed {} ({})", actor.name, actor.kind.as_str());
             Ok(0)
         }
         ActorCommands::List {

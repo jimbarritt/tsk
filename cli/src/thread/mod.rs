@@ -284,6 +284,9 @@ fn next_text(session: &Session, open: Option<&[String]>) -> Result<String, Strin
             .thread_info(&id)
             .ok()
             .and_then(|info| info.mission_id);
+        if let Some(prompt) = binding::bound_robot_prompt(session, &id, open) {
+            return Ok(format!("bound:{}\n{}", id, prompt));
+        }
         return Ok(format!(
             "bound:{}\nThis session is bound to thread {}{}. Continue the work.",
             id,
