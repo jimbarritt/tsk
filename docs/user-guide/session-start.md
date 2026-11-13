@@ -238,7 +238,8 @@ The agent then runs the `/tsk:init-ledger` skill:
    ```
 
    With `--nexus`, the command first adds the repo to `nexus.json` and checks the prefix
-   against the other repos. Add `--territory <id>` when the nexus has more than one
+   against the other repos. Add `--territory <id>` for the first repo of a new nexus,
+   which creates `nexus.json` and the territory, and when the nexus has more than one
    territory. The command creates the ledger and pushes it.
 
 With a nexus attached, `tsk` never creates a ledger on origin by itself. Every ledger

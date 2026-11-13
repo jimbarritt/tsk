@@ -9,22 +9,11 @@ You need `tsk` 0.57.0 or later, `git` with push access to the nexus repo, and `d
 
 ## 1. Make the nexus repo, once
 
-A nexus is a private git repo with a `nexus.json` on its default branch. `tsk ledger init`
-in section 3 needs a `nexus.json` with at least one territory, so write it now.
+A nexus is a private git repo with a `nexus.json` on its default branch. Create the repo
+empty. The first `tsk ledger init` in section 3 writes `nexus.json` and its first territory.
 
 ```bash
 gh repo create <owner>/<name>-nexus --private
-```
-
-Write `nexus.json` with one territory:
-
-```bash
-gh repo clone <owner>/<name>-nexus
-cd <name>-nexus
-printf '{"version":1,"territories":[{"id":"work","name":"Work","repos":[]}]}\n' > nexus.json
-git add nexus.json
-git commit -m "Add nexus.json"
-git push -u origin HEAD
 ```
 
 ## 2. Attach the nexus to the machine, once
@@ -54,10 +43,9 @@ tsk ledger init --nexus --prefix <PREFIX>
    in: the cloud proxy rejects a push to a custom ref.
 3. `<PREFIX>` is 3 or 4 capital letters. It starts every mission ID in this repo, such as
    `M-<PREFIX>-NAME`. The command checks it against the other repos in the nexus, adds the
-   repo to `nexus.json` with `"ledger": "nexus"`, creates the ledger and pushes it. Add
-   `--territory <id>` when the nexus has more than one territory.
-4. `tsk ledger init` creates no territory, so the nexus needs the `nexus.json` of
-   section 1.
+   repo to `nexus.json` with `"ledger": "nexus"`, creates the ledger and pushes it.
+4. Add `--territory <id>` for the first repo of a new nexus, which creates `nexus.json` and
+   the territory, and whenever the nexus has more than one territory.
 
 In Claude Code, the `/tsk:init-ledger` skill runs the same steps and asks where the ledger
 goes. See [session-start.md](session-start.md#a-repo-with-no-ledger).
