@@ -16,7 +16,8 @@ API call creates one. See
 | `tsk` and `dolt` on `PATH` | The environment's setup script (step 3). |
 | Access to the GitHub release downloads | The environment's network access setting (step 2). |
 | The `tsk` and `swe` plugins | The setup script, at user scope (step 3). |
-| `$TSK_LEDGER_WT` and the ledger worktree | `tsk thread session-start`, run by the same hook. |
+| `$TSK_LEDGER_WT` and the ledger store | `tsk thread session-start`, run by the plugin's `SessionStart` hook and by the repo's hook when the repo has one. |
+| The nexus URL, for a repo whose ledger is in a nexus | The optional `NEXUS_URL` line of the setup script (step 3). |
 
 A cloud session does not load plugins installed on your machine, or plugins that the
 repo's `.claude/settings.json` enables. A plugin installed from the command line works in a
@@ -70,8 +71,22 @@ pinned SHA-256 values, and the script itself is the text on `main` at build time
 ```bash
 #!/bin/bash
 set -euo pipefail
+NEXUS_URL=""
 curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash
+if [ -n "$NEXUS_URL" ]; then tsk nexus add "$NEXUS_URL"; fi
 ```
+
+The `NEXUS_URL` line is optional. Empty, as pasted, the script attaches no nexus. For a
+repo whose ledger is in a nexus, set it to the nexus URL, for example
+`NEXUS_URL="https://github.com/<owner>/<name>-nexus"`. The last line then runs
+`tsk nexus add <nexus url>`, which writes the URL to `/root/.config/tsk/config.toml`. The
+URL differs per user, so the fetched script does not hold it. The session also needs read
+and push access to the nexus repo: add it to the repos of the environment. See
+[nexus-quickstart.md](nexus-quickstart.md#5-a-claude-code-cloud-environment).
+
+To turn on robot commit attribution as well, pass the option to the fetched script, as in
+[robot-commit-signing.md](robot-commit-signing.md):
+`... | bash -s -- --use-robot-attribution <email>`.
 
 The fetched script reads the version in the Homebrew formula and downloads the prebuilt `tsk` of
 that version for the machine. It installs `tsk` into `/usr/local/bin`, which is on `PATH`, and installs `dolt`
@@ -139,10 +154,19 @@ runs the script once more, because the build stores no SHA-256. A disk saved wit
 no check in the plugin hook, so in a repo other than this one the check starts only after
 one rebuild.
 
-The `last-run` lines write the run time to `/usr/local/share/tsk-setup/last-run`. They
-support the cache test below and can be removed afterwards.
+The fetched script writes the run time to `/usr/local/share/tsk-setup/last-run`. Compare
+it in a session with the container's boot time to tell whether the setup ran for that
+session or was reused (see [Observed](#observed)). The stamp shows reuse only when the cache keeps the container's
+filesystem.
 
-The stamp shows reuse only when the cache keeps the container's filesystem.
+The setup script needs no Rust toolchain and runs no `cargo install`: `tsk`, `dolt` and
+`just` are prebuilt downloads. The `cargo` check and the `cargo_installed=yes|no` field of
+the earlier stamp line are gone with the build.
+
+A repo can also carry its own `SessionStart` hook: `tsk install-plugin claude-cli` writes
+`tsk thread session-start --install-plugin claude-cli` to `.claude/settings.json`. In a
+cloud session that hook installs the plugin at project scope and upgrades `tsk` before the
+session start. See [installation.md](installation.md#installation).
 
 ## Troubleshooting
 
@@ -195,3 +219,6 @@ On 2026-11-08, in a session made by `/tsk:regenerate-cloud-instance`:
 - Whether the Trusted level allows the GitHub release download hosts. The run on
   2026-10-13 was in a session with a wider network policy.
 - How long the setup result is kept, and whether editing the script invalidates it.
+- The `NEXUS_URL` line in a cloud environment. `tsk nexus add` writes only the user
+  config, and setup and session share `HOME=/root` (observed on 2026-10-08), so the
+  session reads the URL. No cloud run of it was made.
