@@ -7,6 +7,8 @@ use std::process::{Command, Output, Stdio};
 pub struct Git {
     dir: PathBuf,
     hooks: bool,
+    /// Environment set on every command of this handle, after the defaults.
+    env: Vec<(String, String)>,
 }
 
 impl Git {
@@ -15,6 +17,16 @@ impl Git {
         Git {
             dir: dir.into(),
             hooks: false,
+            env: Vec::new(),
+        }
+    }
+
+    /// This handle with `env` set on every command. A commit made through it has the author
+    /// and committer of the environment, whatever the git config or the platform sets.
+    pub fn with_env(&self, env: Vec<(String, String)>) -> Git {
+        Git {
+            env,
+            ..self.clone()
         }
     }
 
@@ -23,6 +35,7 @@ impl Git {
         Git {
             dir: dir.into(),
             hooks: true,
+            env: Vec::new(),
         }
     }
 
@@ -40,6 +53,7 @@ impl Git {
         } else {
             crate::gitenv::apply_hooks_off(&mut command);
         }
+        command.envs(self.env.iter().map(|(k, v)| (k, v)));
         command
     }
 

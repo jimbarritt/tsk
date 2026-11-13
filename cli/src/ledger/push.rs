@@ -118,7 +118,9 @@ pub(crate) fn commit_changes(wt: &Git, message: &str) -> Result<bool, String> {
     match output.status.code() {
         Some(0) => Ok(false),
         Some(1) => {
-            wt.run(["commit", "--quiet", "-m", message])?;
+            let (git, mut args) = crate::attribution::ledger_git(wt)?;
+            args.extend(["commit", "--quiet", "-m", message].map(String::from));
+            git.run(args)?;
             Ok(true)
         }
         _ => Err(failure_message(&args, &output)),
@@ -135,7 +137,9 @@ fn is_ancestor(wt: &Git, ancestor: &str, descendant: &str) -> Result<bool, Strin
 }
 
 fn rebase_onto(wt: &Git, tip: &str, location: &LedgerLocation) -> Result<(), String> {
-    let (_, output) = wt.output(["rebase", "--quiet", tip])?;
+    let (git, mut args) = crate::attribution::ledger_git(wt)?;
+    args.extend(["rebase", "--quiet", tip].map(String::from));
+    let (_, output) = git.output(args)?;
     if output.status.success() {
         return Ok(());
     }

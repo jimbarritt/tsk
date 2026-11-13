@@ -2350,6 +2350,8 @@ impl LedgerStore for DoltStore {
         // Writes a command held back (see `continuation_append_deferred`) go first in the
         // same process. When the push would not fetch first, the reads that open its first
         // attempt follow the commit, so the push does not start a process for them.
+        // With robot attribution on and no robot actor, the commit stops (T-19).
+        crate::attribution::ledger_identity()?;
         self.forget_snapshot();
         let queued = std::mem::take(&mut *self.queued.borrow_mut());
         let writes: Vec<String> = queued.iter().map(|write| write.sql.clone()).collect();

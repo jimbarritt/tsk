@@ -714,6 +714,10 @@ impl Dolt {
             .env("DOLT_REMOTE_INFO_BRANCH", "");
         // Reaches the git processes that dolt starts for a fetch or a push.
         crate::gitenv::apply(&mut command);
+        // With robot attribution on, a commit has the robot as author and committer.
+        if let Ok(Some(identity)) = crate::attribution::ledger_identity() {
+            command.envs(identity.dolt_env());
+        }
         command
     }
 
@@ -734,6 +738,9 @@ impl Dolt {
             .into_iter()
             .map(|a| a.as_ref().to_string_lossy().into_owned())
             .collect();
+        if args.first().map(String::as_str) == Some("commit") {
+            crate::attribution::ledger_identity()?;
+        }
         if self.served {
             if let Some(procedure) = procedure_call(&args) {
                 if let Some(output) = self.serve_procedure(&procedure) {
