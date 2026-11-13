@@ -210,7 +210,7 @@ fn choose_robot_prompt(robots: &[Robot], mission_lines: &[String], open: OpenSes
     }
     let lines: Vec<String> = free.iter().map(|robot| robot_line(robot)).collect();
     format!(
-        "No thread binding was found for this session or worktree, and no robot is registered for it. Choose the robot first. The robots to offer are listed below, one per line: name, then its threads (thread id, mission, date of the latest pause), tab-separated, the robot with the latest thread first.\n{}\n{}Use the AskUserQuestion tool to ask which robot this session is: offer up to three robots from the list, the one with the latest thread first, and \"Construct a new robot\", and leave free text open. Once answered, run `tsk actor register \"<name>\" --kind robot` for a robot from the list, or /tsk:construct-robot for a new one. Then use the AskUserQuestion tool again: offer that robot's threads, latest first, to resume with /tsk:resume-thread <thread-id>, and a new thread on a mission with /tsk:start-thread <mission-id>. {}\n{}",
+        "No thread binding was found for this session or worktree, and no robot is registered for it. Choose the robot first. The robots to offer are listed below, one per line: name, then its threads (thread id, mission, date of the latest pause), tab-separated, the robot with the latest thread first.\n{}\n{}Ask both choices in one AskUserQuestion call with two questions, and leave free text open on each. Question 1, which robot this session is: up to three robots from the list, the one with the latest thread first, and \"Construct a new robot\". Question 2, what to work on: the latest thread of each robot offered, labelled with the robot (\"<robot>: resume <thread id> <mission>\"), then missions from the list to start a new thread, and \"No thread\", four options at most. Once answered: run `tsk actor register \"<name>\" --kind robot` for a robot from the list, or /tsk:construct-robot for a new one. Then run /tsk:resume-thread <thread-id> for a thread, /tsk:start-thread <mission-id> for a mission, or `tsk thread skip` for no thread. If the thread chosen belongs to another robot than the one chosen, ask again which thread. Each of these commands prints the session title line in a cloud session: call set_session_title with it. {}\n{}",
         lines.join("\n"),
         if taken_part.is_empty() {
             String::new()
@@ -537,6 +537,7 @@ mod tests {
         assert!(text.contains("Noted, Not Expanded\tno threads"));
         assert!(text.contains("tsk actor register \"<name>\" --kind robot"));
         assert!(text.contains("/tsk:construct-robot"));
+        assert!(text.contains("in one AskUserQuestion call with two questions"));
         assert!(text.contains("M-ENV\tin-progress"));
         assert!(text.ends_with(SKIP_SENTENCE));
     }

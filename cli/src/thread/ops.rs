@@ -171,12 +171,16 @@ pub fn thread_mission(info: &ThreadInfo) -> Option<String> {
 }
 
 /// The session title for an actor and the mission its thread works: `<mission>: <name>`,
-/// the name alone with no mission, the mission alone with no actor, and `None` with
+/// `NO-MISSION: <name>` with no mission, the mission alone with no actor, and `None` with
 /// neither (GitHub issue #7).
+/// The mission part of the title of a session whose thread has no mission, or that has no
+/// thread.
+pub const NO_MISSION_TITLE: &str = "NO-MISSION";
+
 pub fn session_title(actor: Option<&str>, mission: Option<&str>) -> Option<String> {
     match (actor, mission) {
         (Some(name), Some(mission)) => Some(format!("{}: {}", mission, name)),
-        (Some(name), None) => Some(name.to_string()),
+        (Some(name), None) => Some(format!("{}: {}", NO_MISSION_TITLE, name)),
         (None, Some(mission)) => Some(mission.to_string()),
         (None, None) => None,
     }
@@ -845,7 +849,10 @@ mod tests {
             session_title(Some("Plain Statement Of Fact"), Some("M-ADMIN-02")).as_deref(),
             Some("M-ADMIN-02: Plain Statement Of Fact")
         );
-        assert_eq!(session_title(Some("alice"), None).as_deref(), Some("alice"));
+        assert_eq!(
+            session_title(Some("alice"), None).as_deref(),
+            Some("NO-MISSION: alice")
+        );
         assert_eq!(session_title(None, Some("M-X")).as_deref(), Some("M-X"));
         assert_eq!(session_title(None, None), None);
     }

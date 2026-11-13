@@ -148,7 +148,7 @@ tsk thread detach                                                     remove thi
 tsk thread skip                                                       work without a thread; local to this clone, never pushed
 tsk thread stop [<thread-id>]                                         delete a thread and every cloud binding to it, push
 tsk thread list                                                       list threads, most recently paused first
-tsk thread title                                                      print the session title: <mission-id>: <actor name>, the name alone, or the mission ID alone; exit 1 with neither; read-only, never fetches
+tsk thread title                                                      print the session title: <mission-id>: <actor name>, NO-MISSION: <actor name>, or the mission ID alone; exit 1 with neither; read-only, never fetches
 tsk thread binding [--no-fetch]                                       print the current binding, and the primary actor when the session has one
 tsk actor register <name> --kind human|robot                          make the actor (a new name) and make it the primary actor of this session; prints its URN; local, tsk ledger push publishes
 tsk actor join <uid> [--primary] [--session <urn>]                    add an actor to this session (or the named one) as supporting, or as primary; local

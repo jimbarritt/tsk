@@ -117,7 +117,7 @@ pub enum ThreadCommands {
         no_fetch: bool,
     },
     #[command(
-        about = "Print the session title for this session or worktree: <mission ID>: <actor name> when it is registered as an actor and bound to a thread with a mission, the actor name alone when the thread has no mission or there is no binding, and the mission ID alone when no actor is registered. Exit status 1 and no output with neither. Reads the ledger store as it is and never fetches, so it shows a local write such as tsk thread set mission at once. The skills pass the title to set_session_title in a cloud session"
+        about = "Print the session title for this session or worktree: <mission ID>: <actor name> when it is registered as an actor and bound to a thread with a mission, NO-MISSION: <actor name> when the thread has no mission or there is no binding, and the mission ID alone when no actor is registered. Exit status 1 and no output with neither. Reads the ledger store as it is and never fetches, so it shows a local write such as tsk thread set mission at once. The skills pass the title to set_session_title in a cloud session"
     )]
     Title,
     #[command(
@@ -244,6 +244,28 @@ fn unbound_reason(session: &Session, open: Option<&[String]>) -> Option<String> 
         )),
         _ => Some(UNBOUND_PROMPT.to_string()),
     }
+}
+
+/// This session's title: `<mission>: <robot>`, `NO-MISSION: <robot>` with no mission, or
+/// the mission alone with no robot.
+pub fn current_title(session: &Session) -> Result<Option<String>, String> {
+    let actor = crate::actor::current(session)?.map(|actor| actor.name);
+    let mission = match resolve_local(session)? {
+        Some(binding) => session
+            .store
+            .thread_info(binding.thread_id())
+            .ok()
+            .and_then(|info| ops::thread_mission(&info)),
+        None => None,
+    };
+    Ok(ops::session_title(actor.as_deref(), mission.as_deref()))
+}
+
+/// In a cloud session, the line that gives the session ID and the title for one
+/// `set_session_title` call. `None` in a terminal or with no title.
+pub fn title_line(session: &Session) -> Option<String> {
+    let title = current_title(session).ok().flatten()?;
+    session_start::title_context(session.cloud_session.as_deref(), Some(&title))
 }
 
 /// The text of `tsk thread next`: the binding when there is one, else what the Stop hook
@@ -457,6 +479,9 @@ fn run_with(session: &Session, action: ThreadCommands) -> Result<i32, String> {
         ThreadCommands::Skip => {
             write_skip(session)?;
             println!("skipped");
+            if let Some(line) = title_line(session) {
+                println!("{}", line);
+            }
             Ok(0)
         }
         ThreadCommands::Resume { thread_id } => {
@@ -515,24 +540,13 @@ fn run_with(session: &Session, action: ThreadCommands) -> Result<i32, String> {
                 None => Ok(1),
             }
         }
-        ThreadCommands::Title => {
-            let actor = crate::actor::current(session)?.map(|actor| actor.name);
-            let mission = match resolve_local(session)? {
-                Some(binding) => session
-                    .store
-                    .thread_info(binding.thread_id())
-                    .ok()
-                    .and_then(|info| ops::thread_mission(&info)),
-                None => None,
-            };
-            match ops::session_title(actor.as_deref(), mission.as_deref()) {
-                Some(title) => {
-                    println!("{}", title);
-                    Ok(0)
-                }
-                None => Ok(1),
+        ThreadCommands::Title => match current_title(session)? {
+            Some(title) => {
+                println!("{}", title);
+                Ok(0)
             }
-        }
+            None => Ok(1),
+        },
         ThreadCommands::Guard
         | ThreadCommands::Next { .. }
         | ThreadCommands::SessionStart { .. } => Ok(0),
