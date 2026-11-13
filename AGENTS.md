@@ -2,6 +2,22 @@
 
 Start at [docs/index.md](docs/index.md) to find design docs, domain model, user guide, and ADRs by topic.
 
+## Migration note (2026-11-13): the ledger is in the private nexus
+
+This repo's ledger is no longer on `origin`. It is in a private nexus repo, on the branches
+`ledgers/tsk` and `ledgers/tsk-docs`, and `tsk` finds it through the repo's entry in that
+nexus's `nexus.json` (`"ledger": "nexus"`, `tsk nexus move-ledger`, 0.53.0). The branches
+`tsk/ledger`, `tsk/docs`, `tsk/bootstrap` and `archive/tsk-ledger-files`, and the ref
+`refs/tsk/bootstrap`, are deleted from `origin`. The sections below that name them describe
+the layout before the move.
+
+- A machine or cloud session needs the nexus attached (`tsk nexus add <nexus url>`, or the
+  `--nexus` option of `ops/cloud/setup-environment.sh`) and read and push access to the
+  nexus repo. `tsk ledger status` then shows `refs branches (nexus)`.
+- With no nexus attached, `tsk ledger fetch` finds no ledger on `origin` and creates a new,
+  empty one there, which a push makes public. If `tsk ledger status` does not show
+  `(nexus)`, stop and attach the nexus before any write.
+
 ## Migration note (2026-10-17)
 
 Missions, objectives, constraints, out of scope, tasks, decisions, questions and thread
@@ -251,11 +267,14 @@ environment's line passes with `bash -s --`. Robot commit attribution is one:
 curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash -s -- --use-robot-attribution robots@jimbarritt.com
 ```
 
+`--nexus <nexus url>` attaches the nexus that has this repo's ledger. Every environment
+that works on this repo needs it, and needs the nexus repo in its repos.
+
 ## Private setup details stay out of the repo and the ledger
 
-This repo and its ledger branches (`tsk/ledger`, `tsk/docs`) are public. Never write
-these into a ledger record, a ledger document, a file in the repo, a commit message or a
-pull request:
+This repo is public. Its ledger is in a private nexus repo. Never write these into a file
+in the repo, a commit message or a pull request, and write them into a ledger record or
+document only after `tsk ledger status` shows `refs branches (nexus)`:
 
 - The names of Jim's cloud environments, their network settings and allowed hosts, and
   their setup scripts.
