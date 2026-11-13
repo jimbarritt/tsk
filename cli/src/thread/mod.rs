@@ -12,7 +12,7 @@ use clap::Subcommand;
 use serde::Serialize;
 
 use binding::{
-    is_skipped, open_mission_lines, resolve, resolve_local, unbound_prompt, write_skip,
+    is_skipped, open_mission_lines, resolve, resolve_local, session_unbound_prompt, write_skip,
     UNBOUND_PROMPT,
 };
 use ops::StartOutcome;
@@ -225,7 +225,10 @@ fn unbound_reason(session: &Session) -> Option<String> {
         session.store.doc_list("missions/"),
     ) {
         (Ok(missions), Ok(documents)) if missions.is_empty() && documents.is_empty() => None,
-        (Ok(missions), _) => Some(unbound_prompt(&open_mission_lines(&missions))),
+        (Ok(missions), _) => Some(session_unbound_prompt(
+            session,
+            &open_mission_lines(&missions),
+        )),
         _ => Some(UNBOUND_PROMPT.to_string()),
     }
 }

@@ -571,7 +571,6 @@ fn ledger_repo_and_a_missing_ledger_field_keep_the_ledger_in_the_repo() {
     for entry in [
         r#"{"id":"work-api","url":"https://example.test/acme/work-api","ledger":"repo"}"#,
         r#"{"id":"work-api","url":"https://example.test/acme/work-api"}"#,
-        r#"{"id":"something-else","url":"https://example.test/acme/other","ledger":"nexus"}"#,
     ] {
         let fx = Fixture::new();
         fx.set_nexus_json(entry);
@@ -676,12 +675,169 @@ fn an_entry_with_no_url_and_no_cached_id_is_not_found() {
     fx.set_nexus_json(r#"{"id":"work-api","local":"laptop","ledger":"nexus"}"#);
     fx.attach();
 
-    fx.fetch_ok();
-    fx.push_ok("Create the ledger");
-
-    assert!(fx.ref_exists(&fx.managed(), IN_REPO_REF));
+    assert_failure_mentioning(&fx.tsk(&["ledger", "fetch"]), "has no entry for this repo");
+    assert!(!fx.ref_exists(&fx.managed(), IN_REPO_REF));
     assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
     assert!(!fx.repo_id_file().exists());
+}
+
+const OTHER_ENTRY: &str = r#"{"id":"something-else","url":"https://example.test/acme/other","ledger":"nexus","prefix":"OTH"}"#;
+
+#[test]
+fn a_repo_the_nexus_does_not_list_stops_and_creates_no_ledger() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+
+    let fetched = fx.tsk(&["ledger", "fetch"]);
+    assert_failure_mentioning(&fetched, "has no entry for this repo");
+    assert!(stderr(&fetched).contains("tsk ledger init --nexus or --repo"));
+    assert!(!fx.ref_exists(&fx.managed(), IN_REPO_REF));
+    assert!(!fx.ref_exists(&fx.nexus(), "refs/heads/ledgers/something-else"));
+}
+
+#[test]
+fn a_repo_the_nexus_does_not_list_keeps_the_ledger_origin_holds() {
+    let fx = Fixture::new();
+    fx.fetch_ok();
+    fx.push_ok("Create the ledger");
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+    let state = fx.root.path().join("state");
+    common::stop_servers(fx.root.path(), true);
+    std::fs::remove_dir_all(&state).unwrap();
+    std::fs::create_dir_all(&state).unwrap();
+
+    fx.fetch_ok();
+    assert!(fx.ref_exists(&fx.managed(), IN_REPO_REF));
+}
+
+#[test]
+fn status_with_no_ledger_reports_the_nexus_entry_and_the_next_action() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(WORK_API_ENTRY);
+    fx.attach();
+
+    let status = fx.tsk(&["ledger", "status"]);
+    assert_success(&status);
+    let text = stdout(&status);
+    assert!(text.contains("Local   no ledger in this clone"), "{}", text);
+    assert!(
+        text.contains(": entry work-api, ledger in the nexus"),
+        "{}",
+        text
+    );
+    assert!(text.contains("Next    run tsk ledger fetch"), "{}", text);
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+
+    fx.set_nexus_json(OTHER_ENTRY);
+    let porcelain = fx.tsk(&["ledger", "status", "--porcelain"]);
+    assert_success(&porcelain);
+    assert_eq!(
+        stdout(&porcelain),
+        format!(
+            "local\tnone\nnexus\t{}\nnexus-state\tno-entry\norigin\tno-ledger\nnext\tinit\n",
+            fx.nexus().display()
+        )
+    );
+    let local = fx.tsk(&["ledger", "status", "--local"]);
+    assert_eq!(stdout(&local), "Local   no ledger in this clone\n");
+}
+
+#[test]
+fn status_with_an_unreachable_nexus_names_add_repo_only_in_a_cloud_session() {
+    let fx = Fixture::new();
+    let missing = fx.root.path().join("missing.git");
+    assert_success(&fx.tsk(&["config", "attach-nexus", missing.to_str().unwrap()]));
+
+    let run = |cloud: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        command
+            .args(["ledger", "status"])
+            .current_dir(fx.work())
+            .envs(git_env())
+            .env("HOME", fx.root.path().join("home"))
+            .env("XDG_STATE_HOME", fx.root.path().join("state"))
+            .env("XDG_CONFIG_HOME", fx.root.path().join("config"))
+            .env("GIT_CEILING_DIRECTORIES", fx.root.path());
+        if cloud {
+            command.env("CLAUDE_CODE_REMOTE", "true");
+        } else {
+            command.env_remove("CLAUDE_CODE_REMOTE");
+        }
+        command.output().unwrap()
+    };
+    let terminal = stdout(&run(false));
+    assert!(terminal.contains("cannot be fetched"), "{}", terminal);
+    assert!(
+        terminal.contains("check that git on this machine can fetch"),
+        "{}",
+        terminal
+    );
+    assert!(!terminal.contains("add_repo"), "{}", terminal);
+
+    let cloud = run(true);
+    assert!(
+        stdout(&cloud).contains("attach the nexus repository"),
+        "{}",
+        stdout(&cloud)
+    );
+}
+
+#[test]
+fn init_nexus_adds_the_repo_and_creates_its_ledger_in_the_nexus() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+
+    let missing = fx.tsk(&["ledger", "init", "--nexus"]);
+    assert_failure_mentioning(&missing, "--prefix is required");
+    let taken = fx.tsk(&["ledger", "init", "--nexus", "--prefix", "OTH"]);
+    assert_failure_mentioning(&taken, "already used by the repo \"something-else\"");
+
+    let created = fx.tsk(&["ledger", "init", "--nexus", "--prefix", "WAPI"]);
+    assert_success(&created);
+    assert!(stdout(&created).trim_end().ends_with("ledger-db"));
+    assert!(fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    assert!(!fx.ref_exists(&fx.managed(), IN_REPO_REF));
+    let index = fx
+        .file_on(&fx.nexus(), "refs/heads/main", "nexus.json")
+        .unwrap();
+    assert!(index.contains("\"work-api\""), "{}", index);
+    assert!(index.contains("\"WAPI\""), "{}", index);
+    assert_eq!(stdout(&fx.tsk(&["mission", "prefix"])), "WAPI\n");
+
+    let again = fx.tsk(&["ledger", "init", "--nexus", "--prefix", "WAPI"]);
+    assert_failure_mentioning(&again, "holds a ledger already");
+}
+
+#[test]
+fn init_repo_adds_the_repo_with_ledger_repo_and_creates_its_ledger_on_origin() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+
+    let created = fx.tsk(&["ledger", "init", "--repo", "--prefix", "WAPI"]);
+    assert_success(&created);
+    assert!(fx.ref_exists(&fx.managed(), IN_REPO_REF));
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    let index = fx
+        .file_on(&fx.nexus(), "refs/heads/main", "nexus.json")
+        .unwrap();
+    assert!(index.contains("\"ledger\": \"repo\""), "{}", index);
+}
+
+#[test]
+fn init_with_no_nexus_creates_the_ledger_on_origin() {
+    let fx = Fixture::new();
+
+    assert_failure_mentioning(
+        &fx.tsk(&["ledger", "init", "--nexus"]),
+        "no nexus is attached",
+    );
+    let created = fx.tsk(&["ledger", "init", "--repo"]);
+    assert_success(&created);
+    assert!(fx.ref_exists(&fx.managed(), IN_REPO_REF));
 }
 
 #[test]
@@ -692,18 +848,15 @@ fn an_entry_local_to_another_machine_is_skipped() {
     write(&fx.repo_id_file(), "work-api\n");
 
     let output = fx.tsk_as("laptop", &["ledger", "fetch"]);
-    assert_success(&output);
-    assert_eq!(fx.manifest_repo_id(), "");
-    assert!(stderr(&output).contains("refs/heads/tsk/ledger does not exist yet"));
+    assert_failure_mentioning(&output, "has no entry for this repo");
 
-    fx.forget_local_ledger();
     let on_desktop = fx.tsk_as("desktop", &["ledger", "fetch"]);
     assert_success(&on_desktop);
     assert!(stderr(&on_desktop).contains("refs/heads/ledgers/work-api does not exist yet"));
 }
 
 #[test]
-fn a_local_path_origin_keeps_the_ledger_in_the_repo_without_a_cached_id() {
+fn a_local_path_origin_is_not_matched_without_a_cached_id() {
     let fx = Fixture::new();
     git(
         &fx.work(),
@@ -716,10 +869,8 @@ fn a_local_path_origin_keeps_the_ledger_in_the_repo_without_a_cached_id() {
     fx.set_nexus_json(WORK_API_ENTRY);
     fx.attach();
 
-    fx.fetch_ok();
-    fx.push_ok("Create the ledger");
-
-    assert!(fx.ref_exists(&fx.managed(), IN_REPO_REF));
+    assert_failure_mentioning(&fx.tsk(&["ledger", "fetch"]), "has no entry for this repo");
+    assert!(!fx.ref_exists(&fx.managed(), IN_REPO_REF));
     assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
 }
 

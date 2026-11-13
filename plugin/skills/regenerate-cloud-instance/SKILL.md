@@ -102,9 +102,9 @@ tell me.
 
 ## Notes
 
-- An environment is tied to one nexus. A named environment must have the nexus in its
-  repository list and `--nexus` in its setup script, or the `SessionStart` hook cannot
-  fetch the ledger.
+- An environment is tied to one nexus. A named environment must have `--nexus` in its
+  setup script. The new session then attaches the nexus with `add_repo` on its first
+  turn, as `tsk ledger status` says.
 - The new session runs the `SessionStart` hook, which installs the latest plugin and `tsk`.
   This is the reason to regenerate.
 - The robot name is the actor name. A second `tsk actor register` of an existing name joins

@@ -250,6 +250,56 @@ impl Repo {
     }
 }
 
+/// The one git repository directly below `dir` that is not the nexus, or `None` when there
+/// is none or more than one. A Claude Code cloud session with more than one repository
+/// starts in their parent directory, so `tsk` run there (the hooks, or an agent) finds the
+/// repository whose ledger it means. A hidden directory, and a repository whose origin
+/// names `nexus_url`, do not count.
+pub fn repo_below(dir: &Path, nexus_url: Option<&str>) -> Option<PathBuf> {
+    let nexus = nexus_url.and_then(super::nexus::normalise_url);
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        let hidden = entry.file_name().to_string_lossy().starts_with('.');
+        if hidden || !path.is_dir() || !path.join(".git").exists() {
+            continue;
+        }
+        let origin = Git::new(&path)
+            .run_line(["config", "--get", "remote.origin.url"])
+            .ok()
+            .and_then(|url| super::nexus::normalise_url(&url));
+        if nexus.is_some() && origin == nexus {
+            continue;
+        }
+        found.push(path);
+    }
+    if found.len() == 1 {
+        found.pop()
+    } else {
+        None
+    }
+}
+
+/// In a cloud session whose working directory is in no git repository, change it to the
+/// one repository below it ([`repo_below`]). Does nothing outside a cloud session, inside a
+/// repository, or when there is no single repository below.
+pub fn enter_repo_below() {
+    if !crate::thread::session_start::is_remote() {
+        return;
+    }
+    let Ok(cwd) = std::env::current_dir() else {
+        return;
+    };
+    if Git::new(&cwd).run_line(["rev-parse", "--git-dir"]).is_ok() {
+        return;
+    }
+    let nexus = crate::config::config_file_from_env()
+        .and_then(|file| crate::config::read_nexus_url(&file).ok().flatten());
+    if let Some(repo) = repo_below(&cwd, nexus.as_deref()) {
+        let _ = std::env::set_current_dir(repo);
+    }
+}
+
 pub fn read_clone_id(file: &Path) -> Result<Option<String>, String> {
     match std::fs::read_to_string(file) {
         Ok(text) => {
@@ -337,6 +387,46 @@ pub fn dolt_db_path(state_root: &Path, clone_id: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn init_repo(dir: &Path, origin: &str) {
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success());
+        };
+        run(&["init", "--quiet", dir.to_str().unwrap()]);
+        run(&[
+            "-C",
+            dir.to_str().unwrap(),
+            "config",
+            "remote.origin.url",
+            origin,
+        ]);
+    }
+
+    #[test]
+    fn repo_below_finds_the_one_repository_that_is_not_the_nexus() {
+        let root = tempfile::tempdir().unwrap();
+        let nexus = "https://github.com/acme/tsk-nexus";
+        init_repo(&root.path().join("tsk"), "https://github.com/acme/tsk");
+        init_repo(&root.path().join("tsk-nexus"), nexus);
+        init_repo(
+            &root.path().join(".hidden"),
+            "https://github.com/acme/hidden",
+        );
+        std::fs::create_dir(root.path().join("plain")).unwrap();
+
+        assert_eq!(
+            repo_below(root.path(), Some("git@github.com:acme/tsk-nexus.git")),
+            Some(root.path().join("tsk"))
+        );
+        assert_eq!(repo_below(root.path(), None), None);
+
+        init_repo(&root.path().join("other"), "https://github.com/acme/other");
+        assert_eq!(repo_below(root.path(), Some(nexus)), None);
+    }
 
     #[test]
     fn in_repo_location_uses_full_ref_name_on_origin() {

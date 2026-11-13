@@ -190,6 +190,7 @@ fn restore_sigpipe() {}
 fn main() {
     restore_sigpipe();
     let cli = Cli::parse();
+    ledger::location::enter_repo_below();
     let hook = is_hook_command(&cli);
     match run_cli(cli) {
         Ok(0) => {}

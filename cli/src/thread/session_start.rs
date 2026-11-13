@@ -12,7 +12,7 @@ use crate::ledger::store::dolt::VERSION_1_REFUSAL;
 use crate::mission::model::{Mission, Status};
 use crate::mission::records::task_line;
 
-use super::binding::{is_skipped, open_mission_lines, resolve, unbound_prompt};
+use super::binding::{is_skipped, open_mission_lines, resolve, session_unbound_prompt};
 use super::entry::Entry;
 use super::ops::{entries_of, facts_of, latest_whats_next, session_title, thread_mission, Facts};
 use super::session::{Session, CLOUD_SESSION_VAR};
@@ -407,7 +407,7 @@ pub fn nexus_attach_hint(nexus: Option<&str>, remote: bool) -> Option<String> {
         })
         .unwrap_or_else(|| nexus.to_string());
     Some(format!(
-        "The nexus {} is attached, and a cloud session can read only the repositories attached to it. Attach the nexus repository now with the add_repo tool ({}, access push), clone it as add_repo says, then run `tsk ledger fetch` and check that `tsk ledger status` shows refs with (nexus). Do this before any other ledger command.",
+        "The nexus {} is attached, and a cloud session can read only the repositories attached to it. Attach the nexus repository now with the add_repo tool ({}, access push), clone it as add_repo says, then run `tsk ledger status` and do what its `Next` line says. Do this before any other ledger command.",
         nexus, target
     ))
 }
@@ -511,7 +511,7 @@ fn context_after_fetch(
     let prompt = if is_skipped(session) {
         SKIPPED_MESSAGE.to_string()
     } else {
-        unbound_prompt(&open_mission_lines(&missions))
+        session_unbound_prompt(session, &open_mission_lines(&missions))
     };
     let title_mission = binding.as_ref().and_then(|binding| {
         store
@@ -597,7 +597,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.54";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.56";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {

@@ -1,3 +1,4 @@
+pub mod absent;
 pub mod background;
 pub mod doc_hook;
 pub mod doc_id;
@@ -85,6 +86,37 @@ pub enum LedgerCommands {
             help = "Do not ask origin anything: print the Local block from what was last fetched, and the Origin line as not checked. No network"
         )]
         local: bool,
+    },
+    #[command(
+        about = "Create the ledger of a repo that has none, and push it: in the attached nexus (--nexus, which first adds the repo to nexus.json with ledger nexus) or in the repo itself (--repo; with a nexus attached, the repo is added with ledger repo). Refuses when this clone or its remote holds a ledger already: tsk ledger status names the next action. Prints the path of the ledger store"
+    )]
+    Init {
+        #[arg(
+            long,
+            conflicts_with = "repo",
+            required_unless_present = "repo",
+            help = "Hold the ledger in the attached nexus"
+        )]
+        nexus: bool,
+        #[arg(long, help = "Hold the ledger in this repo, on origin")]
+        repo: bool,
+        #[arg(
+            long,
+            value_name = "PREFIX",
+            help = "The mission prefix of the new ledger, 3 or 4 capital letters. Required when a nexus is attached, which checks that no other repo uses it"
+        )]
+        prefix: Option<String>,
+        #[arg(
+            long,
+            help = "Repo ID for the nexus entry; defaults to the repo name, lowercased, with other characters as hyphens"
+        )]
+        id: Option<String>,
+        #[arg(
+            long,
+            value_name = "TERRITORY_ID",
+            help = "Territory of the nexus entry; required when the nexus has more than one"
+        )]
+        territory: Option<String>,
     },
     #[command(
         about = "Drop every local change that is not pushed, in the data and the documents, and reset both to origin's state; without --yes it prints what it would drop and exits 1"
@@ -214,6 +246,29 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
         // A push reports its own outcome; an earlier failure is not news to it.
         background::be_quiet();
     }
+    if let LedgerCommands::Init {
+        nexus,
+        prefix,
+        id,
+        territory,
+        ..
+    } = action
+    {
+        return run_init(&cwd, nexus, prefix, id, territory);
+    }
+    if let LedgerCommands::Status { porcelain, local } = action {
+        if let Some(report) = absent::report(&cwd, local)? {
+            let lines = if porcelain {
+                report.porcelain_lines(local)
+            } else {
+                report.human_lines(local)
+            };
+            for line in lines {
+                println!("{}", line);
+            }
+            return Ok(());
+        }
+    }
     let store = store::open(&cwd)?;
     match action {
         LedgerCommands::Fetch => {
@@ -295,6 +350,7 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
         LedgerCommands::Discard { yes, porcelain } => run_discard(store.as_ref(), yes, porcelain),
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
         LedgerCommands::MigrateDocs { .. }
+        | LedgerCommands::Init { .. }
         | LedgerCommands::MigrateTransport
         | LedgerCommands::Guard
         | LedgerCommands::BackgroundPushRun { .. }
@@ -484,6 +540,76 @@ pub fn push_reporting(store: &dyn LedgerStore, message: &str) -> Result<PushRepo
         println!("{}", line);
     }
     Ok(report)
+}
+
+/// `tsk ledger init`: create the ledger where the person chose, after the checks that
+/// `tsk ledger status` reports, and push it.
+fn run_init(
+    cwd: &std::path::Path,
+    want_nexus: bool,
+    prefix: Option<String>,
+    id: Option<String>,
+    territory: Option<String>,
+) -> Result<(), String> {
+    use absent::{Next, NexusState};
+    let report = absent::report(cwd, false)?.ok_or_else(|| {
+        "error: this clone holds a ledger already; tsk ledger status shows it".to_string()
+    })?;
+    match report.next {
+        Next::Init => {}
+        Next::Fetch => {
+            return Err(
+                "error: a ledger exists already; run tsk ledger fetch to read it".to_string(),
+            )
+        }
+        Next::AttachNexus | Next::CheckAccess => {
+            return Err(format!(
+                "error: tsk cannot tell yet whether a ledger exists. {}",
+                report.human_lines(false).join("\n")
+            ))
+        }
+    }
+    if want_nexus && report.nexus_url.is_none() {
+        return Err(
+            "error: no nexus is attached; run tsk nexus add <url> first, or use --repo".to_string(),
+        );
+    }
+    if let Some(prefix) = &prefix {
+        crate::mission::prefix::check_nexus(prefix)?;
+    }
+    match &report.nexus {
+        NexusState::NoEntry => {
+            let prefix = prefix.clone().ok_or_else(|| {
+                "error: --prefix is required: adding the repo to the nexus needs the mission prefix of its ledger, 3 or 4 capital letters that no other repo in the nexus uses".to_string()
+            })?;
+            let choice = if want_nexus {
+                crate::nexus_cmd::LedgerChoice::Nexus
+            } else {
+                crate::nexus_cmd::LedgerChoice::Repo
+            };
+            let file = crate::config::config_file_from_env()
+                .ok_or_else(|| "error: could not locate the user config file".to_string())?;
+            crate::nexus_cmd::register_for_init(&file, id, territory, choice, prefix)?;
+        }
+        NexusState::Entry { in_nexus, .. } if *in_nexus != want_nexus => {
+            return Err(format!(
+                "error: the nexus entry for this repo says its ledger is in the {}; run tsk ledger init --{}",
+                if *in_nexus { "nexus" } else { "repo" },
+                if *in_nexus { "nexus" } else { "repo" }
+            ));
+        }
+        _ => {}
+    }
+    let store = store::open(cwd)?;
+    let outcome = report_refresh(store.refresh_for_fetch()?);
+    ensure_scratch(&outcome.path)?;
+    if let Some(prefix) = &prefix {
+        store.set_mission_prefix(prefix)?;
+    }
+    let pushed = push_reporting(store.as_ref(), "Create the ledger")?;
+    eprintln!("{}", pushed.head);
+    println!("{}", outcome.path.display());
+    Ok(())
 }
 
 pub(crate) fn retry_note(attempt: usize, status: &push::PushStatus) -> String {
