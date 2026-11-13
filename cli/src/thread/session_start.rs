@@ -539,7 +539,7 @@ fn context_after_fetch(
     let prompt = if is_skipped(session) {
         SKIPPED_MESSAGE.to_string()
     } else {
-        session_unbound_prompt(session, &open_mission_lines(&missions))
+        session_unbound_prompt(session, &open_mission_lines(&missions), None)
     };
     let title_mission = binding.as_ref().and_then(|binding| {
         store
@@ -639,7 +639,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.57";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.58";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
