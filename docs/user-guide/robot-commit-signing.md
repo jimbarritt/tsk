@@ -210,6 +210,17 @@ email = "robots@jimbarritt.com"
   start removes what an earlier robot session wrote: the signing settings, `user.name`,
   the hook and the key files.
 
+## Ledger commits
+
+With `identity = "robot"`, every commit that `tsk` makes in the ledger has the robot as author and committer (0.56.0). This covers the git commits on the ledger data ref and the documents ref, and the Dolt commits in the ledger store.
+
+- A git commit on the ledger refs carries the robot name, the robot email and the SSH signature, so GitHub shows it as Verified.
+- A Dolt commit carries the robot name and email. Dolt has no SSH signing.
+- `tsk` reads the identity from the git config of the code worktree, where the session start and `tsk actor register` wrote it. It sets the same identity through `GIT_AUTHOR_*`, `GIT_COMMITTER_*` and `DOLT_AUTHOR_*`, `DOLT_COMMITTER_*`, so a value that the platform sets does not replace it.
+- Until the session has a registered robot actor, a ledger commit stops with an error that names `tsk actor register <name> --kind robot`. No commit uses a fallback name. The records stay in the local ledger store and the next commit publishes them.
+- With `identity = "default"`, ledger commits are as before.
+- The ledger history from before 0.56.0 keeps its author, `tsk <tsk@localhost>` and `Claude`.
+
 ## 7. Check a robot commit locally
 
 In a robot session, after the command in step 6 has run:

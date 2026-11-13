@@ -946,10 +946,24 @@ fn identity_statement() -> Option<String> {
             .or_else(|| from_config(key))
             .unwrap_or_else(|| fallback.to_string())
     };
-    let name = pick("DOLT_AUTHOR_NAME", "user.name", "tsk");
-    let email = pick("DOLT_AUTHOR_EMAIL", "user.email", "tsk@localhost");
-    let committer_name = pick("DOLT_COMMITTER_NAME", "user.name", "tsk");
-    let committer_email = pick("DOLT_COMMITTER_EMAIL", "user.email", "tsk@localhost");
+    // The robot identity of T-19 comes ahead of the environment and the Dolt config.
+    let robot = crate::attribution::ledger_identity().ok().flatten();
+    let name = robot
+        .as_ref()
+        .map(|r| r.name.clone())
+        .unwrap_or_else(|| pick("DOLT_AUTHOR_NAME", "user.name", "tsk"));
+    let email = robot
+        .as_ref()
+        .map(|r| r.email.clone())
+        .unwrap_or_else(|| pick("DOLT_AUTHOR_EMAIL", "user.email", "tsk@localhost"));
+    let committer_name = robot
+        .as_ref()
+        .map(|r| r.name.clone())
+        .unwrap_or_else(|| pick("DOLT_COMMITTER_NAME", "user.name", "tsk"));
+    let committer_email = robot
+        .as_ref()
+        .map(|r| r.email.clone())
+        .unwrap_or_else(|| pick("DOLT_COMMITTER_EMAIL", "user.email", "tsk@localhost"));
     let quote = |text: &str| format!("'{}'", text.replace('\\', "\\\\").replace('\'', "''"));
     let mut sets = vec![
         format!("@@session.dolt_author_name = {}", quote(&name)),

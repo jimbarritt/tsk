@@ -575,6 +575,133 @@ pub fn write_name(session: &Session) -> Result<Applied, String> {
     Ok(Applied::Written { name, email })
 }
 
+/// The robot identity of a ledger commit (T-19): the name, the email and the signing key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RobotIdentity {
+    pub name: String,
+    pub email: String,
+    pub key_file: String,
+    pub signers_file: String,
+}
+
+impl RobotIdentity {
+    /// The `-c` options that make a `git` command commit as the robot, signed with its key.
+    pub fn git_options(&self) -> Vec<String> {
+        let settings = [
+            ("user.name", self.name.as_str()),
+            ("user.email", self.email.as_str()),
+            ("gpg.format", "ssh"),
+            ("gpg.ssh.program", "ssh-keygen"),
+            ("user.signingkey", self.key_file.as_str()),
+            ("gpg.ssh.allowedSignersFile", self.signers_file.as_str()),
+            ("commit.gpgsign", "true"),
+        ];
+        settings
+            .iter()
+            .flat_map(|(key, value)| ["-c".to_string(), format!("{}={}", key, value)])
+            .collect()
+    }
+
+    /// The environment that makes `git` commit as the robot: it beats `GIT_AUTHOR_*` and
+    /// `GIT_COMMITTER_*` that the platform or a person set.
+    pub fn git_env(&self) -> Vec<(String, String)> {
+        ["GIT_AUTHOR", "GIT_COMMITTER"]
+            .iter()
+            .flat_map(|prefix| {
+                [
+                    (format!("{}_NAME", prefix), self.name.clone()),
+                    (format!("{}_EMAIL", prefix), self.email.clone()),
+                ]
+            })
+            .collect()
+    }
+
+    /// The environment that makes `dolt` commit as the robot. Dolt has no SSH signing, so a
+    /// Dolt commit carries the name and the email only.
+    pub fn dolt_env(&self) -> [(&'static str, &str); 4] {
+        [
+            ("DOLT_AUTHOR_NAME", self.name.as_str()),
+            ("DOLT_AUTHOR_EMAIL", self.email.as_str()),
+            ("DOLT_COMMITTER_NAME", self.name.as_str()),
+            ("DOLT_COMMITTER_EMAIL", self.email.as_str()),
+        ]
+    }
+}
+
+/// The identity of a ledger commit, from the code worktree of the current directory.
+/// `Ok(None)` for the `default` identity, and outside a repository: commits are as before.
+/// With `robot`, the identity is the one `set_up_signing` and `write_name` wrote to the
+/// worktree's git config. `Err` while the session has no robot actor or no signing set-up:
+/// a commit stops (M-TSK-ATTRIB, T-19). Resolved once per process.
+pub fn ledger_identity() -> Result<Option<RobotIdentity>, String> {
+    static IDENTITY: std::sync::OnceLock<Result<Option<RobotIdentity>, String>> =
+        std::sync::OnceLock::new();
+    IDENTITY.get_or_init(resolve_ledger_identity).clone()
+}
+
+fn resolve_ledger_identity() -> Result<Option<RobotIdentity>, String> {
+    let Ok(cwd) = std::env::current_dir() else {
+        return Ok(None);
+    };
+    let Ok(repo) = crate::ledger::location::Repo::discover(&cwd) else {
+        return Ok(None);
+    };
+    let repo_file = refs::repo_config_path(&repo);
+    let user_file = crate::config::config_file_from_env();
+    let settings = settings(repo_file.as_deref(), user_file.as_deref())?;
+    if settings.identity != Identity::Robot {
+        return Ok(None);
+    }
+    let read = |key: &str| -> Option<String> {
+        let (_, output) = repo
+            .git
+            .output(["config", "--worktree", "--get", key])
+            .ok()?;
+        let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        (output.status.success() && !value.is_empty()).then_some(value)
+    };
+    if read("tsk.attribution").as_deref() != Some("robot") {
+        return Err(
+            "error: [attribution] identity is robot and the signing set-up is not written: run tsk thread session-start before a ledger write"
+                .to_string(),
+        );
+    }
+    let Some(name) = read("user.name") else {
+        return Err(
+            "error: [attribution] identity is robot and no robot actor is registered, so a ledger commit has no author: run tsk actor register <name> --kind robot"
+                .to_string(),
+        );
+    };
+    let (Some(email), Some(key_file), Some(signers_file)) = (
+        read("user.email"),
+        read("user.signingkey"),
+        read("gpg.ssh.allowedSignersFile"),
+    ) else {
+        return Err(
+            "error: the robot signing settings of this worktree are incomplete: run tsk thread session-start"
+                .to_string(),
+        );
+    };
+    Ok(Some(RobotIdentity {
+        name,
+        email,
+        key_file,
+        signers_file,
+    }))
+}
+
+/// A git handle for a command that creates commits in a ledger worktree, with the `-c`
+/// options that go before the command: the handle and no options for the `default`
+/// identity, the robot's for `robot`, and an error while a robot commit is not possible.
+pub fn ledger_git(
+    wt: &crate::ledger::git::Git,
+) -> Result<(crate::ledger::git::Git, Vec<String>), String> {
+    Ok(match ledger_identity()? {
+        Some(identity) => (wt.with_env(identity.git_env()), identity.git_options()),
+        None => (wt.clone(), Vec::new()),
+    })
+}
+
 /// Whether this worktree holds the signing settings that `set_up_signing` writes.
 pub fn signing_is_set_up(session: &Session) -> bool {
     session
@@ -754,6 +881,42 @@ pub fn run_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn robot() -> RobotIdentity {
+        RobotIdentity {
+            name: "Credit Where It's Due".to_string(),
+            email: "robots@example.test".to_string(),
+            key_file: "/k/key".to_string(),
+            signers_file: "/k/signers".to_string(),
+        }
+    }
+
+    #[test]
+    fn the_robot_identity_names_the_author_and_the_signing_key_for_git() {
+        let options = robot().git_options().join(" ");
+        assert!(options.contains("-c user.name=Credit Where It's Due"));
+        assert!(options.contains("-c user.email=robots@example.test"));
+        assert!(options.contains("-c user.signingkey=/k/key"));
+        assert!(options.contains("-c gpg.ssh.allowedSignersFile=/k/signers"));
+        assert!(options.contains("-c commit.gpgsign=true"));
+        let env = robot().git_env();
+        assert!(env.contains(&(
+            "GIT_AUTHOR_NAME".to_string(),
+            "Credit Where It's Due".to_string()
+        )));
+        assert!(env.contains(&(
+            "GIT_COMMITTER_EMAIL".to_string(),
+            "robots@example.test".to_string()
+        )));
+    }
+
+    #[test]
+    fn the_robot_identity_names_the_author_and_the_committer_for_dolt() {
+        let identity = robot();
+        let env = identity.dolt_env();
+        assert!(env.contains(&("DOLT_AUTHOR_NAME", "Credit Where It's Due")));
+        assert!(env.contains(&("DOLT_COMMITTER_EMAIL", "robots@example.test")));
+    }
 
     fn file() -> &'static Path {
         Path::new("config.toml")

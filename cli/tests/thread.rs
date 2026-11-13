@@ -2023,6 +2023,81 @@ fn session_start_writes_the_robot_signing_set_up_when_the_fetch_fails() {
 }
 
 #[test]
+fn ledger_commits_are_the_robots_and_stop_until_a_robot_actor_is_registered() {
+    let fx = Fixture::new();
+    let key = fx.root.path().join("robot-key");
+    let generated = Command::new("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(&key)
+        .output()
+        .expect("failed to run ssh-keygen");
+    assert!(generated.status.success(), "{}", stderr(&generated));
+    let private = std::fs::read_to_string(&key).unwrap();
+    let robot = |args: &[&str]| -> Output {
+        let mut command = fx.command(args, Some("cse_robot"));
+        let mut child = command
+            .env("TSK_ATTRIBUTION_IDENTITY", "robot")
+            .env("TSK_ATTRIBUTION_EMAIL", "robots@example.test")
+            .env("TSK_ROBOT_SIGNING_KEY", &private)
+            .env_remove("CLAUDE_ENV_FILE")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to run tsk");
+        child.stdin.take().unwrap().write_all(b"{}").unwrap();
+        child.wait_with_output().unwrap()
+    };
+    assert_success(&robot(&["thread", "session-start"]));
+
+    // No robot actor: the commit of the thread start stops.
+    let stopped = robot(&["thread", "start", "M-TEST-01"]);
+    assert!(!stopped.status.success());
+    assert!(
+        stderr(&stopped).contains("no robot actor is registered"),
+        "{}",
+        stderr(&stopped)
+    );
+
+    assert_success(&robot(&[
+        "actor",
+        "register",
+        "Credit Where It's Due",
+        "--kind",
+        "robot",
+    ]));
+    assert_success(&robot(&["ledger", "push", "Publish as the robot"]));
+
+    // The commit on the data ref: robot name and email, and a valid signature.
+    let signers = git(
+        &fx.work(),
+        &["config", "--worktree", "gpg.ssh.allowedSignersFile"],
+    );
+    let log = git(
+        &fx.origin(),
+        &[
+            "-c",
+            &format!("gpg.ssh.allowedSignersFile={}", signers.trim()),
+            "log",
+            "-1",
+            "--format=%an <%ae>|%cn <%ce>|%G?",
+            LEDGER_REF,
+        ],
+    );
+    assert_eq!(
+        log.trim(),
+        "Credit Where It's Due <robots@example.test>|Credit Where It's Due <robots@example.test>|G"
+    );
+    // The Dolt commit: robot name and email.
+    let rows = fx.rows_in(
+        &fx.work(),
+        "select committer, email from dolt_log order by date desc limit 1",
+    );
+    assert_eq!(rows[0]["committer"], "Credit Where It's Due");
+    assert_eq!(rows[0]["email"], "robots@example.test");
+}
+
+#[test]
 fn session_start_exits_0_with_a_warning_outside_a_repository() {
     let fx = Fixture::new();
     let outside = fx.root.path().join("outside");
