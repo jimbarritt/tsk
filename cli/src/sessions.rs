@@ -19,6 +19,10 @@ pub const URN_PREFIX: &str = "urn:tsk:session:";
 #[derive(Subcommand)]
 pub enum SessionCommands {
     #[command(
+        about = "SessionEnd hook: read the session ID from the hook input on stdin and record on this machine that the session ended, so the robot choice no longer counts its robot as taken. Writes nothing to the ledger. Exit 0 whatever happens"
+    )]
+    End,
+    #[command(
         about = "Print the harness instance of a session, and the actor that instance registered as, one line: session URN, instance URN, actor name (- when none). Takes the URN or its id alone. Exit status 1 when no session matches. A session is recorded at session start, so a commit made before layout 11 or in a session that did not run the hook has no row"
     )]
     Find {
@@ -188,9 +192,21 @@ fn line(session: &JsonSession) -> String {
 }
 
 pub fn run(action: SessionCommands) -> Result<i32, String> {
+    if let SessionCommands::End = action {
+        let mut input = String::new();
+        let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut input);
+        if let (Some(id), Ok(root)) = (
+            crate::live::hook_session_id(&input),
+            crate::ledger::location::state_root_from_env(),
+        ) {
+            crate::live::ended(&root, &id);
+        }
+        return Ok(0);
+    }
     let session = Session::discover()?;
     let sessions = listed(session.store.as_ref())?;
     match action {
+        SessionCommands::End => Ok(0),
         SessionCommands::Find { session: wanted } => {
             let found = matching(&sessions, &wanted);
             if found.is_empty() {

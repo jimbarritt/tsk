@@ -639,7 +639,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.58";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.59";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -731,6 +731,13 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
             return 0;
         }
         LATER_START.store(earlier, std::sync::atomic::Ordering::SeqCst);
+        // A terminal session on this machine records its claude process, so the robot
+        // choice can tell an open session from an ended one (crate::live).
+        if !is_remote() {
+            if let Some(id) = input.session_id.as_deref() {
+                crate::live::started(&state_root, id);
+            }
+        }
     }
     // With the server switch on, a dead or stale server (a container that woke from
     // hibernation, say) is replaced now, in the background, so the first command finds a

@@ -45,6 +45,8 @@ pub struct Robot {
     /// The harness instances that ran as the robot: its own registrations, and the
     /// instances of the sessions it was the primary actor of.
     pub instances: Vec<String>,
+    /// The URNs of the sessions it was the primary actor of.
+    pub sessions: Vec<String>,
 }
 
 /// The part of a session or instance key that a cloud session ID and its harness instance
@@ -57,12 +59,12 @@ pub fn session_key(id: &str) -> &str {
 }
 
 impl Robot {
-    /// True when one of the robot's instances is one of the `open` sessions.
+    /// True when one of the robot's instances or sessions is one of the `open` sessions.
     pub fn is_open(&self, open: &[String]) -> bool {
-        self.instances.iter().any(|instance| {
-            open.iter()
-                .any(|id| session_key(id) == session_key(instance))
-        })
+        self.instances
+            .iter()
+            .chain(self.sessions.iter())
+            .any(|key| open.iter().any(|id| session_key(id) == session_key(key)))
     }
 }
 
@@ -92,6 +94,7 @@ pub fn robots(store: &dyn crate::ledger::store::LedgerStore) -> Result<Vec<Robot
                 })
                 .collect();
             threads.sort_by(|a, b| b.latest.cmp(&a.latest));
+            let mut sessions_of: Vec<String> = Vec::new();
             let mut instances: Vec<String> = registrations
                 .iter()
                 .filter(|row| row.actor_name == actor.name)
@@ -101,6 +104,7 @@ pub fn robots(store: &dyn crate::ledger::store::LedgerStore) -> Result<Vec<Robot
                 Some(row.actor_uid.as_str()) == actor.uid.as_deref()
                     && row.role == crate::ledger::store::ActorRole::Primary
             }) {
+                sessions_of.push(row.session.clone());
                 if let Some(session) = sessions.iter().find(|s| s.session == row.session) {
                     if !instances.contains(&session.instance) {
                         instances.push(session.instance.clone());
@@ -111,6 +115,7 @@ pub fn robots(store: &dyn crate::ledger::store::LedgerStore) -> Result<Vec<Robot
                 name: actor.name,
                 threads,
                 instances,
+                sessions: sessions_of,
             }
         })
         .collect();
@@ -162,8 +167,12 @@ fn missions_part(mission_lines: &[String]) -> String {
 /// Which sessions are open, for the robot choice: a robot whose session is open is taken.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpenSessions<'a> {
-    /// No list of open sessions, outside a cloud session: every robot is offered.
-    NotKnown,
+    /// Outside a cloud session: the open sessions on this machine (crate::live), and the
+    /// robots that tmux panes running claude show.
+    Local {
+        open: &'a [String],
+        tmux: &'a [String],
+    },
     /// A cloud session with no list yet: the prompt asks the agent for one.
     NotAsked,
     /// The IDs of the sessions that are not archived.
@@ -177,8 +186,10 @@ pub const OPEN_SESSIONS_STEP: &str = "No thread binding was found for this sessi
 fn choose_robot_prompt(robots: &[Robot], mission_lines: &[String], open: OpenSessions) -> String {
     let (free, taken): (Vec<&Robot>, Vec<&Robot>) = match open {
         OpenSessions::NotAsked => return OPEN_SESSIONS_STEP.to_string(),
-        OpenSessions::NotKnown => (robots.iter().collect(), Vec::new()),
         OpenSessions::Listed(ids) => robots.iter().partition(|robot| !robot.is_open(ids)),
+        OpenSessions::Local { open, tmux } => robots
+            .iter()
+            .partition(|robot| !robot.is_open(open) && !tmux.contains(&robot.name)),
     };
     let taken_part = if taken.is_empty() {
         String::new()
@@ -254,10 +265,23 @@ pub fn session_unbound_prompt(
         .ok()
         .flatten()
         .map(|actor| actor.name);
+    let (local_open, tmux) = if open.is_none() && !super::session_start::is_remote() {
+        let root = crate::ledger::location::state_root_from_env().ok();
+        (
+            root.map(|r| crate::live::open_session_ids(&r))
+                .unwrap_or_default(),
+            crate::live::tmux_robots(),
+        )
+    } else {
+        (Vec::new(), Vec::new())
+    };
     let open = match open {
         Some(ids) => OpenSessions::Listed(ids),
         None if super::session_start::is_remote() => OpenSessions::NotAsked,
-        None => OpenSessions::NotKnown,
+        None => OpenSessions::Local {
+            open: &local_open,
+            tmux: &tmux,
+        },
     };
     match robots(session.store.as_ref()) {
         Ok(robots) => robot_first_prompt(current.as_deref(), &robots, mission_lines, open),
@@ -476,10 +500,16 @@ pub fn clear_skip(session: &Session) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    const NONE_OPEN: OpenSessions<'static> = OpenSessions::Local {
+        open: &[],
+        tmux: &[],
+    };
+
     fn robot(name: &str, threads: &[(&str, &str, &str)]) -> Robot {
         Robot {
             name: name.to_string(),
             instances: vec![format!("cse_{}", name.len())],
+            sessions: Vec::new(),
             threads: threads
                 .iter()
                 .map(|(id, mission, latest)| RobotThread {
@@ -501,7 +531,7 @@ mod tests {
             robot("Noted, Not Expanded", &[]),
         ];
         let missions = vec!["M-ENV\tin-progress\t-\t-\tEnvironment".to_string()];
-        let text = robot_first_prompt(None, &robots, &missions, OpenSessions::NotKnown);
+        let text = robot_first_prompt(None, &robots, &missions, NONE_OPEN);
         assert!(text.contains("no robot is registered for it. Choose the robot first."));
         assert!(text.contains("Credit Where It's Due\te6b3c55c M-ENV 2026-11-13\n"));
         assert!(text.contains("Noted, Not Expanded\tno threads"));
@@ -537,6 +567,35 @@ mod tests {
     }
 
     #[test]
+    fn in_a_terminal_open_sessions_and_tmux_panes_take_robots() {
+        let mut by_session = robot("Session Robot", &[]);
+        by_session.sessions = vec!["urn:tsk:session:claude:5f2c-a1".to_string()];
+        let tmux_robot = robot("Pane Robot", &[]);
+        let free = robot("Free Robot", &[]);
+        let robots = vec![by_session, tmux_robot, free];
+        let open = vec!["5f2c-a1".to_string()];
+        let tmux = vec!["Pane Robot".to_string()];
+
+        let text = robot_first_prompt(
+            None,
+            &robots,
+            &[],
+            OpenSessions::Local {
+                open: &open,
+                tmux: &tmux,
+            },
+        );
+        assert!(text.contains("Free Robot\tno threads"), "{}", text);
+        assert!(!text.contains("Session Robot\t"), "{}", text);
+        assert!(!text.contains("Pane Robot\t"), "{}", text);
+        assert!(
+            text.contains("not offered: Session Robot, Pane Robot."),
+            "{}",
+            text
+        );
+    }
+
+    #[test]
     fn session_keys_match_across_the_id_forms() {
         assert_eq!(session_key("session_01ABC"), "01ABC");
         assert_eq!(session_key("cse_01ABC"), "01ABC");
@@ -553,12 +612,7 @@ mod tests {
                 ("01d143d5", "M-ADHOC", "2026-11-01T10:00:00Z"),
             ],
         )];
-        let text = robot_first_prompt(
-            Some("Credit Where It's Due"),
-            &robots,
-            &[],
-            OpenSessions::NotKnown,
-        );
+        let text = robot_first_prompt(Some("Credit Where It's Due"), &robots, &[], NONE_OPEN);
         assert!(text.contains("This session's robot is Credit Where It's Due."));
         assert!(text.contains("e6b3c55c M-ENV 2026-11-13\n01d143d5 M-ADHOC 2026-11-01"));
         assert!(text.contains("/tsk:resume-thread <thread-id>"));
@@ -568,12 +622,12 @@ mod tests {
     fn with_no_robots_or_no_threads_the_prompt_offers_the_missions() {
         let missions = vec!["M-ENV\tin-progress\t-\t-\tEnvironment".to_string()];
         assert_eq!(
-            robot_first_prompt(None, &[], &missions, OpenSessions::NotKnown),
+            robot_first_prompt(None, &[], &missions, NONE_OPEN),
             unbound_prompt(&missions)
         );
         let robots = vec![robot("Lone", &[])];
         assert_eq!(
-            robot_first_prompt(Some("Lone"), &robots, &missions, OpenSessions::NotKnown),
+            robot_first_prompt(Some("Lone"), &robots, &missions, NONE_OPEN),
             unbound_prompt(&missions)
         );
     }

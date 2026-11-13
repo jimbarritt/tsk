@@ -256,6 +256,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
 }
 
 mod config;
+mod live;
 
 mod doctor;
 
