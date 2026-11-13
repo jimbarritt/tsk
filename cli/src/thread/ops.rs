@@ -40,19 +40,28 @@ pub struct Facts {
 }
 
 /// The mission name and the task description of a thread's latest entry. The mission is
-/// the thread's own, else the one the entry names. Either is None when no record has it.
+/// the thread's own, else the one the entry names. The task is looked up in the mission the
+/// entry names, else in the thread's own, and its label names that mission when it is not
+/// the thread's own (a pause written before the thread changed mission). Either is None when
+/// no record has it.
 pub fn facts_of(info: &ThreadInfo, latest: Option<&entry::Entry>, missions: &[Mission]) -> Facts {
-    let mission_id = thread_mission(info).or_else(|| latest.and_then(|e| e.mission_id.clone()));
-    let record = mission_id
-        .as_deref()
-        .and_then(|id| missions.iter().find(|m| m.id == id));
-    let task = record.and_then(|mission| {
+    let entry_mission = latest.and_then(|e| e.mission_id.clone());
+    let mission_id = thread_mission(info).or_else(|| entry_mission.clone());
+    let find = |id: &str| missions.iter().find(|m| m.id == id);
+    let record = mission_id.as_deref().and_then(find);
+    let task_record = entry_mission.as_deref().and_then(find).or(record);
+    let task = task_record.and_then(|mission| {
         let wanted = latest?.task_id.as_deref().filter(|t| !t.is_empty())?;
         let found = mission
             .tasks
             .iter()
             .find(|t| task_label(t.seq).eq_ignore_ascii_case(wanted))?;
-        Some((task_label(found.seq), found.description.clone()))
+        let label = if record.is_some_and(|own| own.id == mission.id) {
+            task_label(found.seq)
+        } else {
+            format!("{} {}", mission.id, task_label(found.seq))
+        };
+        Some((label, found.description.clone()))
     });
     Facts {
         mission: record.map(|m| (m.id.clone(), m.name.clone())),
