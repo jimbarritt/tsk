@@ -9,10 +9,17 @@ You need `tsk` 0.36.5 or later, `git` with push access to the nexus repo, and `d
 
 ## 1. Make the nexus repo, once
 
-A nexus is a private git repo with a `nexus.json` on its default branch.
+A nexus is a private git repo with a `nexus.json` on its default branch. An empty repo is
+enough: the first `tsk nexus register-repo` in section 3 creates `nexus.json`.
 
 ```bash
-gh repo create <owner>/<name>-nexus --private --clone
+gh repo create <owner>/<name>-nexus --private
+```
+
+Writing `nexus.json` by hand is optional:
+
+```bash
+gh repo clone <owner>/<name>-nexus
 cd <name>-nexus
 printf '{"version":1,"territories":[{"id":"work","name":"Work","repos":[]}]}\n' > nexus.json
 git add nexus.json
@@ -45,7 +52,10 @@ tsk ledger push "Create the ledger"
    `tsk nexus register-repo` need it.
 2. `<PREFIX>` is 3 or 4 capital letters. It starts every mission ID in this repo, such as
    `M-<PREFIX>-NAME`. The nexus refuses a prefix that another repo in it has.
-3. `--ledger-refs branches` keeps the ledger on branches. Use it for any repo that a Claude
+3. On an empty nexus, the first repo also passes `--territory <id> --territory-name <name>`,
+   for example `--territory work --territory-name Work`. The command creates `nexus.json`
+   with that territory, and stops with an error that names `--territory` without it.
+   `--ledger-refs branches` keeps the ledger on branches. Use it for any repo that a Claude
    Code cloud session works in: the cloud proxy refuses a custom ref.
 4. The second `tsk ledger fetch` reads the nexus entry. The push creates the ledger.
 5. For a repo with no remote URL, add `--local` to `tsk nexus register-repo`.
@@ -84,4 +94,6 @@ Run section 3 in that repo. Run sections 1 and 2 once.
 Section 3 was run against a local bare repo as the nexus, with a repo that had a local
 origin (so with `--local`). The ledger and its documents appeared as the branches
 `ledgers/app` and `ledgers/app-docs` in the nexus. Section 5 and a push from a cloud session
-to a nexus on GitHub were not run.
+to a nexus on GitHub were not run. The creation of `nexus.json` on an empty nexus is
+covered by the end-to-end tests against a local bare repo with no commits. It was not run
+against an empty repo on GitHub.

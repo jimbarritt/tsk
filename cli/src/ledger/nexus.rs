@@ -194,6 +194,9 @@ pub fn load_index(state_root: &Path, nexus_url: &str) -> Result<NexusIndex, Stri
             .run_line(["rev-parse", "--verify", "--quiet", TRACKING_REF])
             .is_ok();
         if !held {
+            if is_empty_remote(&git, nexus_url) {
+                return Ok(NexusIndex::default());
+            }
             return Err(format!(
                 "error: could not fetch the nexus {}:\n{}",
                 nexus_url,
@@ -207,13 +210,15 @@ pub fn load_index(state_root: &Path, nexus_url: &str) -> Result<NexusIndex, Stri
         );
     }
     let object = format!("{}:{}", TRACKING_REF, NEXUS_FILE);
-    let text = git.run(["show", object.as_str()]).map_err(|_| {
-        format!(
-            "error: the nexus {} has no {} on its default branch",
-            nexus_url, NEXUS_FILE
-        )
-    })?;
-    NexusIndex::parse(&text)
+    match git.run(["show", object.as_str()]) {
+        Ok(text) => NexusIndex::parse(&text),
+        Err(_) => Ok(NexusIndex::default()),
+    }
+}
+
+pub fn is_empty_remote(git: &Git, nexus_url: &str) -> bool {
+    git.run(["ls-remote", nexus_url])
+        .is_ok_and(|listing| listing.trim().is_empty())
 }
 
 /// Where a repo's ledger lives, before the refs mode is decided: the remote and the repo

@@ -162,13 +162,15 @@ tsk nexus register-repo     # add this repo's entry to nexus.json, commit and pu
 
 A repo whose `nexus.json` entry has `"ledger": "nexus"` has its ledger in the nexus. See
 [new-nexus-on-a-clean-machine.md](new-nexus-on-a-clean-machine.md). With no nexus attached,
-`tsk nexus list` prints `nexus: none attached` and exits 0. When the nexus cannot be
-fetched, it lists the local copy from an earlier fetch, with a note on stderr, or exits 1
-when there is no local copy.
+`tsk nexus list` prints `nexus: none attached` and exits 0. A nexus with no `nexus.json`
+lists `territories: none`. When the nexus cannot be fetched, it lists the local copy from
+an earlier fetch, with a note on stderr, or exits 1 when there is no local copy.
 
 `tsk nexus register-repo` runs in the managed repo. It takes `--id`, `--territory`,
 `--territory-name`, `--ledger nexus|repo` and `--local`, and prints `already registered`
-when the entry exists. Step 6 of the clean machine guide describes each option.
+when the entry exists. On a nexus with no `nexus.json`, an empty repo included, it creates
+the file with the territory `--territory` names. Step 6 of the clean machine guide
+describes each option.
 
 `tsk` with no arguments prints the help text and exits with status 2. The TUI and the
 `tskd` daemon were retired (ADR 0012) and removed in 0.16.0.

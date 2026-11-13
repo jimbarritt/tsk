@@ -31,7 +31,8 @@ yourself. The command does all of it.
    - `--territory <id>`: required when the nexus lists more than one territory. Ask me
      which one unless I named it. Do not pick one yourself. With one territory, omit it.
      With none, ask me for a territory ID and a name, and pass both
-     `--territory <id> --territory-name <name>`.
+     `--territory <id> --territory-name <name>`. A nexus with no `nexus.json` (an empty
+     repo) lists no territories: the command creates the file with that territory.
    - `--ledger nexus|repo`: omit it for the default, `nexus`. Pass `--ledger repo` only
      when I asked for the ledger to stay in this repo.
    - `--local`: pass it only when the repo has no origin remote URL, or when I asked for
@@ -48,7 +49,8 @@ yourself. The command does all of it.
      Tell me the entry and the territory, then run `tsk ledger fetch` as the output says.
    - Exit 0, output `already registered in territory <territory>: <entry>`: nothing
      changed. Tell me the entry as stored, then run `tsk ledger fetch`.
-   - Exit 1, stderr names `--territory`: the nexus has more than one territory, or none.
+   - Exit 1, stderr names `--territory`: the nexus has more than one territory, or none,
+     or no `nexus.json`.
      Ask me which territory to use, then run again with it. Do not guess.
    - Exit 1, stderr says an id or URL is already used by another entry: report it and
      ask me for an ID. Do not retry with an invented one.
