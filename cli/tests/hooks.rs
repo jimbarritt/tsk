@@ -683,6 +683,7 @@ fn the_session_end_script_pushes_when_the_store_holds_unpushed_work() {
         assert_eq!(
             run.calls,
             vec![
+                "session end".to_string(),
                 "ledger status --local".to_string(),
                 "ledger push End of session".to_string()
             ]
@@ -697,7 +698,13 @@ fn the_session_end_script_does_not_push_a_clean_store() {
     }
     let run = session_end(CLEAN, false, 0, false);
     assert!(run.exit_ok);
-    assert_eq!(run.calls, vec!["ledger status --local".to_string()]);
+    assert_eq!(
+        run.calls,
+        vec![
+            "session end".to_string(),
+            "ledger status --local".to_string()
+        ]
+    );
 }
 
 #[test]
@@ -708,16 +715,22 @@ fn the_session_end_script_exits_0_whatever_tsk_does() {
     // No ledger store: the status fails, nothing is pushed.
     let run = session_end("", true, 0, false);
     assert!(run.exit_ok);
-    assert_eq!(run.calls, vec!["ledger status --local".to_string()]);
+    assert_eq!(
+        run.calls,
+        vec![
+            "session end".to_string(),
+            "ledger status --local".to_string()
+        ]
+    );
     // A push that fails.
     let run = session_end(DIRTY, false, 0, true);
     assert!(run.exit_ok);
-    assert_eq!(run.calls.len(), 2);
+    assert_eq!(run.calls.len(), 3);
     // A push that hangs is cut off by the timeout.
     if have("timeout") {
         let run = session_end(DIRTY, false, 30, false);
         assert!(run.exit_ok);
-        assert_eq!(run.calls.len(), 2);
+        assert_eq!(run.calls.len(), 3);
         assert!(run.seconds < 10, "took {} s", run.seconds);
     }
 }

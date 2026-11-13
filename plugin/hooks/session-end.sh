@@ -8,9 +8,12 @@ set -uo pipefail
 # end with exit status 0. A container reclaimed before the hook runs loses the records.
 #
 # TSK_SESSION_END_TIMEOUT_SECS (default 8) bounds the push.
-cat >/dev/null 2>&1 || true
+INPUT="$(cat 2>/dev/null || true)"
 
 command -v tsk >/dev/null 2>&1 || exit 0
+
+# Record on this machine that the session ended, so its robot is free again (tsk 0.60.0).
+printf '%s' "$INPUT" | tsk session end >/dev/null 2>&1 || true
 
 # Ask the local store first (no network): a push with nothing to send still costs a
 # round trip to origin.

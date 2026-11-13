@@ -281,6 +281,14 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
     if let ThreadCommands::Guard = action {
         let mut input = String::new();
         let _ = std::io::stdin().read_to_string(&mut input);
+        if !session_start::is_remote() {
+            if let (Some(id), Ok(root)) = (
+                crate::live::hook_session_id(&input),
+                crate::ledger::location::state_root_from_env(),
+            ) {
+                crate::live::active(&root, &id);
+            }
+        }
         if let Some(reason) = guard() {
             println!("{}", block_decision(&reason));
         }
