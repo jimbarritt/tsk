@@ -921,3 +921,143 @@ fn a_dolt_nexus_ledger_keeps_its_documents_on_the_id_docs_branch() {
     let get = fx.tsk(&["ledger", "doc", "get", "missions/M-1.md"]);
     assert_eq!(stdout(&get), "in the nexus\n");
 }
+
+const IN_REPO_DOCS_REF: &str = "refs/heads/tsk/docs";
+const REPO_ENTRY: &str = r#"{"id":"work-api","url":"https://example.test/acme/work-api"}"#;
+
+/// A repo ledger on origin with one document pushed, and a nexus that lists the repo with
+/// its ledger in the repo.
+fn repo_ledger_seeded() -> Fixture {
+    Fixture::template("repo-ledger-seeded", |fx| {
+        fx.set_nexus_json(REPO_ENTRY);
+        fx.attach();
+        fx.fetch_ok();
+        assert_success(&fx.tsk(&["mission", "prefix", "WORK"]));
+        let doc = fx.root.path().join("briefing.md");
+        write(&doc, "# Mission: example\n");
+        assert_success(&fx.tsk(&["ledger", "doc", "put", BRIEFING, doc.to_str().unwrap()]));
+        fx.push_ok("Seed the repo ledger");
+    })
+}
+
+fn nexus_json(fx: &Fixture) -> serde_json::Value {
+    serde_json::from_str(
+        &fx.file_on(&fx.nexus(), "refs/heads/main", "nexus.json")
+            .unwrap(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn move_ledger_copies_both_refs_and_points_the_entry_at_the_nexus() {
+    let fx = repo_ledger_seeded();
+    let data = git_line(&fx.managed(), &["rev-parse", IN_REPO_REF]);
+    let docs = git_line(&fx.managed(), &["rev-parse", IN_REPO_DOCS_REF]);
+
+    let moved = fx.tsk(&["nexus", "move-ledger", "--ledger-refs", "branches"]);
+    assert_success(&moved);
+    let out = stdout(&moved);
+    assert!(
+        out.contains("git push origin --delete refs/heads/tsk/ledger refs/heads/tsk/docs"),
+        "{}",
+        out
+    );
+
+    assert_eq!(git_line(&fx.nexus(), &["rev-parse", NEXUS_REF]), data);
+    assert_eq!(git_line(&fx.nexus(), &["rev-parse", NEXUS_DOCS_REF]), docs);
+    let entry = &nexus_json(&fx)["territories"][0]["repos"][0];
+    assert_eq!(entry["ledger"], "nexus");
+    assert_eq!(entry["ledger_refs"], "branches");
+    assert_eq!(entry["prefix"], "WORK");
+
+    // The same clone reads the moved ledger and publishes to the nexus.
+    assert_eq!(
+        stdout(&fx.tsk(&["ledger", "doc", "get", BRIEFING])),
+        "# Mission: example\n"
+    );
+    let two = fx.root.path().join("two.md");
+    write(&two, "two\n");
+    assert_success(&fx.tsk(&[
+        "ledger",
+        "doc",
+        "put",
+        "notes/two.md",
+        two.to_str().unwrap(),
+    ]));
+    fx.push_ok("After the move");
+    assert_ne!(git_line(&fx.nexus(), &["rev-parse", NEXUS_DOCS_REF]), docs);
+    assert_eq!(git_line(&fx.managed(), &["rev-parse", IN_REPO_REF]), data);
+    assert_eq!(
+        git_line(&fx.managed(), &["rev-parse", IN_REPO_DOCS_REF]),
+        docs
+    );
+
+    // A clone that never saw the ledger fetches it from the nexus.
+    fx.forget_local_ledger();
+    fx.fetch_ok();
+    assert_eq!(
+        stdout(&fx.tsk(&["ledger", "doc", "get", "notes/two.md"])),
+        "two\n"
+    );
+
+    let again = fx.tsk(&["nexus", "move-ledger"]);
+    assert!(!again.status.success());
+    assert!(
+        stderr(&again).contains("already held in the nexus"),
+        "{}",
+        stderr(&again)
+    );
+}
+
+#[test]
+fn move_ledger_refuses_while_the_store_holds_unpushed_changes() {
+    let fx = repo_ledger_seeded();
+    let doc = fx.root.path().join("local.md");
+    write(&doc, "local\n");
+    assert_success(&fx.tsk(&[
+        "ledger",
+        "doc",
+        "put",
+        "notes/local.md",
+        doc.to_str().unwrap(),
+    ]));
+
+    let moved = fx.tsk(&["nexus", "move-ledger"]);
+    assert!(!moved.status.success());
+    assert!(
+        stderr(&moved).contains("run tsk ledger push first"),
+        "{}",
+        stderr(&moved)
+    );
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    assert_eq!(
+        nexus_json(&fx)["territories"][0]["repos"][0]["ledger"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+fn move_ledger_does_not_overwrite_a_different_ledger_in_the_nexus() {
+    let fx = repo_ledger_seeded();
+    git(
+        &fx.managed(),
+        &[
+            "push",
+            "--quiet",
+            fx.nexus().to_str().unwrap(),
+            &format!("refs/heads/main:{}", NEXUS_REF),
+        ],
+    );
+
+    let moved = fx.tsk(&["nexus", "move-ledger", "--ledger-refs", "branches"]);
+    assert!(!moved.status.success());
+    assert!(
+        stderr(&moved).contains("tsk does not overwrite a ledger"),
+        "{}",
+        stderr(&moved)
+    );
+    assert_eq!(
+        nexus_json(&fx)["territories"][0]["repos"][0]["ledger"],
+        serde_json::Value::Null
+    );
+}
