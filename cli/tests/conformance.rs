@@ -3451,6 +3451,24 @@ mod cases {
         assert_eq!(result["task"]["description"], "Open one");
     }
 
+    pub fn thread_resume_reads_the_task_in_the_mission_its_entry_names() {
+        let fx = Fixture::fetched();
+        let a = fx.a();
+        fx.ok(&a, &["mission", "create", "M-OLD", "Old mission"]);
+        fx.ok(&a, &["task", "add", "M-OLD", "Old task"]);
+        fx.ok(&a, &["mission", "create", "M-NEW", "New mission"]);
+        fx.ok(&a, &["task", "add", "M-NEW", "New task"]);
+        fx.ok(&a, &["ledger", "push", "Add the missions"]);
+        let id = fx.started(&a, &["thread", "start", "M-OLD"]);
+        fx.ok(&a, &["thread", "pause", &id, "T-01", "Now on M-NEW"]);
+        fx.ok(&a, &["thread", "set", "mission", "M-NEW"]);
+
+        let result = json(&fx.ok(&a, &["thread", "resume", &id]));
+        assert_eq!(result["mission"]["id"], "M-NEW");
+        assert_eq!(result["task"]["id"], "M-OLD T-01");
+        assert_eq!(result["task"]["description"], "Old task");
+    }
+
     pub fn session_start_says_a_bound_thread_with_no_mission_has_no_tasks() {
         let fx = Fixture::fetched();
         let a = fx.a();
@@ -5137,6 +5155,7 @@ conformance!(
     session_start_says_a_bound_thread_with_no_mission_has_no_tasks,
     session_start_carries_the_latest_entry_so_the_agent_can_answer_at_once,
     thread_resume_carries_the_mission_name_and_the_task_description,
+    thread_resume_reads_the_task_in_the_mission_its_entry_names,
     thread_commands_carry_local_record_and_document_changes_to_the_remote,
     status_and_discard_report_and_drop_local_changes,
     status_counts_commits_ahead_and_behind_origin,
