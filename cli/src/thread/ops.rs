@@ -30,6 +30,20 @@ pub struct ResumeOutcome {
     pub mission: Option<(String, String)>,
     /// The task of the latest entry as `(id, description)`, when the mission has it.
     pub task: Option<(String, String)>,
+    /// The cloud session ID in the `session_` form `set_session_title` takes, and the
+    /// title, in a cloud session with a title.
+    pub session_title: Option<(String, String)>,
+    /// A note when the latest entry was written by an older tsk.
+    pub version_note: Option<String>,
+}
+
+/// The cloud session ID that the session tools take: `CLAUDE_CODE_REMOTE_SESSION_ID`
+/// holds `cse_X`, and `set_session_title` takes `session_X`.
+pub fn cloud_session_id(cloud: &str) -> String {
+    match cloud.strip_prefix("cse_") {
+        Some(rest) => format!("session_{}", rest),
+        None => cloud.to_string(),
+    }
 }
 
 /// What a bound thread's mission and latest entry say, resolved against the mission
@@ -380,6 +394,7 @@ pub fn pause(session: &Session, id: &str, task_id: &str, whats_next: &str) -> Re
             },
             timestamp: &timestamp,
             written_by: &written_by,
+            tsk_version: Some(env!("CARGO_PKG_VERSION")),
         }
         .to_json(),
     )?;
@@ -525,7 +540,22 @@ pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
             task: None,
         },
     };
+    let actor = crate::actor::current(session)
+        .ok()
+        .flatten()
+        .map(|actor| actor.name);
+    let mission_id = facts.mission.as_ref().map(|(id, _)| id.clone());
+    let session_title = session
+        .cloud_session
+        .as_deref()
+        .zip(session_title(actor.as_deref(), mission_id.as_deref()))
+        .map(|(cloud, title)| (cloud_session_id(cloud), title));
+    let version_note = entries
+        .last()
+        .and_then(|stored| super::entry::version_note(&stored.entry, env!("CARGO_PKG_VERSION")));
     Ok(ResumeOutcome {
+        session_title,
+        version_note,
         mission: facts.mission,
         task: facts.task,
         thread_id: id.to_string(),
@@ -564,13 +594,28 @@ pub fn render_resume(outcome: &ResumeOutcome) -> String {
             .map(|(id, description)| Task { id, description }),
     )
     .unwrap_or_default();
+    #[derive(Serialize)]
+    struct Title<'a> {
+        session_id: &'a str,
+        title: &'a str,
+    }
+    let title = serde_json::to_string(
+        &outcome
+            .session_title
+            .as_ref()
+            .map(|(session_id, title)| Title { session_id, title }),
+    )
+    .unwrap_or_default();
+    let note = serde_json::to_string(&outcome.version_note).unwrap_or_default();
     format!(
-        "{{\"thread_id\":{},\"latest\":{},\"warning\":{},\"mission\":{},\"task\":{}}}",
+        "{{\"thread_id\":{},\"latest\":{},\"warning\":{},\"mission\":{},\"task\":{},\"session_title\":{},\"version_note\":{}}}",
         serde_json::Value::String(outcome.thread_id.clone()),
         outcome.latest,
         serde_json::Value::String(outcome.warning.clone()),
         mission,
-        task
+        task,
+        title,
+        note
     )
 }
 
@@ -1028,11 +1073,15 @@ mod tests {
             warning: String::new(),
             mission: Some(("M-X".to_string(), "Example".to_string())),
             task: None,
+            session_title: Some(("session_01AB".to_string(), "M-X: Robot Bee".to_string())),
+            version_note: None,
         };
         assert_eq!(
             render_resume(&outcome),
-            "{\"thread_id\":\"1234abcd\",\"latest\":{\"whats_next\":\"x\",\"git\":{\"ledger\":{\"commit\":\"b\"}}},\"warning\":\"\",\"mission\":{\"id\":\"M-X\",\"name\":\"Example\"},\"task\":null}"
+            "{\"thread_id\":\"1234abcd\",\"latest\":{\"whats_next\":\"x\",\"git\":{\"ledger\":{\"commit\":\"b\"}}},\"warning\":\"\",\"mission\":{\"id\":\"M-X\",\"name\":\"Example\"},\"task\":null,\"session_title\":{\"session_id\":\"session_01AB\",\"title\":\"M-X: Robot Bee\"},\"version_note\":null}"
         );
+        assert_eq!(cloud_session_id("cse_01AB"), "session_01AB");
+        assert_eq!(cloud_session_id("session_01AB"), "session_01AB");
     }
 
     fn row(id: &str, ts: Option<&str>) -> ListRow {

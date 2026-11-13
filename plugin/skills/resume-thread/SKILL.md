@@ -34,7 +34,8 @@ refuse.
 
    ```json
    {"thread_id": "...", "latest": {...}, "warning": "...",
-    "mission": {"id": "...", "name": "..."}, "task": {"id": "...", "description": "..."}}
+    "mission": {"id": "...", "name": "..."}, "task": {"id": "...", "description": "..."},
+    "session_title": {"session_id": "session_...", "title": "..."}, "version_note": "..."}
    ```
 
    - `latest` is the most recent continuation state entry, or `{}` if the thread has
@@ -42,6 +43,10 @@ refuse.
    - `warning` is non-empty if the thread was already associated with a different actor.
    - `mission` is null when the thread has no mission or the mission has no record.
    - `task` is null when the latest entry names no task or the mission has no such task.
+   - `session_title` is null outside a cloud session, or with no title. Its `session_id`
+     is in the `session_...` form that `set_session_title` takes.
+   - `version_note` is non-null when an older `tsk` wrote the latest entry. Report it
+     with the summary: a version or update step in the entry can be out of date.
 
    This is all the summary needs. Run no further command to look up the mission name or
    the task text.
@@ -70,9 +75,10 @@ refuse.
    `tsk mission list <latest.mission_id>` for the name and `tsk task list
    <latest.mission_id>` for the task text.
 
-5. **Set the session title.** If the session start context has a `Session title:` line,
-   call `set_session_title` once with the `session_id` and `title` it names, and go to
-   step 6. Else run `tsk thread title`. Exit 1 means there is no
+5. **Set the session title.** If the resume output has a `session_title`, call
+   `set_session_title` once with its `session_id` and `title`, and go to step 6. If the
+   session start context has a `Session title:` line, use the `session_id` and `title` it
+   names, and go to step 6. Else run `tsk thread title`. Exit 1 means there is no
    actor and no mission: skip this step. Exit 0 prints the title, `<mission ID>: <robot
    name>`, the name alone, or the mission ID alone.
    - In a cloud session (`CLAUDE_CODE_REMOTE_SESSION_ID` is set), call `get_session` from

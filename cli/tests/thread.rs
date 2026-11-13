@@ -554,7 +554,8 @@ fn pause_appends_an_entry_with_the_nested_git_state_and_pushes() {
     assert_eq!(stored.len(), 1);
     let line = stored[0].as_str();
     let keys: Vec<_> = json(line).as_object().unwrap().keys().cloned().collect();
-    assert_eq!(keys.len(), 7);
+    assert_eq!(keys.len(), 8);
+    assert_eq!(json(line)["tsk_version"], env!("CARGO_PKG_VERSION"));
     let positions: Vec<_> = [
         "\"mission_id\"",
         "\"mission_link\"",
@@ -989,7 +990,7 @@ fn resume_of_a_thread_with_no_entry_prints_an_empty_latest() {
     assert_success(&output);
     assert_eq!(
         stdout(&output),
-        "{\"thread_id\":\"1111aaaa\",\"latest\":{},\"warning\":\"\",\"mission\":null,\"task\":null}\n"
+        "{\"thread_id\":\"1111aaaa\",\"latest\":{},\"warning\":\"\",\"mission\":null,\"task\":null,\"session_title\":null,\"version_note\":null}\n"
     );
 }
 
@@ -1094,7 +1095,7 @@ fn resume_list_and_pause_keep_entries_as_stored() {
     assert_eq!(
         stdout(&output),
         format!(
-            "{{\"thread_id\":\"4onylfsg\",\"latest\":{},\"warning\":\"\",\"mission\":null,\"task\":null}}\n",
+            "{{\"thread_id\":\"4onylfsg\",\"latest\":{},\"warning\":\"\",\"mission\":null,\"task\":null,\"session_title\":null,\"version_note\":null}}\n",
             stored
         )
     );
@@ -1684,6 +1685,7 @@ fn session_start_with(
     let mut base = vec!["thread", "session-start"];
     base.extend_from_slice(extra);
     let mut command = fx.command(&base, None);
+    command.env_remove("CLAUDE_CODE_REMOTE");
     if let Some(file) = env_file {
         command.env("CLAUDE_ENV_FILE", file);
     } else {
@@ -1791,6 +1793,34 @@ fn session_start_warns_about_an_older_plugin_in_both_formats() {
         context
     );
     assert!(context.contains("/plugin update tsk"));
+
+    // A cloud session start installs the newer plugin itself: no note.
+    let mut cloud = fx.command(
+        &["thread", "session-start", "--plugin-version", "0.0.1"],
+        None,
+    );
+    cloud
+        .env("CLAUDE_CODE_REMOTE", "true")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cloud.spawn().unwrap();
+    {
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"{\"session_id\":\"p-cloud\",\"source\":\"startup\"}")
+            .unwrap();
+    }
+    let output = child.wait_with_output().unwrap();
+    assert_success(&output);
+    assert!(
+        !stdout(&output).contains("plugin hooks loaded"),
+        "{}",
+        stdout(&output)
+    );
 
     let copilot = session_start_with(
         &fx,

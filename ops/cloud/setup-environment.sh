@@ -198,8 +198,9 @@ session in this environment to attach it with the \`add_repo\` tool.
 On the first turn of a session, before any other work and whatever the first message
 asks, run \`tsk ledger status\` and do what its \`Next\` line says, with no confirmation
 first. Run it again after each action, until \`Local\` shows a ledger. If \`add_repo\` is
-refused, report the refusal and stop. If \`Next\` names \`tsk ledger init\`, run the
-\`/tsk:init-ledger\` skill.
+refused, report the refusal and stop. Do not clone the nexus after \`add_repo\`, and do not
+run \`register_repo_root\` for it: tsk fetches the nexus itself, and the grant is all it
+needs. If \`Next\` names \`tsk ledger init\`, run the \`/tsk:init-ledger\` skill.
 
 Once \`Local\` shows a ledger, run \`tsk thread next\` in the same turn and do what it says:
 it asks which robot this session is, then which thread to resume. Do this before you

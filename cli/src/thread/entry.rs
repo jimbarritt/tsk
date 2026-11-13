@@ -12,6 +12,9 @@ pub struct NewEntry<'a> {
     pub git: GitState<'a>,
     pub timestamp: &'a str,
     pub written_by: &'a str,
+    /// The version of the tsk that wrote the entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tsk_version: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -51,6 +54,26 @@ pub struct Entry {
     pub whats_next: Option<String>,
     pub timestamp: Option<String>,
     pub written_by: Option<String>,
+    /// The version of the tsk that wrote the entry; absent before 0.61.0.
+    #[serde(default)]
+    pub tsk_version: Option<String>,
+}
+
+/// The note for an entry written by an older tsk than this one: a version or an update
+/// step that its what's next names can be out of date. `None` for an entry with no
+/// version, or one written by this version or a newer one.
+pub fn version_note(entry: &Entry, current: &str) -> Option<String> {
+    let written = entry.tsk_version.as_deref()?;
+    let parse = |v: &str| -> Option<(u64, u64, u64)> {
+        let mut parts = v.trim().split('.').map(|p| p.parse::<u64>().ok());
+        Some((parts.next()??, parts.next()??, parts.next()??))
+    };
+    (parse(written)? < parse(current)?).then(|| {
+        format!(
+            "The latest pause entry was written with tsk {}, and this session runs tsk {}: a version or an update step its what's next names can be out of date.",
+            written, current
+        )
+    })
 }
 
 #[derive(Debug)]
@@ -104,7 +127,31 @@ mod tests {
             },
             timestamp: "2026-10-03T10:00:00Z",
             written_by: "urn:tsk:worktree:.git",
+            tsk_version: None,
         }
+    }
+
+    #[test]
+    fn a_pause_by_an_older_tsk_gets_a_version_note() {
+        let entry = |v: Option<&str>| Entry {
+            mission_id: None,
+            task_id: None,
+            whats_next: None,
+            timestamp: None,
+            written_by: None,
+            tsk_version: v.map(str::to_string),
+        };
+        assert!(version_note(&entry(Some("0.44.0")), "0.61.0")
+            .unwrap()
+            .contains("written with tsk 0.44.0, and this session runs tsk 0.61.0"));
+        assert_eq!(version_note(&entry(Some("0.61.0")), "0.61.0"), None);
+        assert_eq!(version_note(&entry(None), "0.61.0"), None);
+        let line = NewEntry {
+            tsk_version: Some("0.61.0"),
+            ..new_entry()
+        }
+        .to_json();
+        assert!(line.ends_with(",\"tsk_version\":\"0.61.0\"}"), "{}", line);
     }
 
     #[test]
