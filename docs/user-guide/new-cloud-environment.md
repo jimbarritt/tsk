@@ -17,7 +17,8 @@ API call creates one. See
 | Access to the GitHub release downloads | The environment's network access setting (step 2). |
 | The `tsk` and `swe` plugins | The setup script, at user scope (step 3). |
 | `$TSK_LEDGER_WT` and the ledger store | `tsk thread session-start`, run by the plugin's `SessionStart` hook and by the repo's hook when the repo has one. |
-| The nexus URL, for a repo whose ledger is in a nexus | The optional `NEXUS_URL` line of the setup script (step 3). |
+| The nexus URL, for a repo whose ledger is in a nexus | The `--nexus <nexus url>` option of the setup script (step 3). |
+| Access to the nexus repo | The agent attaches it with the `add_repo` tool on the first turn. See [session-start.md](session-start.md#a-cloud-session). |
 
 A cloud session does not load plugins installed on your machine, or plugins that the
 repo's `.claude/settings.json` enables. A plugin installed from the command line works in a
@@ -71,22 +72,28 @@ pinned SHA-256 values, and the script itself is the text on `main` at build time
 ```bash
 #!/bin/bash
 set -euo pipefail
-NEXUS_URL=""
 curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash
-if [ -n "$NEXUS_URL" ]; then tsk nexus add "$NEXUS_URL"; fi
 ```
 
-The `NEXUS_URL` line is optional. Empty, as pasted, the script attaches no nexus. For a
-repo whose ledger is in a nexus, set it to the nexus URL, for example
-`NEXUS_URL="https://github.com/<owner>/<name>-nexus"`. The last line then runs
-`tsk nexus add <nexus url>`, which writes the URL to `/root/.config/tsk/config.toml`. The
-URL differs per user, so the fetched script does not hold it. The session also needs read
-and push access to the nexus repo: add it to the repos of the environment. See
-[nexus-quickstart.md](nexus-quickstart.md#5-a-claude-code-cloud-environment).
+For a repo whose ledger is in a nexus, pass the nexus URL to the fetched script:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash -s -- --nexus https://github.com/<you>/<nexus>
+```
+
+`--nexus <nexus url>` runs `tsk nexus add <nexus url>`, which writes the URL to
+`/root/.config/tsk/config.toml`. It also writes a section to `~/.claude/AGENTS.md` and
+entries to `~/.claude/settings.json` that pre-approve the `add_repo` tool. A new session
+has only the opened repo attached, so the agent attaches the nexus repo with `add_repo` on
+its first turn, and `tsk` fetches it. The account's GitHub connection needs read and push
+access to the nexus repo. The URL differs per user, so the fetched script does not hold
+it. See [session-start.md](session-start.md#a-cloud-session) for the first turn, step by
+step.
 
 To turn on robot commit attribution as well, pass the option to the fetched script, as in
 [robot-commit-signing.md](robot-commit-signing.md):
-`... | bash -s -- --use-robot-attribution <email>`.
+`... | bash -s -- --use-robot-attribution <email>`. The two options go together on one
+line: `... | bash -s -- --use-robot-attribution <email> --nexus <nexus url>`.
 
 The fetched script reads the version in the Homebrew formula and downloads the prebuilt `tsk` of
 that version for the machine. It installs `tsk` into `/usr/local/bin`, which is on `PATH`, and installs `dolt`
@@ -166,7 +173,8 @@ the earlier stamp line are gone with the build.
 A repo can also carry its own `SessionStart` hook: `tsk install-plugin claude-cli` writes
 `tsk thread session-start --install-plugin claude-cli` to `.claude/settings.json`. In a
 cloud session that hook installs the plugin at project scope and upgrades `tsk` before the
-session start. See [installation.md](installation.md#installation).
+session start. See [installation.md](installation.md#installation). Do not use it in an environment whose setup script installs the plugins at user scope:
+two install records of one plugin make it unclear which version loads.
 
 ## Troubleshooting
 
@@ -219,6 +227,3 @@ On 2026-11-08, in a session made by `/tsk:regenerate-cloud-instance`:
 - Whether the Trusted level allows the GitHub release download hosts. The run on
   2026-10-13 was in a session with a wider network policy.
 - How long the setup result is kept, and whether editing the script invalidates it.
-- The `NEXUS_URL` line in a cloud environment. `tsk nexus add` writes only the user
-  config, and setup and session share `HOME=/root` (observed on 2026-10-08), so the
-  session reads the URL. No cloud run of it was made.

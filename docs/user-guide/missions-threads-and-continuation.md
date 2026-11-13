@@ -114,7 +114,8 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk thread title` | Prints the session title: `<mission ID>: <actor name>`, `NO-MISSION: <actor name>`, or the mission ID alone. Exit 1 with neither | None. It reads the ledger store as it is and never fetches |
 | `tsk actor register <name> --kind human\|robot` | Registers this session or worktree as an actor; needs no thread | Local store only (0.26.0) |
 | `tsk actor name` | Prints the actor this session or worktree is registered as | None |
-| `tsk actor list` | Lists the actors and the sessions and worktrees registered as each | None |
+| `tsk actor list [--open <id>,...]` | Lists the actors with their kind and state (`free`, `taken (tmux pane)`, `taken (session <id>)`, `unknown`), and the sessions and worktrees registered as each | None (state 0.63.0) |
+| `tsk thread next [--open <id>,...]` | Prints `bound:<thread-id>` for a bound session, else the robot question. `--open` takes the cloud sessions that are not archived | None. Never fetches (0.58.0) |
 | `tsk thread guard` | Stop hook check for a binding; starts a background publish when the store holds unpushed changes | None. Never fetches |
 | `tsk thread session-start` | SessionStart hook: fetches the ledger, exports `$TSK_LEDGER_WT` | Updates the ledger store |
 
@@ -165,17 +166,23 @@ a session ID and source does the work, and a second run exits with no output.
 
 1. Fetches `tsk/ledger` and refreshes the ledger store, exporting
    `$TSK_LEDGER_WT`. The context it prints tells the agent to run `tsk mission list`, or
-   shows the bound thread's mission and its open tasks. It warns when the loaded plugin is
-   older than the plugin version this tsk expects.
+   shows the bound thread's mission and its open tasks. In a terminal it warns when the
+   loaded plugin is older than the plugin version this tsk needs. In a cloud session with
+   a nexus, the fetch fails until the agent attaches the nexus with the `add_repo` tool,
+   and the context gives that step.
 2. Resolves the current binding, a row of the ledger's `bindings` table: the row of the
    cloud session ID (`CLAUDE_CODE_REMOTE_SESSION_ID`) if there is one, otherwise the row
    of the code worktree (`<clone-id>/<worktree-name>`). A `tsk-thread-id` marker file
    from an older tsk becomes a row the first time a command resolves it.
 3. Tells the agent what to do next: run `/resume-thread <id>` when a binding is
-   found, or ask which mission to work and then run `/start-thread` when none is.
+   found. With no binding, it prints the robot question: which robot this session is, from
+   the robots that no open session uses, and what to work on. `tsk thread next` prints the
+   same question, and the `Stop` hook prints it after each turn until the session has a
+   binding or runs `tsk thread skip`.
 
 The hook never creates a thread. Both branches name a command and leave the agent to
-invoke it.
+invoke it. [session-start.md](session-start.md) describes the first turn step by step, in
+a cloud session and in a terminal.
 
 ## A worked session
 
