@@ -335,6 +335,33 @@ fn register_repo(
     Ok(())
 }
 
+/// Register this repo in the attached nexus for `tsk ledger init`, before its ledger
+/// exists, with the mission prefix the new ledger takes. The outcome goes to stderr.
+pub fn register_for_init(
+    config_file: &Path,
+    id: Option<String>,
+    territory: Option<String>,
+    ledger: LedgerChoice,
+    prefix: String,
+) -> Result<(), String> {
+    let nexus = config::read_nexus_url(config_file)?
+        .ok_or_else(|| "error: no nexus is attached; run tsk nexus add <url> first".to_string())?;
+    let cwd = std::env::current_dir()
+        .map_err(|e| format!("error: could not read the current directory: {}", e))?;
+    let repo = Repo::discover(&cwd)?;
+    let entry = new_entry(&repo, id, ledger, None, false, prefix)?;
+    let state_root = state_root_from_env()?;
+    let territory = TerritoryChoice {
+        id: territory,
+        name: None,
+    };
+    let outcome = register(&state_root, &nexus, &entry, &territory, &mut || {
+        eprintln!("note: the nexus's default branch moved before the push; fetching again and retrying once")
+    })?;
+    eprint!("{}", outcome_text(&outcome, &entry, &nexus));
+    Ok(())
+}
+
 /// The mission prefix of this repo's ledger. A repo cannot register without one: the prefix
 /// keeps mission IDs apart between the repos of a nexus.
 fn ledger_prefix(cwd: &Path) -> Result<String, String> {

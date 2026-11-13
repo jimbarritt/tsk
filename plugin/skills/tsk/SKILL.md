@@ -106,7 +106,10 @@ thread and events command works the same in both locations. The details are in
 `docs/domain/ledger-layout.md`.
 
 When the ledger branch does not exist yet, `tsk ledger fetch` creates a new ledger in the
-local ledger store, and the first `tsk ledger push` creates the branch.
+local ledger store, and the first `tsk ledger push` creates the branch. With a nexus
+attached that has no entry for the repo, and no ledger on origin, every ledger command
+stops instead: `tsk ledger init --nexus` or `--repo` creates the ledger where the person
+chooses (the `init-ledger` skill asks).
 
 ## Commands
 
@@ -131,6 +134,7 @@ tsk ledger doc rm <ref>                  remove a document; changes the local st
 tsk ledger doc mv <ref> <path>           rename a document, keep its id, update the path in the mission links
 tsk ledger doc path <ref>                print the absolute path of a document's file
 tsk ledger status [--local] [--porcelain]  print Local (what is not pushed) and Origin (ahead or behind); --local makes no network call and prints Origin as not checked; --porcelain prints tab-separated facts for scripts; read-only
+tsk ledger init --nexus|--repo [--prefix P]  create the ledger of a repo that has none, add the repo to the nexus when one is attached, and push it
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
 
 tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push (the claim)
@@ -256,6 +260,8 @@ ledger.** Check `tsk ledger status` first: a discard cannot be undone.
 - Check whether the ledger exists and what it contains with `tsk ledger status`. Its `Ledger`
   block names the ledger store, the refs in use and the counts of missions, tasks, threads
   and actors. The `Origin` line shows whether origin has the ledger yet.
+  In a clone with no ledger store it prints `Local   no ledger in this clone`, what the
+  nexus and origin say, and a `Next` line: do what it says.
 - Do not run `ls`, `find`, `cat` or `git` against the ledger store. It is a Dolt database,
   not a directory of files, and a `tsk` command reads it.
 - Do not pipe `tsk` output through `head`, `tail` or another command. The pipe hides the

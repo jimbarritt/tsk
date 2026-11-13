@@ -221,6 +221,30 @@ pub fn is_empty_remote(git: &Git, nexus_url: &str) -> bool {
         .is_ok_and(|listing| listing.trim().is_empty())
 }
 
+/// The error for a repo the attached nexus does not list, with no ledger in this clone or
+/// on origin.
+pub fn no_entry_error(nexus_url: &str) -> String {
+    format!(
+        "error: the nexus {} has no entry for this repo, and neither this clone nor origin holds a ledger. Run tsk ledger status, then tsk ledger init --nexus or --repo to create one",
+        nexus_url
+    )
+}
+
+/// True when this clone has a ledger store on disk.
+pub fn has_local_store(repo: &Repo, state_root: &Path) -> Result<bool, String> {
+    Ok(match repo.read_clone_id()? {
+        Some(id) => super::location::dolt_db_path(state_root, &id).exists(),
+        None => false,
+    })
+}
+
+/// Whether origin holds a ledger data ref, on branches or as a custom ref: `None` when
+/// origin cannot be asked.
+pub fn origin_holds_ledger(repo: &Repo) -> Option<bool> {
+    let base = LedgerLocation::in_repo();
+    super::refs::remote_ledger_refs(repo, &base).map(|found| found.is_some())
+}
+
 /// Where a repo's ledger lives, before the refs mode is decided: the remote and the repo
 /// id (the location on branches), and the `ledger_refs` setting of the nexus entry.
 pub struct Placement {
@@ -254,7 +278,12 @@ pub fn place(
         origin.as_deref(),
         machine.as_deref(),
     ) else {
-        return Ok(in_repo());
+        // A repo the nexus does not list keeps a ledger it already has, in this clone or
+        // on origin. With neither, nothing is created: tsk ledger init asks where.
+        if has_local_store(repo, state_root)? || origin_holds_ledger(repo) == Some(true) {
+            return Ok(in_repo());
+        }
+        return Err(no_entry_error(&nexus_url));
     };
     let base = entry_location(entry, &nexus_url)?;
     if valid_repo_id(&entry.id) && cached.as_deref() != Some(entry.id.as_str()) {

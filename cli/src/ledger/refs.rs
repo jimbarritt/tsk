@@ -369,6 +369,12 @@ pub fn listed(listing: &str, names: &[&str]) -> Vec<String> {
 /// One `git ls-remote` for the ledger ref in both modes. `None` when origin cannot be
 /// asked or holds neither ref. Branches win when both exist.
 fn ask_origin(repo: &Repo, base: &LedgerLocation) -> Option<LedgerRefs> {
+    remote_ledger_refs(repo, base).flatten()
+}
+
+/// Which data ref of `base` its remote holds: `Some(Some(refs))` for one found,
+/// `Some(None)` for none, and `None` when the remote cannot be asked.
+pub fn remote_ledger_refs(repo: &Repo, base: &LedgerLocation) -> Option<Option<LedgerRefs>> {
     let (branch, _) = refs_of(base, LedgerRefs::Branches);
     let (custom, _) = refs_of(base, LedgerRefs::Custom);
     let (_, output) = repo
@@ -382,13 +388,13 @@ fn ask_origin(repo: &Repo, base: &LedgerLocation) -> Option<LedgerRefs> {
         &String::from_utf8_lossy(&output.stdout),
         &[branch.as_str(), custom.as_str()],
     );
-    if found.contains(&branch) {
+    Some(if found.contains(&branch) {
         Some(LedgerRefs::Branches)
     } else if found.contains(&custom) {
         Some(LedgerRefs::Custom)
     } else {
         None
-    }
+    })
 }
 
 static CLOUD_DEFAULT_USED: AtomicBool = AtomicBool::new(false);

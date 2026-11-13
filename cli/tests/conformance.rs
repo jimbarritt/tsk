@@ -3943,20 +3943,25 @@ mod cases {
     pub fn status_and_discard_need_a_ledger_store() {
         let fx = Fixture::new();
         let a = fx.a();
-        for args in [
-            &["ledger", "status"][..],
-            &["ledger", "discard", "--yes"][..],
-        ] {
-            let out = fx.tsk(&a, args);
-            assert_exit(&out, 1);
-            assert!(stderr(&out).starts_with("error: "), "{}", stderr(&out));
-            assert!(
-                stderr(&out).contains("tsk ledger fetch"),
-                "{}",
-                stderr(&out)
-            );
-            assert_eq!(stdout(&out), "");
-        }
+        let out = fx.tsk(&a, &["ledger", "discard", "--yes"]);
+        assert_exit(&out, 1);
+        assert!(stderr(&out).starts_with("error: "), "{}", stderr(&out));
+        assert!(
+            stderr(&out).contains("tsk ledger fetch"),
+            "{}",
+            stderr(&out)
+        );
+        assert_eq!(stdout(&out), "");
+
+        // Status reports a clone with no ledger store, and the next action.
+        let out = fx.tsk(&a, &["ledger", "status"]);
+        assert_success(&out);
+        assert!(
+            stdout(&out).starts_with("Local   no ledger in this clone\n"),
+            "{}",
+            stdout(&out)
+        );
+        assert!(stdout(&out).contains("\nNext    "), "{}", stdout(&out));
     }
 
     pub fn a_decision_takes_a_date_with_on_and_refuses_one_that_is_not_real() {

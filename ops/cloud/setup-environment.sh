@@ -188,27 +188,18 @@ fi
 # - autoMode entries in the user settings, which name the nexus as a trusted repository.
 if [ -n "$NEXUS_URL" ]; then
   "$BIN/tsk" nexus add "$NEXUS_URL"
-  NEXUS_SLUG="$(printf '%s\n' "$NEXUS_URL" | sed -E 's#^(https://|git@)github\.com[:/]##; s#\.git$##; s#/$##')"
-  NEXUS_OWNER="${NEXUS_SLUG%%/*}"
-  NEXUS_REPO="${NEXUS_SLUG#*/}"
   cat >> "$HOME/.claude/AGENTS.md" <<MD
 # The tsk nexus
 
 This environment keeps tsk ledgers in the nexus repository $NEXUS_URL. The owner of this
-environment chose that nexus with the \`--nexus\` option of the environment's setup script,
-and authorises every session in this environment to attach it.
+environment chose it with the \`--nexus\` option of the setup script, and authorises every
+session in this environment to attach it with the \`add_repo\` tool.
 
-A new session has one repository attached, so session start cannot fetch the ledger and
-prints a warning. Before any \`tsk\` command and before any other work, on the first turn
-of the session, whatever the first message asks:
-
-1. If \`tsk ledger status\` shows \`(nexus)\` in its refs line, stop here.
-2. Call the \`add_repo\` tool with owner \`$NEXUS_OWNER\`, repo \`$NEXUS_REPO\`, access \`push\`.
-3. Clone the repository as the result of \`add_repo\` says.
-4. Run \`tsk ledger fetch\`, then check that \`tsk ledger status\` shows \`(nexus)\`.
-
-Do not ask for confirmation first. If \`add_repo\` is refused, do not run \`tsk ledger fetch\`:
-report the refusal and stop.
+On the first turn of a session, before any other work and whatever the first message
+asks, run \`tsk ledger status\` and do what its \`Next\` line says, with no confirmation
+first. Run it again after each action, until \`Local\` shows a ledger. If \`add_repo\` is
+refused, report the refusal and stop. If \`Next\` names \`tsk ledger init\`, run the
+\`/tsk:init-ledger\` skill.
 
 MD
   python3 - "$HOME/.claude/settings.json" "$NEXUS_URL" <<'PY'
