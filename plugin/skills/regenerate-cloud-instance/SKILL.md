@@ -38,7 +38,8 @@ tell me.
    Choose the robot name in this order:
    1. The name `tsk actor name` prints.
    2. The name in the session title of `get_session`. The title has the form `<mission
-      ID>: <robot name>`, or is the robot name alone. Take the text after the first `: `.
+      ID>: <robot name>` or `NO-MISSION: <robot name>`, or is the robot name alone (a title
+      set before 0.62.0). Take the text after the first `: `.
       Take the whole title when it has no `: ` and is not a mission ID (a mission ID
       starts with `M-` and has no spaces). Mark the name as unregistered.
    3. No name. The new session constructs one: go on and say so in step 5.

@@ -463,6 +463,9 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
             if let Some(uid) = uid {
                 println!("{}", actor_urn(&uid));
             }
+            if let Some(line) = crate::thread::title_line(&session) {
+                println!("{}", line);
+            }
             if urn.is_none() && instance_kind == BindingKind::Worktree {
                 eprintln!("note: this session has no recorded URN (the session start did not run), so the actor is recorded on the harness instance only");
             }
