@@ -1970,6 +1970,59 @@ fn session_start_exits_0_with_a_warning_when_the_fetch_fails() {
 }
 
 #[test]
+fn session_start_writes_the_robot_signing_set_up_when_the_fetch_fails() {
+    let fx = Fixture::new();
+    git(
+        &fx.work(),
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            fx.root.path().join("missing.git").to_str().unwrap(),
+        ],
+    );
+    let key = fx.root.path().join("robot-key");
+    let generated = Command::new("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(&key)
+        .output()
+        .expect("failed to run ssh-keygen");
+    assert!(generated.status.success(), "{}", stderr(&generated));
+    let private = std::fs::read_to_string(&key).unwrap();
+
+    let mut command = fx.command(&["thread", "session-start"], None);
+    let mut child = command
+        .env("TSK_ATTRIBUTION_IDENTITY", "robot")
+        .env("TSK_ATTRIBUTION_EMAIL", "robots@example.test")
+        .env("TSK_ROBOT_SIGNING_KEY", private)
+        .env_remove("CLAUDE_ENV_FILE")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to run tsk");
+    child.stdin.take().unwrap().write_all(b"{}").unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert_exit(&output, 0);
+    let context = session_context(&output);
+    assert!(
+        context.contains("Run `tsk ledger fetch` manually"),
+        "{}",
+        context
+    );
+    assert!(
+        context.contains("Attribution: robot. Commits are signed as robots@example.test"),
+        "{}",
+        context
+    );
+    let email = git(&fx.work(), &["config", "--worktree", "user.email"]);
+    assert_eq!(email.trim(), "robots@example.test");
+    let signing = git(&fx.work(), &["config", "--worktree", "commit.gpgsign"]);
+    assert_eq!(signing.trim(), "true");
+}
+
+#[test]
 fn session_start_exits_0_with_a_warning_outside_a_repository() {
     let fx = Fixture::new();
     let outside = fx.root.path().join("outside");

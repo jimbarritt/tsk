@@ -437,6 +437,7 @@ fn export_to_env_file(path: &Path) -> Result<(), String> {
 /// context describes this session (ADR 0030).
 fn context_after_fetch(
     session: &Session,
+    signing: &Result<crate::attribution::Signing, String>,
     after_refresh: impl FnOnce(&Session),
 ) -> Result<String, String> {
     let outcome = match session.store.refresh_keeping_local() {
@@ -529,10 +530,8 @@ fn context_after_fetch(
         thread_text.push(' ');
         thread_text.push_str(&no_mission);
     }
-    // Robot attribution (T-15): the signing set-up is written here, in the hook, so no tool
-    // call of the session reads the key. The `default` identity removes an earlier set-up.
-    let signing = crate::attribution::set_up_signing(session);
-    if let Some(line) = signing_context(&signing) {
+    // The signing set-up was written before the fetch (T-18): `run` passes its result.
+    if let Some(line) = signing_context(signing) {
         push_part(&mut thread_text, &line);
     }
     if let Some(actor) = crate::actor::current(session).ok().flatten() {
@@ -704,9 +703,18 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
         warnings.extend(install_plugin_warning());
     }
     let hook_session_id = input.session_id.clone();
-    let mut context = Session::discover()
+    // Robot attribution (T-15, T-18): the signing set-up is written here, in the hook, before
+    // the ledger fetch, so no tool call of the session reads the key and a failed fetch leaves
+    // the set-up in place. The `default` identity removes an earlier set-up.
+    let session = Session::discover();
+    let signing = session
+        .as_ref()
+        .ok()
+        .map(crate::attribution::set_up_signing);
+    let mut context = session
         .and_then(|session| {
-            context_after_fetch(&session, |session| {
+            let signing = signing.as_ref().ok_or("error: no session")?;
+            context_after_fetch(&session, signing, |session| {
                 // Record the session beside its harness instance (ADR 0029), after the
                 // refresh and before the reads, and give it the actors of the session it
                 // continues (ADR 0030). A failure here never fails the hook: the session
@@ -723,6 +731,10 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
         })
         .unwrap_or_else(|e| {
             let mut context = failure_context(&e);
+            if let Some(line) = signing.as_ref().and_then(signing_context) {
+                context.push(' ');
+                context.push_str(&line);
+            }
             if let Some(hint) = nexus_attach_hint(attached_nexus().as_deref(), is_remote()) {
                 context.push(' ');
                 context.push_str(&hint);
