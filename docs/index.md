@@ -27,7 +27,8 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 ## User guide
 
 - [installation.md](user-guide/installation.md): prerequisites, installing and upgrading the `tsk` binary, installing the plugin with `tsk install-plugin claude-cli`, and CI.
-- [nexus-quickstart.md](user-guide/nexus-quickstart.md): one page, the commands in order to give a repo a new ledger in a nexus: make the nexus, attach it, register the repo, install the plugin, and what a cloud environment needs.
+- [session-start.md](user-guide/session-start.md): how a new Claude Code session starts with tsk, in a cloud session (`add_repo` for the nexus, `tsk ledger status`, `tsk thread next --open`) and in a terminal (liveness files and tmux panes), the one question round for the robot and the work, `tsk ledger init` for a repo with no ledger, and which robots are in use.
+- [nexus-quickstart.md](user-guide/nexus-quickstart.md): one page, the commands in order to give a repo a new ledger in a nexus: make the nexus, attach it, create the repo's ledger with `tsk ledger init`, install the plugins, and what a cloud environment needs.
 - [new-nexus-on-a-clean-machine.md](user-guide/new-nexus-on-a-clean-machine.md): step by step, a new nexus, tsk and the plugin on a clean machine, `tsk nexus add`, `list` and `register-repo`, and a repo's ledger kept in the nexus.
 - [new-cloud-environment.md](user-guide/new-cloud-environment.md): step by step, a Claude cloud environment on claude.ai/code with the `tsk` binary, the plugin and the ledger ready in every session, and the setup script `ops/cloud/setup-environment.sh` that installs `tsk`, `dolt` and `just` with checksums.
 - [robot-commit-signing.md](user-guide/robot-commit-signing.md): step by step, a shared GitHub robot account, its email and SSH signing key, and the cloud environment secret, so a robot commit names the robot and shows Verified. Mission M-TSK-ATTRIB.

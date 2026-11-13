@@ -9,8 +9,10 @@ On a machine with tmux and Homebrew, in the repo you work in:
 ```bash
 brew install jimbarritt/tap/tsk     # or: tsk self-update
 tsk tmux install
-tsk install-plugin claude-cli       # and/or: tsk install-plugin copilot-cli
+claude plugin install tsk@jimbarritt-claude-plugins --scope user
 ```
+
+Install the plugin once, at user scope. For Copilot CLI, run `tsk install-plugin copilot-cli` in the repo instead.
 
 Start a new agent session in a tmux pane. Then:
 
@@ -30,24 +32,29 @@ The command:
 2. Adds a `source-file` line for that file at the end of your tmux config. The config is `$XDG_CONFIG_HOME/tmux/tmux.conf` or `~/.config/tmux/tmux.conf` when one exists, else `~/.tmux.conf`. `--tmux-conf <path>` names another. A second install finds the line and does not add it again.
 3. Loads the settings at once when a tmux server runs.
 
-Then update the plugin in each repo, so that its hooks set the state: `tsk install-plugin claude-cli` or `tsk install-plugin copilot-cli`. Start a new agent session to load the new hooks.
+The plugin's hooks set the state. Install the Claude Code plugin once, at user scope, with `claude plugin install tsk@jimbarritt-claude-plugins --scope user`, and update it with `claude plugin update tsk@jimbarritt-claude-plugins --scope user`. For Copilot CLI, run `tsk install-plugin copilot-cli` in the repo. Start a new agent session to load the new hooks.
+
+Run `tsk tmux install` again after a tsk update that changes the settings. tsk 0.63.0 changed the chooser format to columns.
 
 ## What the chooser shows
 
 ```
-(0) + M-TSK-IDEA: ● Idea capture  Retracted Before Anyone Noticed  tsk
-(1) + M-TSK-SCALE: ◐ Large scale…  Other Robot  tmp
-(2) + notes: root
+(0) + M-TSK-IDEA:         ● Idea capture              Retracted Before Anyone Noticed   tsk
+(1) + M-TSK-SCALE:        ◐ Large scale…              Other Robot                       tmp
+(2) + notes:                                                                            root
 ```
 
 | Field | Source |
 |---|---|
+| The tmux session name, padded to 18 characters | tmux |
 | `●` waits for input, `◐` works, `✗` ended with an error | `@tsk_state`, set by the plugin's hooks |
-| The mission name, cut to 24 characters | `@tsk_mission_name`, set from the thread's mission |
-| The robot name | `@tsk_actor`, set from the actor of the session |
+| The mission name, cut to 24 characters and padded to 24 | `@tsk_mission_name`, set from the thread's mission |
+| The robot name, padded to 32 characters | `@tsk_actor`, set from the actor of the session |
 | The last component of the working directory | tmux |
 
-A session with no agent shows its directory alone.
+The padding lines up the robot and the directory on every line (tsk 0.63.0). It needs tmux 3.2 or later. A config written by an earlier `tsk tmux install` has the format without columns: run `tsk tmux install` again. A session with no agent shows its directory alone, in the same column.
+
+A robot that a tmux pane shows while the pane runs `claude` is taken: the robot question of a new session on this machine does not offer it. See [session-start.md](session-start.md#a-terminal-session).
 
 ## The sidebar
 

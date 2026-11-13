@@ -2,10 +2,13 @@
 
 ## Usage
 
-Run `tsk` from inside any working tree of a repository whose `origin` has a ledger
-ref: `refs/tsk/ledger` for a new ledger, or the branch
+Run `tsk` from inside any working tree of a repository that has a ledger: in an attached
+nexus, or on `origin` as the ref `refs/tsk/ledger` for a new ledger, or the branch
 `refs/heads/tsk/ledger` for one that uses branches (see
-[Which mode a repo uses](../domain/ledger-layout.md#which-mode-a-repo-uses)). The `ledger`, `thread` and `events` commands run in the `tsk`
+[Which mode a repo uses](../domain/ledger-layout.md#which-mode-a-repo-uses)). For a repo
+with no ledger, `tsk ledger status` names the next step, and `tsk ledger init` creates the
+ledger. [session-start.md](session-start.md) describes the first turn of a new Claude Code
+session. The `ledger`, `thread` and `events` commands run in the `tsk`
 client alone, with no daemon. The default ledger backend is Dolt and needs the `dolt` binary, version 2.5.0 or later (see
 [installation.md](installation.md)). The ledger's tables, files and formats are in
 [ledger-layout.md](../domain/ledger-layout.md). Threads, bindings and continuation state
@@ -125,7 +128,7 @@ tsk thread list               # one JSON object per thread, most recently paused
 ```bash
 tsk actor register <name> --kind human|robot   # this session or worktree is <name>; a new name makes the actor
 tsk actor name                                 # the name this session or worktree is registered as, or "no actor registered"
-tsk actor list                                 # every actor, its kind, and the sessions and worktrees registered as it
+tsk actor list                                 # every actor, its kind, its state (free or taken), and the sessions and worktrees registered as it
 ```
 
 **6. Change the ledger:**
