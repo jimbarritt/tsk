@@ -384,6 +384,34 @@ pub fn version_1_context(path: &Path) -> String {
     )
 }
 
+/// The nexus URL in the user config, if one is attached.
+fn attached_nexus() -> Option<String> {
+    let file = crate::config::config_file_from_env()?;
+    crate::config::read_nexus_url(&file).ok().flatten()
+}
+
+/// What a cloud session does when the fetch failed and a nexus is attached: a cloud session
+/// reads only the repositories attached to it, so the agent attaches the nexus repository
+/// with `add_repo` and fetches again. `None` outside a cloud session or with no nexus.
+pub fn nexus_attach_hint(nexus: Option<&str>, remote: bool) -> Option<String> {
+    let nexus = nexus?;
+    if !remote {
+        return None;
+    }
+    let target = crate::ledger::nexus::normalise_url(nexus)
+        .and_then(|url| {
+            let mut parts = url.rsplit('/');
+            let repo = parts.next()?.to_string();
+            let owner = parts.next()?.to_string();
+            Some(format!("owner {}, repo {}", owner, repo))
+        })
+        .unwrap_or_else(|| nexus.to_string());
+    Some(format!(
+        "The nexus {} is attached, and a cloud session can read only the repositories attached to it. Attach the nexus repository now with the add_repo tool ({}, access push), clone it as add_repo says, then run `tsk ledger fetch` and check that `tsk ledger status` shows refs with (nexus). Do this before any other ledger command.",
+        nexus, target
+    ))
+}
+
 pub fn failure_context(error: &str) -> String {
     format!(
         "Warning: the ledger could not be fetched automatically at session start ({}). Run `tsk ledger fetch` manually before reading the missions.",
@@ -693,7 +721,14 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
                 crate::tmux::sync_if_in_tmux(session);
             })
         })
-        .unwrap_or_else(|e| failure_context(&e));
+        .unwrap_or_else(|e| {
+            let mut context = failure_context(&e);
+            if let Some(hint) = nexus_attach_hint(attached_nexus().as_deref(), is_remote()) {
+                context.push(' ');
+                context.push_str(&hint);
+            }
+            context
+        });
     if !cloud_install {
         if let Some(notice) = session_notice() {
             context.push(' ');
@@ -963,6 +998,17 @@ mod tests {
         let warning = upgrade_warning("error: curl failed\nexit 22");
         assert!(warning.contains("(error: curl failed exit 22)"));
         assert!(warning.ends_with("Run `tsk self-update` manually."));
+    }
+
+    #[test]
+    fn nexus_attach_hint_names_the_repository_in_a_cloud_session_only() {
+        let hint = nexus_attach_hint(Some("https://github.com/acme/acme-nexus"), true).unwrap();
+        assert!(hint.contains("owner acme, repo acme-nexus"), "{}", hint);
+        assert!(hint.contains("add_repo"), "{}", hint);
+        assert!(nexus_attach_hint(Some("https://github.com/acme/acme-nexus"), false).is_none());
+        assert!(nexus_attach_hint(None, true).is_none());
+        let local = nexus_attach_hint(Some("/srv/nexus.git"), true).unwrap();
+        assert!(local.contains("(/srv/nexus.git, access push)"), "{}", local);
     }
 
     #[test]
