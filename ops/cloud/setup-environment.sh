@@ -5,10 +5,13 @@ BIN="${BIN:-/usr/local/bin}"
 SETUP_DIR="${SETUP_DIR:-/usr/local/share/tsk-setup}"
 
 # Options, passed by the environment's setup script as
-#   curl -sSfL <this file's URL> | bash -s -- [--use-robot-attribution <email>]
+#   curl -sSfL <this file's URL> | bash -s -- [--use-robot-attribution <email>] [--nexus <url>]
 # --use-robot-attribution <email>: turn on robot commit attribution (M-TSK-ATTRIB) for the
 # sessions of this environment, with <email> as the robot's git email. The environment also
 # needs the secret TSK_ROBOT_SIGNING_KEY. Without the option, attribution stays off.
+# --nexus <url>: attach the nexus at <url> with tsk nexus add, so a repo whose nexus entry
+# says "ledger": "nexus" reads and writes its ledger there. The environment also needs the
+# nexus repo in its repos. Without the option, no nexus is attached.
 # The options go to a file in home, so plugin/hooks/refresh-setup.sh can run this script
 # again with them at session start, when this file on main changes.
 SETUP_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsk/setup"
@@ -16,11 +19,17 @@ mkdir -p "$SETUP_STATE_DIR"
 if [ "$#" -gt 0 ]; then printf '%s\n' "$@"; fi > "$SETUP_STATE_DIR/args"
 
 ROBOT_EMAIL=""
+NEXUS_URL=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --use-robot-attribution)
       [ -n "${2:-}" ] || { echo "--use-robot-attribution needs an email" >&2; exit 1; }
       ROBOT_EMAIL="$2"
+      shift 2
+      ;;
+    --nexus)
+      [ -n "${2:-}" ] || { echo "--nexus needs a URL" >&2; exit 1; }
+      NEXUS_URL="$2"
       shift 2
       ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
@@ -159,6 +168,11 @@ Unverified, and prints commands that reset the author to Claude.
 MD
   grep -qxF '@AGENTS.md' "$HOME/.claude/CLAUDE.md" 2>/dev/null ||
     printf '@AGENTS.md\n' >> "$HOME/.claude/CLAUDE.md"
+fi
+
+# The nexus, with --nexus only. tsk nexus add writes the URL to the user config.
+if [ -n "$NEXUS_URL" ]; then
+  "$BIN/tsk" nexus add "$NEXUS_URL"
 fi
 
 mkdir -p "$SETUP_DIR"
