@@ -298,6 +298,7 @@ impl Fixture {
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
             .env("TSK_NO_UPDATE_CHECK", "1")
+            .env("TSK_NO_PLUGIN_UPDATE", "1")
             .env("TSK_LEDGER_REFS", "branches")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove(SESSION_VAR);
@@ -2629,4 +2630,23 @@ fn session_start_names_the_actor_when_this_instance_is_registered() {
         "{}",
         context
     );
+}
+
+#[test]
+fn actor_remove_deletes_the_actor_and_keeps_the_thread() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    assert_success(&fx.register("Spare Robot", "robot"));
+    fx.tsk(&["thread", "pause", &id, "", "Hand over"]);
+
+    let removed = fx.tsk(&["actor", "remove", "Spare Robot"]);
+    assert_success(&removed);
+    assert_eq!(stdout(&removed), "removed Spare Robot (robot)\n");
+    assert_eq!(fx.actor_name(), "no actor registered\n");
+    assert!(!stdout(&fx.tsk(&["actor", "list", "--porcelain"])).contains("Spare Robot"));
+    assert_eq!(fx.binding(), format!("worktree:{}\n", id));
+
+    let missing = fx.tsk(&["actor", "remove", "Spare Robot"]);
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(stderr(&missing).contains("no actor is named Spare Robot"));
 }

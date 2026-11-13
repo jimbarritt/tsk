@@ -154,6 +154,7 @@ tsk actor register <name> --kind human|robot                          make the a
 tsk actor join <uid> [--primary] [--session <urn>]                    add an actor to this session (or the named one) as supporting, or as primary; local
 tsk actor name                                                        print the name of the primary actor of this session
 tsk actor list [--porcelain|--json] [--open <id>,...]                list the actors: name, kind, state (a robot is free, taken, or unknown in a cloud session without --open), uid, and the instances that ran as each; --json adds the URN and the name history
+tsk actor remove <name>                                               remove an actor: its record, name history, instance rows and session links; threads and pause entries stay; a local write
 tsk session actor [--session <urn>]                                   list the actors of this session: role, name, kind, uid
 tsk ledger id                                                         print the ledger's URN, urn:tsk:ledger:<ledger-id>
                                                                       (tsk mission list <id> --json prints a urn for the mission and for each task, decision and question)

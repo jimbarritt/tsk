@@ -253,6 +253,52 @@ pub enum OpenSessions<'a> {
 /// `tsk thread next --open` with them.
 pub const OPEN_SESSIONS_STEP: &str = "No thread binding was found for this session, and no robot is registered for it. Choose the robot first, from the robots that no open session uses. Call the list_sessions tool of the claude-code-remote server (mine: true, limit: 30), take the id of every session whose session_status is not SESSION_STATUS_ARCHIVED, and run `tsk thread next --open <id>,<id>,...` with them. It prints the robots to offer.";
 
+/// The robots to offer and the robots taken, or `None` in a cloud session with no list of
+/// open sessions yet.
+fn partition_robots<'r>(
+    robots: &'r [Robot],
+    open: OpenSessions,
+) -> Option<(Vec<&'r Robot>, Vec<&'r Robot>)> {
+    Some(match open {
+        OpenSessions::NotAsked => return None,
+        OpenSessions::Listed(ids) => robots.iter().partition(|robot| !robot.is_open(ids)),
+        OpenSessions::Local { open, tmux } => robots
+            .iter()
+            .partition(|robot| !robot.is_open(open) && !tmux.contains(&robot.name)),
+    })
+}
+
+/// The prompt for a session that is bound to a thread and has no robot: which robot this
+/// session is, from the robots no open session uses.
+pub fn robot_only_prompt(thread_id: &str, robots: &[Robot], open: OpenSessions) -> String {
+    let Some((free, taken)) = partition_robots(robots, open) else {
+        return format!(
+            "This session is bound to thread {} and has no robot. Call the list_sessions tool of the claude-code-remote server (mine: true, limit: 30), take the id of every session whose session_status is not SESSION_STATUS_ARCHIVED, and run `tsk thread next --open <id>,<id>,...` with them. It prints the robots to offer.",
+            thread_id
+        );
+    };
+    let taken_part = if taken.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<&str> = taken.iter().map(|robot| robot.name.as_str()).collect();
+        format!(
+            " Taken by an open session, so not offered: {}.",
+            names.join(", ")
+        )
+    };
+    let names: Vec<&str> = free.iter().map(|robot| robot.name.as_str()).collect();
+    format!(
+        "This session is bound to thread {} and has no robot. The robots to offer: {}.{} Use the AskUserQuestion tool to ask which robot this session is: up to three of them and \"Construct a new robot\", with free text open. Then run `tsk actor register \"<name>\" --kind robot`, or /tsk:construct-robot for a new one, and call set_session_title with the Session title line it prints.",
+        thread_id,
+        if names.is_empty() {
+            "none".to_string()
+        } else {
+            names.join(", ")
+        },
+        taken_part
+    )
+}
+
 fn choose_robot_prompt(robots: &[Robot], mission_lines: &[String], open: OpenSessions) -> String {
     let (free, taken): (Vec<&Robot>, Vec<&Robot>) = match open {
         OpenSessions::NotAsked => return OPEN_SESSIONS_STEP.to_string(),
@@ -322,6 +368,47 @@ pub fn robot_first_prompt(
         },
         None => unbound_prompt(mission_lines),
     }
+}
+
+/// The open sessions for the robot choice in this session: the list the agent passed, a
+/// request for one in a cloud session, or this machine's sessions and tmux panes.
+pub fn open_sessions_for(open: Option<&[String]>) -> (Vec<String>, Vec<String>) {
+    if open.is_none() && !super::session_start::is_remote() {
+        (
+            crate::ledger::location::state_root_from_env()
+                .map(|r| crate::live::open_session_ids(&r))
+                .unwrap_or_default(),
+            crate::live::tmux_robots(),
+        )
+    } else {
+        (Vec::new(), Vec::new())
+    }
+}
+
+/// [`robot_only_prompt`] for a bound session with no robot, or `None` when it has a
+/// robot or the ledger has none.
+pub fn bound_robot_prompt(
+    session: &Session,
+    thread_id: &str,
+    open: Option<&[String]>,
+) -> Option<String> {
+    if crate::actor::current(session).ok().flatten().is_some() {
+        return None;
+    }
+    let robots = robots(session.store.as_ref()).ok()?;
+    if robots.is_empty() {
+        return None;
+    }
+    let (local_open, tmux) = open_sessions_for(open);
+    let open = match open {
+        Some(ids) => OpenSessions::Listed(ids),
+        None if super::session_start::is_remote() => OpenSessions::NotAsked,
+        None => OpenSessions::Local {
+            open: &local_open,
+            tmux: &tmux,
+        },
+    };
+    Some(robot_only_prompt(thread_id, &robots, open))
 }
 
 /// [`robot_first_prompt`] for this session, read from its ledger store. `open` lists the
@@ -664,6 +751,20 @@ mod tests {
             "{}",
             text
         );
+    }
+
+    #[test]
+    fn a_bound_session_with_no_robot_is_offered_the_free_robots() {
+        let mut busy = robot("Busy", &[]);
+        busy.instances = vec!["cse_01OPEN".to_string()];
+        let robots = vec![busy, robot("Free", &[])];
+        let open = vec!["session_01OPEN".to_string()];
+        let text = robot_only_prompt("e6b3c55c", &robots, OpenSessions::Listed(&open));
+        assert!(text.starts_with("This session is bound to thread e6b3c55c and has no robot."));
+        assert!(text.contains("The robots to offer: Free."), "{}", text);
+        assert!(text.contains("not offered: Busy."), "{}", text);
+        let ask = robot_only_prompt("e6b3c55c", &robots, OpenSessions::NotAsked);
+        assert!(ask.contains("tsk thread next --open"), "{}", ask);
     }
 
     #[test]

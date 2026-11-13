@@ -562,6 +562,13 @@ fn context_after_fetch(
         thread_text.push(' ');
         thread_text.push_str(&no_mission);
     }
+    // A bound session with no robot is asked for one, from the robots no open session uses.
+    if let Some(binding) = &binding {
+        if let Some(prompt) = super::binding::bound_robot_prompt(session, binding.thread_id(), None)
+        {
+            push_part(&mut thread_text, &prompt);
+        }
+    }
     // The signing set-up was written before the fetch (T-18): `run` passes its result.
     if let Some(line) = signing_context(signing) {
         push_part(&mut thread_text, &line);
@@ -643,7 +650,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.62";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.63";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -670,6 +677,26 @@ pub fn plugin_version_note(given: Option<&str>, expected: &str) -> Option<String
         "The tsk plugin hooks loaded in this session are {}; this tsk expects {}. Session start installed the new plugin, and Claude Code loads plugins once, when its process starts: a new session uses the new version (in a terminal, /plugin update tsk and a restart). Until then a hook or skill can describe an older command set.",
         given, expected
     ))
+}
+
+/// The marketplace and the plugin key of the user-scope install.
+pub const PLUGIN_MARKETPLACE: &str = "jimbarritt-claude-plugins";
+pub const PLUGIN_KEY: &str = "tsk@jimbarritt-claude-plugins";
+
+/// Start a detached `claude plugin marketplace update` and `claude plugin update`, with
+/// no output. False when the shell cannot be started.
+fn start_plugin_update() -> bool {
+    let script = format!(
+        "command -v claude >/dev/null 2>&1 || exit 0; claude plugin marketplace update {} >/dev/null 2>&1; claude plugin update {} --scope user >/dev/null 2>&1",
+        PLUGIN_MARKETPLACE, PLUGIN_KEY
+    );
+    std::process::Command::new("sh")
+        .args(["-c", &script])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .is_ok()
 }
 
 pub const REMOTE_VAR: &str = "CLAUDE_CODE_REMOTE";
@@ -819,6 +846,11 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
     {
         context.push(' ');
         context.push_str(&note);
+        // A terminal has no set-up script to update the plugin, so session start starts
+        // the update itself, in the background, for the next session to load.
+        if std::env::var_os("TSK_NO_PLUGIN_UPDATE").is_none() && start_plugin_update() {
+            context.push_str(" Session start started `claude plugin update tsk` in the background: the next session loads the new version.");
+        }
     }
     for warning in warnings {
         context.push(' ');

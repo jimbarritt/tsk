@@ -2936,6 +2936,23 @@ impl LedgerStore for DoltStore {
         ))
     }
 
+    fn actor_remove(&self, name: &str, uid: Option<&str>) -> Result<(), String> {
+        let mut sql = String::new();
+        if let Some(uid) = uid {
+            sql.push_str(&format!(
+                "delete from session_actors where actor_uid = {u};\n\
+                 delete from actor_names where actor_uid = {u};\n",
+                u = lit(uid)
+            ));
+        }
+        sql.push_str(&format!(
+            "delete from instances where actor_name = {n};\n\
+             delete from actors where name = {n};",
+            n = lit(name)
+        ));
+        self.write_bindings(&sql)
+    }
+
     fn sessions_list(&self) -> Result<Vec<SessionRow>, String> {
         let rows = match self.db()?.rows(SESSIONS_QUERY) {
             Ok(rows) => rows,
