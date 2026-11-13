@@ -201,6 +201,10 @@ first. Run it again after each action, until \`Local\` shows a ledger. If \`add_
 refused, report the refusal and stop. If \`Next\` names \`tsk ledger init\`, run the
 \`/tsk:init-ledger\` skill.
 
+Once \`Local\` shows a ledger, run \`tsk thread next\` in the same turn and do what it says:
+it asks which robot this session is, then which thread to resume. Do this before you
+answer the first message.
+
 MD
   python3 - "$HOME/.claude/settings.json" "$NEXUS_URL" <<'PY'
 import json, os, sys

@@ -1863,7 +1863,7 @@ Standard output on success:
    `tsk guide import`.
 5. When the command is given `--plugin-version <semver>` and that version is lower than
    `EXPECTED_PLUGIN_VERSION`, the plugin version required by this binary, the sentence
-   `The tsk plugin loaded in this session is <given>; this tsk expects <expected>. Update the plugin (Claude Code: /plugin update tsk; or start a new session), because its skills describe an older command set.` An equal or higher version, an absent flag and a
+   `The tsk plugin hooks loaded in this session are <given>; this tsk expects <expected>. Session start installed the new plugin, and Claude Code loads plugins once, when its process starts: a new session uses the new version (in a terminal, /plugin update tsk and a restart). Until then a hook or skill can describe an older command set.` An equal or higher version, an absent flag and a
    value that is not `major.minor.patch` add nothing. The plugin's `session-start.sh`
    reads its own version from `.claude-plugin/plugin.json` and passes it.
 

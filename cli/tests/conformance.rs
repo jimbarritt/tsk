@@ -3469,6 +3469,36 @@ mod cases {
         assert_eq!(result["task"]["description"], "Old task");
     }
 
+    pub fn thread_next_asks_for_the_robot_first_then_names_the_binding() {
+        let fx = Fixture::fetched();
+        let a = fx.a();
+        let b = fx.b();
+        fx.ok(&b, &["ledger", "fetch"]);
+        fx.ok(&b, &["mission", "create", "M-REC", "Recorded mission"]);
+        fx.ok(&b, &["actor", "register", "Robot Bee", "--kind", "robot"]);
+        let id = fx.started(&b, &["thread", "start", "M-REC"]);
+        fx.ok(&b, &["ledger", "push", "Publish"]);
+        fx.ok(&a, &["ledger", "fetch"]);
+
+        let unbound = fx.ok(&a, &["thread", "next"]);
+        assert!(unbound.contains("Choose the robot first."), "{}", unbound);
+        assert!(
+            unbound.contains(&format!("Robot Bee\t{} M-REC", id)),
+            "{}",
+            unbound
+        );
+        assert!(unbound.contains("M-REC\t"), "{}", unbound);
+
+        let bound = fx.ok(&b, &["thread", "next"]);
+        assert_eq!(
+            bound,
+            format!(
+                "bound:{}\nThis session is bound to thread {} (mission M-REC). Continue the work.\n",
+                id, id
+            )
+        );
+    }
+
     pub fn session_start_says_a_bound_thread_with_no_mission_has_no_tasks() {
         let fx = Fixture::fetched();
         let a = fx.a();
@@ -5156,6 +5186,7 @@ conformance!(
     session_start_carries_the_latest_entry_so_the_agent_can_answer_at_once,
     thread_resume_carries_the_mission_name_and_the_task_description,
     thread_resume_reads_the_task_in_the_mission_its_entry_names,
+    thread_next_asks_for_the_robot_first_then_names_the_binding,
     thread_commands_carry_local_record_and_document_changes_to_the_remote,
     status_and_discard_report_and_drop_local_changes,
     status_counts_commits_ahead_and_behind_origin,
