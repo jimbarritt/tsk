@@ -135,6 +135,7 @@ tsk ledger doc mv <ref> <path>           rename a document, keep its id, update 
 tsk ledger doc path <ref>                print the absolute path of a document's file
 tsk ledger status [--local] [--porcelain]  print Local (what is not pushed) and Origin (ahead or behind); --local makes no network call and prints Origin as not checked; --porcelain prints tab-separated facts for scripts; read-only
 tsk ledger init --nexus|--repo [--prefix P]  create the ledger of a repo that has none, add the repo to the nexus when one is attached, and push it
+tsk thread next                          print bound:<thread-id> for a bound session, else the robot-first question the Stop hook asks; run it on the first turn once the ledger is fetched
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
 
 tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push (the claim)

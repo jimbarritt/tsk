@@ -95,6 +95,34 @@ pub fn claim(dir: &Path, input: &HookInput, now: SystemTime) -> Claim {
     }
 }
 
+/// True when `dir` holds a claim of this session ID from another source: an earlier
+/// `SessionStart` of the same session, such as the one before a context reload.
+pub fn has_earlier_claim(dir: &Path, input: &HookInput) -> bool {
+    let (Some(own), Some(session_id)) = (input.claim_name(), input.session_id.as_deref()) else {
+        return false;
+    };
+    let prefix = format!("{}.", session_id);
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            name.starts_with(&prefix) && name != own
+        })
+    })
+}
+
+/// Set by `run` when this session ID started before, from another source.
+static LATER_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The context of a later start of a session that is bound: the binding only, because the
+/// first start gave the full context.
+pub fn later_start_context(thread_id: &str, mission: Option<&str>) -> String {
+    format!(
+        "This session is bound to thread {}{}, and its first session start gave the thread's context. Continue the work. Do not run /tsk:resume-thread.",
+        thread_id,
+        mission.map(|m| format!(" (mission {})", m)).unwrap_or_default()
+    )
+}
+
 fn create_claim(path: &Path) -> std::io::Result<()> {
     std::fs::OpenOptions::new()
         .write(true)
@@ -565,6 +593,20 @@ fn context_after_fetch(
             push_part(&mut thread_text, &note);
         }
     }
+    if LATER_START.load(std::sync::atomic::Ordering::SeqCst) {
+        if let Some(binding) = &binding {
+            let mut context = later_start_context(binding.thread_id(), title_mission.as_deref());
+            if let Err(e) = export_to_env_file(&outcome.path) {
+                context.push_str(&format!(
+                    " WARNING: {} was not exported ({}); use the path {}.",
+                    LEDGER_WT_VAR,
+                    e,
+                    outcome.path.display()
+                ));
+            }
+            return Ok(context);
+        }
+    }
     let mut context = fetched_context(
         &outcome.path,
         &read_hint,
@@ -597,7 +639,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.56";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.57";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -621,7 +663,7 @@ pub fn plugin_version_note(given: Option<&str>, expected: &str) -> Option<String
         return None;
     }
     Some(format!(
-        "The tsk plugin loaded in this session is {}; this tsk expects {}. Update the plugin (Claude Code: /plugin update tsk; or start a new session), because its skills describe an older command set.",
+        "The tsk plugin hooks loaded in this session are {}; this tsk expects {}. Session start installed the new plugin, and Claude Code loads plugins once, when its process starts: a new session uses the new version (in a terminal, /plugin update tsk and a restart). Until then a hook or skill can describe an older command set.",
         given, expected
     ))
 }
@@ -683,9 +725,12 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
     let _ = std::io::stdin().read_to_end(&mut bytes);
     let input = HookInput::parse(&bytes);
     if let Ok(state_root) = state_root_from_env() {
-        if claim(&state_root.join(CLAIM_DIR), &input, SystemTime::now()) == Claim::Duplicate {
+        let dir = state_root.join(CLAIM_DIR);
+        let earlier = has_earlier_claim(&dir, &input);
+        if claim(&dir, &input, SystemTime::now()) == Claim::Duplicate {
             return 0;
         }
+        LATER_START.store(earlier, std::sync::atomic::Ordering::SeqCst);
     }
     // With the server switch on, a dead or stale server (a container that woke from
     // hibernation, say) is replaced now, in the background, so the first command finds a
@@ -763,6 +808,33 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
 mod tests {
     use super::super::binding::UNBOUND_PROMPT;
     use super::*;
+
+    #[test]
+    fn an_earlier_claim_is_one_of_the_same_session_from_another_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = |source: &str| HookInput {
+            session_id: Some("abc".to_string()),
+            source: Some(source.to_string()),
+        };
+        let now = SystemTime::now();
+        assert!(!has_earlier_claim(dir.path(), &input("startup")));
+        assert_eq!(claim(dir.path(), &input("startup"), now), Claim::First);
+        assert!(!has_earlier_claim(dir.path(), &input("startup")));
+        assert!(has_earlier_claim(dir.path(), &input("resume")));
+        let other = HookInput {
+            session_id: Some("abcd".to_string()),
+            source: Some("resume".to_string()),
+        };
+        assert!(!has_earlier_claim(dir.path(), &other));
+    }
+
+    #[test]
+    fn a_later_start_names_the_thread_and_says_not_to_resume() {
+        assert_eq!(
+            later_start_context("e6b3c55c", Some("M-TSK-ENV")),
+            "This session is bound to thread e6b3c55c (mission M-TSK-ENV), and its first session start gave the thread's context. Continue the work. Do not run /tsk:resume-thread."
+        );
+    }
     use std::path::PathBuf;
 
     fn no_pending() -> PendingNote {
@@ -974,7 +1046,7 @@ mod tests {
     fn plugin_version_note_fires_only_for_an_older_plugin() {
         assert_eq!(
             plugin_version_note(Some("0.3.11"), "0.3.12").as_deref(),
-            Some("The tsk plugin loaded in this session is 0.3.11; this tsk expects 0.3.12. Update the plugin (Claude Code: /plugin update tsk; or start a new session), because its skills describe an older command set.")
+            Some("The tsk plugin hooks loaded in this session are 0.3.11; this tsk expects 0.3.12. Session start installed the new plugin, and Claude Code loads plugins once, when its process starts: a new session uses the new version (in a terminal, /plugin update tsk and a restart). Until then a hook or skill can describe an older command set.")
         );
         assert!(plugin_version_note(Some("0.3.9"), "0.3.10").is_some());
         assert!(plugin_version_note(Some("0.2.99"), "0.3.0").is_some());

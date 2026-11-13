@@ -1785,7 +1785,8 @@ fn session_start_warns_about_an_older_plugin_in_both_formats() {
     assert_success(&output);
     let context = session_context(&output);
     assert!(
-        context.contains("The tsk plugin loaded in this session is 0.0.1; this tsk expects "),
+        context
+            .contains("The tsk plugin hooks loaded in this session are 0.0.1; this tsk expects "),
         "{}",
         context
     );
@@ -1802,7 +1803,7 @@ fn session_start_warns_about_an_older_plugin_in_both_formats() {
     assert!(value["additionalContext"]
         .as_str()
         .unwrap()
-        .contains("The tsk plugin loaded in this session is 0.0.1;"));
+        .contains("The tsk plugin hooks loaded in this session are 0.0.1;"));
 
     let newer = session_start_with(
         &fx,
