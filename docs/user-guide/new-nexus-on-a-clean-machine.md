@@ -144,7 +144,7 @@ entry to `nexus.json`, and commits and pushes it with the machine's git credenti
 prints the entry and the next step:
 
 ```
-registered in territory work: {"id":"work-api","ledger":"nexus","url":"<origin url>"}
+registered in territory work: {"id":"work-api","url":"<origin url>","ledger":"nexus","prefix":"<PREFIX>"}
 pushed <commit> to refs/heads/main of <nexus url>
 next: run tsk ledger fetch in this repo
 ```

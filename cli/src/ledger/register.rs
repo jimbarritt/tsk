@@ -698,6 +698,50 @@ mod tests {
         assert_eq!(text, "{\n  \"version\": 1\n}\n");
     }
 
+    const HAND_ORDERED: &str = r#"{
+  "version": 1,
+  "owner": "acme",
+  "territories": [
+    {
+      "name": "Work",
+      "id": "work",
+      "repos": [
+        {
+          "url": "https://example.test/acme/billing",
+          "id": "billing",
+          "ledger": "nexus"
+        }
+      ],
+      "colour": "blue"
+    },
+    {
+      "id": "home",
+      "name": "Home",
+      "repos": []
+    }
+  ],
+  "notes": "kept"
+}
+"#;
+
+    #[test]
+    fn render_keeps_the_key_order_of_the_file_and_appends_the_new_entry() {
+        let mut doc: Value = serde_json::from_str(HAND_ORDERED).unwrap();
+        assert_eq!(render(&doc).unwrap(), HAND_ORDERED);
+        add_entry(
+            &mut doc,
+            &url_entry("work-api", "https://example.test/acme/work-api"),
+            &territory("work"),
+        )
+        .unwrap();
+        let expected = HAND_ORDERED.replace(
+            "          \"ledger\": \"nexus\"\n        }\n      ],",
+            "          \"ledger\": \"nexus\"\n        },\n        {\n          \"id\": \"work-api\",\n          \"url\": \"https://example.test/acme/work-api\",\n          \"ledger\": \"nexus\"\n        }\n      ],",
+        );
+        assert_ne!(expected, HAND_ORDERED);
+        assert_eq!(render(&doc).unwrap(), expected);
+    }
+
     #[test]
     fn parses_the_default_branch_from_ls_remote() {
         let listing =

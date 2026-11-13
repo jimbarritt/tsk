@@ -435,7 +435,7 @@ mod tests {
         assert_eq!(
             outcome_text(&outcome, &work_api(), "https://example.test/o/nexus"),
             "created territory work\n\
-             registered in territory work: {\"id\":\"work-api\",\"ledger\":\"nexus\",\"url\":\"https://example.test/acme/work-api\"}\n\
+             registered in territory work: {\"id\":\"work-api\",\"url\":\"https://example.test/acme/work-api\",\"ledger\":\"nexus\"}\n\
              pushed abc123 to refs/heads/main of https://example.test/o/nexus\n\
              next: run tsk ledger fetch in this repo\n"
         );

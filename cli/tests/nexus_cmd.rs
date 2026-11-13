@@ -390,6 +390,61 @@ fn register_repo_adds_the_origin_entry_commits_and_pushes() {
     );
 }
 
+const HAND_ORDERED: &str = r#"{
+  "version": 1,
+  "owner": "acme",
+  "territories": [
+    {
+      "name": "Work",
+      "id": "work",
+      "repos": [
+        {
+          "url": "https://example.test/acme/billing",
+          "id": "billing",
+          "ledger": "nexus",
+          "note": "keep"
+        }
+      ],
+      "colour": "blue"
+    },
+    {
+      "id": "home",
+      "name": "Home",
+      "repos": []
+    }
+  ],
+  "notes": "kept"
+}
+"#;
+
+#[test]
+fn register_repo_keeps_the_key_order_of_nexus_json_and_appends_the_entry() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(HAND_ORDERED);
+    fx.attach();
+
+    let output = fx.register(&["--territory", "work"]);
+
+    assert_success(&output);
+    let expected = HAND_ORDERED.replace(
+        "          \"note\": \"keep\"\n        }\n      ],",
+        &format!(
+            "          \"note\": \"keep\"\n        }},\n        {{\n          \"id\": \"work-api\",\n          \"url\": \"{}\",\n          \"ledger\": \"nexus\",\n          \"prefix\": \"WRK\"\n        }}\n      ],",
+            ORIGIN_URL
+        ),
+    );
+    assert_ne!(expected, HAND_ORDERED);
+    assert_eq!(fx.nexus_json(), expected);
+    assert!(
+        stdout(&output).contains(&format!(
+            "registered in territory work: {{\"id\":\"work-api\",\"url\":\"{}\",\"ledger\":\"nexus\",\"prefix\":\"WRK\"}}\n",
+            ORIGIN_URL
+        )),
+        "{}",
+        stdout(&output)
+    );
+}
+
 #[test]
 fn register_repo_twice_prints_already_registered_without_a_commit() {
     let fx = Fixture::new();

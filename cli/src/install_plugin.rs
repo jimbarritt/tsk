@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use clap::{Args, ValueEnum};
+use serde_json::{json, Map, Value};
 
 pub const CLAUDE_BIN_VAR: &str = "TSK_CLAUDE_BIN";
 pub const DEFAULT_MARKETPLACE_SOURCE: &str = "jimbarritt/claude-plugins";
@@ -160,159 +161,44 @@ pub const HOOK_COMMAND: &str = "tsk thread session-start --install-plugin claude
 const HOOK_MARKER: &str = "tsk thread session-start";
 pub const SETTINGS_PATH: &str = ".claude/settings.json";
 
-/// A JSON value whose objects keep their key order. serde_json's `preserve_order`
-/// feature would change the key order of every other `Value` the binary prints or
-/// writes, so the settings merge keeps its own.
-#[derive(Debug, Clone, PartialEq)]
-enum Ordered {
-    Null,
-    Bool(bool),
-    Number(serde_json::Number),
-    Text(String),
-    List(Vec<Ordered>),
-    Object(Vec<(String, Ordered)>),
-}
-
-impl<'de> serde::Deserialize<'de> for Ordered {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Ordered, D::Error> {
-        struct Visit;
-        impl<'de> serde::de::Visitor<'de> for Visit {
-            type Value = Ordered;
-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("any JSON value")
-            }
-            fn visit_unit<E>(self) -> Result<Ordered, E> {
-                Ok(Ordered::Null)
-            }
-            fn visit_bool<E>(self, v: bool) -> Result<Ordered, E> {
-                Ok(Ordered::Bool(v))
-            }
-            fn visit_i64<E>(self, v: i64) -> Result<Ordered, E> {
-                Ok(Ordered::Number(v.into()))
-            }
-            fn visit_u64<E>(self, v: u64) -> Result<Ordered, E> {
-                Ok(Ordered::Number(v.into()))
-            }
-            fn visit_f64<E>(self, v: f64) -> Result<Ordered, E> {
-                Ok(serde_json::Number::from_f64(v).map_or(Ordered::Null, Ordered::Number))
-            }
-            fn visit_str<E>(self, v: &str) -> Result<Ordered, E> {
-                Ok(Ordered::Text(v.to_string()))
-            }
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                self,
-                mut seq: A,
-            ) -> Result<Ordered, A::Error> {
-                let mut items = Vec::new();
-                while let Some(item) = seq.next_element()? {
-                    items.push(item);
-                }
-                Ok(Ordered::List(items))
-            }
-            fn visit_map<A: serde::de::MapAccess<'de>>(
-                self,
-                mut map: A,
-            ) -> Result<Ordered, A::Error> {
-                let mut entries = Vec::new();
-                while let Some(entry) = map.next_entry()? {
-                    entries.push(entry);
-                }
-                Ok(Ordered::Object(entries))
-            }
-        }
-        deserializer.deserialize_any(Visit)
-    }
-}
-
-impl serde::Serialize for Ordered {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::{SerializeMap, SerializeSeq};
-        match self {
-            Ordered::Null => serializer.serialize_unit(),
-            Ordered::Bool(v) => serializer.serialize_bool(*v),
-            Ordered::Number(v) => v.serialize(serializer),
-            Ordered::Text(v) => serializer.serialize_str(v),
-            Ordered::List(items) => {
-                let mut seq = serializer.serialize_seq(Some(items.len()))?;
-                for item in items {
-                    seq.serialize_element(item)?;
-                }
-                seq.end()
-            }
-            Ordered::Object(entries) => {
-                let mut map = serializer.serialize_map(Some(entries.len()))?;
-                for (key, value) in entries {
-                    map.serialize_entry(key, value)?;
-                }
-                map.end()
-            }
-        }
-    }
-}
-
-impl Ordered {
-    fn text(value: &str) -> Ordered {
-        Ordered::Text(value.to_string())
-    }
-
-    fn get(&self, key: &str) -> Option<&Ordered> {
-        match self {
-            Ordered::Object(entries) => entries.iter().find(|(k, _)| k == key).map(|(_, v)| v),
-            _ => None,
-        }
-    }
-}
-
-/// The entry for `key` in an object, added with `default` when absent.
-fn slot<'a>(
-    entries: &'a mut Vec<(String, Ordered)>,
-    key: &str,
-    default: Ordered,
-) -> &'a mut Ordered {
-    let index = match entries.iter().position(|(k, _)| k == key) {
-        Some(index) => index,
-        None => {
-            entries.push((key.to_string(), default));
-            entries.len() - 1
-        }
-    };
-    &mut entries[index].1
-}
-
 /// Adds the repo's `SessionStart` hook to the text of a settings file. Returns `None`
 /// when a `SessionStart` command already contains `tsk thread session-start`. Keeps
 /// every other key and hook entry, in their order.
 pub fn merge_hook(existing: Option<&str>) -> Result<Option<String>, String> {
     let bad = |what: &str| format!("error: {} is malformed: {}", SETTINGS_PATH, what);
     let mut root = match existing.map(str::trim).filter(|t| !t.is_empty()) {
-        None => Ordered::Object(Vec::new()),
-        Some(text) => serde_json::from_str::<Ordered>(text).map_err(|e| bad(&e.to_string()))?,
+        None => Value::Object(Map::new()),
+        Some(text) => serde_json::from_str::<Value>(text).map_err(|e| bad(&e.to_string()))?,
     };
-    let Ordered::Object(top) = &mut root else {
-        return Err(bad("the top level is not an object"));
-    };
-    let Ordered::Object(hooks) = slot(top, "hooks", Ordered::Object(Vec::new())) else {
-        return Err(bad("\"hooks\" is not an object"));
-    };
-    let Ordered::List(session_start) = slot(hooks, "SessionStart", Ordered::List(Vec::new()))
-    else {
-        return Err(bad("\"hooks.SessionStart\" is not an array"));
-    };
+    let top = root
+        .as_object_mut()
+        .ok_or_else(|| bad("the top level is not an object"))?;
+    let hooks = top
+        .entry("hooks")
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| bad("\"hooks\" is not an object"))?;
+    let session_start = hooks
+        .entry("SessionStart")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| bad("\"hooks.SessionStart\" is not an array"))?;
     let present = session_start.iter().any(|entry| {
-        matches!(entry.get("hooks"), Some(Ordered::List(inner)) if inner.iter().any(|hook| {
-            matches!(hook.get("command"), Some(Ordered::Text(c)) if c.contains(HOOK_MARKER))
-        }))
+        entry
+            .get("hooks")
+            .and_then(Value::as_array)
+            .is_some_and(|inner| {
+                inner.iter().any(|hook| {
+                    hook.get("command")
+                        .and_then(Value::as_str)
+                        .is_some_and(|c| c.contains(HOOK_MARKER))
+                })
+            })
     });
     if present {
         return Ok(None);
     }
-    session_start.push(Ordered::Object(vec![(
-        "hooks".to_string(),
-        Ordered::List(vec![Ordered::Object(vec![
-            ("type".to_string(), Ordered::text("command")),
-            ("command".to_string(), Ordered::text(HOOK_COMMAND)),
-        ])]),
-    )]));
+    session_start.push(json!({"hooks": [{"type": "command", "command": HOOK_COMMAND}]}));
     let mut text = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
     text.push('\n');
     Ok(Some(text))

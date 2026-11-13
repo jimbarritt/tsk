@@ -1255,7 +1255,11 @@ the new entry. When the repo's entry exists without a prefix, registering again 
   commits nothing. The same `url` under another ID, or the same ID for another repo, stops
   with an error.
 - The command rewrites `nexus.json` from its parsed form, pretty printed with a trailing
-  newline. Every field is kept. Object keys are in alphabetical order.
+  newline. Every field is kept, and object keys keep the order the file has, so the diff of
+  the commit holds only the change. A new entry is the last of its territory's `repos`, with
+  its keys in the order `id`, `url` or `local`, `ledger`, `ledger_refs`, `prefix`. The
+  binary builds serde_json with `preserve_order` for this, so every JSON object it prints
+  keeps the order of its source.
 
 Entries can still be written by hand. Automatic transition of an entry from `local` to
 `url` on the first push is not implemented.
