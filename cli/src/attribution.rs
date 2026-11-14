@@ -929,6 +929,10 @@ fn resolve_ledger_identity() -> Result<Option<RobotIdentity>, String> {
     if settings.identity != Identity::Robot {
         return Ok(None);
     }
+    read_robot_identity(&repo).map(Some)
+}
+
+fn read_robot_identity(repo: &crate::ledger::location::Repo) -> Result<RobotIdentity, String> {
     let read = |key: &str| -> Option<String> {
         let (_, output) = repo
             .git
@@ -960,13 +964,13 @@ fn resolve_ledger_identity() -> Result<Option<RobotIdentity>, String> {
         );
     };
     let program = read("gpg.ssh.program").unwrap_or_else(|| DEFAULT_SIGNING_PROGRAM.to_string());
-    Ok(Some(RobotIdentity {
+    Ok(RobotIdentity {
         name,
         email,
         key_file,
         signers_file,
         program,
-    }))
+    })
 }
 
 /// A git handle for a command that creates commits in a ledger worktree, with the `-c`
@@ -975,10 +979,17 @@ fn resolve_ledger_identity() -> Result<Option<RobotIdentity>, String> {
 pub fn ledger_git(
     wt: &crate::ledger::git::Git,
 ) -> Result<(crate::ledger::git::Git, Vec<String>), String> {
-    Ok(match ledger_identity()? {
+    Ok(git_for(wt, ledger_identity()?))
+}
+
+fn git_for(
+    wt: &crate::ledger::git::Git,
+    identity: Option<RobotIdentity>,
+) -> (crate::ledger::git::Git, Vec<String>) {
+    match identity {
         Some(identity) => (wt.with_env(identity.git_env()), identity.git_options()),
         None => (wt.clone(), Vec::new()),
-    })
+    }
 }
 
 /// Whether this worktree holds the signing settings that `set_up_signing` writes.
@@ -1771,5 +1782,85 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "key\n");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn git_in(dir: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git {:?}: {:?}", args, output);
+    }
+
+    fn fake_program(dir: &Path) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let log = dir.join("fake-signer.log");
+        let program = dir.join("fake-signer");
+        std::fs::write(
+            &program,
+            format!("#!/bin/sh\necho \"$@\" >> {}\nexit 1\n", log.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (program, log)
+    }
+
+    fn code_worktree_with_signing(dir: &Path, program: &Path, key: &str) {
+        git_in(dir, &["init", "-q", "-b", "main"]);
+        git_in(
+            dir,
+            &["config", "--local", "extensions.worktreeConfig", "true"],
+        );
+        for (name, value) in [
+            ("user.name", "Robot"),
+            ("user.email", "robot@example.test"),
+            ("gpg.format", "ssh"),
+            ("gpg.ssh.program", program.to_str().unwrap()),
+            ("user.signingkey", key),
+            ("gpg.ssh.allowedSignersFile", "/signers"),
+            ("commit.gpgsign", "true"),
+            ("tsk.attribution", "robot"),
+        ] {
+            git_in(dir, &["config", "--worktree", name, value]);
+        }
+    }
+
+    fn ledger_commit_signs_with_the_worktree_program(key: &str) {
+        let code = tempfile::tempdir().unwrap();
+        let ledger = tempfile::tempdir().unwrap();
+        let tools = tempfile::tempdir().unwrap();
+        let (program, log) = fake_program(tools.path());
+        code_worktree_with_signing(code.path(), &program, key);
+        git_in(ledger.path(), &["init", "-q", "-b", "main"]);
+        std::fs::write(ledger.path().join("a"), "a").unwrap();
+        git_in(ledger.path(), &["add", "-A"]);
+
+        let repo = crate::ledger::location::Repo::discover(code.path()).unwrap();
+        let identity = read_robot_identity(&repo).unwrap();
+        assert_eq!(identity.program, program.to_str().unwrap());
+        assert_eq!(identity.key_file, key);
+
+        let wt = crate::ledger::git::Git::new(ledger.path());
+        let (git, mut args) = git_for(&wt, Some(identity));
+        args.extend(["commit", "--quiet", "-m", "x"].map(String::from));
+        assert!(git.run(args).is_err());
+        let recorded = std::fs::read_to_string(&log).unwrap();
+        assert!(recorded.contains("-Y sign"), "{recorded}");
+    }
+
+    #[test]
+    fn a_ledger_commit_signs_with_the_program_of_the_code_worktree_in_key_file_mode() {
+        let key = tempfile::tempdir().unwrap();
+        let file = key.path().join("key");
+        std::fs::write(&file, "k").unwrap();
+        ledger_commit_signs_with_the_worktree_program(file.to_str().unwrap());
+    }
+
+    #[test]
+    fn a_ledger_commit_signs_with_the_program_of_the_code_worktree_in_agent_mode() {
+        ledger_commit_signs_with_the_worktree_program(
+            "key::ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPUBLIC",
+        );
     }
 }
