@@ -108,13 +108,14 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk thread start [<mission-id>]` | Mints and binds a thread, for a mission or with none | Writes and pushes |
 | `tsk thread set mission <mission-id> [<thread-id>]` | Attaches a mission to a thread, or changes it; `--none` removes it | Local store only (0.24.0) |
 | `tsk thread pause` | Appends a continuation state entry | Writes and pushes |
-| `tsk thread resume` | Loads a thread's latest continuation state entry | Binds in the local store only (0.24.0) |
+| `tsk thread resume [--take-over]` | Loads a thread's latest continuation state entry. A thread that another session holds is refused, and the message names the holder. `--take-over` resumes it anyway | Binds in the local store only (0.24.0) |
+| `tsk thread list` | Prints one JSON object per thread. `state` is `paused` or `held`, and `holder` names the session that holds the thread, or is null | None beyond a fetch |
 | `tsk thread detach` | Removes this session's binding | Local store only (0.24.0) |
 | `tsk thread binding` | Prints the current binding, if any, and the actor this session or worktree is registered as | None beyond a fetch |
 | `tsk thread title` | Prints the session title: `<mission ID>: <actor name>`, `NO-MISSION: <actor name>`, or the mission ID alone. Exit 1 with neither | None. It reads the ledger store as it is and never fetches |
 | `tsk actor register <name> --kind human\|robot` | Registers this session or worktree as an actor; needs no thread | Local store only (0.26.0) |
 | `tsk actor name` | Prints the actor this session or worktree is registered as | None |
-| `tsk actor list [--open <id>,...]` | Lists the actors with their kind and state (`free`, `taken (tmux pane)`, `taken (session <id>)`, `unknown`), and the sessions and worktrees registered as each | None (state 0.63.0) |
+| `tsk actor list` | Lists the actors with their kind, state (`free`, or `busy (holds <thread id> <mission>)` while the robot holds a thread), missions, and the sessions and worktrees registered as each | None (state 0.63.0) |
 | `tsk thread next [--open <id>,...]` | Prints `bound:<thread-id>` for a bound session, else the robot question. `--open` takes the cloud sessions that are not archived | None. Never fetches (0.58.0) |
 | `tsk thread guard` | Stop hook check for a binding; starts a background publish when the store holds unpushed changes | None. Never fetches |
 | `tsk thread session-start` | SessionStart hook: fetches the ledger, exports `$TSK_LEDGER_WT` | Updates the ledger store |
@@ -176,7 +177,7 @@ a session ID and source does the work, and a second run exits with no output.
    from an older tsk becomes a row the first time a command resolves it.
 3. Tells the agent what to do next: run `/resume-thread <id>` when a binding is
    found. With no binding, it prints the robot question: which robot this session is, from
-   the robots that no open session uses, and what to work on. `tsk thread next` prints the
+   every robot, the free ones first, and what to work on. `tsk thread next` prints the
    same question, and the `Stop` hook prints it after each turn until the session has a
    binding or runs `tsk thread skip`.
 
@@ -212,6 +213,20 @@ a cloud session and in a terminal.
 
 To pick up someone else's thread, name it explicitly: `/resume-thread <their-id>`. The
 warning tells you who else has worked it.
+
+A thread has one open session at a time (ADR 0032). A thread is held when its latest binding
+is later than its latest pause, and paused otherwise. Any session resumes a paused thread. A
+resume of a held thread exits with status 1 and names the holder. If the holder no longer
+runs, `tsk thread resume <thread-id> --take-over` takes the thread over. The
+`/tsk:resume-thread` skill asks you first, and runs it only on yes. A robot is an identity
+and works in many sessions at once, so a busy robot is marked in the robot list and not
+hidden. The session then takes a new thread or no thread. See
+[ADR 0032](../adr/0032-a-thread-has-one-open-session-and-a-robot-works-in-many.md) and
+[session-start.md](session-start.md).
+
+`tsk thread next` and the session start tell a bound session that another session holds its
+thread, and not to work it. A pause entry with no timestamp (written before timestamps) counts as
+a pause at 2026-11-14T00:00:00Z, so a binding older than that does not hold the thread.
 
 ## Rules that matter
 

@@ -6,10 +6,12 @@ description: Load a tsk thread's latest continuation state entry and pick the wo
 Backs the `/tsk:resume-thread <thread-id>` command. This skill is the agent-facing wrapper
 around `tsk thread resume`.
 
-Take-over is additive, not exclusive: binding to a thread that already has
-another binding elsewhere is allowed and expected. That is how a different actor
-picks up someone else's thread. The command warns when this happens. It does not
-refuse.
+A thread has one open session at a time (ADR 0032). A thread whose latest event is a pause
+is paused, and any session can resume it. A thread with a start or a resume after its
+latest pause is held by that session. `tsk thread resume` of a held thread exits 1 with a
+message that names the holder, unless it has `--take-over`. A take-over is for a holder
+that no longer runs: a session that ended, crashed or was archived with no pause. Run it
+only after I confirm.
 
 ## Steps
 
@@ -17,8 +19,9 @@ refuse.
    the thread, its mission name, and its latest pause entry (the task and its
    description, what is next, who wrote it and when), write the summary in step 4 from
    that text and run no command. The session is already bound. Ask whether to continue,
-   as in step 5, and run `tsk thread resume "<thread-id>"` only after I say to
-   continue, or when I name a different thread.
+   as in step 6, and run `tsk thread resume "<thread-id>"` only after I say to
+   continue, or when I name a different thread. When the context says another session holds
+   the thread, run no command: go to step 3.
 
 2. **Otherwise run one command.**
 
@@ -26,8 +29,9 @@ refuse.
    tsk thread resume "<thread-id>"
    ```
 
-   This binds the current session or code worktree to the thread (additive). The
-   binding is a local write: it does not push, and it prints `note: saved in the local
+   This binds the current session or code worktree to the thread, and makes it the holder.
+   The command exits 1 with `error: thread <id> is held by ...` when another session holds
+   the thread: go to step 3. The binding is a local write: it does not push, and it prints `note: saved in the local
    ledger store; it is published with the next push ...` on stderr. The next thread start,
    pause or stop publishes the binding, as does the end of the session and
    `tsk ledger push`. The command prints one JSON object:
@@ -51,7 +55,21 @@ refuse.
    This is all the summary needs. Run no further command to look up the mission name or
    the task text.
 
-3. **If `warning` is non-empty**, report it to me plainly before going further.
+3. **If the thread is held by another session**, the command refused it, or the session
+   start context said so. Report the holder and the time it took the thread, plainly, and
+   use the AskUserQuestion tool to ask whether to take the thread over. Offer "Yes, that
+   session no longer runs, take it over" and "No, it still runs". Do not run `--take-over`
+   without my answer. On yes, run:
+
+   ```bash
+   tsk thread resume "<thread-id>" --take-over
+   ```
+
+   Then go on with step 2's output. On no, do not resume. Offer to work
+   with no thread (`tsk thread skip`), to start a thread (`/tsk:start-thread`), or to
+   resume a paused thread. `tsk thread list` shows each thread as `paused` or `held`.
+
+   **If `warning` is non-empty**, report it to me plainly before going further.
    Do not silently take over a thread that another actor works or worked.
 
 4. **Present the fixed-shape summary**, from `thread_id`, `mission.name`, `task`

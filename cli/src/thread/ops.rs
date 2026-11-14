@@ -8,8 +8,10 @@ use crate::ledger::store::{BindingKind, BindingRow, LedgerStore, ThreadInfo};
 use crate::mission::model::Mission;
 use crate::mission::records::{resolve_task, task_label};
 
-use super::binding::{bind_current, clear_skip, remove_marker, resolve, unbind_current, Binding};
-use super::clock::{now_secs, parse_utc, utc_now};
+use super::binding::{
+    bind_current, bind_current_at, clear_skip, remove_marker, resolve, unbind_current, Binding,
+};
+use super::clock::{format_utc, now_secs, parse_utc};
 use super::entry::{self, parse_store, CodeState, GitState, LedgerState, NewEntry};
 use super::session::Session;
 use super::writers::Writers;
@@ -95,6 +97,148 @@ pub struct ListRow {
     pub latest_timestamp: Option<String>,
     /// The actors bound to the thread, oldest binding first. Empty when none is.
     pub actors: Vec<ListActor>,
+    /// `paused` or `held` (ADR 0032, decision 4).
+    pub state: &'static str,
+    /// The session that holds the thread, or null when it is paused.
+    pub holder: Option<Holder>,
+}
+
+/// The harness instance that holds a thread: the one whose binding is later than the
+/// latest pause of the thread.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Holder {
+    /// The instance key of the holder.
+    pub instance: String,
+    /// The name of the actor behind the instance, or null when none is known.
+    pub robot: Option<String>,
+    /// The time the holder took the thread: the `registered_at` of its binding.
+    pub since: String,
+}
+
+impl Holder {
+    /// How a person reads the holder: `<robot> (<short instance>)`, or the short instance
+    /// alone when no actor is known.
+    pub fn label(&self) -> String {
+        match &self.robot {
+            Some(robot) => format!("{} ({})", robot, short_instance(&self.instance)),
+            None => short_instance(&self.instance),
+        }
+    }
+}
+
+/// An instance key cut short for a person: a cloud session ID keeps its first eight
+/// characters after the `cse_` prefix, and a worktree key (`<clone-id>/<name>`) stays as it is.
+pub fn short_instance(instance: &str) -> String {
+    if instance.contains('/') {
+        return instance.to_string();
+    }
+    super::binding::session_key(instance)
+        .chars()
+        .take(8)
+        .collect()
+}
+
+/// Whether a thread is paused or held (ADR 0032, decision 4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThreadState {
+    Paused,
+    Held(Holder),
+}
+
+impl ThreadState {
+    pub fn name(&self) -> &'static str {
+        match self {
+            ThreadState::Paused => "paused",
+            ThreadState::Held(_) => "held",
+        }
+    }
+
+    pub fn holder(&self) -> Option<&Holder> {
+        match self {
+            ThreadState::Paused => None,
+            ThreadState::Held(holder) => Some(holder),
+        }
+    }
+}
+
+/// True when the time `a` is later than the time `b`. Two UTC timestamps compare as
+/// instants. A value that is not a timestamp compares as text.
+fn is_later(a: &str, b: &str) -> bool {
+    match (parse_utc(a), parse_utc(b)) {
+        (Some(a), Some(b)) => a > b,
+        _ => a > b,
+    }
+}
+
+/// The time given to a pause entry that has no timestamp. Such an entry was written before
+/// timestamps and before ADR 0032, so it is a real pause, at a time no later than the day the
+/// ADR took effect. A binding registered up to that time is not a holder.
+pub const LEGACY_PAUSE_TIME: &str = "2026-11-14T00:00:00Z";
+
+/// The time of the latest pause of a thread, or `None` when it has no entry. An entry with no
+/// timestamp counts as a pause at [`LEGACY_PAUSE_TIME`].
+pub fn latest_pause(entries: &[entry::StoredEntry]) -> Option<String> {
+    entries
+        .iter()
+        .map(|stored| {
+            stored
+                .entry
+                .timestamp
+                .as_deref()
+                .filter(|time| !time.is_empty())
+                .unwrap_or(LEGACY_PAUSE_TIME)
+        })
+        .fold(None::<&str>, |latest, time| match latest {
+            Some(latest) if !is_later(time, latest) => Some(latest),
+            _ => Some(time),
+        })
+        .map(str::to_string)
+}
+
+/// The state of a thread from its bindings and the time of its latest pause. The holder is
+/// the instance of the binding with the latest `registered_at`, when that time is later than
+/// the latest pause (a thread with no pause and a binding is held). Otherwise the thread is
+/// paused, and so is a thread with no binding. `robot_of` names the actor behind an instance.
+pub fn thread_state(
+    thread_id: &str,
+    latest_pause: Option<&str>,
+    bindings: &[BindingRow],
+    robot_of: &dyn Fn(&str) -> Option<String>,
+) -> ThreadState {
+    let mut newest: Option<&BindingRow> = None;
+    for row in bindings.iter().filter(|row| row.thread_id == thread_id) {
+        if newest.is_none_or(|n| !is_later(&n.registered_at, &row.registered_at)) {
+            newest = Some(row);
+        }
+    }
+    match newest {
+        Some(row) if latest_pause.is_none_or(|pause| is_later(&row.registered_at, pause)) => {
+            ThreadState::Held(Holder {
+                instance: row.instance.clone(),
+                robot: robot_of(&row.instance),
+                since: row.registered_at.clone(),
+            })
+        }
+        _ => ThreadState::Paused,
+    }
+}
+
+/// The state of a thread as the ledger holds it: see [`thread_state`].
+fn thread_state_of(
+    id: &str,
+    entries: &[entry::StoredEntry],
+    bindings: &[BindingRow],
+    writers: &Writers,
+) -> ThreadState {
+    thread_state(
+        id,
+        latest_pause(entries).as_deref(),
+        bindings,
+        &|instance| {
+            let writer = writers.resolve(instance);
+            writer.actor_uid.map(|_| writer.label)
+        },
+    )
 }
 
 /// One actor bound to a thread, as `tsk thread list` prints it.
@@ -356,6 +500,20 @@ fn checked_task(
     }
 }
 
+/// The time a pause is stamped with: now, or the latest binding time of the thread when that
+/// is later than now. A resume registers its binding up to one second after the clock (see
+/// [`binding_time`]), and a pause in that second must not be earlier than the binding, or
+/// the thread would stay held after the pause.
+pub fn pause_time(now: u64, thread_id: &str, bindings: &[BindingRow]) -> String {
+    let latest_binding = bindings
+        .iter()
+        .filter(|row| row.thread_id == thread_id)
+        .filter_map(|row| parse_utc(&row.registered_at))
+        .max()
+        .unwrap_or(0);
+    format_utc(now.max(latest_binding))
+}
+
 pub fn pause(session: &Session, id: &str, task_id: &str, whats_next: &str) -> Result<(), String> {
     check_thread_id(id)?;
     let store = session.store.as_ref();
@@ -377,7 +535,7 @@ pub fn pause(session: &Session, id: &str, task_id: &str, whats_next: &str) -> Re
     let code_ref = current_branch_ref(code_git)?;
     let code_commit = code_git.run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
     ensure_on_an_origin_branch(code_git, &code_ref, &code_commit)?;
-    let timestamp = utc_now();
+    let timestamp = pause_time(now_secs(), id, &store.bindings_list()?);
     let written_by = session.written_by()?;
     // The write is made with the commit of the push, in one process.
     store.continuation_append_deferred(
@@ -515,7 +673,65 @@ fn is_branch_ref(target: &str) -> bool {
         .is_some_and(|name| !name.is_empty() && !name.contains(char::is_whitespace))
 }
 
-pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
+/// The time a resume registers its binding at: now, or the second after the latest pause or
+/// the latest binding of another instance, when that time is not before now. Times have a
+/// resolution of one second, so a resume in the second of a pause would otherwise leave the
+/// thread paused, and a take-over in the second of the holder's binding would tie with it.
+pub fn binding_time(
+    now: u64,
+    latest_pause: Option<&str>,
+    latest_other_binding: Option<&str>,
+) -> String {
+    let after = |time: Option<&str>| time.and_then(parse_utc).map(|t| t + 1).unwrap_or(0);
+    format_utc(
+        now.max(after(latest_pause))
+            .max(after(latest_other_binding)),
+    )
+}
+
+/// The error for a resume of a thread that another session holds.
+pub fn held_error(id: &str, holder: &Holder) -> String {
+    format!(
+        "error: thread {} is held by {} since {}. A thread has one open session at a time (ADR 0032). If that session no longer runs, take the thread over: tsk thread resume {} --take-over",
+        id,
+        holder.label(),
+        holder.since,
+        id
+    )
+}
+
+/// The holder of a thread when it is another harness instance than this session or worktree.
+/// `None` when the thread is paused, when this instance holds it, or when the ledger cannot
+/// say.
+pub fn other_holder(session: &Session, id: &str) -> Option<Holder> {
+    let store = session.store.as_ref();
+    let entries = entries_of(store, id).ok()?;
+    let writers = Writers::load(store).ok()?;
+    let bindings = store.bindings_list().ok()?;
+    let this_instance = session.actor_key().ok()??.0;
+    match thread_state_of(id, &entries, &bindings, &writers) {
+        ThreadState::Held(holder) if holder.instance != this_instance => Some(holder),
+        _ => None,
+    }
+}
+
+/// What a session that is bound to a thread, which another session holds, is told: not to
+/// work the thread, and the choices.
+pub fn held_note(id: &str, holder: &Holder) -> String {
+    format!(
+        "Thread {} is held by {} since {}, so this session does not hold it. Do not work the thread. Tell the person. If that session no longer runs, and the person confirms, run: tsk thread resume {} --take-over. Otherwise work with no thread (tsk thread skip) or start another thread.",
+        id,
+        holder.label(),
+        holder.since,
+        id
+    )
+}
+
+/// Bind this session or worktree to a thread and read its latest entry. A thread that
+/// another harness instance holds is refused, unless `take_over` is set. Every resume
+/// writes the binding again, so its `registered_at` is later than the latest pause and the
+/// thread is held by this instance.
+pub fn resume(session: &Session, id: &str, take_over: bool) -> Result<ResumeOutcome, String> {
     check_thread_id(id)?;
     refresh_for_binding(session)?;
     let store = session.store.as_ref();
@@ -523,17 +739,35 @@ pub fn resume(session: &Session, id: &str) -> Result<ResumeOutcome, String> {
         return Err(format!("error: no such thread: {}", id));
     }
     let entries = entries_of(store, id)?;
-    let warning = Writers::load(store)?.takeover_warning(id, &entries, &session.written_by()?);
+    let writers = Writers::load(store)?;
+    let warning = writers.takeover_warning(id, &entries, &session.written_by()?);
+
+    if !take_over {
+        let this_instance = session.actor_key()?.map(|(instance, _)| instance);
+        let state = thread_state_of(id, &entries, &store.bindings_list()?, &writers);
+        if let ThreadState::Held(holder) = state {
+            if Some(&holder.instance) != this_instance.as_ref() {
+                return Err(held_error(id, &holder));
+            }
+        }
+    }
 
     // The binding is a local write. It goes out with the next push (ADR 0019).
-    let bound = match &session.cloud_session {
-        Some(_) => Binding::Cloud(id.to_string()),
-        None => Binding::Worktree(id.to_string()),
-    };
-    if resolve(session)? != Some(bound) {
-        bind_current(session, id)?;
-        eprintln!("{}", NOT_PUBLISHED_NOTE);
-    }
+    let this_instance = session.actor_key()?.map(|(instance, _)| instance);
+    let latest_other = store
+        .bindings_list()?
+        .into_iter()
+        .filter(|row| row.thread_id == id && Some(&row.instance) != this_instance.as_ref())
+        .map(|row| row.registered_at)
+        .filter(|time| parse_utc(time).is_some())
+        .max_by_key(|time| parse_utc(time));
+    let at = binding_time(
+        now_secs(),
+        latest_pause(&entries).as_deref(),
+        latest_other.as_deref(),
+    );
+    bind_current_at(session, id, at)?;
+    eprintln!("{}", NOT_PUBLISHED_NOTE);
     clear_skip(session)?;
 
     let missions = store.missions_load().unwrap_or_default();
@@ -730,7 +964,10 @@ pub fn list_rows(store: &dyn LedgerStore) -> Result<Vec<ListRow>, String> {
         let info = store.thread_info(&name)?;
         let entries = parse_store(&lines.join("\n"), &store.describe_thread(&name))?;
         let latest = entries.last().map(|stored| &stored.entry);
+        let state = thread_state_of(&name, &entries, &bindings, &writers);
         rows.push(ListRow {
+            state: state.name(),
+            holder: state.holder().cloned(),
             urn: ledger_id
                 .as_deref()
                 .map(|ledger| crate::urn::thread_urn(ledger, &name)),
@@ -1100,6 +1337,8 @@ mod tests {
             latest_whats_next: None,
             latest_timestamp: ts.map(str::to_string),
             actors: Vec::new(),
+            state: "paused",
+            holder: None,
         }
     }
 
@@ -1136,13 +1375,226 @@ mod tests {
                     name: None,
                 },
             ],
+            state: "held",
+            holder: Some(Holder {
+                instance: "cse_1".to_string(),
+                robot: Some("alice".to_string()),
+                since: "2026-10-01T00:00:00Z".to_string(),
+            }),
         };
         assert_eq!(
             serde_json::to_string(&r).unwrap(),
-            "{\"id\":\"1234abcd\",\"mission_id\":\"M-X\",\"mission_link\":\"m.md\",\"latest_whats_next\":null,\"latest_timestamp\":null,\"actors\":[{\"actor\":\"cse_1\",\"kind\":\"cloud\",\"name\":\"alice\"},{\"actor\":\"tsk-1a2b/main\",\"kind\":\"worktree\",\"name\":null}]}"
+            "{\"id\":\"1234abcd\",\"mission_id\":\"M-X\",\"mission_link\":\"m.md\",\"latest_whats_next\":null,\"latest_timestamp\":null,\"actors\":[{\"actor\":\"cse_1\",\"kind\":\"cloud\",\"name\":\"alice\"},{\"actor\":\"tsk-1a2b/main\",\"kind\":\"worktree\",\"name\":null}],\"state\":\"held\",\"holder\":{\"instance\":\"cse_1\",\"robot\":\"alice\",\"since\":\"2026-10-01T00:00:00Z\"}}"
         );
         assert!(serde_json::to_string(&row("1234abcd", None))
             .unwrap()
-            .ends_with("\"actors\":[]}"));
+            .ends_with("\"actors\":[],\"state\":\"paused\",\"holder\":null}"));
+    }
+
+    fn binding_at(instance: &str, thread: &str, at: &str) -> BindingRow {
+        BindingRow {
+            instance: instance.to_string(),
+            kind: BindingKind::Cloud,
+            thread_id: thread.to_string(),
+            registered_at: at.to_string(),
+        }
+    }
+
+    fn robot_of(instance: &str) -> Option<String> {
+        (instance == "cse_01ROBOTAAAAAA").then(|| "Robot A".to_string())
+    }
+
+    #[test]
+    fn a_thread_with_no_binding_is_paused() {
+        let rows = vec![binding_at("cse_1", "other000", "2026-11-01T00:00:00Z")];
+        assert_eq!(
+            thread_state("1234abcd", None, &rows, &robot_of),
+            ThreadState::Paused
+        );
+        assert_eq!(
+            thread_state("1234abcd", Some("2026-10-01T00:00:00Z"), &[], &robot_of),
+            ThreadState::Paused
+        );
+    }
+
+    #[test]
+    fn a_binding_with_no_pause_holds_the_thread() {
+        let rows = vec![binding_at(
+            "cse_01ROBOTAAAAAA",
+            "1234abcd",
+            "2026-11-01T00:00:00Z",
+        )];
+        let state = thread_state("1234abcd", None, &rows, &robot_of);
+        assert_eq!(state.name(), "held");
+        let holder = state.holder().unwrap();
+        assert_eq!(holder.instance, "cse_01ROBOTAAAAAA");
+        assert_eq!(holder.robot.as_deref(), Some("Robot A"));
+        assert_eq!(holder.since, "2026-11-01T00:00:00Z");
+        assert_eq!(holder.label(), "Robot A (01ROBOTA)");
+    }
+
+    #[test]
+    fn a_binding_later_than_the_latest_pause_holds_and_an_earlier_or_equal_one_does_not() {
+        let rows = vec![binding_at("cse_2", "1234abcd", "2026-11-01T10:00:00Z")];
+        let later = thread_state("1234abcd", Some("2026-11-01T09:59:59Z"), &rows, &robot_of);
+        assert_eq!(later.holder().map(|h| h.instance.as_str()), Some("cse_2"));
+        assert_eq!(later.holder().unwrap().robot, None);
+        for pause in ["2026-11-01T10:00:00Z", "2026-11-01T10:00:01Z"] {
+            assert_eq!(
+                thread_state("1234abcd", Some(pause), &rows, &robot_of),
+                ThreadState::Paused,
+                "{}",
+                pause
+            );
+        }
+    }
+
+    #[test]
+    fn the_holder_is_the_instance_with_the_latest_binding() {
+        let rows = vec![
+            binding_at("cse_old", "1234abcd", "2026-11-01T10:00:00Z"),
+            binding_at("cse_new", "1234abcd", "2026-11-02T10:00:00Z"),
+            binding_at("cse_mid", "1234abcd", "2026-11-01T20:00:00Z"),
+        ];
+        let state = thread_state("1234abcd", Some("2026-11-01T12:00:00Z"), &rows, &robot_of);
+        assert_eq!(state.holder().unwrap().instance, "cse_new");
+        // A pause after every binding frees the thread, whoever bound it.
+        assert_eq!(
+            thread_state("1234abcd", Some("2026-11-03T00:00:00Z"), &rows, &robot_of),
+            ThreadState::Paused
+        );
+    }
+
+    #[test]
+    fn the_latest_pause_is_the_latest_timestamp_of_the_entries() {
+        let entries = parse_store(
+            "{\"whats_next\":\"a\",\"timestamp\":\"2026-10-02T00:00:00Z\"}\n{\"whats_next\":\"c\",\"timestamp\":\"2026-10-01T00:00:00Z\"}\n",
+            "test",
+        )
+        .unwrap();
+        assert_eq!(
+            latest_pause(&entries).as_deref(),
+            Some("2026-10-02T00:00:00Z")
+        );
+        assert_eq!(latest_pause(&[]), None);
+    }
+
+    #[test]
+    fn an_entry_with_no_timestamp_is_a_pause_at_the_legacy_time() {
+        let legacy = parse_store(
+            "{\"whats_next\":\"a\"}\n{\"whats_next\":\"b\",\"timestamp\":\"\"}\n",
+            "test",
+        )
+        .unwrap();
+        assert_eq!(latest_pause(&legacy).as_deref(), Some(LEGACY_PAUSE_TIME));
+        // A binding copied by an old migration is older than the legacy time: not a holder.
+        let old = vec![binding_at("cse_1", "1234abcd", "2026-09-01T00:00:00Z")];
+        assert_eq!(
+            thread_state(
+                "1234abcd",
+                latest_pause(&legacy).as_deref(),
+                &old,
+                &robot_of
+            ),
+            ThreadState::Paused
+        );
+        // A resume after the ADR took effect holds the thread, though no entry has a time.
+        let new = vec![binding_at("cse_1", "1234abcd", "2026-11-14T09:00:00Z")];
+        let state = thread_state(
+            "1234abcd",
+            latest_pause(&legacy).as_deref(),
+            &new,
+            &robot_of,
+        );
+        assert_eq!(state.holder().map(|h| h.instance.as_str()), Some("cse_1"));
+        // A timestamp later than the legacy time wins over an entry with none.
+        let mixed = parse_store(
+            "{\"whats_next\":\"a\"}\n{\"whats_next\":\"b\",\"timestamp\":\"2026-11-20T00:00:00Z\"}\n",
+            "test",
+        )
+        .unwrap();
+        assert_eq!(
+            latest_pause(&mixed).as_deref(),
+            Some("2026-11-20T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn a_pause_is_never_earlier_than_a_binding_of_its_thread() {
+        // 2026-11-14T10:00:00Z
+        let now = 1_794_650_400;
+        let rows = vec![
+            binding_at("cse_1", "1234abcd", "2026-11-14T10:00:01Z"),
+            binding_at("cse_2", "other000", "2026-11-14T11:00:00Z"),
+        ];
+        // A resume stamped its binding a second ahead of the clock: the pause matches it.
+        let pause = pause_time(now, "1234abcd", &rows);
+        assert_eq!(pause, "2026-11-14T10:00:01Z");
+        assert_eq!(
+            thread_state("1234abcd", Some(&pause), &rows, &robot_of),
+            ThreadState::Paused
+        );
+        // A binding of another thread, or an older one, leaves the clock alone.
+        assert_eq!(pause_time(now, "third000", &rows), "2026-11-14T10:00:00Z");
+        assert_eq!(pause_time(now, "1234abcd", &[]), "2026-11-14T10:00:00Z");
+        let older = vec![binding_at("cse_1", "1234abcd", "2026-11-14T09:00:00Z")];
+        assert_eq!(pause_time(now, "1234abcd", &older), "2026-11-14T10:00:00Z");
+    }
+
+    #[test]
+    fn a_resume_registers_its_binding_after_the_latest_pause_and_other_bindings() {
+        // 2026-11-14T10:00:00Z
+        let now = 1_794_650_400;
+        assert_eq!(binding_time(now, None, None), "2026-11-14T10:00:00Z");
+        assert_eq!(
+            binding_time(now, Some("2026-11-14T09:00:00Z"), None),
+            "2026-11-14T10:00:00Z"
+        );
+        assert_eq!(
+            binding_time(now, Some("2026-11-14T10:00:00Z"), None),
+            "2026-11-14T10:00:01Z"
+        );
+        assert_eq!(
+            binding_time(now, Some("2026-11-14T10:05:00Z"), None),
+            "2026-11-14T10:05:01Z"
+        );
+        assert_eq!(
+            binding_time(now, Some("not a time"), None),
+            "2026-11-14T10:00:00Z"
+        );
+        // A take-over in the second of the holder's binding is strictly later than it.
+        assert_eq!(
+            binding_time(now, None, Some("2026-11-14T10:00:00Z")),
+            "2026-11-14T10:00:01Z"
+        );
+        assert_eq!(
+            binding_time(
+                now,
+                Some("2026-11-14T10:00:00Z"),
+                Some("2026-11-14T10:00:03Z")
+            ),
+            "2026-11-14T10:00:04Z"
+        );
+    }
+
+    #[test]
+    fn an_instance_is_cut_short_for_a_person() {
+        assert_eq!(short_instance("cse_01Sw1xdtf5tWD95jCuHqkK75"), "01Sw1xdt");
+        assert_eq!(short_instance("tsk-180ae86e/main"), "tsk-180ae86e/main");
+        assert_eq!(short_instance("abc"), "abc");
+    }
+
+    #[test]
+    fn the_refusal_names_the_holder_and_the_take_over_flag() {
+        let holder = Holder {
+            instance: "cse_01ROBOTAAAAAA".to_string(),
+            robot: Some("Robot A".to_string()),
+            since: "2026-11-01T00:00:00Z".to_string(),
+        };
+        let text = held_error("1234abcd", &holder);
+        assert!(text.starts_with(
+            "error: thread 1234abcd is held by Robot A (01ROBOTA) since 2026-11-01T00:00:00Z."
+        ));
+        assert!(text.ends_with("tsk thread resume 1234abcd --take-over"));
     }
 }

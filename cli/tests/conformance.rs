@@ -798,7 +798,7 @@ mod cases {
         let binding = fx.tsk_cloud(&a, "cse_one", &["thread", "binding"]);
         assert_eq!(stdout(&binding), format!("cloud:{}\n", id));
 
-        let second = fx.tsk_cloud(&other, "cse_two", &["thread", "resume", &id]);
+        let second = fx.tsk_cloud(&other, "cse_two", &["thread", "resume", &id, "--take-over"]);
         assert_success(&second);
         let seen = fx.tsk_cloud(&other, "cse_two", &["thread", "binding"]);
         assert_eq!(stdout(&seen), format!("cloud:{}\n", id));
@@ -855,7 +855,7 @@ mod cases {
         assert_exit(&fx.tsk(&linked, &["thread", "binding"]), 1);
         let clone = main.trim_end_matches("/main").to_string();
         let side = format!("{}/linked", clone);
-        fx.ok(&linked, &["thread", "resume", &id]);
+        fx.ok(&linked, &["thread", "resume", &id, "--take-over"]);
         assert_eq!(
             fx.ok(&linked, &["thread", "binding"]),
             format!("worktree:{}\n", id)
@@ -882,7 +882,7 @@ mod cases {
         // Both clones push their local binding changes.
         fx.ok(&a, &["ledger", "push", "Bind the first clone"]);
         let other = fx.b();
-        fx.ok(&other, &["thread", "resume", &id]);
+        fx.ok(&other, &["thread", "resume", &id, "--take-over"]);
         fx.ok(&other, &["ledger", "push", "Bind the second clone"]);
         let other_main = fx.main_actor(&other);
         assert_ne!(other_main, main);
@@ -966,9 +966,9 @@ mod cases {
             .strip_prefix("started:")
             .unwrap()
             .to_string();
-        assert_success(&fx.tsk_cloud(&other, "cse_two", &["thread", "resume", &id]));
+        assert_success(&fx.tsk_cloud(&other, "cse_two", &["thread", "resume", &id, "--take-over"]));
         fx.ok(&other, &["ledger", "push", "Bind the cloud session"]);
-        fx.ok(&a, &["thread", "resume", &id]);
+        fx.ok(&a, &["thread", "resume", &id, "--take-over"]);
         fx.ok(&a, &["ledger", "push", "Bind the worktree"]);
 
         let main = fx.main_actor(&a);
@@ -1024,7 +1024,7 @@ mod cases {
         assert_eq!(fx.actors_of(&a, &second), vec!["cloud:cse_two".to_string()]);
 
         // The worktree moves to the second thread: its old row is replaced, not added to.
-        fx.ok(&a, &["thread", "resume", &second]);
+        fx.ok(&a, &["thread", "resume", &second, "--take-over"]);
         assert_eq!(
             fx.ok(&a, &["thread", "binding"]),
             format!("worktree:{}\n", second)
@@ -1051,9 +1051,9 @@ mod cases {
         fx.ok(&other, &["ledger", "fetch"]);
 
         // Each clone binds its own worktree. The change is local, so neither sees the other.
-        fx.ok(&other, &["thread", "resume", &id]);
+        fx.ok(&other, &["thread", "resume", &id, "--take-over"]);
         fx.ok(&a, &["thread", "detach"]);
-        fx.ok(&a, &["thread", "resume", &id]);
+        fx.ok(&a, &["thread", "resume", &id, "--take-over"]);
         fx.ok(&a, &["ledger", "push", "Bind the first clone"]);
         fx.ok(&other, &["ledger", "push", "Bind the second clone"]);
 
@@ -3483,11 +3483,20 @@ mod cases {
         let unbound = fx.ok(&a, &["thread", "next", "--open", "session_01NONE"]);
         assert!(unbound.contains("Choose the robot first."), "{}", unbound);
         assert!(
-            unbound.contains(&format!("Robot Bee\t{} M-REC", id)),
+            unbound.contains(&format!(
+                "Robot Bee\tbusy (holds {} M-REC)\t{} M-REC",
+                id, id
+            )),
             "{}",
             unbound
         );
         assert!(unbound.contains("M-REC\t"), "{}", unbound);
+        // The thread is held by the session of Robot Bee, and the prompt says so.
+        assert!(
+            unbound.contains(&format!("{} M-REC", id)) && unbound.contains(" held by Robot Bee ("),
+            "{}",
+            unbound
+        );
 
         let bound = fx.ok(&b, &["thread", "next"]);
         assert_eq!(
@@ -7064,7 +7073,7 @@ fn a_version_seven_ledger_reads_its_bindings_from_the_old_table_and_the_first_wr
 
     // A write upgrades: this bind creates the table, copies the rows as cloud rows, drops
     // the old table and records version 9, and the push after it carries it.
-    assert_success(&fx.tsk_cloud(&other, "cse_new", &["thread", "resume", &id]));
+    assert_success(&fx.tsk_cloud(&other, "cse_new", &["thread", "resume", &id, "--take-over"]));
     assert_eq!(fx.manifest_version(&other), "14");
     // The bind is local. The next push carries the upgrade.
     fx.ok(&other, &["ledger", "push", "Upgrade to version 9"]);
@@ -7313,7 +7322,7 @@ fn the_stop_hook_check_reads_the_local_ledger_store_and_works_offline() {
     assert!(fx.guard_reason(&a, None).is_some());
     let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
     assert!(!fx.marker(&a).exists());
-    let start = fx.tsk_cloud(&a, "cse_off", &["thread", "resume", &id]);
+    let start = fx.tsk_cloud(&a, "cse_off", &["thread", "resume", &id, "--take-over"]);
     assert_success(&start);
     // The bind is local. The check would ask for a push, so publish it first.
     fx.ok(&a, &["ledger", "push", "Publish the binding"]);
@@ -10216,7 +10225,7 @@ fn a_layout_11_ledger_upgrades_the_same_way_on_two_clones_and_merges() {
         "cse_old",
         &["actor", "register", "alice", "--kind", "robot"],
     ));
-    assert_success(&fx.tsk_cloud(&a, "cse_old", &["thread", "resume", &id]));
+    assert_success(&fx.tsk_cloud(&a, "cse_old", &["thread", "resume", &id, "--take-over"]));
     fx.dolt_sql(&a, &layout_eleven_sql());
     fx.dolt_sql(
         &a,
@@ -10418,7 +10427,7 @@ fn a_new_session_takes_the_actors_of_the_pause_its_instance_wrote() {
         "cse_two",
         &["actor", "register", "Robot One", "--kind", "robot"],
     ));
-    let resumed = fx.tsk_cloud(&a, "cse_two", &["thread", "resume", &id]);
+    let resumed = fx.tsk_cloud(&a, "cse_two", &["thread", "resume", &id, "--take-over"]);
     assert_success(&resumed);
     assert_eq!(json(&stdout(&resumed))["warning"], "");
     // A resume by another actor warns, naming the actor.
@@ -10427,7 +10436,7 @@ fn a_new_session_takes_the_actors_of_the_pause_its_instance_wrote() {
         "cse_three",
         &["actor", "register", "Robot Two", "--kind", "robot"],
     ));
-    let resumed = fx.tsk_cloud(&a, "cse_three", &["thread", "resume", &id]);
+    let resumed = fx.tsk_cloud(&a, "cse_three", &["thread", "resume", &id, "--take-over"]);
     assert_success(&resumed);
     assert_eq!(
         json(&stdout(&resumed))["warning"],

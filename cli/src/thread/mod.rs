@@ -64,11 +64,16 @@ pub enum ThreadCommands {
         legacy_whats_next: Option<String>,
     },
     #[command(
-        about = "Bind this session or worktree to a thread, replacing its earlier binding, and print its latest continuation state entry as JSON with a warning when another actor wrote to it. The binding is a local write: it prints a note on stderr and goes out with the next push (thread start, pause or stop, or tsk ledger push)"
+        about = "Bind this session or worktree to a thread, replacing its earlier binding, and print its latest continuation state entry as JSON with a warning when another actor wrote to it. A thread has one open session at a time (ADR 0032): a thread that another session holds is refused with exit status 1 and a message that names the holder, unless --take-over is given. A paused thread resumes at once, whichever robot worked it. Every resume writes the binding again, which makes this session the holder. The binding is a local write: it prints a note on stderr and goes out with the next push (thread start, pause or stop, or tsk ledger push)"
     )]
     Resume {
         #[arg(help = "Thread ID")]
         thread_id: String,
+        #[arg(
+            long,
+            help = "Resume a thread that another session holds, and become its holder. Use it when that session no longer runs. The warning about other actors stays"
+        )]
+        take_over: bool,
     },
     #[command(about = "Change a field of a thread; the one field today is the mission")]
     Set {
@@ -91,7 +96,7 @@ pub enum ThreadCommands {
         thread_id: Option<String>,
     },
     #[command(
-        about = "List every thread on the ledger as one JSON object per line, most recently paused first. Each row has actors: the sessions and worktrees bound to the thread, as {\"actor\", \"kind\"} objects, empty when none is"
+        about = "List every thread on the ledger as one JSON object per line, most recently paused first. Each row has actors: the sessions and worktrees bound to the thread, as {\"actor\", \"kind\"} objects, empty when none is. It also has state, paused or held, and holder: null when the thread is paused, else {\"instance\", \"robot\", \"since\"} for the session that holds it. A thread is held when its latest binding is later than its latest pause"
     )]
     List,
     #[command(
@@ -130,9 +135,10 @@ pub enum ThreadCommands {
     Next {
         #[arg(
             long,
+            hide = true,
             value_delimiter = ',',
             value_name = "SESSION_ID",
-            help = "The IDs of the cloud sessions that are not archived (list_sessions), comma-separated. A robot that ran in one of them is taken, and is not offered"
+            help = "Accepted and ignored since 0.65.0: a robot is busy while it holds a thread (ADR 0032)"
         )]
         open: Option<Vec<String>>,
     },
@@ -206,7 +212,7 @@ fn guard() -> Option<String> {
     let Ok(session) = Session::discover() else {
         return Some(UNBOUND_PROMPT.to_string());
     };
-    if let Some(reason) = unbound_reason(&session, None) {
+    if let Some(reason) = unbound_reason(&session) {
         return Some(reason);
     }
     if crate::ledger::background::enabled() {
@@ -221,7 +227,7 @@ fn guard() -> Option<String> {
 }
 
 /// The reason to block because nothing binds this session or worktree to a thread.
-fn unbound_reason(session: &Session, open: Option<&[String]>) -> Option<String> {
+fn unbound_reason(session: &Session) -> Option<String> {
     if is_skipped(session) {
         return None;
     }
@@ -240,7 +246,6 @@ fn unbound_reason(session: &Session, open: Option<&[String]>) -> Option<String> 
         (Ok(missions), _) => Some(session_unbound_prompt(
             session,
             &open_mission_lines(&missions),
-            open,
         )),
         _ => Some(UNBOUND_PROMPT.to_string()),
     }
@@ -270,7 +275,7 @@ pub fn title_line(session: &Session) -> Option<String> {
 
 /// The text of `tsk thread next`: the binding when there is one, else what the Stop hook
 /// would ask.
-fn next_text(session: &Session, open: Option<&[String]>) -> Result<String, String> {
+fn next_text(session: &Session) -> Result<String, String> {
     if !session.store.exists_locally()? {
         return Err(
             "error: this clone has no ledger store; run tsk ledger status and do what its Next line says"
@@ -284,7 +289,10 @@ fn next_text(session: &Session, open: Option<&[String]>) -> Result<String, Strin
             .thread_info(&id)
             .ok()
             .and_then(|info| info.mission_id);
-        if let Some(prompt) = binding::bound_robot_prompt(session, &id, open) {
+        if let Some(holder) = ops::other_holder(session, &id) {
+            return Ok(format!("bound:{}\n{}", id, ops::held_note(&id, &holder)));
+        }
+        if let Some(prompt) = binding::bound_robot_prompt(session, &id) {
             return Ok(format!("bound:{}\n{}", id, prompt));
         }
         return Ok(format!(
@@ -296,7 +304,7 @@ fn next_text(session: &Session, open: Option<&[String]>) -> Result<String, Strin
                 .unwrap_or_default()
         ));
     }
-    Ok(unbound_reason(session, open).unwrap_or_else(|| {
+    Ok(unbound_reason(session).unwrap_or_else(|| {
         "This session works with no thread (tsk thread skip), or the ledger holds no missions."
             .to_string()
     }))
@@ -320,9 +328,9 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
         return Ok(0);
     }
 
-    if let ThreadCommands::Next { open } = action {
+    if let ThreadCommands::Next { .. } = action {
         let session = Session::discover()?;
-        println!("{}", next_text(&session, open.as_deref())?);
+        println!("{}", next_text(&session)?);
         return Ok(0);
     }
 
@@ -487,8 +495,11 @@ fn run_with(session: &Session, action: ThreadCommands) -> Result<i32, String> {
             }
             Ok(0)
         }
-        ThreadCommands::Resume { thread_id } => {
-            let outcome = ops::resume(session, &thread_id)?;
+        ThreadCommands::Resume {
+            thread_id,
+            take_over,
+        } => {
+            let outcome = ops::resume(session, &thread_id, take_over)?;
             println!("{}", ops::render_resume(&outcome));
             Ok(0)
         }
