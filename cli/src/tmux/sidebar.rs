@@ -1,5 +1,5 @@
 //! The tmux sidebar: a narrow pane on the left that lists every tmux session with the
-//! state, mission and robot of its agent. `prefix b` opens it, focuses it, or closes it
+//! state, mission and robot of its agent. `prefix B` (by default) opens it, focuses it, or closes it
 //! when it is focused. While it is open, the tmux hooks of `tsk tmux install` move the
 //! same pane into each session and window the client switches to, so the program keeps
 //! running and its selection stays.
@@ -205,7 +205,7 @@ fn join(sidebar: &SidebarPane, window: &str, focus: bool) {
     let _ = tmux(&args);
 }
 
-/// `prefix b`: open the sidebar in the window, focus it when it is open and not focused,
+/// `prefix B` (by default): open the sidebar in the window, focus it when it is open and not focused,
 /// and close it when it is focused.
 pub fn toggle(window: &str) {
     match parse_sidebar(&list_panes()) {
