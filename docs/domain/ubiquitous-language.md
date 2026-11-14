@@ -86,6 +86,18 @@ supervised interactive, unsupervised autonomous, orchestrator spawning workers,
 event-triggered. Operating context is a property of the session; a supervised session is
 one with a supporting human actor.
 
+## Supervised session
+
+A [session](#session) with a human as a supporting [actor](#actor). `tsk actor join <uid>`
+adds the human. A robot commit in a supervised session carries a `Co-authored-by` trailer
+that names the person, when the `co_author` setting is set. See
+[commit-attribution.md](commit-attribution.md).
+
+## Autonomous session
+
+A [session](#session) with no human supporting [actor](#actor). A robot commit in an
+autonomous session carries no `Co-authored-by` trailer.
+
 ## Robot
 
 The non-human kind of [actor](#actor). Chosen over "agent" (Jim, 2026-10-24) because

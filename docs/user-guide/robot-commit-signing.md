@@ -214,6 +214,35 @@ email = "352782120+jmdb-robots@users.noreply.github.com"
   start removes what an earlier robot session wrote: the signing settings, `user.name`,
   the hook and the key files.
 
+## Add a co-author trailer
+
+The `co_author` setting adds a `Co-authored-by` trailer to a robot commit in a supervised
+session. A supervised session has a human supporting actor, added with
+`tsk actor join <uid>`. An autonomous session gets no such trailer. GitHub lists the
+person as a co-author of the commit.
+
+```toml
+[attribution]
+co_author = "Jane Doe <1+jane@users.noreply.github.com>"
+```
+
+- The value has the form `Name <email>`. tsk refuses an empty value and a value with no
+  `<` and `>`. There is no built-in value.
+- Precedence is the same as for `email`: the variable `TSK_ATTRIBUTION_CO_AUTHOR`, then
+  the repo config, then the user config.
+- `tsk config attribution --co-author "Jane Doe <1+jane@users.noreply.github.com>"`
+  writes it to `.tsk/config.toml`, and with `--user` to the user config.
+  `tsk config attribution` prints it and its source.
+- Pass `--co-author "<Name <email>>"` to `ops/cloud/setup-environment.sh`, with
+  `--use-robot-attribution`, to set it for a cloud environment.
+- `tsk actor join <uid>` with a human actor sets `tsk.supervised` in the worktree git
+  config. `tsk thread session-start` removes it, so a later autonomous session does not
+  inherit it. Joining a robot actor does not set it.
+- With `identity = "robot"`, the setting present and `tsk.supervised` set, the `commit-msg`
+  hook writes `Co-authored-by: Jane Doe <1+jane@users.noreply.github.com>` after the
+  `Agent-Session` trailer. It writes the line once and keeps the other trailers. Without
+  the setting, or in an autonomous session, the hook adds no such line.
+
 ## Ledger commits
 
 With `identity = "robot"`, every commit that `tsk` makes in the ledger has the robot as author and committer (0.56.0). This covers the git commits on the ledger data ref and the documents ref, and the Dolt commits in the ledger store.

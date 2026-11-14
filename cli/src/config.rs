@@ -43,7 +43,7 @@ pub enum ConfigCommands {
     #[command(
         name = "attribution",
         about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml or, with --user, the user config",
-        long_about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml, or with --user to the user config.\n\nidentity is default or robot, default when unset, so attribution is off until a config turns it on. default writes no git config, and the session start removes an earlier robot set-up. robot makes tsk thread session-start and tsk actor git-identity write the registered robot's name, the email, and the SSH signing settings to the repo's local git config. email has no built-in value. identity is read from the environment variable TSK_ATTRIBUTION_IDENTITY, then .tsk/config.toml, then the user config. email is read from the environment variable TSK_ATTRIBUTION_EMAIL, then .tsk/config.toml, then the user config. The private key comes from TSK_ROBOT_SIGNING_KEY."
+        long_about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml, or with --user to the user config.\n\nidentity is default or robot, default when unset, so attribution is off until a config turns it on. default writes no git config, and the session start removes an earlier robot set-up. robot makes tsk thread session-start and tsk actor git-identity write the registered robot's name, the email, and the SSH signing settings to the repo's local git config. email has no built-in value. identity is read from the environment variable TSK_ATTRIBUTION_IDENTITY, then .tsk/config.toml, then the user config. email is read from the environment variable TSK_ATTRIBUTION_EMAIL, then .tsk/config.toml, then the user config. co_author has the form Name <email> and no built-in value. With identity robot and co_author set, the commit-msg hook adds, in a supervised session only (a human joined with tsk actor join), the trailer Co-authored-by: <co_author> after the Agent-Session trailer, once. co_author is read from the environment variable TSK_ATTRIBUTION_CO_AUTHOR, then .tsk/config.toml, then the user config. The private key comes from TSK_ROBOT_SIGNING_KEY."
     )]
     Attribution {
         #[arg(
@@ -55,7 +55,13 @@ pub enum ConfigCommands {
         email: Option<String>,
         #[arg(
             long,
-            help = "Write the identity and the email to the user config (~/.config/tsk/config.toml) in place of .tsk/config.toml. Needs no repo"
+            value_name = "VALUE",
+            help = "The co-author to write to .tsk/config.toml, in the form \"Name <email>\""
+        )]
+        co_author: Option<String>,
+        #[arg(
+            long,
+            help = "Write the identity, the email and the co-author to the user config (~/.config/tsk/config.toml) in place of .tsk/config.toml. Needs no repo"
         )]
         user: bool,
     },
@@ -499,10 +505,11 @@ pub fn run(action: ConfigCommands) -> Result<(), String> {
     if let ConfigCommands::Attribution {
         identity,
         email,
+        co_author,
         user,
     } = action
     {
-        return crate::attribution::run_config(identity, email, user);
+        return crate::attribution::run_config(identity, email, co_author, user);
     }
     if let ConfigCommands::LedgerServer { mode } = action {
         return ledger_server(mode);

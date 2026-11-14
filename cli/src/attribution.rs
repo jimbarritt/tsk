@@ -15,6 +15,9 @@ use crate::thread::session::Session;
 /// The environment variable that overrides `[attribution] email`.
 pub const EMAIL_ENV: &str = "TSK_ATTRIBUTION_EMAIL";
 
+/// The environment variable that overrides `[attribution] co_author`.
+pub const CO_AUTHOR_ENV: &str = "TSK_ATTRIBUTION_CO_AUTHOR";
+
 /// The environment variable that overrides `[attribution] identity`. A cloud environment
 /// sets it, with `TSK_ATTRIBUTION_EMAIL` and `TSK_ROBOT_SIGNING_KEY`, to turn attribution on
 /// for its own sessions only.
@@ -76,6 +79,7 @@ impl Source {
 pub struct Section {
     pub identity: Option<Identity>,
     pub email: Option<String>,
+    pub co_author: Option<String>,
 }
 
 /// The settings in force, with where each came from.
@@ -85,6 +89,8 @@ pub struct Settings {
     pub identity_source: Source,
     pub email: Option<String>,
     pub email_source: Option<Source>,
+    pub co_author: Option<String>,
+    pub co_author_source: Option<Source>,
 }
 
 /// The `[attribution]` keys of a config file. A missing file or table gives an empty section.
@@ -142,7 +148,42 @@ fn parse_section(text: &str, file: &Path) -> Result<Section, String> {
             ))
         }
     };
-    Ok(Section { identity, email })
+    let co_author = match section.get("co_author") {
+        None => None,
+        Some(toml::Value::String(value)) => Some(
+            check_co_author(value)
+                .map_err(|e| format!("error: attribution.co_author in {} {}", file.display(), e))?,
+        ),
+        Some(_) => {
+            return Err(format!(
+                "error: attribution.co_author in {} must be a non-empty string",
+                file.display()
+            ))
+        }
+    };
+    Ok(Section {
+        identity,
+        email,
+        co_author,
+    })
+}
+
+/// The trimmed co-author value, which must have the form `Name <email>`.
+pub fn check_co_author(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("must be a non-empty string".to_string());
+    }
+    let named = value
+        .find('<')
+        .is_some_and(|open| value[open..].contains('>') && !value[..open].trim().is_empty());
+    if !named || value.contains(['\n', '\r']) {
+        return Err(format!(
+            "is \"{}\"; it must have the form Name <email>",
+            value
+        ));
+    }
+    Ok(value.to_string())
 }
 
 /// Resolve the settings. `identity`: the repo config, then the user config, then `default`.
@@ -151,6 +192,7 @@ fn parse_section(text: &str, file: &Path) -> Result<Section, String> {
 pub fn resolve(
     env_identity: Option<Identity>,
     env_email: Option<&str>,
+    env_co_author: Option<&str>,
     repo: &Section,
     user: &Section,
 ) -> Settings {
@@ -167,11 +209,20 @@ pub fn resolve(
         (None, None, Some(value)) => (Some(value.clone()), Some(Source::UserConfig)),
         (None, None, None) => (None, None),
     };
+    let env_co_author = env_co_author.map(str::trim).filter(|v| !v.is_empty());
+    let (co_author, co_author_source) = match (env_co_author, &repo.co_author, &user.co_author) {
+        (Some(value), _, _) => (Some(value.to_string()), Some(Source::Env)),
+        (None, Some(value), _) => (Some(value.clone()), Some(Source::RepoConfig)),
+        (None, None, Some(value)) => (Some(value.clone()), Some(Source::UserConfig)),
+        (None, None, None) => (None, None),
+    };
     Settings {
         identity,
         identity_source,
         email,
         email_source,
+        co_author,
+        co_author_source,
     }
 }
 
@@ -197,9 +248,16 @@ pub fn settings(repo_file: Option<&Path>, user_file: Option<&Path>) -> Result<Se
         }
         _ => None,
     };
+    let env_co_author = match std::env::var(CO_AUTHOR_ENV) {
+        Ok(value) if !value.trim().is_empty() => {
+            Some(check_co_author(&value).map_err(|e| format!("error: {} {}", CO_AUTHOR_ENV, e))?)
+        }
+        _ => None,
+    };
     Ok(resolve(
         env_identity,
         std::env::var(EMAIL_ENV).ok().as_deref(),
+        env_co_author.as_deref(),
         &repo,
         &user,
     ))
@@ -211,13 +269,14 @@ pub fn write_section(
     file: &Path,
     identity: Option<Identity>,
     email: Option<&str>,
+    co_author: Option<&str>,
 ) -> Result<(), String> {
     let text = match std::fs::read_to_string(file) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(format!("error: could not read {}: {}", file.display(), e)),
     };
-    let text = with_section(&text, identity, email, file)?;
+    let text = with_section(&text, identity, email, co_author, file)?;
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("error: could not create {}: {}", parent.display(), e))?;
@@ -233,9 +292,17 @@ pub fn with_section(
     text: &str,
     identity: Option<Identity>,
     email: Option<&str>,
+    co_author: Option<&str>,
     file: &Path,
 ) -> Result<String, String> {
     parse_section(text, file)?;
+    let co_author = match co_author {
+        Some(value) => {
+            Some(check_co_author(value).map_err(|e| format!("error: the co-author value {}", e))?)
+        }
+        None => None,
+    };
+    let co_author = co_author.as_deref();
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     if lines.iter().all(|l| l.trim() != "[attribution]") {
         if !lines.is_empty() && !lines.last().is_some_and(|l| l.trim().is_empty()) {
@@ -246,6 +313,7 @@ pub fn with_section(
     for (key, value) in [
         ("identity", identity.map(|i| i.as_str().to_string())),
         ("email", email.map(str::to_string)),
+        ("co_author", co_author.map(str::to_string)),
     ] {
         let Some(value) = value else { continue };
         if value.contains(['"', '\\', '\n']) {
@@ -279,6 +347,7 @@ pub fn with_section(
     let written = parse_section(&out, file)?;
     if identity.is_some_and(|i| written.identity != Some(i))
         || email.is_some_and(|e| written.email.as_deref() != Some(e))
+        || co_author.is_some_and(|c| written.co_author.as_deref() != Some(c))
     {
         return Err(
             "error: could not set [attribution] in the config: edit the file by hand".to_string(),
@@ -388,6 +457,26 @@ pub enum Signing {
     Written { email: String, hook: bool },
 }
 
+const SUPERVISED_KEY: &str = "tsk.supervised";
+
+pub fn set_supervised(git: &crate::ledger::git::Git) -> Result<(), String> {
+    git.run(["config", "--local", "extensions.worktreeConfig", "true"])?;
+    git.run(["config", "--worktree", SUPERVISED_KEY, "true"])?;
+    Ok(())
+}
+
+pub fn clear_supervised(git: &crate::ledger::git::Git) {
+    let _ = git.output(["config", "--worktree", "--unset-all", SUPERVISED_KEY]);
+}
+
+pub fn is_supervised(git: &crate::ledger::git::Git) -> bool {
+    git.output(["config", "--worktree", "--get", SUPERVISED_KEY])
+        .map(|(_, output)| {
+            output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true"
+        })
+        .unwrap_or(false)
+}
+
 /// The first line of the commit-msg hook that tsk writes. tsk replaces or removes a hook
 /// only when it holds this line.
 const HOOK_MARKER: &str = "# tsk: robot attribution commit-msg hook";
@@ -415,6 +504,7 @@ fn current_settings(session: &Session) -> Result<Settings, String> {
 /// in the worktree's git config, and the commit-msg hook. With any other identity: remove
 /// what an earlier robot session wrote. Needs no registered actor.
 pub fn set_up_signing(session: &Session) -> Result<Signing, String> {
+    clear_supervised(&session.repo.git);
     let settings = current_settings(session)?;
     if settings.identity != Identity::Robot {
         return remove_signing(session);
@@ -771,18 +861,37 @@ pub fn run_commit_msg(file: &Path) -> Result<i32, String> {
     if std::fs::write(file, strip_session_trailers(&message)).is_err() {
         return Ok(0);
     }
-    let trailer = format!("Agent-Session: {}", urn);
     let file_arg = file.display().to_string();
-    let _ = repo.git.run([
-        "interpret-trailers",
-        "--in-place",
-        "--if-exists",
-        "replace",
-        "--trailer",
-        trailer.as_str(),
-        file_arg.as_str(),
-    ]);
+    let co_author = settings
+        .co_author
+        .as_deref()
+        .filter(|_| is_supervised(&repo.git));
+    for args in trailer_commands(&file_arg, &urn, co_author) {
+        let _ = repo.git.run(args.iter().map(String::as_str));
+    }
     Ok(0)
+}
+
+fn trailer_commands(file: &str, urn: &str, co_author: Option<&str>) -> Vec<Vec<String>> {
+    let command = |mode: &str, trailer: String| {
+        vec![
+            "interpret-trailers".to_string(),
+            "--in-place".to_string(),
+            "--if-exists".to_string(),
+            mode.to_string(),
+            "--trailer".to_string(),
+            trailer,
+            file.to_string(),
+        ]
+    };
+    let mut commands = vec![command("replace", format!("Agent-Session: {}", urn))];
+    if let Some(value) = co_author {
+        commands.push(command(
+            "addIfDifferent",
+            format!("Co-authored-by: {}", value),
+        ));
+    }
+    commands
 }
 
 fn key_file_path(session: &Session) -> Result<PathBuf, String> {
@@ -833,6 +942,7 @@ pub fn run_git_identity() -> Result<i32, String> {
 pub fn run_config(
     identity: Option<String>,
     email: Option<String>,
+    co_author: Option<String>,
     user: bool,
 ) -> Result<(), String> {
     // With --user the command needs no repo, so a cloud setup script can run it from any
@@ -846,7 +956,7 @@ pub fn run_config(
     };
     let repo_file = session_repo.as_ref().and_then(refs::repo_config_path);
     let user_file = crate::config::config_file_from_env();
-    if identity.is_some() || email.is_some() {
+    if identity.is_some() || email.is_some() || co_author.is_some() {
         let file = if user {
             user_file.clone().ok_or_else(|| {
                 "error: no user config path: set HOME or XDG_CONFIG_HOME".to_string()
@@ -862,7 +972,7 @@ pub fn run_config(
             })?),
             None => None,
         };
-        write_section(&file, identity, email.as_deref())?;
+        write_section(&file, identity, email.as_deref(), co_author.as_deref())?;
         println!("wrote {}", file.display());
     }
     let settings = settings(repo_file.as_deref(), user_file.as_deref())?;
@@ -874,6 +984,13 @@ pub fn run_config(
             println!("source: {}", source.label());
         }
         _ => println!("attribution email: not set"),
+    }
+    match (&settings.co_author, settings.co_author_source) {
+        (Some(co_author), Some(source)) => {
+            println!("attribution co-author: {}", co_author);
+            println!("source: {}", source.label());
+        }
+        _ => println!("attribution co-author: not set"),
     }
     Ok(())
 }
@@ -926,12 +1043,22 @@ mod tests {
         Section {
             identity,
             email: email.map(str::to_string),
+            co_author: None,
         }
     }
 
+    fn co_author_section(value: &str) -> Section {
+        Section {
+            co_author: Some(value.to_string()),
+            ..Section::default()
+        }
+    }
+
+    const JANE: &str = "Jane Doe <1+jane@users.noreply.github.com>";
+
     #[test]
     fn with_nothing_set_the_identity_is_default_and_there_is_no_email() {
-        let settings = resolve(None, None, &Section::default(), &Section::default());
+        let settings = resolve(None, None, None, &Section::default(), &Section::default());
         assert_eq!(settings.identity, Identity::Default);
         assert_eq!(settings.identity_source, Source::Default);
         assert_eq!(settings.email, None);
@@ -942,11 +1069,12 @@ mod tests {
     fn the_environment_outranks_both_configs_for_the_identity() {
         let repo = section(Some(Identity::Robot), None);
         let user = section(Some(Identity::Robot), None);
-        let settings = resolve(Some(Identity::Default), None, &repo, &user);
+        let settings = resolve(Some(Identity::Default), None, None, &repo, &user);
         assert_eq!(settings.identity, Identity::Default);
         assert_eq!(settings.identity_source, Source::Env);
         let settings = resolve(
             Some(Identity::Robot),
+            None,
             None,
             &Section::default(),
             &Section::default(),
@@ -959,10 +1087,10 @@ mod tests {
     fn the_repo_config_outranks_the_user_config_for_the_identity() {
         let repo = section(Some(Identity::Default), None);
         let user = section(Some(Identity::Robot), None);
-        let settings = resolve(None, None, &repo, &user);
+        let settings = resolve(None, None, None, &repo, &user);
         assert_eq!(settings.identity, Identity::Default);
         assert_eq!(settings.identity_source, Source::RepoConfig);
-        let settings = resolve(None, None, &Section::default(), &user);
+        let settings = resolve(None, None, None, &Section::default(), &user);
         assert_eq!(settings.identity, Identity::Robot);
         assert_eq!(settings.identity_source, Source::UserConfig);
     }
@@ -971,15 +1099,154 @@ mod tests {
     fn the_email_comes_from_the_environment_then_the_repo_then_the_user() {
         let repo = section(None, Some("repo@example.com"));
         let user = section(None, Some("user@example.com"));
-        let settings = resolve(None, Some("env@example.com"), &repo, &user);
+        let settings = resolve(None, Some("env@example.com"), None, &repo, &user);
         assert_eq!(settings.email.as_deref(), Some("env@example.com"));
         assert_eq!(settings.email_source, Some(Source::Env));
-        let settings = resolve(None, None, &repo, &user);
+        let settings = resolve(None, None, None, &repo, &user);
         assert_eq!(settings.email.as_deref(), Some("repo@example.com"));
         assert_eq!(settings.email_source, Some(Source::RepoConfig));
-        let settings = resolve(None, Some("  "), &Section::default(), &user);
+        let settings = resolve(None, Some("  "), None, &Section::default(), &user);
         assert_eq!(settings.email.as_deref(), Some("user@example.com"));
         assert_eq!(settings.email_source, Some(Source::UserConfig));
+    }
+
+    #[test]
+    fn a_co_author_needs_a_name_and_an_address_in_angle_brackets() {
+        assert_eq!(
+            check_co_author(&format!("  {}  ", JANE)),
+            Ok(JANE.to_string())
+        );
+        for bad in [
+            "",
+            "   ",
+            "Jane Doe",
+            "Jane Doe 1@example.com>",
+            "Jane <1@example.com",
+            "<1@example.com>",
+            "A <b>\nc",
+        ] {
+            assert!(check_co_author(bad).is_err(), "{:?}", bad);
+        }
+        let err = parse_section("[attribution]\nco_author = \"\"\n", file()).unwrap_err();
+        assert!(
+            err.contains("co_author") && err.contains("non-empty"),
+            "{}",
+            err
+        );
+        let err = parse_section("[attribution]\nco_author = \"Jane\"\n", file()).unwrap_err();
+        assert!(err.contains("Name <email>"), "{}", err);
+        let err = parse_section("[attribution]\nco_author = 3\n", file()).unwrap_err();
+        assert!(err.contains("co_author"), "{}", err);
+    }
+
+    #[test]
+    fn the_co_author_comes_from_the_environment_then_the_repo_then_the_user() {
+        let repo = co_author_section("Repo <r@example.com>");
+        let user = co_author_section("User <u@example.com>");
+        let settings = resolve(None, None, Some(JANE), &repo, &user);
+        assert_eq!(settings.co_author.as_deref(), Some(JANE));
+        assert_eq!(settings.co_author_source, Some(Source::Env));
+        let settings = resolve(None, None, None, &repo, &user);
+        assert_eq!(settings.co_author.as_deref(), Some("Repo <r@example.com>"));
+        assert_eq!(settings.co_author_source, Some(Source::RepoConfig));
+        let settings = resolve(None, None, Some(" "), &Section::default(), &user);
+        assert_eq!(settings.co_author.as_deref(), Some("User <u@example.com>"));
+        assert_eq!(settings.co_author_source, Some(Source::UserConfig));
+        let settings = resolve(None, None, None, &Section::default(), &Section::default());
+        assert_eq!(settings.co_author, None);
+        assert_eq!(settings.co_author_source, None);
+    }
+
+    #[test]
+    fn writing_a_co_author_keeps_the_other_keys_and_validates_it() {
+        let text = "[attribution]\nidentity = \"robot\"\nemail = \"a@example.com\"\n";
+        let out = with_section(text, None, None, Some(JANE), file()).unwrap();
+        let read = parse_section(&out, file()).unwrap();
+        assert_eq!(read.co_author.as_deref(), Some(JANE));
+        assert_eq!(read.identity, Some(Identity::Robot));
+        assert_eq!(read.email.as_deref(), Some("a@example.com"));
+        let out = with_section(&out, None, None, Some("Joe <j@example.com>"), file()).unwrap();
+        assert_eq!(out.matches("co_author").count(), 1);
+        assert!(with_section("", None, None, Some("Jane"), file()).is_err());
+        assert!(with_section("", None, None, Some(""), file()).is_err());
+    }
+
+    fn rewrite(message: &str, co_author: Option<&str>) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("MSG");
+        std::fs::write(&file, strip_session_trailers(message)).unwrap();
+        let file_arg = file.display().to_string();
+        for args in trailer_commands(&file_arg, "urn:tsk:session:claude-cli:s1", co_author) {
+            let status = std::process::Command::new("git")
+                .args(&args)
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+        std::fs::read_to_string(&file).unwrap()
+    }
+
+    #[test]
+    fn the_hook_text_has_the_co_author_after_the_agent_session_when_it_is_set() {
+        let out = rewrite("Add a thing\n\nBody.\n", Some(JANE));
+        assert_eq!(
+            out,
+            format!(
+                "Add a thing\n\nBody.\n\nAgent-Session: urn:tsk:session:claude-cli:s1\nCo-authored-by: {}\n",
+                JANE
+            )
+        );
+    }
+
+    #[test]
+    fn the_hook_text_has_no_co_author_when_it_is_not_set() {
+        let out = rewrite("Add a thing\n\nBody.\n", None);
+        assert_eq!(
+            out,
+            "Add a thing\n\nBody.\n\nAgent-Session: urn:tsk:session:claude-cli:s1\n"
+        );
+    }
+
+    #[test]
+    fn the_hook_does_not_repeat_a_co_author_and_keeps_other_trailers() {
+        let message = format!(
+            "Add a thing\n\nSigned-off-by: A <a@example.com>\nco-authored-by: {}\nCo-authored-by: Joe <j@example.com>\n",
+            JANE
+        );
+        let out = rewrite(&message, Some(JANE));
+        assert_eq!(out.to_lowercase().matches(&JANE.to_lowercase()).count(), 1);
+        assert!(out.contains("Signed-off-by: A <a@example.com>"));
+        assert!(out.contains("Co-authored-by: Joe <j@example.com>"));
+        assert!(out.contains("Agent-Session: urn:tsk:session:claude-cli:s1"));
+    }
+
+    fn scratch_repo() -> (tempfile::TempDir, crate::ledger::git::Git) {
+        let dir = tempfile::tempdir().unwrap();
+        let git = crate::ledger::git::Git::new(dir.path());
+        git.run(["init", "-q"]).unwrap();
+        (dir, git)
+    }
+
+    #[test]
+    fn a_session_is_supervised_only_after_the_key_is_set_and_before_it_is_cleared() {
+        let (_dir, git) = scratch_repo();
+        assert!(!is_supervised(&git));
+        set_supervised(&git).unwrap();
+        assert!(is_supervised(&git));
+        set_supervised(&git).unwrap();
+        clear_supervised(&git);
+        assert!(!is_supervised(&git));
+        clear_supervised(&git);
+        assert!(!is_supervised(&git));
+    }
+
+    #[test]
+    fn a_co_author_reaches_the_hook_only_in_a_supervised_session() {
+        let (_dir, git) = scratch_repo();
+        let chosen = |git: &crate::ledger::git::Git| Some(JANE).filter(|_| is_supervised(git));
+        assert_eq!(chosen(&git), None);
+        set_supervised(&git).unwrap();
+        assert_eq!(chosen(&git), Some(JANE));
     }
 
     #[test]
@@ -1016,6 +1283,7 @@ mod tests {
             text,
             Some(Identity::Robot),
             Some("robots@jimbarritt.com"),
+            None,
             file(),
         )
         .unwrap();
@@ -1030,7 +1298,7 @@ mod tests {
     #[test]
     fn writing_a_section_replaces_an_existing_line_and_keeps_the_other_key() {
         let text = "[attribution]\nidentity = \"robot\"\nemail = \"a@example.com\"\n\n[ledger]\nrefs = \"custom\"\n";
-        let out = with_section(text, None, Some("b@example.com"), file()).unwrap();
+        let out = with_section(text, None, Some("b@example.com"), None, file()).unwrap();
         let read = parse_section(&out, file()).unwrap();
         assert_eq!(read, section(Some(Identity::Robot), Some("b@example.com")));
         assert!(out.contains("[ledger]\nrefs = \"custom\"\n"));
@@ -1039,7 +1307,7 @@ mod tests {
 
     #[test]
     fn a_value_with_a_quote_is_refused() {
-        let err = with_section("", None, Some("a\"b@example.com"), file()).unwrap_err();
+        let err = with_section("", None, Some("a\"b@example.com"), None, file()).unwrap_err();
         assert!(err.contains("cannot hold a quote"), "{}", err);
     }
 
