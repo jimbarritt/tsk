@@ -1086,3 +1086,58 @@ fn the_harness_commands_are_in_the_help() {
         assert!(!stdout(&output).contains('\u{2014}'), "{}", sub);
     }
 }
+
+#[test]
+fn new_with_a_paused_thread_whose_task_has_a_ticket_uses_the_ticket_as_the_branch() {
+    if !common::dolt_installed() {
+        eprintln!("skipped: dolt is not installed");
+        return;
+    }
+    let fx = Fixture::new();
+    let fox = fx.new_harness("fox", "M-TEST-01");
+    assert_success(&fx.tsk_at(&fox, &["mission", "create", "M-TKT", "Tickets"]));
+    let started = fx.tsk_at(&fox, &["thread", "start", "M-TKT"]);
+    assert_success(&started);
+    let thread = stdout(&started)
+        .trim_end()
+        .strip_prefix("started:")
+        .unwrap()
+        .to_string();
+    let added = fx.tsk_at(&fox, &["task", "add", "M-TKT", "Fix the wait"]);
+    assert_success(&added);
+    let task = stdout(&added).trim().to_string();
+    assert_success(&fx.tsk_at(
+        &fox,
+        &[
+            "task",
+            "set",
+            "M-TKT",
+            &task,
+            "ext-tracking-id",
+            "linear:TEAM1-546",
+        ],
+    ));
+    assert_success(&fx.tsk_at(&fox, &["thread", "pause", "--bound", &task, "Hand over"]));
+
+    let output = fx.tsk(&[
+        "harness",
+        "new",
+        "--thread",
+        &thread,
+        "--name",
+        "owl",
+        "--no-claude",
+        "--no-attach",
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("branch: TEAM1-546"),
+        "{}",
+        stdout(&output)
+    );
+    let owl = fx.trees().join("work").join("owl");
+    assert_eq!(
+        git(&owl, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "TEAM1-546"
+    );
+}
