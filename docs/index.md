@@ -38,6 +38,12 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 - [state-models.md](user-guide/state-models.md): historical. Task and thread state models of the retired daemon design.
 - [missions-threads-and-continuation.md](user-guide/missions-threads-and-continuation.md): how tsk's own missions and task data are stored and worked, the `/start-thread`, `/pause-thread` and `/resume-thread` commands, and what the `SessionStart` hook does.
 
+## Design
+
+Designs of behaviour that is built or proposed, with diagrams.
+
+- [session-and-harness-flows.md](design/session-and-harness-flows.md): design, 2026-11-14. Mermaid flowcharts of a cloud and a terminal session start, of a thread moving between harness instances (resume and take-over), of the proposed `tsk harness new` command (not built), and of the paused and held states of a thread, with the open questions for the command.
+
 ## Architecture
 
 Technical design documents describing how tsk's systems fit together.
