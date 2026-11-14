@@ -13,6 +13,7 @@ mod conformance;
 mod dolt_server;
 mod events;
 mod git_protocol;
+mod harness;
 mod hooks;
 mod install_plugin;
 mod ledger;

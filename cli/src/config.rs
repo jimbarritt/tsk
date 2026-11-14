@@ -59,6 +59,18 @@ pub enum ConfigCommands {
         )]
         user: bool,
     },
+    #[command(
+        name = "worktrees-root",
+        about = "Print the directory that holds code worktrees and where that was decided, or set [worktrees] root in the user config",
+        long_about = "Print the directory that holds code worktrees and where that was decided, or set [worktrees] root in the user config.\n\ntsk harness new puts each code worktree at <root>/<repo name>/<harness name>. The order is the environment variable GIT_WORKTREES_ROOT when it is not empty, then [worktrees] root in the user config file. There is no default. With a path, the command writes [worktrees] root and keeps the other keys and comments. A GIT_WORKTREES_ROOT in the environment still wins over the file."
+    )]
+    WorktreesRoot {
+        #[arg(
+            value_name = "PATH",
+            help = "The directory to write to [worktrees] root in the user config; omit it to print the root in force"
+        )]
+        path: Option<String>,
+    },
     LedgerRefs {
         #[arg(
             value_parser = ["branches", "custom"],
@@ -220,15 +232,25 @@ pub fn attach_and_report(file: &Path, url: &str) -> Result<(), String> {
 /// comments stay as they are: an existing `server` line of the `[ledger]` table is replaced,
 /// else the line follows the table header, else a new table ends the file.
 pub fn with_ledger_server(text: &str, value: &str) -> Result<String, String> {
-    let line = format!("server = \"{}\"", value);
+    with_string_key(text, "ledger", "server", value)
+}
+
+/// The text of a config file with the string `key` of the `[table]` table set to `value`.
+/// The other keys and the comments stay as they are: an existing line of the key is
+/// replaced, else the line follows the table header, else a new table ends the file. The
+/// result must parse and say what was asked, or the call fails and the file stays as it is.
+pub fn with_string_key(text: &str, table: &str, key: &str, value: &str) -> Result<String, String> {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    let line = format!("{} = \"{}\"", key, escaped);
+    let header_text = format!("[{}]", table);
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
-    let header = lines.iter().position(|l| l.trim() == "[ledger]");
+    let header = lines.iter().position(|l| l.trim() == header_text);
     match header {
         None => {
             if !lines.is_empty() && !lines.last().is_some_and(|l| l.trim().is_empty()) {
                 lines.push(String::new());
             }
-            lines.push("[ledger]".to_string());
+            lines.push(header_text);
             lines.push(line);
         }
         Some(start) => {
@@ -238,7 +260,7 @@ pub fn with_ledger_server(text: &str, value: &str) -> Result<String, String> {
                 .map_or(lines.len(), |i| start + 1 + i);
             let existing = (start + 1..end).find(|&i| {
                 let l = lines[i].trim_start();
-                l.strip_prefix("server")
+                l.strip_prefix(key)
                     .is_some_and(|rest| rest.trim_start().starts_with('='))
             });
             match existing {
@@ -258,24 +280,141 @@ pub fn with_ledger_server(text: &str, value: &str) -> Result<String, String> {
     }
     let mut out = lines.join("\n");
     out.push('\n');
-    // The result must parse and say what was asked, or the file is left alone.
-    let table = out.parse::<toml::Table>().map_err(|e| {
+    let fail = |why: &str| {
         format!(
-            "error: could not set [ledger] server in the config: {}",
-            e.message()
+            "error: could not set [{}] {} in the config: {}",
+            table, key, why
         )
-    })?;
-    let set = table
-        .get("ledger")
+    };
+    let parsed = out.parse::<toml::Table>().map_err(|e| fail(e.message()))?;
+    let set = parsed
+        .get(table)
         .and_then(|t| t.as_table())
-        .and_then(|t| t.get("server"))
+        .and_then(|t| t.get(key))
         .and_then(|v| v.as_str());
     if set != Some(value) {
-        return Err(
-            "error: could not set [ledger] server in the config: edit the file by hand".to_string(),
-        );
+        return Err(fail("edit the file by hand"));
     }
     Ok(out)
+}
+
+/// The environment variable that names the directory of code worktrees.
+pub const WORKTREES_ROOT_ENV: &str = "GIT_WORKTREES_ROOT";
+
+/// Where the worktrees root was decided.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RootSource {
+    Env,
+    Config(PathBuf),
+}
+
+/// The `[worktrees] root` value in the config file. `None` when the file, the table, the
+/// key or its string value is absent, or the value is empty.
+pub fn read_worktrees_root(file: &Path) -> Option<String> {
+    let table = read_table(file).ok()?;
+    match table.get("worktrees")?.as_table()?.get("root")? {
+        toml::Value::String(value) if !value.trim().is_empty() => Some(value.trim().to_string()),
+        _ => None,
+    }
+}
+
+/// `~` and `~/...` mean the home directory. Any other value stays as it is.
+pub fn expand_home(value: &str, home: Option<&Path>) -> PathBuf {
+    match (value, home) {
+        ("~", Some(home)) => home.to_path_buf(),
+        (value, Some(home)) if value.starts_with("~/") => home.join(&value[2..]),
+        _ => PathBuf::from(value),
+    }
+}
+
+/// The directory of code worktrees: the environment value when it is not empty, else the
+/// config file value. `None` when neither is set. There is no default.
+pub fn resolve_worktrees_root(
+    env: Option<String>,
+    file: Option<&Path>,
+    home: Option<&Path>,
+) -> Option<(PathBuf, RootSource)> {
+    if let Some(value) = env.filter(|v| !v.trim().is_empty()) {
+        return Some((expand_home(value.trim(), home), RootSource::Env));
+    }
+    let file = file?;
+    let value = read_worktrees_root(file)?;
+    Some((
+        expand_home(&value, home),
+        RootSource::Config(file.to_path_buf()),
+    ))
+}
+
+/// [`resolve_worktrees_root`] with the environment and the user config of this process.
+pub fn worktrees_root_from_env() -> Option<(PathBuf, RootSource)> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    resolve_worktrees_root(
+        std::env::var(WORKTREES_ROOT_ENV).ok(),
+        config_file_from_env().as_deref(),
+        home.as_deref(),
+    )
+}
+
+/// `tsk config worktrees-root`: print the root, or write it to the user config.
+fn worktrees_root(path: Option<String>) -> Result<(), String> {
+    if let Some(path) = path {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let expanded = expand_home(path.trim(), home.as_deref());
+        if path.trim().is_empty() || !expanded.is_absolute() {
+            return Err(format!(
+                "error: the worktrees root must be an absolute path, or start with ~/: {}",
+                path
+            ));
+        }
+        let file = required_config_file()?;
+        read_table(&file)?;
+        let text = match std::fs::read_to_string(&file) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(format!("error: could not read {}: {}", file.display(), e)),
+        };
+        let text = with_string_key(&text, "worktrees", "root", path.trim())?;
+        if let Some(parent) = file.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("error: could not create {}: {}", parent.display(), e))?;
+        }
+        std::fs::write(&file, text)
+            .map_err(|e| format!("error: could not write {}: {}", file.display(), e))?;
+        println!(
+            "worktrees root: {} (written to {})",
+            path.trim(),
+            file.display()
+        );
+        if let Some(env) = std::env::var(WORKTREES_ROOT_ENV)
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+        {
+            println!(
+                "note: {} is {} in the environment and wins over the file",
+                WORKTREES_ROOT_ENV,
+                env.trim()
+            );
+        }
+        return Ok(());
+    }
+    match worktrees_root_from_env() {
+        Some((root, RootSource::Env)) => {
+            println!("worktrees root: {}", root.display());
+            println!("source: environment ({})", WORKTREES_ROOT_ENV);
+        }
+        Some((root, RootSource::Config(file))) => {
+            println!("worktrees root: {}", root.display());
+            println!("source: user config ({})", file.display());
+        }
+        None => {
+            println!("worktrees root: not set");
+            println!(
+                "source: none. Set {} or run tsk config worktrees-root <path>",
+                WORKTREES_ROOT_ENV
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Write `[ledger] server` in the user config file.
@@ -343,6 +482,9 @@ pub fn run(action: ConfigCommands) -> Result<(), String> {
     if let ConfigCommands::LedgerServer { mode } = action {
         return ledger_server(mode);
     }
+    if let ConfigCommands::WorktreesRoot { path } = action {
+        return worktrees_root(path);
+    }
     if let ConfigCommands::LedgerRefs { mode } = action {
         return match mode
             .as_deref()
@@ -358,6 +500,7 @@ pub fn run(action: ConfigCommands) -> Result<(), String> {
     let file = required_config_file()?;
     match action {
         ConfigCommands::DocsHook => unreachable!("handled above"),
+        ConfigCommands::WorktreesRoot { .. } => unreachable!("handled above"),
         ConfigCommands::LedgerRefs { .. } => unreachable!("handled above"),
         ConfigCommands::Attribution { .. } => unreachable!("handled above"),
         ConfigCommands::LedgerServer { .. } => unreachable!("handled above"),
@@ -529,5 +672,46 @@ mod tests {
         assert!(read_nexus_url(&file).is_err());
         std::fs::write(&file, "[nexus]\nurl = 3\n").unwrap();
         assert!(read_nexus_url(&file).is_err());
+    }
+
+    #[test]
+    fn the_worktrees_root_is_the_environment_then_the_file_then_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("config.toml");
+        let home = Path::new("/home/u");
+        assert_eq!(resolve_worktrees_root(None, Some(&file), Some(home)), None);
+        std::fs::write(&file, "[worktrees]\nroot = \"~/trees\"\n").unwrap();
+        assert_eq!(
+            resolve_worktrees_root(None, Some(&file), Some(home)),
+            Some((
+                PathBuf::from("/home/u/trees"),
+                RootSource::Config(file.clone())
+            ))
+        );
+        assert_eq!(
+            resolve_worktrees_root(Some("/env/trees".into()), Some(&file), Some(home)),
+            Some((PathBuf::from("/env/trees"), RootSource::Env))
+        );
+        // An empty environment value is unset.
+        assert_eq!(
+            resolve_worktrees_root(Some("  ".into()), Some(&file), Some(home))
+                .unwrap()
+                .1,
+            RootSource::Config(file.clone())
+        );
+        assert_eq!(resolve_worktrees_root(Some("".into()), None, None), None);
+    }
+
+    #[test]
+    fn a_string_key_is_written_and_the_rest_of_the_file_stays() {
+        let text = "# mine\n[worktrees]\nroot = \"/old\" # why\n";
+        assert_eq!(
+            with_string_key(text, "worktrees", "root", "/new").unwrap(),
+            "# mine\n[worktrees]\nroot = \"/new\" # why\n"
+        );
+        assert_eq!(
+            with_string_key("a = 1\n", "worktrees", "root", "/x").unwrap(),
+            "a = 1\n\n[worktrees]\nroot = \"/x\"\n"
+        );
     }
 }
