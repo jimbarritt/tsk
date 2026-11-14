@@ -743,8 +743,7 @@ fn sleep_pauses_a_held_thread_and_stops_the_session_and_wake_resumes_it() {
     let log = fx.tmux_lines();
     let wake_keys = log
         .iter()
-        .filter(|l| l.starts_with("send-keys") && l.contains("-l claude"))
-        .next_back()
+        .rfind(|l| l.starts_with("send-keys") && l.contains("-l claude"))
         .unwrap();
     assert!(
         wake_keys.contains(&format!(
