@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -189,6 +190,9 @@ pub fn load_index(state_root: &Path, nexus_url: &str) -> Result<NexusIndex, Stri
     let git = open_clone(state_root)?;
     let dir = git.dir().to_path_buf();
     let refspec = format!("+HEAD:{}", TRACKING_REF);
+    if std::io::stderr().is_terminal() {
+        eprintln!("fetching the latest nexus index from {}...", nexus_url);
+    }
     if let Err(fetch_error) = git.run(["fetch", "--quiet", nexus_url, refspec.as_str()]) {
         let held = git
             .run_line(["rev-parse", "--verify", "--quiet", TRACKING_REF])
