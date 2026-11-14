@@ -5,10 +5,15 @@ BIN="${BIN:-/usr/local/bin}"
 SETUP_DIR="${SETUP_DIR:-/usr/local/share/tsk-setup}"
 
 # Options, passed by the environment's setup script as
-#   curl -sSfL <this file's URL> | bash -s -- [--use-robot-attribution <email>] [--nexus <url>]
+#   curl -sSfL <this file's URL> | bash -s -- [--use-robot-attribution <email>] [--co-author "<Name <email>>"] [--nexus <url>]
 # --use-robot-attribution <email>: turn on robot commit attribution (M-TSK-ATTRIB) for the
 # sessions of this environment, with <email> as the robot's git email. The environment also
 # needs the secret TSK_ROBOT_SIGNING_KEY. Without the option, attribution stays off.
+# --co-author "<Name <email>>": write [attribution] co_author to the user config, with the
+# value in the form Name <email>. A robot commit in a supervised session, one with a human
+# supporting actor, then carries the trailer Co-authored-by: <value> after its
+# Agent-Session trailer. An autonomous session gets none. It acts with
+# --use-robot-attribution only. Without the option, a robot commit has no such trailer.
 # --nexus <url>: attach the nexus at <url> with tsk nexus add, so a repo whose nexus entry
 # says "ledger": "nexus" reads and writes its ledger there. It also pre-approves the add_repo
 # tool, so the agent attaches the nexus repo to a new session on its first turn. The
@@ -21,12 +26,18 @@ mkdir -p "$SETUP_STATE_DIR"
 if [ "$#" -gt 0 ]; then printf '%s\n' "$@"; fi > "$SETUP_STATE_DIR/args"
 
 ROBOT_EMAIL=""
+CO_AUTHOR=""
 NEXUS_URL=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --use-robot-attribution)
       [ -n "${2:-}" ] || { echo "--use-robot-attribution needs an email" >&2; exit 1; }
       ROBOT_EMAIL="$2"
+      shift 2
+      ;;
+    --co-author)
+      [ -n "${2:-}" ] || { echo "--co-author needs a value of the form Name <email>" >&2; exit 1; }
+      CO_AUTHOR="$2"
       shift 2
       ;;
     --nexus)
@@ -158,11 +169,16 @@ if [ -n "$ROBOT_EMAIL" ] || [ -n "$NEXUS_URL" ]; then
 fi
 if [ -n "$ROBOT_EMAIL" ]; then
   "$BIN/tsk" config attribution robot --email "$ROBOT_EMAIL" --user
+  if [ -n "$CO_AUTHOR" ]; then
+    "$BIN/tsk" config attribution --co-author "$CO_AUTHOR" --user
+  fi
   cat >> "$HOME/.claude/AGENTS.md" <<'MD'
 # Robot commit attribution
 
 This environment signs commits as a robot (tsk, M-TSK-ATTRIB): the committer email is the
 robot email, and the robot key signs each commit. GitHub shows these commits as Verified.
+A robot commit carries an `Agent-Session` trailer and, in a supervised session with a
+co-author set, a `Co-authored-by` trailer.
 
 The platform's Stop hook, `~/.claude/stop-hook-git-check.sh`, accepts only the committer
 email `noreply@anthropic.com`. At the end of a turn it names each unpushed robot commit as

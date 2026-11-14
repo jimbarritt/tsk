@@ -6,6 +6,7 @@
 
 mod common;
 
+mod attribution;
 mod auto_update;
 mod background;
 mod broken_pipe;

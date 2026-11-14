@@ -39,7 +39,7 @@ pub enum ActorCommands {
         kind: String,
     },
     #[command(
-        about = "Add an actor, by uid, to the current session as a supporting actor, or as its primary actor with --primary (the earlier primary becomes supporting). --session names another session by its URN. Refuses an unknown uid. A human who supervises a robot's session joins it this way. A local write"
+        about = "Add an actor, by uid, to the current session as a supporting actor, or as its primary actor with --primary (the earlier primary becomes supporting). --session names another session by its URN. Refuses an unknown uid. A human who supervises a robot's session joins it this way, and a human joining the current session sets tsk.supervised in the worktree git config, which tsk thread session-start removes. A local write"
     )]
     Join {
         #[arg(
@@ -67,7 +67,7 @@ pub enum ActorCommands {
     #[command(
         name = "commit-msg",
         hide = true,
-        about = "The commit-msg hook that tsk thread session-start writes when [attribution] identity is robot: replace the Claude-Session and Co-Authored-By: Claude trailers of the message in <FILE> with Agent-Session: <session URN>. Exit 0 whatever happens"
+        about = "The commit-msg hook that tsk thread session-start writes when [attribution] identity is robot: replace the Claude-Session and Co-Authored-By: Claude trailers of the message in <FILE> with Agent-Session: <session URN>. When [attribution] co_author is set and the session is supervised (tsk.supervised in the worktree git config), add Co-authored-by: <co_author> after it, once. Exit 0 whatever happens"
     )]
     CommitMsg {
         #[arg(help = "The commit message file git passes to the hook")]
@@ -621,6 +621,16 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
                 role,
                 &utc_now(),
             )?;
+            if actor.kind == ActorKind::Human
+                && session.session_urn().as_deref() == Some(urn.as_str())
+            {
+                if let Err(error) = crate::attribution::set_supervised(&session.repo.git) {
+                    eprintln!(
+                        "warning: the join stands, and the session is not marked supervised: {}",
+                        error.trim_start_matches("error: ")
+                    );
+                }
+            }
             eprintln!("{}", NOT_PUBLISHED_NOTE);
             println!(
                 "{} ({}) joined {} as {}",
