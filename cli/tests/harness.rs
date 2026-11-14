@@ -143,7 +143,7 @@ impl Fixture {
 
     /// A tsk command in `dir`. `root` is the value of GIT_WORKTREES_ROOT, when there is one.
     fn command_in(&self, dir: &Path, args: &[&str], root: Option<&Path>) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(args)
             .current_dir(dir)
@@ -224,7 +224,7 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .envs(git_env())
@@ -346,7 +346,7 @@ fn the_worktrees_root_is_the_environment_then_the_config_and_new_fails_with_neit
 }
 
 #[test]
-fn new_makes_the_worktree_the_branch_the_state_and_the_tmux_session() {
+fn new_with_detach_makes_a_detached_worktree_the_state_and_the_tmux_session() {
     let fx = Fixture::new();
     // An ignored env file is copied. A file that is not ignored is not.
     std::fs::write(fx.work().join(".gitignore"), ".env\n").unwrap();
@@ -362,12 +362,14 @@ fn new_makes_the_worktree_the_branch_the_state_and_the_tmux_session() {
         "M-TEST-01",
         "--name",
         "otter",
+        "--detach",
         "--no-claude",
         "--no-attach",
     ]);
     assert_success(&output);
     let out = stdout(&output);
     let path = fx.trees().join("work").join("otter");
+    assert!(out.contains("branch: detached HEAD"), "{}", out);
     assert!(out.contains("harness: otter"), "{}", out);
     assert!(
         out.contains(&format!("path: {}", path.display())),
@@ -376,12 +378,9 @@ fn new_makes_the_worktree_the_branch_the_state_and_the_tmux_session() {
     );
     assert!(out.contains("tmux session: M-TEST-01"), "{}", out);
 
-    // The worktree is on a new branch from origin's default branch.
+    // The worktree has a detached HEAD at origin's default branch.
     assert!(path.join("README.md").is_file());
-    assert_eq!(
-        git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]),
-        "harness/otter"
-    );
+    assert_eq!(git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]), "HEAD");
     assert_eq!(
         git(&path, &["rev-parse", "HEAD"]),
         git(&fx.work(), &["rev-parse", "origin/main"])
@@ -399,7 +398,7 @@ fn new_makes_the_worktree_the_branch_the_state_and_the_tmux_session() {
     let state = fx.state("otter");
     assert_eq!(state["name"], "otter");
     assert_eq!(state["worktree"], path.to_str().unwrap());
-    assert_eq!(state["branch"], "harness/otter");
+    assert_eq!(state["branch"], "");
     assert_eq!(state["main_worktree"], fx.work().to_str().unwrap());
     assert_eq!(state["tmux_session"], "M-TEST-01");
     assert_eq!(state["robot"], "Marvin");
@@ -445,7 +444,7 @@ fn new_starts_claude_with_a_first_prompt_and_names_the_session_after_the_harness
     let log = fx.tmux_lines();
     let keys: Vec<&String> = log.iter().filter(|l| l.starts_with("send-keys")).collect();
     assert_eq!(keys.len(), 2, "{:?}", log);
-    assert!(keys[0].contains("-l claude 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-TEST-01.'"), "{}", keys[0]);
+    assert!(keys[0].contains("-l claude 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-TEST-01. This worktree is on branch m-test-01/fox. Follow this repo"), "{}", keys[0]);
     assert!(keys[1].ends_with("Enter"), "{}", keys[1]);
 
     // A new mission gives no code, so the session has the harness name.
@@ -456,6 +455,7 @@ fn new_starts_claude_with_a_first_prompt_and_names_the_session_after_the_harness
         "--new-mission",
         "--name",
         "owl",
+        "--detach",
         "--no-attach",
     ]);
     assert_success(&output);
@@ -473,6 +473,12 @@ fn new_starts_claude_with_a_first_prompt_and_names_the_session_after_the_harness
     );
     assert!(fx.state("owl")["robot"].is_null());
     assert!(fx.state("owl")["mission"].is_null());
+    assert!(
+        log.iter()
+            .any(|l| l.contains("This worktree has no branch")),
+        "{:?}",
+        log
+    );
 
     // A mission code that a tmux session has already gives way to the harness name.
     let output = fx.tsk(&[
@@ -547,6 +553,160 @@ fn new_picks_unused_words_and_refuses_a_used_or_invalid_name() {
     assert!(err.contains("is used"), "{}", err);
     let err = refuse("Not A Name");
     assert!(err.contains("not a harness name"), "{}", err);
+}
+
+#[test]
+fn new_with_a_new_branch_name_creates_it_from_the_default_branch_of_origin() {
+    let fx = Fixture::new();
+    let output = fx.tsk(&[
+        "harness",
+        "new",
+        "--robot",
+        "Marvin",
+        "--mission",
+        "M-TEST-01",
+        "--name",
+        "otter",
+        "--branch",
+        "TEAM1-546",
+        "--no-claude",
+        "--no-attach",
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("branch: TEAM1-546"),
+        "{}",
+        stdout(&output)
+    );
+    let path = fx.trees().join("work").join("otter");
+    assert_eq!(
+        git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "TEAM1-546"
+    );
+    assert_eq!(
+        git(&path, &["rev-parse", "HEAD"]),
+        git(&fx.work(), &["rev-parse", "origin/main"])
+    );
+    assert_eq!(fx.state("otter")["branch"], "TEAM1-546");
+
+    // A branch that exists and is free is checked out as it is.
+    git(&fx.work(), &["branch", "old-work"]);
+    assert_success(&fx.tsk(&[
+        "harness",
+        "new",
+        "--robot",
+        "Marvin",
+        "--mission",
+        "M-TEST-01",
+        "--name",
+        "owl",
+        "--branch",
+        "old-work",
+        "--no-claude",
+        "--no-attach",
+    ]));
+    let owl = fx.trees().join("work").join("owl");
+    assert_eq!(
+        git(&owl, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "old-work"
+    );
+}
+
+#[test]
+fn new_refuses_a_branch_that_is_checked_out_elsewhere_or_is_not_a_branch_name() {
+    let fx = Fixture::new();
+    let args = |branch: &'static str| {
+        vec![
+            "harness",
+            "new",
+            "--robot",
+            "Marvin",
+            "--mission",
+            "M-TEST-01",
+            "--name",
+            "otter",
+            "--branch",
+            branch,
+            "--no-claude",
+            "--no-attach",
+        ]
+    };
+    // main is checked out in the main worktree.
+    let err = assert_failure(&fx.tsk(&args("main")));
+    assert!(err.contains("the branch main is checked out in"), "{}", err);
+    assert!(err.contains(fx.work().to_str().unwrap()), "{}", err);
+    let err = assert_failure(&fx.tsk(&args("bad..name")));
+    assert!(err.contains("is not a branch name"), "{}", err);
+    // Another harness has a branch checked out.
+    assert_success(&fx.tsk(&args("one")));
+    let mut again = args("one");
+    again[7] = "owl";
+    let err = assert_failure(&fx.tsk(&again));
+    assert!(err.contains("the branch one is checked out in"), "{}", err);
+    assert!(err.contains("otter"), "{}", err);
+    // The flags exclude each other.
+    let mut both = args("x");
+    both.push("--detach");
+    let output = fx.tsk(&both);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("cannot be used with"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn new_with_no_terminal_and_no_flag_uses_the_first_suggestion() {
+    let fx = Fixture::new();
+    // A mission and no thread: the mission and the harness name.
+    let output = fx.tsk(&[
+        "harness",
+        "new",
+        "--robot",
+        "Marvin",
+        "--mission",
+        "M-TEST-01",
+        "--name",
+        "kudu",
+        "--no-claude",
+        "--no-attach",
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("using the first suggestion"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        stdout(&output).contains("branch: m-test-01/kudu"),
+        "{}",
+        stdout(&output)
+    );
+    let path = fx.trees().join("work").join("kudu");
+    assert_eq!(
+        git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "m-test-01/kudu"
+    );
+
+    // A new mission has no code, so the only suggestion is a detached HEAD.
+    let output = fx.tsk(&[
+        "harness",
+        "new",
+        "--robot",
+        "Marvin",
+        "--new-mission",
+        "--name",
+        "ibis",
+        "--no-claude",
+        "--no-attach",
+    ]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("branch: detached HEAD"),
+        "{}",
+        stdout(&output)
+    );
 }
 
 #[test]
@@ -779,12 +939,45 @@ fn sleep_pauses_a_held_thread_and_stops_the_session_and_wake_resumes_it() {
     assert!(
         fx.tmux_lines()
             .iter()
-            .any(|l| l.contains(&format!("claude 'Run /tsk:resume-thread {}.'", thread))),
+            .any(|l| l.contains(&format!("claude 'Run /tsk:resume-thread {}. ", thread))),
         "{:?}",
         fx.tmux_lines()
     );
     let err = assert_failure(&fx.tsk(&["harness", "new", "--thread", "nope0000", "--no-attach"]));
     assert!(err.contains("no such thread"), "{}", err);
+}
+
+#[test]
+fn new_with_a_paused_thread_and_no_flag_uses_the_mission_and_the_thread() {
+    if !common::dolt_installed() {
+        eprintln!("skipped: dolt is not installed");
+        return;
+    }
+    let fx = Fixture::new();
+    let fox = fx.new_harness("fox", "M-TEST-01");
+    let thread = start_thread(&fx, &fox);
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+
+    let output = fx.tsk(&[
+        "harness",
+        "new",
+        "--thread",
+        &thread,
+        "--name",
+        "owl",
+        "--no-claude",
+        "--no-attach",
+    ]);
+    assert_success(&output);
+    let expected = format!("m-test-01/{}", thread);
+    assert!(
+        stdout(&output).contains(&format!("branch: {}", expected)),
+        "{}",
+        stdout(&output)
+    );
+    let owl = fx.trees().join("work").join("owl");
+    assert_eq!(git(&owl, &["rev-parse", "--abbrev-ref", "HEAD"]), expected);
+    assert_eq!(fx.state("owl")["branch"], expected.as_str());
 }
 
 #[test]
@@ -810,7 +1003,7 @@ fn delete_refuses_changes_and_unpushed_commits_and_force_removes_and_retires_the
     let output = fx.tsk(&["harness", "delete", "fox", "--force"]);
     assert_success(&output);
     let out = stdout(&output);
-    assert!(out.contains("branch harness/fox kept"), "{}", out);
+    assert!(out.contains("branch m-test-01/fox kept"), "{}", out);
     assert!(!fox.exists());
     assert!(!fx.state_file("fox").exists());
     assert!(fx
@@ -819,7 +1012,7 @@ fn delete_refuses_changes_and_unpushed_commits_and_force_removes_and_retires_the
     assert!(fx.sessions().is_empty());
     git(
         &fx.work(),
-        &["rev-parse", "--verify", "refs/heads/harness/fox"],
+        &["rev-parse", "--verify", "refs/heads/m-test-01/fox"],
     );
     assert!(!stdout(&fx.tsk(&["harness", "list", "--porcelain"])).contains("fox"));
 
@@ -844,12 +1037,12 @@ fn delete_refuses_changes_and_unpushed_commits_and_force_removes_and_retires_the
     let output = fx.tsk(&["harness", "delete", "owl"]);
     assert_success(&output);
     assert!(
-        stdout(&output).contains("branch harness/owl deleted"),
+        stdout(&output).contains("branch m-test-01/owl deleted"),
         "{}",
         stdout(&output)
     );
     assert!(!owl.exists());
-    let branches = git(&fx.work(), &["branch", "--list", "harness/owl"]);
+    let branches = git(&fx.work(), &["branch", "--list", "m-test-01/owl"]);
     assert_eq!(branches, "");
     assert_eq!(
         std::fs::read_to_string(fx.names_file()).unwrap(),

@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use tempfile::TempDir;
 
@@ -194,7 +194,7 @@ impl Fixture {
     }
 
     fn tsk_as(&self, machine: &str, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_tsk"))
+        crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
             .args(args)
             .current_dir(self.work())
             .envs(git_env())
@@ -242,7 +242,7 @@ impl Fixture {
         let path = stdout(&self.tsk(&["ledger", "path"]));
         // A Dolt server that an earlier command started holds the store for writing.
         common::stop_servers(self.root.path(), true);
-        let out = Command::new("dolt")
+        let out = crate::common::cmd("dolt")
             .args(["sql", "-r", "csv", "-q", sql])
             .current_dir(path.trim_end())
             .env("HOME", self.root.path().join("home"))
@@ -288,7 +288,7 @@ impl Fixture {
             vec!["commit", "-m", "Another repo"],
             vec!["push", "origin", "main"],
         ] {
-            let out = Command::new("dolt")
+            let out = crate::common::cmd("dolt")
                 .args(&args)
                 .current_dir(&path)
                 .env("HOME", self.root.path().join("home"))
@@ -327,7 +327,7 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
 }
 
 fn git_output(dir: &Path, args: &[&str]) -> Output {
-    Command::new("git")
+    crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .envs(git_env())
@@ -751,7 +751,7 @@ fn status_with_an_unreachable_nexus_names_add_repo_only_in_a_cloud_session() {
     assert_success(&fx.tsk(&["config", "attach-nexus", missing.to_str().unwrap()]));
 
     let run = |cloud: bool| {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(["ledger", "status"])
             .current_dir(fx.work())

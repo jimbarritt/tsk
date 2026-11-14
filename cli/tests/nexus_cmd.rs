@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use tempfile::TempDir;
 
@@ -111,7 +111,7 @@ impl Fixture {
     }
 
     fn tsk(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_tsk"))
+        crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
             .args(args)
             .current_dir(self.work())
             .envs(git_env())
@@ -139,7 +139,7 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .envs(git_env())
@@ -555,7 +555,7 @@ fn register_repo_without_a_mission_prefix_is_refused() {
             "https://example.test/acme/other",
         ],
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_tsk"))
+    let output = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
         .args(["nexus", "register-repo"])
         .current_dir(&other)
         .envs(git_env())

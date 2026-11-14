@@ -108,7 +108,7 @@ impl Fixture {
                 .output()
                 .unwrap(),
         );
-        let out = Command::new("dolt")
+        let out = crate::common::cmd("dolt")
             .args(["sql", "-r", "json", "-q", sql])
             .current_dir(path.trim_end())
             .env("HOME", self.home())
@@ -132,7 +132,7 @@ impl Fixture {
         );
         // A Dolt server that an earlier command started holds the store for writing.
         common::stop_servers(self.root.path(), true);
-        let out = Command::new("dolt")
+        let out = crate::common::cmd("dolt")
             .args(["sql", "-q", sql])
             .current_dir(path.trim_end())
             .env("HOME", self.home())
@@ -286,7 +286,7 @@ impl Fixture {
     }
 
     fn command_in(&self, dir: &Path, args: &[&str], cloud: Option<&str>) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(args)
             .current_dir(dir)
@@ -366,7 +366,7 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
 }
 
 fn git_output(dir: &Path, args: &[&str]) -> Output {
-    Command::new("git")
+    crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .envs(git_env())
@@ -918,10 +918,47 @@ fn pause_works_with_a_non_main_default_branch() {
 }
 
 #[test]
-fn pause_refuses_a_detached_head() {
+fn pause_in_a_detached_worktree_at_an_origin_commit_records_the_origin_branch() {
     let fx = Fixture::new();
     let id = fx.start();
     git(&fx.work(), &["checkout", "--quiet", "--detach"]);
+    let head = git_line(&fx.work(), &["rev-parse", "HEAD"]);
+
+    let output = fx.tsk(&["thread", "pause", &id, "T-05", "next"]);
+
+    assert_success(&output);
+    let stored = fx.origin_entries(&id);
+    assert_eq!(stored.len(), 1);
+    let entry = json(&stored[0]);
+    assert_eq!(entry["git"]["code"]["ref"], "refs/heads/main");
+    assert_eq!(entry["git"]["code"]["commit"], head.as_str());
+}
+
+#[test]
+fn pause_in_a_detached_worktree_records_the_origin_branch_that_holds_the_commit() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    git(&fx.work(), &["checkout", "--quiet", "--detach"]);
+    write(&fx.work().join("feature.md"), "feature\n");
+    commit_all(&fx.work(), "On a feature branch");
+    git(
+        &fx.work(),
+        &["push", "--quiet", "origin", "HEAD:refs/heads/feature"],
+    );
+
+    assert_success(&fx.tsk(&["thread", "pause", &id, "T-05", "next"]));
+
+    let entry = json(&fx.origin_entries(&id)[0]);
+    assert_eq!(entry["git"]["code"]["ref"], "refs/heads/feature");
+}
+
+#[test]
+fn pause_refuses_a_detached_head_with_an_unpushed_commit() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    git(&fx.work(), &["checkout", "--quiet", "--detach"]);
+    write(&fx.work().join("local.md"), "unpushed\n");
+    commit_all(&fx.work(), "Local only");
     let before = fx.origin_ledger_sha();
 
     let output = fx.tsk(&["thread", "pause", &id, BRIEFING, "T-05", "next"]);
@@ -1954,7 +1991,7 @@ fn session_start_warns_about_a_ledger_commit_that_is_not_on_origin() {
         vec!["add", "-A"],
         vec!["commit", "-m", "Unpushed ledger commit"],
     ] {
-        let out = Command::new("dolt")
+        let out = crate::common::cmd("dolt")
             .args(&args)
             .current_dir(&wt)
             .env("HOME", fx.home())
@@ -2015,7 +2052,7 @@ fn session_start_writes_the_robot_signing_set_up_when_the_fetch_fails() {
         ],
     );
     let key = fx.root.path().join("robot-key");
-    let generated = Command::new("ssh-keygen")
+    let generated = crate::common::cmd("ssh-keygen")
         .args(["-q", "-t", "ed25519", "-N", "", "-f"])
         .arg(&key)
         .output()
@@ -2059,7 +2096,7 @@ fn session_start_writes_the_robot_signing_set_up_when_the_fetch_fails() {
 fn ledger_commits_are_the_robots_and_stop_until_a_robot_actor_is_registered() {
     let fx = Fixture::new();
     let key = fx.root.path().join("robot-key");
-    let generated = Command::new("ssh-keygen")
+    let generated = crate::common::cmd("ssh-keygen")
         .args(["-q", "-t", "ed25519", "-N", "", "-f"])
         .arg(&key)
         .output()

@@ -532,8 +532,12 @@ pub fn pause(session: &Session, id: &str, task_id: &str, whats_next: &str) -> Re
     let mission_id = thread_mission(&info);
     let ledger_commit = store.head_id()?;
     let code_git = &session.repo.git;
-    let code_ref = current_branch_ref(code_git)?;
     let code_commit = code_git.run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
+    let code_ref = match current_branch_ref(code_git) {
+        Ok(code_ref) => code_ref,
+        Err(e) if is_detached(code_git) => detached_ref(code_git, &code_commit).ok_or(e)?,
+        Err(e) => return Err(e),
+    };
     ensure_on_an_origin_branch(code_git, &code_ref, &code_commit)?;
     let timestamp = pause_time(now_secs(), id, &store.bindings_list()?);
     let written_by = session.written_by()?;
@@ -620,6 +624,48 @@ fn current_branch_ref(git: &Git) -> Result<String, String> {
             &output,
         )),
     }
+}
+
+/// True when HEAD is detached: it names a commit and no branch.
+fn is_detached(git: &Git) -> bool {
+    git.output(["symbolic-ref", "--quiet", "HEAD"])
+        .is_ok_and(|(_, output)| output.status.code() == Some(1))
+}
+
+/// The branch a pause records for a detached HEAD (a harness worktree starts detached): the
+/// origin branch that holds the commit, origin's default branch first, as `refs/heads/<name>`.
+/// `None` when no origin branch holds it, after one fetch.
+fn detached_ref(git: &Git, commit: &str) -> Option<String> {
+    let holders = |git: &Git| -> Vec<String> {
+        git.run([
+            "for-each-ref",
+            "--contains",
+            commit,
+            "--format=%(refname)",
+            ORIGIN_REMOTE_PREFIX,
+        ])
+        .map(|listing| origin_branches(&listing))
+        .unwrap_or_default()
+    };
+    let mut found = holders(git);
+    if found.is_empty() {
+        let _ = git.run([
+            "fetch",
+            "--quiet",
+            "--prune",
+            "origin",
+            ORIGIN_HEADS_REFSPEC,
+        ]);
+        found = holders(git);
+    }
+    let default = git
+        .run_line(["symbolic-ref", "--quiet", ORIGIN_REMOTE_HEAD])
+        .ok();
+    let pick = default
+        .filter(|d| found.contains(d))
+        .or_else(|| found.first().cloned())?;
+    pick.strip_prefix(ORIGIN_REMOTE_PREFIX)
+        .map(|name| format!("{}{}", BRANCH_PREFIX, name))
 }
 
 fn ensure_on_an_origin_branch(git: &Git, code_ref: &str, commit: &str) -> Result<(), String> {

@@ -161,7 +161,7 @@ impl Fixture {
 
     /// [`Self::command`] for another binary, such as an earlier release.
     fn command_with(&self, program: &Path, dir: &Path, args: &[&str]) -> Command {
-        let mut command = Command::new(program);
+        let mut command = crate::common::cmd(program);
         command
             .args(args)
             .current_dir(dir)
@@ -253,7 +253,7 @@ impl Fixture {
         // A Dolt server that an earlier command started holds the store for writing, and
         // `dolt` would open it read only. Stop it; the next command starts it again.
         common::stop_servers(self.root.path(), true);
-        let out = Command::new("dolt")
+        let out = crate::common::cmd("dolt")
             .args(["sql", "-r", "csv", "-q", sql])
             .current_dir(self.ledger_path(dir))
             .env("HOME", self.home())
@@ -347,7 +347,7 @@ const BRIEFING_SEED: Seed = Seed {
 };
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -3115,7 +3115,7 @@ mod cases {
 
     /// Every stored continuation entry of a thread, oldest first, as the ledger holds them.
     fn stored_entries(fx: &Fixture, dir: &Path, id: &str) -> Vec<serde_json::Value> {
-        let out = Command::new("dolt")
+        let out = crate::common::cmd("dolt")
             .args([
                 "sql",
                 "-r",
@@ -5259,7 +5259,7 @@ fn a_missing_dolt_binary_is_reported_with_a_hint() {
     let fx = Fixture::new();
     let bin = fx.root.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    let git_path = Command::new("sh")
+    let git_path = crate::common::cmd("sh")
         .args(["-c", "command -v git"])
         .output()
         .unwrap();
@@ -5327,7 +5327,7 @@ fn dolt_session_start_exports_the_database_path_and_warns_about_pending_commits(
     // A commit that never reached the remote.
     let db = |args: &[&str]| {
         common::stop_servers(fx.root.path(), true);
-        let out = Command::new("dolt")
+        let out = crate::common::cmd("dolt")
             .args(args)
             .current_dir(&path)
             .env("HOME", fx.home())
@@ -5462,7 +5462,7 @@ fn dolt_documents_are_plain_files_on_the_docs_branch_and_dolt_files_on_the_ledge
         .iter()
         .any(|f| f.contains("tsk-ledger") || f == "manifest"));
     let blob = |path: &str| {
-        let out = Command::new("git")
+        let out = crate::common::cmd("git")
             .args(["cat-file", "blob", &format!("{}:{}", DOCS_REF, path)])
             .current_dir(fx.origin())
             .output()
@@ -5708,7 +5708,7 @@ fn fetch_keeps_a_local_ledger_that_holds_a_commit_of_its_own() {
     let path = fx.ledger_path(&a);
     let db = |args: &[&str]| {
         common::stop_servers(fx.root.path(), true);
-        let out = Command::new("dolt")
+        let out = crate::common::cmd("dolt")
             .args(args)
             .current_dir(&path)
             .env("HOME", fx.home())
@@ -7387,7 +7387,7 @@ impl Fixture {
 }
 
 fn ref_exists(repo: &Path, reference: &str) -> bool {
-    Command::new("git")
+    crate::common::cmd("git")
         .args(["rev-parse", "--verify", "--quiet", reference])
         .current_dir(repo)
         .output()

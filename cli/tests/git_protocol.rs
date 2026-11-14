@@ -13,7 +13,7 @@ use crate::common;
 use common::dolt_installed;
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -108,7 +108,7 @@ impl Fixture {
     /// A `git` that logs the config environment and the arguments of each launch.
     fn install_logging_git(&self) {
         let real = String::from_utf8(
-            Command::new("sh")
+            crate::common::cmd("sh")
                 .args(["-c", "command -v git"])
                 .output()
                 .unwrap()
@@ -136,7 +136,7 @@ impl Fixture {
             self.root.path().join("wrapbin").display(),
             std::env::var("PATH").unwrap()
         );
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(args)
             .current_dir(dir)

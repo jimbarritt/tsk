@@ -17,7 +17,7 @@ fn target() -> &'static str {
 }
 
 fn run(dir: &Path, program: &str, args: &[&str]) {
-    let output = Command::new(program)
+    let output = crate::common::cmd(program)
         .args(args)
         .current_dir(dir)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -100,7 +100,7 @@ impl Fixture {
     fn command(&self, bin: &Path, args: &[&str]) -> Command {
         let home = self.root.path().join("home");
         std::fs::create_dir_all(&home).unwrap();
-        let mut command = Command::new(bin);
+        let mut command = crate::common::cmd(bin);
         command
             .args(args)
             .current_dir(self.root.path())
@@ -155,7 +155,7 @@ fn err(output: &Output) -> String {
 }
 
 fn version_of(bin: &Path) -> String {
-    let output = Command::new(bin).output_retry();
+    let output = crate::common::cmd(bin).output_retry();
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
@@ -352,7 +352,7 @@ fn counting_git(fx: &Fixture) -> (PathBuf, PathBuf) {
     std::fs::create_dir_all(&dir).unwrap();
     let log = fx.root.path().join("git-launches.log");
     let real = String::from_utf8(
-        Command::new("sh")
+        crate::common::cmd("sh")
             .args(["-c", "command -v git"])
             .output()
             .unwrap()

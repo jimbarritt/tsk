@@ -118,7 +118,7 @@ impl Fx {
     }
 
     fn command(&self, dir: &Path, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(args)
             .current_dir(dir)
@@ -271,7 +271,7 @@ fn bare_with_main(root: &Path, name: &str) {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -949,7 +949,7 @@ fn a_second_writer_merges_onto_a_custom_ref_it_did_not_fetch() {
 /// for its remote, so the log holds those calls too.
 fn install_logging_git(fx: &Fx) -> (PathBuf, PathBuf) {
     let real = String::from_utf8(
-        Command::new("sh")
+        crate::common::cmd("sh")
             .args(["-c", "command -v git"])
             .output()
             .unwrap()

@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -113,7 +113,7 @@ fn template_store() -> PathBuf {
 /// content of a directory.
 pub fn run_cp(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
-    let output = Command::new("cp")
+    let output = crate::common::cmd("cp")
         .arg("-a")
         .arg(from)
         .arg(to)
@@ -236,7 +236,7 @@ fn build(seed: &Seed) -> TempDir {
 
 fn tsk(root: &Path, seed: &Seed, dir: &Path, args: &[&str], input: &str) -> Output {
     let home = root.join("home");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+    let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
     command
         .args(args)
         .current_dir(dir)
@@ -279,7 +279,7 @@ fn tsk(root: &Path, seed: &Seed, dir: &Path, args: &[&str], input: &str) -> Outp
 }
 
 fn git(dir: &Path, args: &[&str]) {
-    let output = Command::new("git")
+    let output = crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")

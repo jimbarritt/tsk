@@ -2,12 +2,12 @@
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::Output;
 
 use tempfile::TempDir;
 
 fn tsk(home: &Path, zdotdir: Option<&Path>, args: &[&str]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+    let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
     command
         .args(args)
         .current_dir(home)
@@ -92,7 +92,7 @@ fn shell_init_rejects_other_shells() {
 }
 
 fn shell_path(name: &str) -> Option<String> {
-    let found = Command::new("sh")
+    let found = crate::common::cmd("sh")
         .args(["-c", &format!("command -v {}", name)])
         .output()
         .ok()?;
@@ -133,7 +133,7 @@ fn the_function_changes_directory_and_passes_other_calls() {
         out(&init)
     );
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
-    let run = Command::new(&shell)
+    let run = crate::common::cmd(&shell)
         .args(["-c", &script])
         .current_dir("/")
         .env("PATH", path)

@@ -152,7 +152,7 @@ impl Fx {
     }
 
     fn command(&self, who: char, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(args)
             .current_dir(self.dir(who))
@@ -253,7 +253,7 @@ impl Fx {
 
     /// Run the `dolt` command line in `who`'s store.
     fn dolt(&self, who: char, args: &[&str]) -> Output {
-        Command::new("dolt")
+        crate::common::cmd("dolt")
             .args(args)
             .current_dir(self.store(who))
             .env("HOME", self.home())
