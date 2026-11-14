@@ -154,7 +154,7 @@ enum Commands {
     #[command(
         name = "self-update",
         about = "Upgrade tsk to the latest release, by the method it was installed with (Homebrew, Cargo or a release binary)",
-        long_about = "Upgrade tsk to the latest release, by the method it was installed with (Homebrew, Cargo or a release binary).\n\nA command that stops with `unsupported ledger version` because the ledger is newer than this tsk runs this update itself, then runs the command again. `tsk thread session-start` and `tsk thread guard` never do. TSK_AUTO_UPDATE=never or TSK_NO_UPDATE_CHECK=1 switches it off."
+        long_about = "Upgrade tsk to the latest release, by the method it was installed with (Homebrew, Cargo or a release binary).\n\nOn Homebrew it refreshes the tap first and checks the installed version after.\n\nA command that stops with `unsupported ledger version` because the ledger is newer than this tsk runs this update itself, then runs the command again. `tsk thread session-start` and `tsk thread guard` never do. TSK_AUTO_UPDATE=never or TSK_NO_UPDATE_CHECK=1 switches it off."
     )]
     SelfUpdate(self_update::SelfUpdateArgs),
     #[command(

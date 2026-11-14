@@ -431,6 +431,56 @@ fn run_streaming(program: &str, args: &[&str]) -> Result<(), String> {
     })
 }
 
+trait Brew {
+    fn stream(&self, args: &[&str]) -> Result<(), String>;
+    fn capture(&self, args: &[&str]) -> Result<String, String>;
+}
+
+struct SystemBrew;
+
+impl Brew for SystemBrew {
+    fn stream(&self, args: &[&str]) -> Result<(), String> {
+        run_streaming("brew", args)
+    }
+
+    fn capture(&self, args: &[&str]) -> Result<String, String> {
+        let command = format!("brew {}", args.join(" "));
+        let output = Command::new("brew")
+            .args(args)
+            .stdin(Stdio::null())
+            .stderr(Stdio::inherit())
+            .output()
+            .map_err(|e| format!("error: could not run {}: {}", command, e))?;
+        if !output.status.success() {
+            return Err(format!("error: {} failed", command));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+}
+
+fn installed_homebrew_version(listing: &str) -> Option<Version> {
+    listing
+        .split_whitespace()
+        .skip(1)
+        .filter_map(Version::parse)
+        .max()
+}
+
+fn upgrade_homebrew(brew: &dyn Brew, target: Version) -> Result<(), String> {
+    brew.stream(&["update"])?;
+    brew.stream(&["upgrade", BREW_FORMULA])?;
+    let listing = brew.capture(&["list", "--versions", BREW_FORMULA])?;
+    let installed = installed_homebrew_version(&listing);
+    if installed == Some(target) {
+        return Ok(());
+    }
+    let shown = installed.map_or_else(|| "none".to_string(), |v| v.to_string());
+    Err(format!(
+        "error: Homebrew has tsk {} installed, not the target {}; run brew update, then brew upgrade {}",
+        shown, target, BREW_FORMULA
+    ))
+}
+
 fn permission_hint(path: &Path, e: &std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::PermissionDenied {
         format!(
@@ -506,7 +556,7 @@ fn install(version: Version) -> Result<Method, String> {
     let method = detect_method(&exe, cargo_home.as_deref(), home.as_deref());
     eprintln!("installed as: {}", method.label());
     match method {
-        Method::Homebrew => run_streaming("brew", &["upgrade", BREW_FORMULA])?,
+        Method::Homebrew => upgrade_homebrew(&SystemBrew, version)?,
         Method::ReleaseBinary => install_release_binary(&exe, version)?,
         // The release archive installs with no compile. `cargo install` builds the crate,
         // which takes about 25 s, so it is the fallback for an archive that cannot be
@@ -643,6 +693,87 @@ pub fn upgrade_for_cloud() -> CloudUpgrade {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    struct FakeBrew {
+        calls: RefCell<Vec<String>>,
+        fail_update: bool,
+        listing: &'static str,
+    }
+
+    impl FakeBrew {
+        fn new(listing: &'static str) -> Self {
+            FakeBrew {
+                calls: RefCell::new(Vec::new()),
+                fail_update: false,
+                listing,
+            }
+        }
+
+        fn calls(&self) -> Vec<String> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    impl Brew for FakeBrew {
+        fn stream(&self, args: &[&str]) -> Result<(), String> {
+            self.calls.borrow_mut().push(args.join(" "));
+            if self.fail_update && args == ["update"] {
+                return Err("error: brew update failed (exit status 1)".to_string());
+            }
+            Ok(())
+        }
+
+        fn capture(&self, args: &[&str]) -> Result<String, String> {
+            self.calls.borrow_mut().push(args.join(" "));
+            Ok(self.listing.to_string())
+        }
+    }
+
+    #[test]
+    fn homebrew_runs_update_then_upgrade_then_verify() {
+        let brew = FakeBrew::new("tsk 0.68.0\n");
+        assert_eq!(upgrade_homebrew(&brew, Version(0, 68, 0)), Ok(()));
+        assert_eq!(
+            brew.calls(),
+            vec![
+                "update".to_string(),
+                format!("upgrade {}", BREW_FORMULA),
+                format!("list --versions {}", BREW_FORMULA),
+            ]
+        );
+    }
+
+    #[test]
+    fn homebrew_failing_update_stops_before_the_upgrade() {
+        let mut brew = FakeBrew::new("tsk 0.68.0\n");
+        brew.fail_update = true;
+        let err = upgrade_homebrew(&brew, Version(0, 68, 0)).unwrap_err();
+        assert!(err.contains("brew update failed"), "{}", err);
+        assert_eq!(brew.calls(), vec!["update".to_string()]);
+    }
+
+    #[test]
+    fn homebrew_version_mismatch_is_an_error_naming_both_versions() {
+        let brew = FakeBrew::new("tsk 0.67.0\n");
+        let err = upgrade_homebrew(&brew, Version(0, 68, 0)).unwrap_err();
+        assert!(err.contains("0.67.0"), "{}", err);
+        assert!(err.contains("0.68.0"), "{}", err);
+        assert!(
+            err.contains(&format!(
+                "run brew update, then brew upgrade {}",
+                BREW_FORMULA
+            )),
+            "{}",
+            err
+        );
+    }
+
+    #[test]
+    fn homebrew_empty_listing_is_a_mismatch() {
+        let brew = FakeBrew::new("");
+        assert!(upgrade_homebrew(&brew, Version(0, 68, 0)).is_err());
+    }
 
     const LS: &str = "aaa\trefs/tags/v0.9.0\nbbb\trefs/tags/v0.10.0\nccc\trefs/tags/v0.2.1\nddd\trefs/tags/v1.0\neee\trefs/tags/v1.0.0-rc1\nfff\trefs/tags/vnext\nggg\trefs/tags/archive/tsk-bootstrap\nhhh\trefs/tags/v0.1.0.1\n";
 
