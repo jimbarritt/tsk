@@ -543,7 +543,7 @@ fn context_after_fetch(
     let prompt = if is_skipped(session) {
         SKIPPED_MESSAGE.to_string()
     } else {
-        session_unbound_prompt(session, &open_mission_lines(&missions), None)
+        session_unbound_prompt(session, &open_mission_lines(&missions))
     };
     let title_mission = binding.as_ref().and_then(|binding| {
         store
@@ -558,14 +558,24 @@ fn context_after_fetch(
     let title = session_title(title_actor.as_deref(), title_mission.as_deref());
     let mut thread_text =
         thread_message(binding.as_ref().map(|b| b.to_string()).as_deref(), &prompt);
+    // A thread that another session holds is not resumed: the person decides (ADR 0032).
+    let other_holder = binding
+        .as_ref()
+        .and_then(|b| super::ops::other_holder(session, b.thread_id()).map(|h| (b, h)));
+    if let Some((binding, holder)) = &other_holder {
+        thread_text = format!(
+            "An existing thread binding was found: {}. {}",
+            binding,
+            super::ops::held_note(binding.thread_id(), holder)
+        );
+    }
     if let Some(no_mission) = no_mission {
         thread_text.push(' ');
         thread_text.push_str(&no_mission);
     }
-    // A bound session with no robot is asked for one, from the robots no open session uses.
+    // A bound session with no robot is asked for one, from every robot, the free ones first.
     if let Some(binding) = &binding {
-        if let Some(prompt) = super::binding::bound_robot_prompt(session, binding.thread_id(), None)
-        {
+        if let Some(prompt) = super::binding::bound_robot_prompt(session, binding.thread_id()) {
             push_part(&mut thread_text, &prompt);
         }
     }
@@ -606,7 +616,14 @@ fn context_after_fetch(
     }
     if LATER_START.load(std::sync::atomic::Ordering::SeqCst) {
         if let Some(binding) = &binding {
-            let mut context = later_start_context(binding.thread_id(), title_mission.as_deref());
+            let mut context = match &other_holder {
+                Some((_, holder)) => format!(
+                    "This session is bound to thread {}, and its first session start gave the thread's context. {}",
+                    binding.thread_id(),
+                    super::ops::held_note(binding.thread_id(), holder)
+                ),
+                None => later_start_context(binding.thread_id(), title_mission.as_deref()),
+            };
             if let Err(e) = export_to_env_file(&outcome.path) {
                 context.push_str(&format!(
                     " WARNING: {} was not exported ({}); use the path {}.",
@@ -650,7 +667,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.63";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.64";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -762,8 +779,8 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
             return 0;
         }
         LATER_START.store(earlier, std::sync::atomic::Ordering::SeqCst);
-        // A terminal session on this machine records its claude process, so the robot
-        // choice can tell an open session from an ended one (crate::live).
+        // A terminal session on this machine records its claude process (crate::live). The
+        // robot choice does not read it: a robot is busy while it holds a thread.
         if !is_remote() {
             if let Some(id) = input.session_id.as_deref() {
                 crate::live::started(&state_root, id);

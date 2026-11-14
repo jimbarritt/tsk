@@ -74,7 +74,7 @@ pub enum ActorCommands {
         file: std::path::PathBuf,
     },
     #[command(
-        about = "List the actors, one per line: name, kind, state, uid, and the harness instances that ran as it (- for none, comma-separated otherwise). The state of a robot is free, taken (with what takes it: a tmux pane running claude, or a session that is open), or unknown; a human has -. In a terminal the state comes from this machine's sessions and tmux panes; in a cloud session it needs --open, else it is unknown. The columns are aligned with spaces; --porcelain prints them tab-separated; --json prints the full records with the URN, the name history and the state"
+        about = "List the actors, one per line: name, kind, state, missions, uid, and the harness instances that ran as it. The state of a robot is free, or busy (holds <thread id> <mission>) while it holds a thread (ADR 0032), read from the ledger alone; a human has -. The missions are those of the robot's threads, the held thread's mission first, at most 3 and then +N. The aligned columns are for a person; --porcelain prints name, kind, state, uid and the instances (- for none, comma-separated otherwise) tab-separated, for scripts; --json prints the full records with the URN, the name history, the state and the missions"
     )]
     #[command(
         about = "Remove an actor, by name: its record, its name history, the harness instances registered as it and its links to sessions. Threads and pause entries stay, and a pause it wrote keeps its writer. Prints removed <name> (<kind>). Exit status 1 when no actor has the name. A local write: it goes out with the next push"
@@ -88,9 +88,10 @@ pub enum ActorCommands {
         json: bool,
         #[arg(
             long,
+            hide = true,
             value_delimiter = ',',
             value_name = "SESSION_ID",
-            help = "The IDs of the cloud sessions that are not archived (list_sessions), comma-separated, for the state in a cloud session"
+            help = "Accepted and ignored since 0.65.0: a robot is busy while it holds a thread (ADR 0032)"
         )]
         open: Option<Vec<String>>,
         #[arg(
@@ -377,8 +378,11 @@ pub struct JsonActor {
     pub names: Vec<JsonName>,
     /// The harness instances registered as the actor, oldest registration first.
     pub instances: Vec<JsonInstance>,
-    /// For a robot: free, taken (with what takes it) or unknown. Null for a human.
+    /// For a robot: free, or `busy (holds <thread id> <mission>)`. Null for a human.
     pub state: Option<String>,
+    /// For a robot: the missions of its threads, the held thread's mission first, then the
+    /// others latest first, each once. Empty for a human.
+    pub missions: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -428,6 +432,7 @@ pub fn listed(
                 })
                 .collect(),
             state: None,
+            missions: Vec::new(),
         })
         .collect()
 }
@@ -453,6 +458,88 @@ pub fn list_line(actor: &JsonActor) -> String {
         actor.uid.as_deref().unwrap_or("-"),
         instances
     )
+}
+
+/// The column headings of the aligned `tsk actor list`.
+pub const LIST_HEADER: &str = "NAME\tKIND\tSTATE\tMISSIONS\tUID\tSESSIONS";
+
+/// Shorten one session or instance key for the aligned list. A cloud key
+/// (`cse_...`) loses its prefix and keeps its last 8 characters, since cloud ids share a
+/// long common prefix. Another key of 20 characters or fewer stays whole, a longer one
+/// keeps its last 8.
+pub fn short_key(key: &str) -> String {
+    let (body, cloud) = match key.strip_prefix("cse_") {
+        Some(rest) => (rest, true),
+        None => (key, false),
+    };
+    let count = body.chars().count();
+    if (cloud && count > 8) || (!cloud && count > 20) {
+        body.chars().skip(count - 8).collect()
+    } else {
+        body.to_string()
+    }
+}
+
+/// The missions for the aligned list: the first three, then `+N` for the rest. `-` with none.
+fn short_missions(missions: &[String]) -> String {
+    if missions.is_empty() {
+        return "-".to_string();
+    }
+    let mut parts: Vec<String> = missions.iter().take(3).cloned().collect();
+    if missions.len() > 3 {
+        parts.push(format!("+{}", missions.len() - 3));
+    }
+    parts.join(" ")
+}
+
+/// The keys for the aligned list: the last three, latest last, with `+N` ahead of them
+/// when N earlier keys are left out. `-` with none.
+fn short_keys(keys: &[&str]) -> String {
+    if keys.is_empty() {
+        return "-".to_string();
+    }
+    let shown = keys.len().min(3);
+    let mut parts: Vec<String> = Vec::new();
+    if keys.len() > shown {
+        parts.push(format!("+{}", keys.len() - shown));
+    }
+    parts.extend(keys[keys.len() - shown..].iter().map(|k| short_key(k)));
+    parts.join(" ")
+}
+
+/// The tab-separated line of one actor for the aligned list: the uid cut to 8 characters,
+/// the keys shortened and the missions cut to three. `--porcelain` and `--json` keep the full values.
+pub fn display_line(actor: &JsonActor) -> String {
+    let keys: Vec<&str> = actor
+        .instances
+        .iter()
+        .map(|i| i.instance.as_str())
+        .collect();
+    let uid: String = actor
+        .uid
+        .as_deref()
+        .map(|u| u.chars().take(8).collect())
+        .unwrap_or_else(|| "-".to_string());
+    format!(
+        "{}\t{}\t{}\t{}\t{}\t{}",
+        actor.name,
+        actor.kind,
+        actor.state.as_deref().unwrap_or("-"),
+        short_missions(&actor.missions),
+        uid,
+        short_keys(&keys)
+    )
+}
+
+/// The lines of the aligned list: a header row, then one row per actor. No actors, no
+/// lines.
+pub fn display_lines(actors: &[JsonActor]) -> Vec<String> {
+    if actors.is_empty() {
+        return Vec::new();
+    }
+    std::iter::once(LIST_HEADER.to_string())
+        .chain(actors.iter().map(display_line))
+        .collect()
 }
 
 pub fn run(action: ActorCommands) -> Result<i32, String> {
@@ -565,9 +652,7 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
             Ok(0)
         }
         ActorCommands::List {
-            json,
-            porcelain,
-            open,
+            json, porcelain, ..
         } => {
             let session = Session::discover()?;
             let store = session.store.as_ref();
@@ -576,12 +661,12 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
                 &store.instances_list()?,
                 &store.actor_names_list()?,
             );
-            let states = crate::thread::binding::robot_states(store, open.as_deref())?;
+            let states = crate::thread::binding::robot_states(store)?;
             for actor in actors.iter_mut() {
-                actor.state = states
-                    .iter()
-                    .find(|(name, _)| *name == actor.name)
-                    .map(|(_, state)| state.render());
+                if let Some(status) = states.iter().find(|status| status.name == actor.name) {
+                    actor.state = Some(status.state.render());
+                    actor.missions = status.missions.clone();
+                }
             }
             if json {
                 println!(
@@ -590,7 +675,12 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
                         .map_err(|e| format!("error: could not print JSON: {}", e))?
                 );
             } else {
-                print_lines(actors.iter().map(list_line).collect(), porcelain);
+                let lines = if porcelain {
+                    actors.iter().map(list_line).collect()
+                } else {
+                    display_lines(&actors)
+                };
+                print_lines(lines, porcelain);
             }
             Ok(0)
         }
@@ -712,8 +802,72 @@ mod tests {
              \"names\":[{\"name\":\"alice\",\"from\":\"2026-10-24T00:00:00Z\",\"until\":null}],\
              \"instances\":[{\"instance\":\"cse_1\",\"kind\":\"cloud\",\"registered_at\":\"2026-10-24T00:00:01Z\"},\
              {\"instance\":\"c1/main\",\"kind\":\"cloud\",\"registered_at\":\"2026-10-24T00:00:01Z\"}],\
-             \"state\":null}"
+             \"state\":null,\"missions\":[]}"
         );
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+
+    fn robot(name: &str, state: &str, missions: &[&str], keys: &[&str]) -> JsonActor {
+        JsonActor {
+            name: name.to_string(),
+            kind: "robot",
+            registered_at: String::new(),
+            uid: Some("9209a799-5d0d-b998-e7c6-c4ce029f41a2".to_string()),
+            urn: None,
+            names: Vec::new(),
+            instances: keys
+                .iter()
+                .map(|k| JsonInstance {
+                    instance: k.to_string(),
+                    kind: "cloud",
+                    registered_at: String::new(),
+                })
+                .collect(),
+            state: Some(state.to_string()),
+            missions: missions.iter().map(|m| m.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn a_key_keeps_its_last_eight_characters_unless_it_is_a_short_worktree_key() {
+        assert_eq!(short_key("cse_01Sw1xdrmM7YfnCqiZGrJ48L"), "iZGrJ48L");
+        assert_eq!(short_key("cse_abc"), "abc");
+        assert_eq!(short_key("tsk-180ae86e/main"), "tsk-180ae86e/main");
+        assert_eq!(short_key(&"x".repeat(30)), "xxxxxxxx");
+    }
+
+    #[test]
+    fn the_aligned_list_has_a_header_and_short_values() {
+        let actors = [
+            robot("Free One", "free", &[], &["cse_01NPzLLVnNFmu3qTVRRVLazY"]),
+            robot(
+                "Credit Where It's Due",
+                "busy (holds e6b3c55c M-ENV)",
+                &["M-ENV", "M-STORY", "M-TSK-ATTRIB", "M-BOOT", "M-X"],
+                &[
+                    "cse_01Sw1xdrmM7YfnCqiZGrJ48L",
+                    "cse_01Sw1xdtJxR6Bts4yTNVhbud",
+                    "cse_01Sw1xdtovCAQpQseQHiiXy8",
+                    "cse_01Sw1xds5C9zHni1xQ7FyJq2",
+                    "tsk-180ae86e/main",
+                ],
+            ),
+        ];
+        let table = crate::mission::table::align(&display_lines(&actors));
+        println!("{}", table.join("\n"));
+        assert_eq!(
+            table,
+            vec![
+                "NAME                   KIND   STATE                        MISSIONS                       UID       SESSIONS",
+                "Free One               robot  free                         -                              9209a799  VRRVLazY",
+                "Credit Where It's Due  robot  busy (holds e6b3c55c M-ENV)  M-ENV M-STORY M-TSK-ATTRIB +2  9209a799  +2 eQHiiXy8 xQ7FyJq2 tsk-180ae86e/main",
+            ]
+        );
+        assert!(display_lines(&[]).is_empty());
     }
 }
 

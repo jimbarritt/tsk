@@ -1,18 +1,12 @@
-//! Which terminal sessions on this machine are still open, so the robot choice offers only
-//! robots that no open session uses. A cloud session asks the platform instead
-//! (`tsk thread next --open`).
+//! The liveness files of the terminal sessions on this machine.
 //!
 //! Each session that starts on this machine outside a cloud session has a file in
 //! `<state root>/live/<session id>.json`, named by the hook's session ID. It holds the
 //! process ID and start time of the `claude` process that runs the session, the time of the
 //! last turn, and the time the session ended. The Stop hook updates the last turn and the
 //! SessionEnd hook writes the end. Nothing here goes into the ledger: it is a fact about this
-//! machine only.
-//!
-//! A session is open when it has no end, and either its `claude` process still runs with
-//! the same start time, or, with no process recorded, its last turn is within the idle
-//! limit. A robot is taken while one of its sessions is open, or while a tmux pane shows
-//! the robot in `@tsk_actor` and runs `claude`.
+//! machine only. The robot choice does not read these files: a robot is busy while it holds
+//! a thread, which the ledger says (ADR 0032).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,11 +14,6 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 pub const LIVE_DIR: &str = "live";
-
-/// The idle limit, in days, for a session with no recorded process. `TSK_ROBOT_IDLE_DAYS`
-/// overrides it.
-pub const IDLE_DAYS: u64 = 7;
-pub const IDLE_DAYS_VAR: &str = "TSK_ROBOT_IDLE_DAYS";
 
 /// The command name of the Claude Code process.
 const HARNESS_COMMAND: &str = "claude";
@@ -178,86 +167,6 @@ pub fn ended(state_root: &Path, session_id: &str) {
     write(&path, &file);
 }
 
-fn idle_limit_secs() -> u64 {
-    std::env::var(IDLE_DAYS_VAR)
-        .ok()
-        .and_then(|v| v.trim().parse().ok())
-        .unwrap_or(IDLE_DAYS)
-        * 24
-        * 60
-        * 60
-}
-
-/// Whether a session is open, from its file, whether its process runs with the same start
-/// time (`None` when no process is recorded), the time now and the idle limit.
-pub fn is_open(file: &LiveFile, process_runs: Option<bool>, now: u64, idle_limit: u64) -> bool {
-    if file.ended.is_some() {
-        return false;
-    }
-    match process_runs {
-        Some(runs) => runs,
-        None => now.saturating_sub(file.last_active) < idle_limit,
-    }
-}
-
-fn process_runs(file: &LiveFile) -> Option<bool> {
-    let (pid, started) = (file.pid?, file.process_started.as_deref()?);
-    Some(
-        ps(pid).is_some_and(|(_, now_started, command)| {
-            now_started == started && is_harness(&command)
-        }),
-    )
-}
-
-/// The IDs of the sessions on this machine that are open.
-pub fn open_session_ids(state_root: &Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(live_dir(state_root)) else {
-        return Vec::new();
-    };
-    let now = now_secs();
-    let limit = idle_limit_secs();
-    entries
-        .flatten()
-        .filter_map(|entry| read(&entry.path()))
-        .filter(|file| is_open(file, process_runs(file), now, limit))
-        .map(|file| file.session_id)
-        .collect()
-}
-
-/// The robots that a tmux pane shows in `@tsk_actor` while it runs `claude`. Empty outside
-/// tmux or with no tmux server.
-pub fn tmux_robots() -> Vec<String> {
-    let bin = std::env::var(crate::tmux::TMUX_BIN_VAR).unwrap_or_else(|_| "tmux".to_string());
-    let Ok(out) = Command::new(bin)
-        .args([
-            "list-panes",
-            "-a",
-            "-F",
-            "#{pane_current_command}\t#{@tsk_actor}",
-        ])
-        .output()
-    else {
-        return Vec::new();
-    };
-    if !out.status.success() {
-        return Vec::new();
-    }
-    parse_panes(&String::from_utf8_lossy(&out.stdout))
-}
-
-/// The actor names of the panes that run `claude`.
-pub fn parse_panes(text: &str) -> Vec<String> {
-    let mut names: Vec<String> = text
-        .lines()
-        .filter_map(|line| line.split_once('\t'))
-        .filter(|(command, actor)| is_harness(command) && !actor.trim().is_empty())
-        .map(|(_, actor)| actor.trim().to_string())
-        .collect();
-    names.sort();
-    names.dedup();
-    names
-}
-
 /// The input of a hook: the session ID.
 #[derive(Deserialize, Default)]
 struct HookSession {
@@ -298,31 +207,6 @@ mod tests {
         assert!(is_harness("/opt/homebrew/bin/claude"));
         assert!(!is_harness("zsh"));
         assert!(!is_harness("claude-helper"));
-    }
-
-    #[test]
-    fn a_session_is_open_until_it_ends_its_process_stops_or_it_idles() {
-        let file = LiveFile {
-            session_id: "s".into(),
-            last_active: 1_000,
-            ..LiveFile::default()
-        };
-        let day = 24 * 60 * 60;
-        assert!(is_open(&file, Some(true), 1_000_000, day));
-        assert!(!is_open(&file, Some(false), 1_000, day));
-        assert!(is_open(&file, None, 1_000 + day - 1, day));
-        assert!(!is_open(&file, None, 1_000 + day, day));
-        let ended = LiveFile {
-            ended: Some(2_000),
-            ..file
-        };
-        assert!(!is_open(&ended, Some(true), 2_000, day));
-    }
-
-    #[test]
-    fn panes_running_claude_name_their_robots() {
-        let text = "claude\tRobot Bee\nzsh\tRobot Gone\nclaude\t\nclaude\tRobot Bee\n";
-        assert_eq!(parse_panes(text), vec!["Robot Bee".to_string()]);
     }
 
     #[test]

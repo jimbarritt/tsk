@@ -13,16 +13,18 @@ stores it.
    code worktree is already that actor. Tell me the name and stop. If it prints
    `no actor registered`, go on.
 
-2. **Offer the free robots first.** Run `tsk actor list --porcelain`. The first column is
-   the name and the third the state. In a cloud session, pass `--open` with the ids of the
-   sessions that `list_sessions` (mine: true, limit: 30) shows as not archived; without it
-   the state is `unknown`. If I asked for a new robot in so many words, go to step 3.
-   Otherwise, when one or more robots are `free`, use the AskUserQuestion tool: offer up
-   to three free robots and "Construct a new robot". For a free robot, run
-   `tsk actor register "<name>" --kind robot`, set the title as step 6 says, and stop.
-   For a new robot, go on. A name in the list identifies its actor: registering a name
-   that is already in the list joins that actor, so a new robot needs a name that is not
-   in the list.
+2. **Offer the free robots first, then the busy robots.** Run `tsk actor list --porcelain`.
+   The first column is the name and the third the state. If I asked for a new robot in so
+   many words, go to step 3. Otherwise, when one or more robots are listed, use the
+   AskUserQuestion tool: offer up to three robots and "Construct a new robot". List the
+   `free` robots first, then a robot whose state starts with `busy`, marked in its label
+   (`<name> (busy)`). A robot is busy while it holds a thread. A robot works in many
+   sessions at once (ADR 0032), so picking a busy robot is allowed. The session then
+   takes a new thread or no thread, because a thread has one open session. For a listed
+   robot, run `tsk actor register "<name>" --kind robot`, set the title as step 6 says,
+   and stop. For a new robot, go on. A name in the list identifies its actor: registering
+   a name that is already in the list joins that actor, so a new robot needs a name that
+   is not in the list.
 
 3. **Choose a name.** Write a new name in the style below. Base it on your own attitude,
    character or aim, from the work in this session and the mission the session start

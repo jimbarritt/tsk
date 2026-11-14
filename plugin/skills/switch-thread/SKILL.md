@@ -42,7 +42,8 @@ each of those in the steps below, and do not inline their work here.
      no mission). Do not run a command for each candidate. Present the
      threads as `AskUserQuestion` options with thread ID, mission title, and
      `latest_whats_next` if present, with free text open for a thread ID not
-     listed. If the argument named a mission, use it only to pick your suggested
+     listed. Offer only threads with `state` `paused`. Name a `held` thread with its
+     `holder`, as held and not offered (ADR 0032). If the argument named a mission, use it only to pick your suggested
      option, not to skip asking.
    - If no threads exist at all, say so and stop. There is nothing to switch
      to. Offer `tsk:start-thread` instead.

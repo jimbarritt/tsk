@@ -47,8 +47,10 @@ Every binding is one row of the ledger's `thread_bindings` table, keyed on the i
 An instance has one binding, so binding it again replaces the old one. More than one
 instance can bind to the same thread, and `tsk thread list` shows them in `actors`, an
 array of `{"actor", "kind", "name"}` entries (`cloud` or `worktree`; `name` is the actor of
-the instance's latest session, or `null`), empty when none is bound. Resuming a thread that
-another actor wrote to binds anyway, and prints a warning.
+the instance's latest session, or `null`), empty when none is bound. A thread has one open session
+at a time (ADR 0032): resuming a thread that another session holds is refused unless
+`--take-over` is given. Resuming a paused thread that another actor wrote to binds, and
+prints a warning.
 
 A **harness instance** is a place where a harness runs: a cloud session, or a code
 worktree of a clone. A **session** is one conversation in it: in the cloud the two are one,
@@ -135,7 +137,7 @@ tsk ledger doc mv <ref> <path>           rename a document, keep its id, update 
 tsk ledger doc path <ref>                print the absolute path of a document's file
 tsk ledger status [--local] [--porcelain]  print Local (what is not pushed) and Origin (ahead or behind); --local makes no network call and prints Origin as not checked; --porcelain prints tab-separated facts for scripts; read-only
 tsk ledger init --nexus|--repo [--prefix P]  create the ledger of a repo that has none, add the repo to the nexus when one is attached, and push it
-tsk thread next [--open <id>,...]        print bound:<thread-id> for a bound session, else the robot-first question the Stop hook asks; run it on the first turn once the ledger is fetched. In a cloud session it first asks for the sessions that are not archived (list_sessions), passed with --open: a robot that ran in one of them is taken and not offered. In a terminal it does not offer a robot that an open session on this machine uses (its claude process runs, or it has no recorded process and was active in the last 7 days, TSK_ROBOT_IDLE_DAYS), or that a tmux pane running claude shows
+tsk thread next                          print bound:<thread-id> for a bound session, else the robot-first question the Stop hook asks; run it on the first turn once the ledger is fetched. It lists the free robots first, then the busy ones: a robot is busy while it holds a thread, read from the ledger alone (ADR 0032). --open is accepted and ignored
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
 
 tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push (the claim)
@@ -143,17 +145,17 @@ tsk thread pause <thread-id> <task-id> <whats-next>                   append a c
 tsk thread pause --bound <task-id> <whats-next>                       the same for the thread this session is bound to
 tsk thread set mission <mission-id> [<thread-id>]                     attach or change a thread's mission; local, tsk ledger push publishes
 tsk thread set mission --none [<thread-id>]                           remove a thread's mission; local, tsk ledger push publishes
-tsk thread resume <thread-id>                                         bind to a thread, print its latest entry; local, tsk ledger push publishes
+tsk thread resume <thread-id> [--take-over]                           bind to a thread and hold it, print its latest entry; refused while another session holds it; local, tsk ledger push publishes
 tsk thread detach                                                     remove this session's or code worktree's binding; local, tsk ledger push publishes
 tsk thread skip                                                       work without a thread; local to this clone, never pushed
 tsk thread stop [<thread-id>]                                         delete a thread and every cloud binding to it, push
-tsk thread list                                                       list threads, most recently paused first
+tsk thread list                                                       list threads, most recently paused first, each with its state (paused or held) and the holder of a held thread
 tsk thread title                                                      print the session title: <mission-id>: <actor name>, NO-MISSION: <actor name>, or the mission ID alone; exit 1 with neither; read-only, never fetches
 tsk thread binding [--no-fetch]                                       print the current binding, and the primary actor when the session has one
 tsk actor register <name> --kind human|robot                          make the actor (a new name) and make it the primary actor of this session; prints its URN; local, tsk ledger push publishes
 tsk actor join <uid> [--primary] [--session <urn>]                    add an actor to this session (or the named one) as supporting, or as primary; local
 tsk actor name                                                        print the name of the primary actor of this session
-tsk actor list [--porcelain|--json] [--open <id>,...]                list the actors: name, kind, state (a robot is free, taken, or unknown in a cloud session without --open), uid, and the instances that ran as each; --json adds the URN and the name history
+tsk actor list [--porcelain|--json]                list the actors: name, kind, state (a robot is free, or busy (holds <thread id> <mission>) while it holds a thread), missions, uid, and the instances that ran as each; --porcelain keeps name, kind, state, uid and instances; --json adds the URN, the name history and the missions
 tsk actor remove <name>                                               remove an actor: its record, name history, instance rows and session links; threads and pause entries stay; a local write
 tsk session actor [--session <urn>]                                   list the actors of this session: role, name, kind, uid
 tsk ledger id                                                         print the ledger's URN, urn:tsk:ledger:<ledger-id>
@@ -446,11 +448,11 @@ to stderr.
 | `thread start` | `started:<thread-id>` | `resume-required:<thread-id>` and exit status 2 when a binding exists |
 | `thread pause` | `paused:<thread-id>`, then `code: clean` or `code: dirty (N files)`, `code pushed: yes` or `no`, `ledger: pushed` or `ledger: N changes not pushed` | exit 1 when the managed repo's `HEAD` is not on any branch on origin, or when a thread with no mission gets a task ID |
 | `thread set mission` | `mission-set:<thread-id>:<mission-id>`, or `mission-cleared:<thread-id>` with `--none` | exit 1 for an unknown mission or thread, or with no thread ID and no binding |
-| `thread resume` | `{"thread_id":"...","latest":{...},"warning":"...","mission":{"id","name"}|null,"task":{"id","description"}|null}` | |
+| `thread resume` | `{"thread_id":"...","latest":{...},"warning":"...","mission":{"id","name"}|null,"task":{"id","description"}|null}` | exit 1, nothing on stdout, when another session holds the thread (ADR 0032): ask me, then run again with `--take-over` only if I confirm that the holder no longer runs |
 | `thread detach` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding |
 | `thread stop` | `stopped:<thread-id>` | exit 1 with no binding and no thread ID given |
 | `thread skip` | `skipped` | |
-| `thread list` | one compact JSON object per line: `id`, `mission_id` (null for a thread with no mission), `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp`, `actors` (each `{"actor", "kind", "name"}`) | |
+| `thread list` | one compact JSON object per line: `id`, `mission_id` (null for a thread with no mission), `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp`, `actors` (each `{"actor", "kind", "name"}`), `state` (`paused` or `held`) and `holder` (null when paused, else `{"instance", "robot", "since"}`) | |
 | `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>`, then `actor: <name> (<kind>)` on a second line when registered | exit 1, nothing on stdout, with no binding |
 | `actor register` | `registered <name> (<kind>)` for a new name; `<name> (<kind>) is now this session's actor` or `... this worktree's actor` for a name already registered with that kind | exit 1 with `<name> is registered as a <kind>` for the other kind, or for a name that is empty, over 200 characters or starts with `/` |
 | `actor name` | the actor name, or `no actor registered` | |
@@ -522,5 +524,6 @@ A change of mission keeps the thread (ADR 0031): run `/tsk:switch-mission`, whic
 on the old focus and runs `tsk thread set mission`. No single command switches a session to
 another thread. To switch: `tsk thread binding` to find the current thread,
 `tsk thread detach`, then `tsk thread resume <new-thread-id>`. `tsk thread list` gives the
-candidates. Run `tsk thread stop <old-thread-id>` only when the line of work is finished,
+candidates, each `paused` or `held`: a held thread is not offered, and a resume of it is
+refused unless I confirm a `--take-over`. Run `tsk thread stop <old-thread-id>` only when the line of work is finished,
 because a stopped thread is deleted. To work with no thread at all, run `tsk thread skip`.

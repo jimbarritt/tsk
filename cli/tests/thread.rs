@@ -1153,10 +1153,11 @@ fn resume_in_a_cloud_session_binds_locally_and_the_next_push_publishes_it() {
     assert_eq!(fx.origin_subject(), "Publish the binding");
     let after_push = fx.origin_ledger_sha();
 
-    // A second resume of the same thread changes nothing, locally or on origin.
+    // A second resume of the same thread refreshes the binding locally, and changes
+    // nothing on origin until the next push.
     let second = fx.tsk_cloud("cse_two", &["thread", "resume", "5555eeee"]);
     assert_success(&second);
-    assert!(!stderr(&second).contains(NOT_PUBLISHED));
+    assert!(stderr(&second).contains(NOT_PUBLISHED));
     assert_eq!(fx.origin_ledger_sha(), after_push);
 }
 
@@ -1201,7 +1202,7 @@ fn fixture_with_old_and_new_bindings() -> Fixture {
         ("cse_future", "7777aaaa", FAR_FUTURE),
         ("cse_mine", "7777aaaa", LONG_AGO),
     ]);
-    assert_success(&fx.tsk(&["thread", "resume", "7777aaaa"]));
+    assert_success(&fx.tsk(&["thread", "resume", "7777aaaa", "--take-over"]));
     fx.exec_in(
         &fx.work(),
         &format!(
@@ -1375,7 +1376,7 @@ fn stop_by_id_purges_every_cloud_binding_and_keeps_an_unrelated_worktree_binding
         ("cse_b", "8888bbbb", "2026-10-02T00:00:00Z"),
         ("cse_c", "7777aaaa", "2026-10-03T00:00:00Z"),
     ]);
-    assert_success(&fx.tsk(&["thread", "resume", "8888bbbb"]));
+    assert_success(&fx.tsk(&["thread", "resume", "8888bbbb", "--take-over"]));
 
     let output = fx.tsk(&["thread", "stop", "7777aaaa"]);
 
@@ -1442,9 +1443,9 @@ fn list_prints_one_compact_object_per_thread_newest_first() {
     assert_eq!(
         lines,
         vec![
-            format!("{{\"id\":\"cccc0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":\"newer\",\"latest_timestamp\":\"2026-10-01T00:00:00Z\",\"actors\":[]}}", BRIEFING),
-            format!("{{\"id\":\"bbbb0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":\"older\",\"latest_timestamp\":\"2026-09-01T00:00:00Z\",\"actors\":[]}}", BRIEFING),
-            format!("{{\"id\":\"aaaa0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":null,\"latest_timestamp\":null,\"actors\":[]}}", BRIEFING),
+            format!("{{\"id\":\"cccc0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":\"newer\",\"latest_timestamp\":\"2026-10-01T00:00:00Z\",\"actors\":[],\"state\":\"paused\",\"holder\":null}}", BRIEFING),
+            format!("{{\"id\":\"bbbb0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":\"older\",\"latest_timestamp\":\"2026-09-01T00:00:00Z\",\"actors\":[],\"state\":\"paused\",\"holder\":null}}", BRIEFING),
+            format!("{{\"id\":\"aaaa0000\",\"mission_id\":\"M-TEST-01\",\"mission_link\":\"{}\",\"latest_whats_next\":null,\"latest_timestamp\":null,\"actors\":[],\"state\":\"paused\",\"holder\":null}}", BRIEFING),
         ]
     );
 }
@@ -2533,15 +2534,28 @@ fn actor_list_prints_each_actor_with_its_instances() {
     assert_eq!(lines.len(), 2, "{}", porcelain);
     assert_eq!(lines[0][0], "alice");
     assert_eq!(lines[0][1], "robot");
-    assert!(["free", "unknown"].contains(&lines[0][2]), "{}", porcelain);
+    assert_eq!(lines[0][2], "free", "{}", porcelain);
     assert_eq!(lines[0][3].len(), 36, "{}", porcelain);
     assert_eq!(lines[0][4], main);
     assert_eq!(lines[1][0], "bob");
     assert_eq!(lines[1][2], "-");
     assert_eq!(lines[1][4], "cse_2,cse_3");
     let aligned = fx.ok_list(&["actor", "list"]);
-    assert!(aligned.starts_with("alice  robot  "), "{}", aligned);
-    assert!(aligned.contains(&format!("  {}\n", main)), "{}", aligned);
+    assert!(
+        aligned.starts_with("NAME   KIND   STATE  MISSIONS  UID"),
+        "{}",
+        aligned
+    );
+    assert!(
+        aligned.contains("\nalice  robot  free   -  "),
+        "{}",
+        aligned
+    );
+    assert!(
+        aligned.contains("\nbob    human  -      -  "),
+        "{}",
+        aligned
+    );
     let listed = json(&fx.ok_list(&["actor", "list", "--json"]));
     assert_eq!(listed.as_array().unwrap().len(), 2);
     assert_eq!(listed[0]["name"], "alice");
@@ -2557,6 +2571,42 @@ fn actor_list_prints_each_actor_with_its_instances() {
     assert_eq!(listed[1]["instances"].as_array().unwrap().len(), 2);
     assert_eq!(listed[1]["instances"][1]["instance"], "cse_3");
     assert!(listed[1]["instances"][1]["registered_at"].is_string());
+}
+
+#[test]
+fn a_robot_is_busy_while_it_holds_a_thread_and_free_after_a_pause() {
+    let fx = Fixture::new();
+    assert_success(&fx.register("alice", "robot"));
+    let state = |fx: &Fixture| {
+        let porcelain = fx.ok_list(&["actor", "list", "--porcelain"]);
+        porcelain
+            .lines()
+            .next()
+            .unwrap()
+            .split('\t')
+            .nth(2)
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(state(&fx), "free");
+
+    let id = fx.start();
+    assert_eq!(state(&fx), format!("busy (holds {} M-TEST-01)", id));
+    let aligned = fx.ok_list(&["actor", "list"]);
+    assert!(aligned.contains("MISSIONS"), "{}", aligned);
+    assert!(
+        aligned.contains(&format!("busy (holds {} M-TEST-01)", id)),
+        "{}",
+        aligned
+    );
+    let listed = json(&fx.ok_list(&["actor", "list", "--json"]));
+    assert_eq!(listed[0]["state"], format!("busy (holds {} M-TEST-01)", id));
+    assert_eq!(listed[0]["missions"], serde_json::json!(["M-TEST-01"]));
+
+    assert_success(&fx.tsk(&["thread", "pause", &id, "", "x"]));
+    assert_eq!(state(&fx), "free");
+    // The old flag is accepted and ignored.
+    assert_success(&fx.tsk(&["actor", "list", "--open", "session_01X"]));
 }
 
 impl Fixture {
@@ -2593,7 +2643,7 @@ fn the_actor_stays_while_the_instance_rebinds() {
 fn list_shows_the_actor_name_of_each_instance() {
     let fx = Fixture::new();
     let id = fx.start();
-    assert_success(&fx.tsk_cloud("cse_n", &["thread", "resume", &id]));
+    assert_success(&fx.tsk_cloud("cse_n", &["thread", "resume", &id, "--take-over"]));
     assert_eq!(
         listed_actors(&fx),
         vec![
@@ -2649,4 +2699,240 @@ fn actor_remove_deletes_the_actor_and_keeps_the_thread() {
     let missing = fx.tsk(&["actor", "remove", "Spare Robot"]);
     assert_eq!(missing.status.code(), Some(1));
     assert!(stderr(&missing).contains("no actor is named Spare Robot"));
+}
+
+/// The row of `tsk thread list` for a thread.
+fn list_row(fx: &Fixture, id: &str) -> serde_json::Value {
+    let output = fx.tsk(&["thread", "list"]);
+    assert_success(&output);
+    stdout(&output)
+        .lines()
+        .map(json)
+        .find(|row| row["id"] == id)
+        .unwrap_or_else(|| panic!("no row for {}", id))
+}
+
+#[test]
+fn list_shows_a_started_thread_as_held_and_a_paused_thread_as_paused() {
+    let fx = Fixture::new();
+    let id = fx.start();
+
+    let held = list_row(&fx, &id);
+    assert_eq!(held["state"], "held");
+    assert_eq!(held["holder"]["instance"], fx.worktree_actor());
+    assert!(held["holder"]["robot"].is_null());
+    assert!(held["holder"]["since"].as_str().unwrap().ends_with('Z'));
+
+    assert_success(&fx.tsk(&["thread", "pause", "--bound", "T-01", "stop for now"]));
+    let paused = list_row(&fx, &id);
+    assert_eq!(paused["state"], "paused");
+    assert!(paused["holder"].is_null());
+
+    // A thread nobody bound is paused.
+    fx.seed_thread("6666ffff", "");
+    assert_eq!(list_row(&fx, "6666ffff")["state"], "paused");
+}
+
+#[test]
+fn resume_by_a_second_instance_of_a_held_thread_is_refused_unless_it_takes_over() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    let before = fx.local_binding_threads();
+
+    let refused = fx.tsk_cloud("cse_01SECONDINSTANCE", &["thread", "resume", &id]);
+
+    assert_exit(&refused, 1);
+    assert_eq!(stdout(&refused), "");
+    let message = stderr(&refused);
+    assert!(
+        message.contains(&format!("thread {} is held by {}", id, fx.worktree_actor())),
+        "{}",
+        message
+    );
+    assert!(
+        message.contains(&format!("tsk thread resume {} --take-over", id)),
+        "{}",
+        message
+    );
+    // The refusal writes nothing.
+    assert_eq!(fx.local_binding_threads(), before);
+    assert_eq!(
+        list_row(&fx, &id)["holder"]["instance"],
+        fx.worktree_actor()
+    );
+
+    let taken = fx.tsk_cloud(
+        "cse_01SECONDINSTANCE",
+        &["thread", "resume", &id, "--take-over"],
+    );
+
+    assert_success(&taken);
+    assert_eq!(json(&stdout(&taken))["thread_id"], id.as_str());
+    assert_eq!(
+        fx.local_binding_threads()
+            .get("cse_01SECONDINSTANCE")
+            .map(String::as_str),
+        Some(id.as_str())
+    );
+}
+
+#[test]
+fn the_holder_resumes_its_own_thread_without_taking_over() {
+    let fx = Fixture::new();
+    let id = fx.start();
+
+    let again = fx.tsk(&["thread", "resume", &id]);
+
+    assert_success(&again);
+    assert_eq!(
+        list_row(&fx, &id)["holder"]["instance"],
+        fx.worktree_actor()
+    );
+}
+
+#[test]
+fn resume_after_a_pause_by_another_instance_needs_no_take_over_and_holds_the_thread() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    assert_success(&fx.tsk(&["thread", "pause", "--bound", "T-01", "hand over"]));
+
+    // The resume lands in the second of the pause, and still holds the thread.
+    let resumed = fx.tsk_cloud("cse_01SECONDINSTANCE", &["thread", "resume", &id]);
+
+    assert_success(&resumed);
+    assert_eq!(json(&stdout(&resumed))["latest"]["whats_next"], "hand over");
+    let row = list_row(&fx, &id);
+    assert_eq!(row["state"], "held");
+    assert_eq!(row["holder"]["instance"], "cse_01SECONDINSTANCE");
+
+    // The first instance now meets a held thread.
+    let refused = fx.tsk(&["thread", "resume", &id]);
+    assert_exit(&refused, 1);
+    assert!(
+        stderr(&refused).contains("is held by 01SECOND"),
+        "{}",
+        stderr(&refused)
+    );
+}
+
+#[test]
+fn a_pause_right_after_a_resume_releases_the_thread() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    assert_success(&fx.tsk(&["thread", "pause", "--bound", "T-01", "hand over"]));
+
+    // The resume registers its binding up to a second after the clock. The pause that
+    // follows in the same second must not be earlier than that binding.
+    assert_success(&fx.tsk_cloud("cse_01SECONDINSTANCE", &["thread", "resume", &id]));
+    let held = list_row(&fx, &id);
+    assert_eq!(held["state"], "held");
+    assert_success(&fx.tsk_cloud(
+        "cse_01SECONDINSTANCE",
+        &["thread", "pause", "--bound", "T-01", "hand back"],
+    ));
+
+    let paused = list_row(&fx, &id);
+    assert_eq!(paused["state"], "paused", "{}", paused);
+    assert!(paused["holder"].is_null());
+    // The next session resumes it with no take-over.
+    assert_success(&fx.tsk(&["thread", "resume", &id]));
+}
+
+#[test]
+fn a_take_over_holds_the_thread_even_in_the_second_of_the_old_binding() {
+    let fx = Fixture::new();
+    let id = fx.start();
+
+    assert_success(&fx.tsk_cloud(
+        "cse_01SECONDINSTANCE",
+        &["thread", "resume", &id, "--take-over"],
+    ));
+
+    let row = list_row(&fx, &id);
+    assert_eq!(row["holder"]["instance"], "cse_01SECONDINSTANCE");
+}
+
+#[test]
+fn next_tells_a_bound_session_that_another_session_holds_its_thread() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    let before = fx.tsk(&["thread", "next"]);
+    assert_success(&before);
+    assert!(
+        stdout(&before).contains("Continue the work"),
+        "{}",
+        stdout(&before)
+    );
+
+    assert_success(&fx.tsk_cloud(
+        "cse_01SECONDINSTANCE",
+        &["thread", "resume", &id, "--take-over"],
+    ));
+    let after = fx.tsk(&["thread", "next"]);
+
+    assert_success(&after);
+    let text = stdout(&after);
+    assert!(text.starts_with(&format!("bound:{}\n", id)), "{}", text);
+    assert!(text.contains("is held by 01SECOND"), "{}", text);
+    assert!(text.contains("Do not work the thread"), "{}", text);
+    assert!(
+        text.contains(&format!("tsk thread resume {} --take-over", id)),
+        "{}",
+        text
+    );
+    assert!(!text.contains("Continue the work"), "{}", text);
+}
+
+#[test]
+fn a_thread_with_untimestamped_entries_and_an_old_binding_is_paused() {
+    let fx = Fixture::new();
+    fx.seed_thread("7777cccc", "{\"whats_next\":\"old\"}");
+    fx.seed_cloud_bindings(&[("cse_01OLDINSTANCE", "7777cccc", "2026-09-01T00:00:00Z")]);
+
+    let row = list_row(&fx, "7777cccc");
+    assert_eq!(row["state"], "paused", "{}", row);
+
+    // A plain resume of it needs no take-over, and then holds it.
+    assert_success(
+        &fx.tsk(
+            "thread resume 7777cccc"
+                .split(' ')
+                .collect::<Vec<_>>()
+                .as_slice(),
+        ),
+    );
+    assert_eq!(list_row(&fx, "7777cccc")["state"], "held");
+}
+
+#[test]
+fn session_start_of_a_bound_session_names_the_other_holder_and_does_not_say_to_resume() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    assert_success(&fx.tsk_cloud(
+        "cse_01SECONDINSTANCE",
+        &["thread", "resume", &id, "--take-over"],
+    ));
+
+    let output = session_start(&fx, "{\"source\":\"resume\"}", None);
+
+    assert_success(&output);
+    let context = session_context(&output);
+    assert!(
+        context.contains(&format!(
+            "An existing thread binding was found: worktree:{}. Thread {} is held by 01SECOND",
+            id, id
+        )),
+        "{}",
+        context
+    );
+    assert!(
+        context.contains(&format!("tsk thread resume {} --take-over", id)),
+        "{}",
+        context
+    );
+    assert!(
+        !context.contains(&format!("Run /tsk:resume-thread {} next.", id)),
+        "{}",
+        context
+    );
 }
