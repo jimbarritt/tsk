@@ -19,7 +19,7 @@ only after I confirm.
    the thread, its mission name, and its latest pause entry (the task and its
    description, what is next, who wrote it and when), write the summary in step 4 from
    that text and run no command. The session is already bound. Ask whether to continue,
-   as in step 6, and run `tsk thread resume "<thread-id>"` only after I say to
+   as in step 7, and run `tsk thread resume "<thread-id>"` only after I say to
    continue, or when I name a different thread. When the context says another session holds
    the thread, run no command: go to step 3.
 
@@ -104,5 +104,17 @@ only after I confirm.
      Then call `set_session_title` with that ID and the title.
    - In a terminal, no tool sets the title. Ask me to run `/rename <title>`.
 
-6. **Ask whether to continue** with this thread, or do something else. Do not
+6. **Record a supervising human, when there is one.** When I am supervising this session
+   and have an actor (`tsk actor list` shows my name and uid), add me to the session as a
+   supporting actor, so the commit trailer and the records name the supervising human:
+
+   ```bash
+   tsk actor join "<my uid>"
+   ```
+
+   A session start clears the supervising human, so a resumed session needs this step again. Skip
+   it in a session no human supervises, and when `tsk thread resume` has not run yet. The
+   robot stays the primary actor.
+
+7. **Ask whether to continue** with this thread, or do something else. Do not
    assume continuation.
