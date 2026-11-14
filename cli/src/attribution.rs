@@ -1486,7 +1486,7 @@ mod tests {
     #[test]
     fn a_co_author_reaches_the_hook_only_in_a_supervised_session() {
         let (_dir, git) = scratch_repo();
-        let chosen = |git: &crate::ledger::git::Git| Some(JANE).filter(|_| is_supervised(git));
+        let chosen = |git: &crate::ledger::git::Git| is_supervised(git).then_some(JANE);
         assert_eq!(chosen(&git), None);
         set_supervised(&git).unwrap();
         assert_eq!(chosen(&git), Some(JANE));
