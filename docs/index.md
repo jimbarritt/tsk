@@ -36,6 +36,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 - [move-a-thread-from-cloud-to-terminal.md](user-guide/move-a-thread-from-cloud-to-terminal.md): pause a thread in a cloud session, resume it in a terminal with `/tsk:resume-thread`, `--take-over` when the cloud session did not pause, and what happens to the cloud session.
 - [tmux.md](user-guide/tmux.md): `tsk tmux install`, a tmux session chooser and a sidebar (`prefix b`) that show each agent's state, mission and robot, and tmux sessions named after mission codes.
 - [checking-ledger-documents.md](user-guide/checking-ledger-documents.md): run a check, such as a prose lint, on ledger documents when they are written and pushed, with a script of your own in one of four places, including for a repo you do not control.
+- [check-prose-with-software-english.md](user-guide/check-prose-with-software-english.md): optional. Install the `swe` plugin and its git commit check for Software English, in one repo or in every repo you own, check a file by hand, skip or remove the check, and its limits.
 - [getting-started.md](user-guide/getting-started.md): the `tsk ledger`, `tsk thread`, `tsk events` and `tsk nexus` commands, tests, building, publishing.
 - [state-models.md](user-guide/state-models.md): historical. Task and thread state models of the retired daemon design.
 - [missions-threads-and-continuation.md](user-guide/missions-threads-and-continuation.md): how tsk's own missions and task data are stored and worked, the `/start-thread`, `/pause-thread` and `/resume-thread` commands, and what the `SessionStart` hook does.
@@ -44,7 +45,7 @@ Core concepts and models that shape tsk's design. Start with ubiquitous language
 
 Designs of behaviour that is built or proposed, with diagrams.
 
-- [session-and-harness-flows.md](design/session-and-harness-flows.md): design, 2026-11-14. Mermaid flowcharts of a cloud and a terminal session start, of a thread moving between harness instances (resume and take-over), of the proposed `tsk harness new` command (not built), and of the paused and held states of a thread, with the open questions for the command.
+- [session-and-harness-flows.md](design/session-and-harness-flows.md): design, 2026-11-14. Mermaid flowcharts of a cloud and a terminal session start, of a thread moving between harness instances (resume and take-over), of the proposed `tsk harness new` command (not built), and of the paused and `held` states of a thread, with the open questions for the command.
 
 ## Architecture
 
@@ -107,7 +108,7 @@ Architecture Decision Records capture why significant technical choices were mad
 - [0029-sessions-and-harness-instances-are-named-by-urns.md](adr/0029-sessions-and-harness-instances-are-named-by-urns.md): a session is `urn:tsk:session:<harness>:<id>` and a harness instance is `urn:tsk:instance:<cloud|worktree>:<key>`; the commit trailer is `Agent-Session` with the session URN as its value, in place of `Claude-Session`; the harness names grow, the form does not; a reverse lookup from a session to its instance is a ledger record.
 - [0030-an-actor-belongs-to-a-session-and-an-instance-is-the-continuity-key.md](adr/0030-an-actor-belongs-to-a-session-and-an-instance-is-the-continuity-key.md): accepted, built in 0.39.0 as layout 12; an actor (by uid, with a name history) is on a session, never on a harness instance; the instance is infrastructure and the identifier by which a new session finds its thread; a pause names the session that wrote it; `bindings` becomes `thread_bindings` keyed by `instance`; the continuity route at session start and the no-binding rule.
 - [0031-a-threads-mission-is-its-current-focus-and-an-instance-without-a-thread-creates-one.md](adr/0031-a-threads-mission-is-its-current-focus-and-an-instance-without-a-thread-creates-one.md): accepted; a thread's mission is its current focus, stored in `threads.mission_id` and written only by `tsk thread start` and `tsk thread set mission`; a change of mission keeps the thread (the `switch-mission` skill); a thread is created only for a harness instance with no bound thread and no thread to join.
-- [0032-a-thread-has-one-open-session-and-a-robot-works-in-many.md](adr/0032-a-thread-has-one-open-session-and-a-robot-works-in-many.md): accepted; a robot works in any number of sessions at once; a thread has at most one open session, its holder; the thread only ties sessions together, and the mission and the task bind the work; a new session chooses the robot first, then a paused thread, a new thread or no thread.
+- [0032-a-thread-has-one-open-session-and-a-robot-works-in-many.md](adr/0032-a-thread-has-one-open-session-and-a-robot-works-in-many.md): accepted; a robot works in any number of sessions at once; a thread has at most one open session, its holder; the thread only ties sessions together, and the mission and the task bind the work; a new session selects the robot first, then a paused thread, a new thread or no thread.
 
 ## Knowledge base
 
