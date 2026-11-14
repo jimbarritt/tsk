@@ -15,7 +15,7 @@ To turn it on for yourself on one machine, in every repo, write the user config
 (`~/.config/tsk/config.toml`). The command needs no repo:
 
 ```bash
-tsk config attribution robot --email robots@jimbarritt.com --user
+tsk config attribution robot --email 352782120+jmdb-robots@users.noreply.github.com --user
 ```
 
 To turn it on for every session of one cloud environment, pass the robot email to
@@ -23,7 +23,7 @@ To turn it on for every session of one cloud environment, pass the robot email t
 in the secret `TSK_ROBOT_SIGNING_KEY`:
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash -s -- --use-robot-attribution robots@jimbarritt.com
+curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash -s -- --use-robot-attribution 352782120+jmdb-robots@users.noreply.github.com
 ```
 
 With the option, the script writes the user config with `--user`. It adds no Claude Code
@@ -53,13 +53,17 @@ prints a warning and commits keep the default author. It needs `tsk` 0.37.0 or l
 | Field | Value |
 |---|---|
 | Author name and committer name | The registered actor name, for example `Credit Where It's Due`. |
-| Author email and committer email | The `email` setting, the same for every robot in the repo. This repo sets `robots@jimbarritt.com`. |
+| Author email and committer email | The `email` setting, the same for every robot in the repo. This repo sets `352782120+jmdb-robots@users.noreply.github.com`. |
 | Signature | An SSH signature made with one shared robot signing key. |
 | Badge | Verified, because the committer email and the signing key belong to the same GitHub account. |
 
 All robots share one email, one GitHub account and one key. The name in the commit tells
 you which robot made it. GitHub shows the shared account's avatar and username on every
 robot commit, and the robot name in the commit details.
+
+The robot account must have "Keep my email addresses private" turned on in Settings, then
+Emails, so that GitHub accepts the noreply address. The number before the `+` in the address
+is the account's user ID.
 
 ## What you need
 
@@ -158,7 +162,7 @@ config. `tsk actor git-identity` writes them on request.
 | Key | Value |
 |---|---|
 | `user.name` | The registered actor name. |
-| `user.email` | The `email` setting. This repo sets `robots@jimbarritt.com`. |
+| `user.email` | The `email` setting. This repo sets `352782120+jmdb-robots@users.noreply.github.com`. |
 | `gpg.format` | `ssh` |
 | `gpg.ssh.program` | `ssh-keygen`. The cloud image sets a platform signer in the global config, which ignores `user.signingkey`. |
 | `user.signingkey` | A file that tsk writes from `TSK_ROBOT_SIGNING_KEY`, with mode 0600, outside the repo. |
@@ -177,7 +181,7 @@ A human actor gets no change.
 ```toml
 [attribution]
 identity = "robot"
-email = "robots@jimbarritt.com"
+email = "352782120+jmdb-robots@users.noreply.github.com"
 ```
 
 - `identity` is `default` or `robot`. Unset means `default`.
@@ -232,7 +236,7 @@ git commit --allow-empty -m "Check robot identity"
 git log -1 --format='%an <%ae>%n%G?'
 ```
 
-The first two commands print the robot name and `robots@jimbarritt.com`. The last prints
+The first two commands print the robot name and `352782120+jmdb-robots@users.noreply.github.com`. The last prints
 the author, then `G` when the signature is good, or `N` when the commit is unsigned.
 Remove the check commit before you push it, with `git reset --hard HEAD~1`.
 
@@ -246,7 +250,7 @@ Remove the check commit before you push it, with `git reset --hard HEAD~1`.
 If the badge reads Unverified, check these in order:
 
 1. The signing key is registered as a **Signing Key** on the same account that holds
-   `robots@jimbarritt.com`.
+   `352782120+jmdb-robots@users.noreply.github.com`.
 2. The email is Verified in Settings, then Emails.
 3. `git log -1 --format=%G?` prints `G` in the session.
 4. The private key in `TSK_ROBOT_SIGNING_KEY` matches the public key on GitHub. Compare
