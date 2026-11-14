@@ -20,7 +20,7 @@ A **supervised session** has a human as a supporting actor. `tsk actor join <uid
 
 ## Identities
 
-The robot's name is the name of its actor. The robot's email is the `email` setting of `[attribution]`: the GitHub noreply address of the robot's account. The robot's signing key is the secret `TSK_ROBOT_SIGNING_KEY`.
+The robot's name is the name of its actor. The robot's email is the `email` setting of `[attribution]`: the GitHub noreply address of the robot's account. The robot's signing key is either the secret `TSK_ROBOT_SIGNING_KEY` or a public key that an SSH agent holds.
 
 The person's name, email and signing key are the `user.*` settings of git. A public repository keeps them in an untracked machine file, not in a tracked file.
 

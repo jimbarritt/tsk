@@ -2092,6 +2092,139 @@ fn session_start_writes_the_robot_signing_set_up_when_the_fetch_fails() {
     assert_eq!(signing.trim(), "true");
 }
 
+fn files_named(dir: &Path, name: &str, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            files_named(&path, name, found);
+        } else if path.file_name().is_some_and(|n| n == name) {
+            found.push(path);
+        }
+    }
+}
+
+#[test]
+fn session_start_signs_through_an_agent_and_switches_modes_without_stale_files() {
+    let fx = Fixture::new();
+    git(
+        &fx.work(),
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            fx.root.path().join("missing.git").to_str().unwrap(),
+        ],
+    );
+    let public = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample";
+    let key = fx.root.path().join("robot-key");
+    let generated = crate::common::cmd("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(&key)
+        .output()
+        .expect("failed to run ssh-keygen");
+    assert!(generated.status.success(), "{}", stderr(&generated));
+    let private = std::fs::read_to_string(&key).unwrap();
+
+    let start = |envs: &[(&str, &str)]| -> Output {
+        let mut command = fx.command(&["thread", "session-start"], None);
+        command
+            .env_remove("CLAUDE_ENV_FILE")
+            .env_remove("TSK_ATTRIBUTION_IDENTITY")
+            .env_remove("TSK_ATTRIBUTION_SIGNING_KEY")
+            .env_remove("TSK_ATTRIBUTION_SIGNING_PROGRAM")
+            .env_remove("TSK_ROBOT_SIGNING_KEY");
+        for (name, value) in envs {
+            command.env(name, value);
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to run tsk");
+        child.stdin.take().unwrap().write_all(b"{}").unwrap();
+        child.wait_with_output().unwrap()
+    };
+    let config = |name: &str| -> String {
+        let output = crate::common::cmd("git")
+            .current_dir(fx.work())
+            .args(["config", "--worktree", "--get", name])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+    let key_files = || {
+        let mut found = Vec::new();
+        files_named(&fx.state(), "robot-signing-key", &mut found);
+        found
+    };
+    let signer_files = || {
+        let mut found = Vec::new();
+        files_named(&fx.state(), "robot-allowed-signers", &mut found);
+        found
+    };
+    let agent_value = format!("agent:{}", public);
+    let both = [
+        ("TSK_ATTRIBUTION_IDENTITY", "robot"),
+        ("TSK_ATTRIBUTION_EMAIL", "1+robot@users.noreply.github.com"),
+        ("TSK_ATTRIBUTION_SIGNING_KEY", agent_value.as_str()),
+        ("TSK_ATTRIBUTION_SIGNING_PROGRAM", "/p/op-ssh-sign"),
+    ];
+
+    let mut with_private = both.to_vec();
+    with_private.push(("TSK_ROBOT_SIGNING_KEY", private.as_str()));
+    let output = start(&with_private);
+    assert_exit(&output, 0);
+    assert!(
+        session_context(&output).contains("Attribution: robot. Commits are signed as"),
+        "{}",
+        session_context(&output)
+    );
+    assert_eq!(config("gpg.format"), "ssh");
+    assert_eq!(config("gpg.ssh.program"), "/p/op-ssh-sign");
+    assert_eq!(config("user.signingkey"), format!("key::{}", public));
+    assert_eq!(config("commit.gpgsign"), "true");
+    assert_eq!(config("user.email"), "1+robot@users.noreply.github.com");
+    assert!(key_files().is_empty());
+    let signers = std::fs::read_to_string(config("gpg.ssh.allowedSignersFile")).unwrap();
+    assert_eq!(
+        signers,
+        format!("1+robot@users.noreply.github.com {}\n", public)
+    );
+
+    let key_mode = [
+        ("TSK_ATTRIBUTION_IDENTITY", "robot"),
+        ("TSK_ATTRIBUTION_EMAIL", "1+robot@users.noreply.github.com"),
+        ("TSK_ROBOT_SIGNING_KEY", private.as_str()),
+    ];
+    assert_exit(&start(&key_mode), 0);
+    assert_eq!(config("gpg.ssh.program"), "ssh-keygen");
+    assert_eq!(key_files().len(), 1);
+    assert_eq!(
+        config("user.signingkey"),
+        key_files()[0].display().to_string()
+    );
+
+    assert_exit(&start(&both), 0);
+    assert!(key_files().is_empty());
+    assert_eq!(config("user.signingkey"), format!("key::{}", public));
+
+    assert_exit(&start(&[]), 0);
+    assert!(key_files().is_empty());
+    assert!(signer_files().is_empty());
+    for name in [
+        "user.signingkey",
+        "gpg.ssh.program",
+        "gpg.format",
+        "tsk.attribution",
+    ] {
+        assert_eq!(config(name), "", "{}", name);
+    }
+}
+
 #[test]
 fn ledger_commits_are_the_robots_and_stop_until_a_robot_actor_is_registered() {
     let fx = Fixture::new();
