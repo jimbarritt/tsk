@@ -571,6 +571,8 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
             if let Some(line) = crate::thread::title_line(&session) {
                 println!("{}", line);
             }
+            // The tmux pane shows the robot: update it now, not at the next thread command.
+            crate::tmux::sync_if_in_tmux(&session);
             if urn.is_none() && instance_kind == BindingKind::Worktree {
                 eprintln!("note: this session has no recorded URN (the session start did not run), so the actor is recorded on the harness instance only");
             }
@@ -647,6 +649,7 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
                 return Ok(1);
             };
             store.actor_remove(&actor.name, actor.uid.as_deref())?;
+            crate::tmux::sync_if_in_tmux(&session);
             eprintln!("{}", NOT_PUBLISHED_NOTE);
             println!("removed {} ({})", actor.name, actor.kind.as_str());
             Ok(0)

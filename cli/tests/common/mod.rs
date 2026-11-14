@@ -197,3 +197,15 @@ pub fn with_git_shim(command: &mut Command, root: &Path) {
         command.env("PATH", std::env::join_paths(dirs).unwrap());
     }
 }
+
+/// A command with the tmux variables removed. A test that runs inside a tmux pane must not
+/// reach that tmux server: tsk renames the session after the test's mission and writes pane
+/// options. A test that wants a tmux sets TSK_TMUX_BIN or TMUX_PANE after this.
+pub fn cmd<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
+    let mut command = Command::new(program);
+    command
+        .env_remove("TMUX")
+        .env_remove("TMUX_PANE")
+        .env_remove("TSK_TMUX_BIN");
+    command
+}

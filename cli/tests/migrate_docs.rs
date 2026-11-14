@@ -95,7 +95,7 @@ impl Fixture {
     }
 
     fn command(&self, dir: &Path, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(args)
             .current_dir(dir)
@@ -157,7 +157,7 @@ impl Fixture {
     }
 
     fn docs_blob(&self, path: &str) -> String {
-        let out = Command::new("git")
+        let out = crate::common::cmd("git")
             .args(["cat-file", "blob", &format!("{}:{}", DOCS_REF, path)])
             .current_dir(self.origin())
             .output()
@@ -174,7 +174,7 @@ impl Fixture {
         let dir = self.root.path().join("v1-db");
         std::fs::create_dir_all(&dir).unwrap();
         let run = |args: &[&str]| {
-            let out = Command::new("dolt")
+            let out = crate::common::cmd("dolt")
                 .args(args)
                 .current_dir(&dir)
                 .env("HOME", self.home())
@@ -231,7 +231,7 @@ impl Fixture {
     /// Run SQL against the database of a clone and return the CSV it prints.
     fn dolt_sql(&self, clone: &Path, sql: &str) -> String {
         let path = self.ok(clone, &["ledger", "path"]);
-        let out = Command::new("dolt")
+        let out = crate::common::cmd("dolt")
             .args(["sql", "-r", "csv", "-q", sql])
             .current_dir(path.trim_end())
             .env("HOME", self.home())
@@ -260,7 +260,7 @@ fn sql_text(text: &str) -> String {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")

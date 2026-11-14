@@ -101,7 +101,7 @@ impl Fixture {
     }
 
     fn command(&self, dir: &Path, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(args)
             .current_dir(dir)
@@ -255,7 +255,7 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
 }
 
 fn git_output(dir: &Path, args: &[&str]) -> Output {
-    Command::new("git")
+    crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .envs(git_env())

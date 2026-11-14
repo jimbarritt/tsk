@@ -5,7 +5,7 @@
 //! of that worktree as well as the commands that find it.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use tempfile::TempDir;
 
@@ -141,7 +141,7 @@ impl Fixture {
     }
 
     fn tsk_in(&self, dir: &Path, args: &[&str]) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         common::with_git_shim(&mut command, self.root.path());
         command
             .args(args)
@@ -159,7 +159,7 @@ impl Fixture {
 
     fn tsk_stdin(&self, args: &[&str], input: &str) -> Output {
         use std::io::Write;
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         common::with_git_shim(&mut command, self.root.path());
         let mut child = command
             .args(args)
@@ -264,7 +264,7 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
 }
 
 fn git_output(dir: &Path, args: &[&str]) -> Output {
-    Command::new("git")
+    crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .envs(git_env())
@@ -655,7 +655,7 @@ fn path_falls_back_to_home_when_xdg_state_home_is_empty() {
     let fx = Fixture::with_ledger();
     write(&fx.clone_id_file(), "work-abcdef12\n");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_tsk"))
+    let output = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
         .args(["ledger", "path"])
         .current_dir(fx.work())
         .envs(git_env())
@@ -754,7 +754,7 @@ fn the_removed_files_backend_is_refused_and_any_other_value_is_ignored() {
     let fx = Fixture::with_ledger();
     let refusal = "error: the files ledger backend was removed in 0.16.0; use tsk 0.15.1 to read an old file ledger\n";
 
-    let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+    let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
     let output = command
         .args(["ledger", "fetch"])
         .current_dir(fx.work())
@@ -781,7 +781,7 @@ fn the_removed_files_backend_is_refused_and_any_other_value_is_ignored() {
 
     // The environment wins over the file, and any other value is ignored.
     for value in ["dolt", "sqlite"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_tsk"))
+        let output = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
             .args(["ledger", "fetch"])
             .current_dir(fx.work())
             .envs(git_env())

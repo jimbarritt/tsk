@@ -30,8 +30,10 @@ mod state;
 
 use state::HarnessState;
 
-/// The branch of a harness is `harness/<name>`.
-pub const BRANCH_PREFIX: &str = "harness/";
+/// What the first prompt says about branches when the worktree is detached: a harness worktree
+/// can start with a detached HEAD, because git refuses one branch in two worktrees, and a
+/// worktree holds several branches over its life.
+pub const BRANCH_STEP: &str = "This worktree has no branch: its HEAD is detached at origin's default branch. Before you commit, follow this repo's rule for branches: in a repo that works on main, rebase on origin's main and push with git push origin HEAD:main; otherwise create a branch named for the work, and a new one for each pull request.";
 
 /// The tmux session option that names the harness.
 pub const TMUX_OPTION: &str = "@tsk_harness";
@@ -41,8 +43,8 @@ const NO_ROOT: &str = "error: no worktrees root is set. Set the environment vari
 #[derive(Subcommand)]
 pub enum HarnessCommands {
     #[command(
-        about = "Make a harness: a code worktree on a new branch, a tmux session in it, and claude with a first prompt",
-        long_about = "Make a harness: a code worktree on a new branch, a tmux session in it, and claude with a first prompt.\n\nOn a terminal the command asks three things in turn. Pick up a paused thread? If so, it lists the paused threads and you pick one. If not, attach an existing robot? If so, it lists the robots, free ones first. Then it lists the missions that are not done, and you pick one or a new mission. A flag answers its question, so a script can run the command.\n\nThe worktree is <root>/<repo name>/<harness name>, on the new branch harness/<name>, from the default branch of origin. The root is GIT_WORKTREES_ROOT, else [worktrees] root in the user config (tsk config worktrees-root). The name is a random word that no harness of this clone has had. Ignored env files (.env, .env.local, .env.*.local) are copied from the main worktree.\n\nThe tmux session has the mission code as its name, else the harness name. claude starts in it with a first prompt that registers the robot, then resumes or starts the thread. tsk makes no robot and no mission itself: the new claude session does that. With no flag, the command then attaches to the session, or switches to it inside tmux."
+        about = "Make a harness: a code worktree on a branch you name, or a detached HEAD, a tmux session in it, and claude with a first prompt",
+        long_about = "Make a harness: a code worktree on a branch you name, or a detached HEAD, a tmux session in it, and claude with a first prompt.\n\nOn a terminal the command asks four things in turn. Pick up a paused thread? If so, it lists the paused threads and you pick one. If not, attach an existing robot? If so, it lists the robots, free ones first. Then it lists the missions that are not done, and you pick one or a new mission. Last it asks the branch name. A flag answers its question, so a script can run the command.\n\nThe branch question lists suggestions, in this order and only those that apply: the ticket of the current task of the thread, the mission code and the thread id, the mission code and the harness name, and a detached HEAD. Type a number, press Enter for the first suggestion, or type a branch name. tsk checks the name with git check-ref-format and refuses a branch that another worktree has checked out. A branch that exists is checked out. A new name is made from the default branch of origin. --branch <name> and --detach answer the question. With no terminal and no flag, the first suggestion is used.\n\nThe worktree is <root>/<repo name>/<harness name>. Git refuses one branch in two worktrees, so a detached HEAD at the default branch of origin leaves the agent to name the branch later. The root is GIT_WORKTREES_ROOT, else [worktrees] root in the user config (tsk config worktrees-root). The name is a random word that no harness of this clone has had. Ignored env files (.env, .env.local, .env.*.local) are copied from the main worktree.\n\nThe tmux session has the mission code as its name, else the harness name. claude starts in it with a first prompt that registers the robot, then resumes or starts the thread. tsk makes no robot and no mission itself: the new claude session does that. With no flag, the command then attaches to the session, or switches to it inside tmux."
     )]
     New(NewArgs),
     #[command(
@@ -77,7 +79,7 @@ pub enum HarnessCommands {
     },
     #[command(
         about = "Put a harness to sleep: pause its thread and stop its tmux session. The worktree stays",
-        long_about = "Put a harness to sleep: pause its thread and stop its tmux session. The worktree stays.\n\nWhen this harness holds a thread, the command writes a pause entry for it first. The branch must be pushed for the pause, as for tsk thread pause. Then it stops the tmux session, which ends claude. The worktree and the state stay, so tsk harness wake can start the harness again."
+        long_about = "Put a harness to sleep: pause its thread and stop its tmux session. The worktree stays.\n\nWhen this harness holds a thread, the command writes a pause entry for it first. The commit at HEAD must be on origin for the pause, as for tsk thread pause. Then it stops the tmux session, which ends claude. The worktree and the state stay, so tsk harness wake can start the harness again."
     )]
     Sleep {
         #[arg(help = "The harness name, or a prefix that matches one harness")]
@@ -97,14 +99,14 @@ pub enum HarnessCommands {
     },
     #[command(
         about = "Delete a harness: stop its tmux session and remove its worktree. The name stays retired",
-        long_about = "Delete a harness: stop its tmux session and remove its worktree. The name stays retired.\n\nThe command refuses when the worktree has uncommitted changes, or when its branch has commits that are on no remote branch. --force deletes anyway. When this harness holds a thread, the command pauses it first. The local branch goes when it is merged or pushed. Otherwise it stays, and the command says so."
+        long_about = "Delete a harness: stop its tmux session and remove its worktree. The name stays retired.\n\nThe command refuses when the worktree has uncommitted changes, or when its HEAD has commits that are on no remote branch. --force deletes anyway. When this harness holds a thread, the command pauses it first. Branches made in the worktree stay, as every branch of the repo does."
     )]
     Delete {
         #[arg(help = "The harness name, or a prefix that matches one harness")]
         name: String,
         #[arg(
             long,
-            help = "Delete although the worktree has changes or the branch has unpushed commits"
+            help = "Delete although the worktree has changes or unpushed commits"
         )]
         force: bool,
     },
@@ -143,6 +145,18 @@ pub struct NewArgs {
         help = "Use this name, which no harness of this clone has had. Lower case letters, digits and hyphens"
     )]
     name: Option<String>,
+    #[arg(
+        long,
+        value_name = "NAME",
+        conflicts_with = "detach",
+        help = "Work on this branch. Skips the branch question. A new name is made from origin's default branch"
+    )]
+    branch: Option<String>,
+    #[arg(
+        long,
+        help = "Detach HEAD at origin's default branch. Skips the branch question"
+    )]
+    detach: bool,
     #[arg(long, help = "Do not start claude in the session")]
     no_claude: bool,
     #[arg(long, help = "Do not attach to the tmux session")]
@@ -406,6 +420,14 @@ pub enum MissionChoice {
     New,
 }
 
+/// The branch step of the first prompt: the branch that was chosen, or the detached text.
+pub fn branch_step(branch: Option<&str>) -> String {
+    match branch {
+        Some(branch) => format!("This worktree is on branch {}. Follow this repo's rule: in a repo that works on main, rebase on origin's main and push with git push origin HEAD:main; otherwise push {} and open a pull request from it.", branch, branch),
+        None => BRANCH_STEP.to_string(),
+    }
+}
+
 fn register_step(robot: &str) -> String {
     format!("Run tsk actor register \"{}\" --kind robot.", robot)
 }
@@ -416,6 +438,7 @@ pub fn first_prompt(
     thread: Option<&str>,
     robot: Option<&RobotChoice>,
     mission: Option<&MissionChoice>,
+    branch: Option<&str>,
 ) -> String {
     let mut steps: Vec<String> = Vec::new();
     match robot {
@@ -437,6 +460,7 @@ pub fn first_prompt(
     if steps.len() == 1 {
         steps[0] = steps[0].replacen("Then run", "Run", 1);
     }
+    steps.push(branch_step(branch));
     steps.join(" ")
 }
 
@@ -633,10 +657,42 @@ fn ledger(ctx: &Ctx) -> Result<Session, String> {
     Ok(session)
 }
 
+/// The ticket ID of a task, as the branch question suggests it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Ticket {
+    task: String,
+    id: String,
+}
+
+/// The ticket ID of a task, such as `TEAM1-546`, or `None` when the task has none.
+// TODO(ext_tracking_id): read the `ext_tracking_id` field of the task after the merge.
+fn ticket_of_task(_mission: &str, _task: &str) -> Option<String> {
+    None
+}
+
+/// The ticket of the task of the latest pause entry of a thread.
+fn thread_ticket(
+    store: &dyn LedgerStore,
+    thread: &str,
+    mission: Option<&str>,
+) -> Result<Option<Ticket>, String> {
+    let Some(mission) = mission else {
+        return Ok(None);
+    };
+    let entries = ops::entries_of(store, thread)?;
+    let task = entries
+        .last()
+        .and_then(|stored| stored.entry.task_id.clone())
+        .filter(|task| !task.is_empty());
+    Ok(task.and_then(|task| ticket_of_task(mission, &task).map(|id| Ticket { task, id })))
+}
+
 /// What the person or the flags chose.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Selection {
     thread: Option<String>,
+    /// The current task of the thread and its ticket ID, when the task has one.
+    ticket: Option<Ticket>,
     robot: Option<RobotChoice>,
     mission: Option<MissionChoice>,
 }
@@ -669,6 +725,7 @@ fn select(ctx: &Ctx, args: &NewArgs) -> Result<Selection, String> {
         };
         return Ok(Selection {
             thread: Some(thread.clone()),
+            ticket: thread_ticket(store, thread, row.mission_id.as_deref())?,
             robot,
             mission: row.mission_id.clone().map(MissionChoice::Existing),
         });
@@ -694,6 +751,11 @@ fn select(ctx: &Ctx, args: &NewArgs) -> Result<Selection, String> {
                 let thread = &threads[pick];
                 return Ok(Selection {
                     thread: Some(thread.id.clone()),
+                    ticket: thread_ticket(
+                        opened.store.as_ref(),
+                        &thread.id,
+                        thread.mission.as_deref(),
+                    )?,
                     robot: thread.robot.clone().map(RobotChoice::Existing),
                     mission: thread.mission.clone().map(MissionChoice::Existing),
                 });
@@ -732,6 +794,7 @@ fn select(ctx: &Ctx, args: &NewArgs) -> Result<Selection, String> {
     };
     Ok(Selection {
         thread: None,
+        ticket: None,
         robot: Some(robot),
         mission: Some(mission),
     })
@@ -770,6 +833,174 @@ fn ask_mission(store: &dyn LedgerStore) -> Result<MissionChoice, String> {
         Some(i) => MissionChoice::Existing(open[i].id.clone()),
         None => MissionChoice::New,
     })
+}
+
+// ---------------------------------------------------------------------------
+// The branch question
+// ---------------------------------------------------------------------------
+
+/// One answer to the branch question: a branch name, or `None` for a detached HEAD.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchSuggestion {
+    pub branch: Option<String>,
+    pub note: String,
+}
+
+/// The suggestions of the branch question, in order and only those that apply: the ticket of
+/// the current task of the thread, the mission and the thread, the mission and the harness
+/// name, and a detached HEAD.
+pub fn branch_suggestions(
+    ticket: Option<(&str, &str)>,
+    mission: Option<&str>,
+    thread: Option<&str>,
+    harness: &str,
+) -> Vec<BranchSuggestion> {
+    let mut found = Vec::new();
+    if let Some((task, id)) = ticket {
+        found.push(BranchSuggestion {
+            branch: Some(id.to_string()),
+            note: format!("the ticket of task {}", task),
+        });
+    }
+    match (mission, thread) {
+        (Some(mission), Some(thread)) => found.push(BranchSuggestion {
+            branch: Some(format!("{}/{}", mission.to_lowercase(), thread)),
+            note: "mission and thread".to_string(),
+        }),
+        (Some(mission), None) => found.push(BranchSuggestion {
+            branch: Some(format!("{}/{}", mission.to_lowercase(), harness)),
+            note: "mission and harness name".to_string(),
+        }),
+        _ => {}
+    }
+    found.push(BranchSuggestion {
+        branch: None,
+        note: "the agent names the branch later".to_string(),
+    });
+    found
+}
+
+/// The lines of the branch question, aligned like the other lists.
+pub fn render_branch_question(suggestions: &[BranchSuggestion]) -> Vec<String> {
+    let rows: Vec<Vec<String>> = suggestions
+        .iter()
+        .map(|s| {
+            vec![
+                s.branch
+                    .clone()
+                    .unwrap_or_else(|| "detached HEAD".to_string()),
+                s.note.clone(),
+            ]
+        })
+        .collect();
+    let mut lines = vec!["Branch name?".to_string()];
+    lines.extend(numbered(&rows));
+    lines.push("  or type a branch name".to_string());
+    lines
+}
+
+/// An answer to the branch question: a suggestion by index, or a typed name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BranchAnswer {
+    Pick(usize),
+    Typed(String),
+}
+
+/// Enter is the first suggestion, a number in range picks that suggestion, and anything else
+/// is a branch name.
+pub fn parse_branch_answer(answer: &str, count: usize) -> BranchAnswer {
+    let answer = answer.trim();
+    if answer.is_empty() {
+        return BranchAnswer::Pick(0);
+    }
+    match answer.parse::<usize>() {
+        Ok(number) if (1..=count).contains(&number) => BranchAnswer::Pick(number - 1),
+        _ => BranchAnswer::Typed(answer.to_string()),
+    }
+}
+
+/// The worktree that has `branch` checked out, when one does.
+fn branch_worktree(git: &Git, branch: &str) -> Result<Option<String>, String> {
+    let listing = git.run(["worktree", "list", "--porcelain"])?;
+    let wanted = format!("branch refs/heads/{}", branch);
+    let mut path = String::new();
+    for line in listing.lines() {
+        if let Some(rest) = line.strip_prefix("worktree ") {
+            path = rest.to_string();
+        } else if line == wanted {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+/// A branch name that git accepts, and that no worktree has checked out.
+fn check_branch(git: &Git, branch: &str) -> Result<(), String> {
+    let valid = git
+        .output(["check-ref-format", "--branch", branch])
+        .map(|(_, output)| output.status.success())
+        .unwrap_or(false);
+    if !valid {
+        return Err(format!("error: '{}' is not a branch name", branch));
+    }
+    if let Some(path) = branch_worktree(git, branch)? {
+        return Err(format!(
+            "error: the branch {} is checked out in {}. Pick another name, or use --detach",
+            branch, path
+        ));
+    }
+    Ok(())
+}
+
+/// The branch of the new harness, or `None` for a detached HEAD. `--detach` and `--branch`
+/// answer the question. With no terminal and no flag, the first suggestion is used.
+fn choose_branch(
+    git: &Git,
+    args: &NewArgs,
+    selection: &Selection,
+    harness: &str,
+) -> Result<Option<String>, String> {
+    if args.detach {
+        return Ok(None);
+    }
+    if let Some(branch) = &args.branch {
+        check_branch(git, branch)?;
+        return Ok(Some(branch.clone()));
+    }
+    let mission = match &selection.mission {
+        Some(MissionChoice::Existing(id)) => Some(id.as_str()),
+        _ => None,
+    };
+    let ticket = selection
+        .ticket
+        .as_ref()
+        .map(|t| (t.task.as_str(), t.id.as_str()));
+    let suggestions = branch_suggestions(ticket, mission, selection.thread.as_deref(), harness);
+    if !std::io::stdin().is_terminal() {
+        let first = &suggestions[0];
+        if let Some(branch) = &first.branch {
+            check_branch(git, branch)?;
+        }
+        println!("There is no terminal and no --branch or --detach: using the first suggestion.");
+        return Ok(first.branch.clone());
+    }
+    for line in render_branch_question(&suggestions) {
+        println!("{}", line);
+    }
+    loop {
+        let answer = read_answer("[1]:")?;
+        let branch = match parse_branch_answer(&answer, suggestions.len()) {
+            BranchAnswer::Pick(i) => suggestions[i].branch.clone(),
+            BranchAnswer::Typed(name) => Some(name),
+        };
+        match &branch {
+            Some(name) => match check_branch(git, name) {
+                Ok(()) => return Ok(branch),
+                Err(e) => println!("{}", e),
+            },
+            None => return Ok(None),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -876,28 +1107,27 @@ fn new_harness(args: NewArgs) -> Result<i32, String> {
     };
 
     let git = ctx.git();
-    let branch = format!("{}{}", BRANCH_PREFIX, name);
+    let branch = choose_branch(&git, &args, &selection, &name)?;
     let base = base_ref(&git);
     if let Some(parent) = worktree.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("error: could not create {}: {}", parent.display(), e))?;
     }
-    git.run([
-        "worktree",
-        "add",
-        "--no-track",
-        "-b",
-        &branch,
-        &worktree.to_string_lossy(),
-        &base,
-    ])?;
+    let path = worktree.to_string_lossy().into_owned();
+    match &branch {
+        None => git.run(["worktree", "add", "--detach", &path, &base])?,
+        Some(branch) if branch_exists(&git, branch) => {
+            git.run(["worktree", "add", &path, branch])?
+        }
+        Some(branch) => git.run(["worktree", "add", "-b", branch, &path, &base])?,
+    };
     let copied = copy_env_files(&ctx.main_worktree, &worktree);
 
     let session = session_name(mission_code.as_deref(), &name, has_session);
     let harness = HarnessState {
         name: name.clone(),
         worktree: worktree.clone(),
-        branch,
+        branch: branch.clone().unwrap_or_default(),
         main_worktree: ctx.main_worktree.clone(),
         tmux_session: session.clone(),
         thread_id: selection.thread.clone(),
@@ -912,6 +1142,7 @@ fn new_harness(args: NewArgs) -> Result<i32, String> {
         selection.thread.as_deref(),
         selection.robot.as_ref(),
         selection.mission.as_ref(),
+        branch.as_deref(),
     );
     start_session(
         &session,
@@ -927,6 +1158,7 @@ fn new_harness(args: NewArgs) -> Result<i32, String> {
 
     println!("harness: {}", name);
     println!("path: {}", worktree.display());
+    println!("branch: {}", branch.as_deref().unwrap_or("detached HEAD"));
     println!("tmux session: {}", session);
     if !copied.is_empty() {
         println!("copied: {}", copied.join(", "));
@@ -1223,7 +1455,7 @@ fn delete_blocker(harness: &HarnessState) -> Result<Option<String>, String> {
             head
         )));
     }
-    if branch_exists(&git, &harness.branch) {
+    if !harness.branch.is_empty() && branch_exists(&git, &harness.branch) {
         let own = git_count(
             &git,
             &["rev-list", "--count", &harness.branch, "--not", "--remotes"],
@@ -1275,7 +1507,9 @@ fn delete(name: &str, force: bool) -> Result<i32, String> {
     } else {
         git.run(["worktree", "prune"])?;
     }
-    let branch_note = if branch_exists(&git, &harness.branch) {
+    let branch_note = if harness.branch.is_empty() {
+        String::new()
+    } else if branch_exists(&git, &harness.branch) {
         let unpushed = git_count(
             &git,
             &["rev-list", "--count", &harness.branch, "--not", "--remotes"],
@@ -1298,7 +1532,9 @@ fn delete(name: &str, force: bool) -> Result<i32, String> {
         state::remove(&dir, &harness.name)?;
     }
     println!("harness {} deleted", harness.name);
-    println!("{}", branch_note);
+    if !branch_note.is_empty() {
+        println!("{}", branch_note);
+    }
     println!("the name {} stays retired", harness.name);
     Ok(0)
 }
@@ -1335,31 +1571,43 @@ mod tests {
             first_prompt(
                 Some("t1"),
                 Some(&robot),
-                Some(&MissionChoice::Existing("M-A".into()))
+                Some(&MissionChoice::Existing("M-A".into())),
+                None
             ),
-            "Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread t1."
+            format!("Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread t1. {}", BRANCH_STEP)
         );
         assert_eq!(
             first_prompt(
                 None,
                 Some(&robot),
-                Some(&MissionChoice::Existing("M-A".into()))
+                Some(&MissionChoice::Existing("M-A".into())),
+                Some("m-a/otter")
             ),
-            "Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-A."
+            format!("Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-A. {}", branch_step(Some("m-a/otter")))
         );
-        assert!(first_prompt(None, Some(&robot), Some(&MissionChoice::New))
-            .contains("ask me what the new mission is"));
+        assert!(
+            first_prompt(None, Some(&robot), Some(&MissionChoice::New), None)
+                .contains("ask me what the new mission is")
+        );
         assert_eq!(
             first_prompt(
                 None,
                 Some(&RobotChoice::New),
-                Some(&MissionChoice::Existing("M-A".into()))
+                Some(&MissionChoice::Existing("M-A".into())),
+                None
             ),
-            "Run /tsk:construct-robot. Then run /tsk:start-thread M-A."
+            format!(
+                "Run /tsk:construct-robot. Then run /tsk:start-thread M-A. {}",
+                BRANCH_STEP
+            )
         );
         assert_eq!(
-            first_prompt(Some("t1"), None, None),
-            "Run /tsk:resume-thread t1."
+            first_prompt(Some("t1"), None, None, None),
+            format!("Run /tsk:resume-thread t1. {}", BRANCH_STEP)
+        );
+        assert_eq!(
+            branch_step(Some("TEAM1-546")),
+            "This worktree is on branch TEAM1-546. Follow this repo's rule: in a repo that works on main, rebase on origin's main and push with git push origin HEAD:main; otherwise push TEAM1-546 and open a pull request from it."
         );
     }
 
@@ -1469,5 +1717,60 @@ mod tests {
         assert_eq!(lines[0], "   1) M-TSK-PERF  Credit Where It's Due  t1");
         assert_eq!(lines[1], "   2) M-X         -                      t2");
         assert_eq!(lines[9], "  10) M-X         Credit Where It's Due  t10");
+    }
+
+    #[test]
+    fn the_branch_suggestions_come_in_order_and_only_those_that_apply() {
+        let all = branch_suggestions(
+            Some(("T-25", "TEAM1-546")),
+            Some("M-TSK-PERF"),
+            Some("25366ae1"),
+            "kudu",
+        );
+        let branches: Vec<Option<&str>> = all.iter().map(|s| s.branch.as_deref()).collect();
+        assert_eq!(
+            branches,
+            vec![Some("TEAM1-546"), Some("m-tsk-perf/25366ae1"), None]
+        );
+        let by_harness = branch_suggestions(None, Some("M-TSK-PERF"), None, "kudu");
+        let branches: Vec<Option<&str>> = by_harness.iter().map(|s| s.branch.as_deref()).collect();
+        assert_eq!(branches, vec![Some("m-tsk-perf/kudu"), None]);
+        let none = branch_suggestions(None, None, None, "kudu");
+        assert_eq!(none.len(), 1);
+        assert_eq!(none[0].branch, None);
+    }
+
+    #[test]
+    fn the_branch_question_is_aligned_like_the_other_lists() {
+        let suggestions = branch_suggestions(
+            Some(("T-25", "TEAM1-546")),
+            Some("M-TSK-PERF"),
+            Some("25366ae1"),
+            "kudu",
+        );
+        assert_eq!(
+            render_branch_question(&suggestions),
+            vec![
+                "Branch name?",
+                "  1) TEAM1-546            the ticket of task T-25",
+                "  2) m-tsk-perf/25366ae1  mission and thread",
+                "  3) detached HEAD        the agent names the branch later",
+                "  or type a branch name",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_branch_answer_is_enter_a_number_or_a_name() {
+        assert_eq!(parse_branch_answer("", 3), BranchAnswer::Pick(0));
+        assert_eq!(parse_branch_answer(" 2 ", 3), BranchAnswer::Pick(1));
+        assert_eq!(
+            parse_branch_answer("4", 3),
+            BranchAnswer::Typed("4".to_string())
+        );
+        assert_eq!(
+            parse_branch_answer("feature/x", 3),
+            BranchAnswer::Typed("feature/x".to_string())
+        );
     }
 }

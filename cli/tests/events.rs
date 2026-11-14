@@ -72,7 +72,7 @@ impl Fixture {
     }
 
     fn command(&self, dir: &Path) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         command
             .current_dir(dir)
             .envs(git_env())
@@ -100,7 +100,7 @@ impl Fixture {
     /// Run SQL against the Dolt database of a clone and return the rows as JSON objects.
     fn rows(&self, dir: &Path, sql: &str) -> Vec<serde_json::Value> {
         let path = stdout(&self.tsk_in(dir, &["ledger", "path"]));
-        let out = Command::new("dolt")
+        let out = crate::common::cmd("dolt")
             .args(["sql", "-r", "json", "-q", sql])
             .current_dir(path.trim_end())
             .env("HOME", self.home())
@@ -119,7 +119,7 @@ impl Fixture {
         let path = stdout(&self.tsk_in(dir, &["ledger", "path"]));
         // A Dolt server that an earlier command started holds the store for writing.
         common::stop_servers(self.root.path(), true);
-        let out = Command::new("dolt")
+        let out = crate::common::cmd("dolt")
             .args(["sql", "-q", sql])
             .current_dir(path.trim_end())
             .env("HOME", self.home())
@@ -271,7 +271,7 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
 }
 
 fn git_output(dir: &Path, args: &[&str]) -> Output {
-    Command::new("git")
+    crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .envs(git_env())

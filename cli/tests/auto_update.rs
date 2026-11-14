@@ -67,7 +67,7 @@ impl Fixture {
         assert!(path.status.success(), "{}", err(&path));
         // A Dolt server that a command started holds the store; stop it before a write.
         common::stop_servers(root, true);
-        let sql = Command::new("dolt")
+        let sql = crate::common::cmd("dolt")
             .args([
                 "sql",
                 "-q",
@@ -144,7 +144,7 @@ impl Fixture {
         paths: &[(&str, &Path)],
         vars: &[(&str, &str)],
     ) -> Output {
-        let mut command = Command::new(self.installed());
+        let mut command = crate::common::cmd(self.installed());
         command
             .args(args)
             .current_dir(self.work())

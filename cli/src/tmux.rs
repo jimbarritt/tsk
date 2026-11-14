@@ -198,11 +198,20 @@ fn tmux(args: &[&str]) -> Option<String> {
 }
 
 /// Set a pane option, or remove it with `None`.
+/// Set an option on the pane and on the pane's session. The session chooser reads the
+/// session's active pane, and a user option missing there falls back to the window and then
+/// the session: a shell opened beside the agent then still shows the agent's values.
 fn set_option(pane: &str, name: &str, value: Option<&str>) {
     let _ = match value {
         Some(value) => tmux(&["set-option", "-p", "-t", pane, name, value]),
         None => tmux(&["set-option", "-p", "-u", "-t", pane, name]),
     };
+    if let Some(session) = tmux(&["display-message", "-p", "-t", pane, "#{session_id}"]) {
+        let _ = match value {
+            Some(value) => tmux(&["set-option", "-t", &session, name, value]),
+            None => tmux(&["set-option", "-u", "-t", &session, name]),
+        };
+    }
 }
 
 /// Name the tmux session of the pane after the mission code, when the global option

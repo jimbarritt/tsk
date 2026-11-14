@@ -151,12 +151,32 @@ flowchart TD
     F -->|no| K[Construct a new robot]
     K --> L[Person picks a mission or a new mission]
     L --> M["Result: mission, and a robot that names itself with /tsk:construct-robot in the first turn"]
-    E --> N[Create a code worktree for the new harness instance]
-    J --> N
-    M --> N
+    E --> Q["Ask the branch name: suggestions, a typed name, or a detached HEAD"]
+    J --> Q
+    M --> Q
+    Q --> N[Create a code worktree for the new harness instance]
     N --> O[Open a tmux session named after the mission code]
     O --> P["Start claude with a first prompt: register the robot, then resume or start the thread"]
 ```
+
+The last question is the branch name. It lists suggestions in this order, and only those that
+apply:
+
+1. The ticket ID of the current task of the thread, such as `TEAM1-546`, when that task has
+   one.
+2. The mission code in lower case and the thread ID, such as `m-tsk-perf/25366ae1`, when a
+   paused thread was picked.
+3. The mission code and the harness name, such as `m-tsk-perf/kudu`, when a mission is known
+   and no thread.
+4. A detached HEAD. The agent names a branch later.
+
+The person types a number, presses Enter for the first suggestion, or types a branch name.
+`tsk` checks a typed name with `git check-ref-format --branch` and refuses a branch that
+another worktree has checked out. A branch that exists and is free is checked out. A new name
+is made from the default branch of origin. `--branch <name>` and `--detach` answer the
+question, and the two flags exclude each other. With no terminal and no flag, the first
+suggestion is used. The first prompt tells the agent the branch, and the repo's rule: rebase
+on origin's main and push to main, or push the branch and open a pull request.
 
 The tmux session takes the mission code as its name, as tsk names other tmux sessions (see
 [tmux.md](../user-guide/tmux.md)). The first prompt differs by branch. The first branch

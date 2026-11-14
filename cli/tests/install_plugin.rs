@@ -1,6 +1,6 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use tempfile::TempDir;
 
@@ -16,7 +16,7 @@ impl Fixture {
         for dir in ["home", "bin", "empty", "work"] {
             std::fs::create_dir_all(fixture.root.path().join(dir)).unwrap();
         }
-        let init = Command::new("git")
+        let init = crate::common::cmd("git")
             .args(["init", "--quiet"])
             .current_dir(fixture.root.path().join("work"))
             .env("GIT_CEILING_DIRECTORIES", fixture.root.path())
@@ -62,7 +62,7 @@ impl Fixture {
     }
 
     fn tsk(&self, path: &Path, claude_bin: Option<&Path>, args: &[&str]) -> Output {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(args)
             .current_dir(self.root.path().join("work"))
@@ -94,7 +94,7 @@ impl Fixture {
         if !link.exists() {
             std::fs::create_dir_all(&dir).unwrap();
             let git = String::from_utf8(
-                Command::new("sh")
+                crate::common::cmd("sh")
                     .args(["-c", "command -v git"])
                     .output()
                     .unwrap()
@@ -609,7 +609,7 @@ fn install_plugin_outside_a_git_repo_stops_and_names_the_fix() {
     let claude = fx.fake_claude(None);
     let outside = fx.root.path().join("outside");
     std::fs::create_dir_all(&outside).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_tsk"))
+    let output = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
         .args(["install-plugin", "claude-cli"])
         .current_dir(&outside)
         .env("HOME", fx.root.path().join("home"))

@@ -199,7 +199,7 @@ impl Fixture {
     fn slow_git(&self, command: &mut Command, seconds: u32) {
         std::fs::create_dir_all(self.bin()).unwrap();
         let real = String::from_utf8(
-            Command::new("sh")
+            crate::common::cmd("sh")
                 .args(["-c", "command -v git"])
                 .output()
                 .unwrap()
@@ -228,7 +228,7 @@ impl Fixture {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+        let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
         command
             .args(args)
             .current_dir(self.work())
@@ -294,7 +294,7 @@ fn git_env() -> Vec<(&'static str, &'static str)> {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = crate::common::cmd("git")
         .args(args)
         .current_dir(dir)
         .envs(git_env())

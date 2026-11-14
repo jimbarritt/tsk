@@ -12,7 +12,7 @@ fn workspace() -> PathBuf {
 }
 
 fn have(program: &str) -> bool {
-    Command::new(program)
+    crate::common::cmd(program)
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -96,7 +96,7 @@ impl Machine {
         .unwrap();
         // The stand-in tsk reports 0.0.0, so the hook tests start with a current tsk.
         std::fs::write(repo.join("plugin").join("tsk-version"), "0.0.0\n").unwrap();
-        let init = Command::new("git")
+        let init = crate::common::cmd("git")
             .args(["init", "-q"])
             .current_dir(&repo)
             .status()
@@ -136,7 +136,7 @@ impl Machine {
     }
 
     fn command(&self, script: &Path) -> Command {
-        let mut command = Command::new("bash");
+        let mut command = crate::common::cmd("bash");
         command
             .arg(script)
             .current_dir(self.repo())
@@ -515,7 +515,10 @@ fn refresh_plugins(machine: &Machine, installed: &str, released: &str) -> String
     let script = setup_script(machine, "v1", 0);
     let state = machine.home().join("state").join("tsk").join("setup");
     std::fs::create_dir_all(&state).unwrap();
-    let hash = Command::new("sha256sum").arg(&script).output().unwrap();
+    let hash = crate::common::cmd("sha256sum")
+        .arg(&script)
+        .output()
+        .unwrap();
     let hash = String::from_utf8_lossy(&hash.stdout);
     std::fs::write(state.join("script.sha256"), hash.split(' ').next().unwrap()).unwrap();
     let repo = machine.repo().canonicalize().unwrap();
@@ -620,7 +623,7 @@ fn session_end(status: &str, status_fails: bool, push_sleep: u32, push_fails: bo
         .join("hooks")
         .join("session-end.sh");
     let started = std::time::Instant::now();
-    let mut child = Command::new("bash")
+    let mut child = crate::common::cmd("bash")
         .arg(script)
         .env(
             "PATH",
@@ -764,7 +767,7 @@ fn stop_hook(with_tsk: bool, input: &str) -> (bool, String, String) {
         );
     }
     let script = workspace().join("plugin").join("hooks").join("stop.sh");
-    let mut child = Command::new("/bin/bash")
+    let mut child = crate::common::cmd("/bin/bash")
         .arg(script)
         .env("PATH", bin.display().to_string())
         .env("TSK_LOG", &log)
@@ -890,7 +893,7 @@ impl Installer {
         let dir = self.releases().join(format!("v{}", version));
         std::fs::create_dir_all(&dir).unwrap();
         for target in TARGETS {
-            let status = Command::new("tar")
+            let status = crate::common::cmd("tar")
                 .arg("-czf")
                 .arg(dir.join(format!("tsk-{}-{}.tar.gz", version, target)))
                 .arg("-C")
@@ -967,7 +970,7 @@ impl Installer {
     }
 
     fn version_of(&self, tsk: &Path) -> String {
-        let output = Command::new(tsk).arg("--version").output().unwrap();
+        let output = crate::common::cmd(tsk).arg("--version").output().unwrap();
         String::from_utf8_lossy(&output.stdout).trim().to_string()
     }
 
@@ -1031,7 +1034,7 @@ fn the_tsk_installer_takes_the_highest_release_tag_when_it_can_look_it_up() {
         vec!["tag", "v0.9.0"],
         vec!["tag", "v1.0.0-rc1"],
     ] {
-        assert!(Command::new("git")
+        assert!(crate::common::cmd("git")
             .args(&args)
             .current_dir(&repo)
             .status()
@@ -1168,7 +1171,7 @@ fn the_tsk_installer_picks_the_archive_target_of_the_platform() {
         let base = i.dir(&format!("base-{}", target));
         let dir = base.join("v0.26.0");
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(Command::new("tar")
+        assert!(crate::common::cmd("tar")
             .arg("-czf")
             .arg(dir.join(format!("tsk-0.26.0-{}.tar.gz", target)))
             .arg("-C")
@@ -1475,7 +1478,7 @@ fn the_tsk_installer_picks_the_highest_tag_as_numbers() {
         vec!["tag", "v0.26.10"],
         vec!["tag", "v0.9.0"],
     ] {
-        assert!(Command::new("git")
+        assert!(crate::common::cmd("git")
             .args(&args)
             .current_dir(&repo)
             .status()
@@ -1736,7 +1739,7 @@ fn the_plugin_registers_the_pre_tool_use_guard_for_claude() {
 /// Runs `tsk ledger guard` with a hook input and returns its stdout and exit status.
 fn run_guard(input: &str, envs: &[(&str, &str)]) -> (bool, String) {
     let state = tempfile::tempdir().unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_tsk"));
+    let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
     command
         .args(["ledger", "guard"])
         .env("XDG_STATE_HOME", state.path())
@@ -1816,7 +1819,7 @@ fn pre_tool_use_hook(tsk_script: Option<&str>) -> (Option<i32>, String) {
         write_script(&bin.join("tsk"), text);
     }
     let script = workspace().join("plugin/hooks/pre-tool-use.sh");
-    let output = Command::new("/bin/bash")
+    let output = crate::common::cmd("/bin/bash")
         .arg(script)
         .env("PATH", bin.display().to_string())
         .stdin(Stdio::null())

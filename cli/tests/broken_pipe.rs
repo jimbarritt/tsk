@@ -4,14 +4,14 @@
 
 #![cfg(unix)]
 
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 #[test]
 fn a_closed_stdout_ends_the_process_without_a_panic() {
     let (reader, writer) = std::io::pipe().unwrap();
     // The read end is closed before the process writes, so its first write fails.
     drop(reader);
-    let output = Command::new(env!("CARGO_BIN_EXE_tsk"))
+    let output = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
         .args(["guide", "import"])
         .stdin(Stdio::null())
         .stdout(writer)
