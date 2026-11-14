@@ -180,14 +180,32 @@ flowchart LR
 A thread is held when a start or a resume follows its latest pause. A stale holder keeps the
 thread held until a pause, or a take-over, changes it.
 
-## Open questions for tsk harness new
+## Decisions on tsk harness new
 
-These are open. This page answers none of them.
+Jim answered the open questions on 2026-11-14. The ledger holds them as decisions of
+M-TSK-ENV, tasks T-30 and T-31, and question Q-05.
 
-1. Where do code worktrees live: beside the repo, or under one folder?
-2. Does each worktree take its own branch, or a detached HEAD that pushes to main? Git
-   refuses one branch in two worktrees, and this repo's rule is to work on main.
-3. How is a worktree removed when the agent is done?
-4. Does "robot busy" mean "holds a thread" and not "has an open session"? A robot that pauses
-   in the cloud and resumes locally, while the cloud session stays open, needs the first
-   reading.
+1. **A robot is busy while it holds a thread**, not while it has an open session. A thread
+   is held when a start or a resume came after its latest pause. The ledger gives the same
+   answer in every place, so a robot that pauses in the cloud is free to resume elsewhere
+   while the cloud session stays open.
+2. **The location of code worktrees is open (Q-05).** It is a configurable default for every
+   worktree on the machine, under each repo's name.
+3. **A branch per worktree applies only in a terminal on a shared machine.** A cloud harness
+   keeps its own branch instructions. Whether work merges to main directly or through pull
+   requests is a choice of each repo: trunk based, or a protected main.
+4. **A harness is a code worktree, a tmux session and a `claude` process together.** One
+   worktree can hold several branches and pull requests over time, so the worktree belongs
+   to the tmux session and the harness instance, not to one branch. The commands:
+
+| Command | What it does |
+|---|---|
+| `tsk harness new` | asks the questions above, creates the worktree and the tmux session, starts `claude` |
+| `tsk harness list` | lists the harnesses, and which ones sleep |
+| `tsk harness sleep` | pauses the thread, stops `claude` and the tmux session, keeps the worktree |
+| `tsk harness wake` | starts the tmux session and `claude` again in the worktree, resuming the thread |
+| `tsk harness delete` | stops `claude`, removes the worktree and kills the tmux session |
+
+Sleep and wake give durable state: a set of harnesses can sleep, the machine can restart,
+and the harnesses wake again. Removal in GitHub Copilot CLI is open: its agent cannot change
+its own working directory.
