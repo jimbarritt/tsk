@@ -264,7 +264,7 @@ environment's line passes with `bash -s --`. Robot commit attribution is one:
 `TSK_ROBOT_SIGNING_KEY`. The line of an environment that uses it is:
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash -s -- --use-robot-attribution robots@jimbarritt.com
+curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup-environment.sh | bash -s -- --use-robot-attribution 352782120+jmdb-robots@users.noreply.github.com
 ```
 
 `--nexus <nexus url>` attaches the nexus that has this repo's ledger. Every environment
