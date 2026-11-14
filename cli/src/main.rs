@@ -31,6 +31,7 @@ Set up and maintain:
   config          Read and write the user config and the repo config
   nexus           Attach the nexus and list the repos it indexes
   tmux            Show each agent's mission, robot and state in the tmux session chooser
+  harness         Make, list, sleep, wake and delete harnesses: a code worktree, a tmux session and claude
 
 Daily work:
   mission         Create, change, show and list missions
@@ -161,6 +162,13 @@ enum Commands {
         #[command(subcommand)]
         action: tmux::TmuxCommands,
     },
+    #[command(
+        about = "Make, list, sleep, wake and delete harnesses: a code worktree, a tmux session and a claude process on this machine"
+    )]
+    Harness {
+        #[command(subcommand)]
+        action: harness::HarnessCommands,
+    },
     #[command(about = "Print guides for agents, such as importing an existing plan")]
     Guide {
         #[command(subcommand)]
@@ -250,6 +258,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
             0
         }),
         Some(Commands::Tmux { action }) => tmux::run(action),
+        Some(Commands::Harness { action }) => harness::run(action),
         Some(Commands::Guide { action }) => guide::run(action).map(|()| 0),
         None => Ok(0),
     }
@@ -287,6 +296,8 @@ mod auto_update;
 mod nexus_cmd;
 
 mod tmux;
+
+mod harness;
 
 // ---------------------------------------------------------------------------
 // Unit tests

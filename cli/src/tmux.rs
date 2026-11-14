@@ -180,7 +180,8 @@ fn sync_pane(session: &Session, pane: &str) {
     }
 }
 
-fn tmux_bin() -> String {
+/// The tmux program: `$TSK_TMUX_BIN`, else `tmux`.
+pub fn tmux_bin() -> String {
     std::env::var(TMUX_BIN_VAR).unwrap_or_else(|_| "tmux".to_string())
 }
 
