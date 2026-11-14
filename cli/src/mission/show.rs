@@ -255,6 +255,7 @@ mod tests {
             status: model::Status::Done,
             blocked_by: vec![],
             uid: String::new(),
+            ext_tracking_id: None,
         });
         b.tasks.push(model::Task {
             seq: 2,
@@ -262,6 +263,7 @@ mod tests {
             status: model::Status::Todo,
             blocked_by: vec![1],
             uid: String::new(),
+            ext_tracking_id: None,
         });
         b.decisions.push(model::Decision {
             seq: 1,

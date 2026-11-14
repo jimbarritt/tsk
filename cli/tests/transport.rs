@@ -370,7 +370,7 @@ fn a_new_ledger_publishes_a_file_remote_and_two_clones_read_each_other() {
     fx.ok("a", &["ledger", "fetch"]);
     assert_eq!(
         fx.ok("a", &["task", "list", "M-ONE", "--porcelain"]),
-        "T-01\ttodo\t-\tfrom b\n"
+        "T-01\ttodo\t-\tfrom b\t-\n"
     );
     fx.ok("a", &["task", "add", "M-ONE", "from a"]);
     fx.ok("a", &["ledger", "push", "A adds a task"]);
@@ -485,12 +485,12 @@ fn a_task_added_to_one_mission_by_two_writers_is_renumbered_and_printed() {
     assert_eq!(lines[0], "T-01 is now T-02 in M-ONE", "{:?}", lines);
     assert_eq!(
         fx.ok("a", &["task", "list", "M-ONE", "--porcelain"]),
-        "T-01\ttodo\t-\tfrom b\nT-02\ttodo\t-\tfrom a\n"
+        "T-01\ttodo\t-\tfrom b\t-\nT-02\ttodo\t-\tfrom a\t-\n"
     );
     fx.ok("b", &["ledger", "fetch"]);
     assert_eq!(
         fx.ok("b", &["task", "list", "M-ONE", "--porcelain"]),
-        "T-01\ttodo\t-\tfrom b\nT-02\ttodo\t-\tfrom a\n"
+        "T-01\ttodo\t-\tfrom b\t-\nT-02\ttodo\t-\tfrom a\t-\n"
     );
 }
 
@@ -572,7 +572,7 @@ fn a_store_whose_remote_directory_is_gone_fetches_it_again() {
     fx.ok("b", &["ledger", "fetch"]);
     assert_eq!(
         fx.ok("b", &["task", "list", "M-ONE", "--porcelain"]),
-        "T-01\ttodo\t-\tafter the loss\n"
+        "T-01\ttodo\t-\tafter the loss\t-\n"
     );
 }
 
@@ -605,7 +605,7 @@ fn a_ledger_made_with_the_git_remote_transport_works_and_a_clone_follows_the_ref
     fx.ok("a", &["ledger", "fetch"]);
     assert_eq!(
         fx.ok("a", &["task", "list", "M-ONE", "--porcelain"]),
-        "T-01\ttodo\t-\tfrom b\n"
+        "T-01\ttodo\t-\tfrom b\t-\n"
     );
     fx.ok("a", &["task", "add", "M-ONE", "from a"]);
     fx.ok("a", &["ledger", "push", "A adds a task"]);
@@ -714,14 +714,14 @@ fn a_clean_clone_follows_a_migration_on_its_next_fetch_and_a_fresh_clone_takes_t
     assert!(fx.store_url("b").starts_with("file://"));
     assert_eq!(
         fx.ok("b", &["task", "list", "M-ONE", "--porcelain"]),
-        "T-01\ttodo\t-\tfirst\n"
+        "T-01\ttodo\t-\tfirst\t-\n"
     );
 
     // It publishes over the new transport, and `a` reads it.
     fx.ok("b", &["task", "add", "M-ONE", "from b"]);
     fx.ok("b", &["ledger", "push", "B after the migration"]);
     fx.ok("a", &["ledger", "fetch"]);
-    let both = "T-01\ttodo\t-\tfirst\nT-02\ttodo\t-\tfrom b\n";
+    let both = "T-01\ttodo\t-\tfirst\t-\nT-02\ttodo\t-\tfrom b\t-\n";
     assert_eq!(fx.ok("a", &["task", "list", "M-ONE", "--porcelain"]), both);
 
     // A fresh clone takes the file remote.
@@ -760,7 +760,7 @@ fn a_clone_with_unpushed_changes_keeps_them_across_a_migration() {
     fx.ok("a", &["ledger", "fetch"]);
     assert_eq!(
         fx.ok("a", &["task", "list", "M-ONE", "--porcelain"]),
-        "T-01\ttodo\t-\tfirst\nT-02\ttodo\t-\tlocal to b\n"
+        "T-01\ttodo\t-\tfirst\t-\nT-02\ttodo\t-\tlocal to b\t-\n"
     );
     assert_eq!(fx.merge_commits_on_ledger(), 0);
 }

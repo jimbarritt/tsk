@@ -146,6 +146,7 @@ mod tests {
                 status: *s,
                 blocked_by: Vec::new(),
                 uid: String::new(),
+                ext_tracking_id: None,
             });
         }
         m

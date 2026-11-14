@@ -190,6 +190,88 @@ pub struct Task {
     /// one at the first write. A renumbering never changes it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub uid: String,
+    /// The ticket of this task in an external tracker (layout 15), as the full URN
+    /// `urn:tsk:ext:ticket:<system>:<id>`. None when the task has no ticket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ext_tracking_id: Option<String>,
+}
+
+/// The start of every URN of a thing outside tsk: `urn:tsk:ext:<kind>:`. Only the kind
+/// `ticket` is valid for `ext_tracking_id`.
+const EXT_PREFIX: &str = "urn:tsk:ext:";
+
+/// The kind of external thing that `ext_tracking_id` names.
+const TICKET_KIND: &str = "ticket";
+
+/// Split `urn:tsk:ext:<kind>:<rest>` into the kind and the rest. None when the string is
+/// not an `ext` URN.
+fn split_ext(urn: &str) -> Option<(&str, &str)> {
+    urn.strip_prefix(EXT_PREFIX)?.split_once(':')
+}
+
+/// Check an external tracking ID and return the full URN. The input is the full form
+/// `urn:tsk:ext:ticket:<system>:<id>` or the bare form `<system>:<id>`. The system starts
+/// with a lower-case letter and holds lower-case letters, digits and hyphens. The ID is not
+/// empty and has no whitespace and no colon.
+pub fn parse_tracking_id(input: &str) -> Result<String, String> {
+    let bad = |why: &str| {
+        format!(
+            "error: '{}' is not an external tracking ID: {}; the form is urn:tsk:ext:ticket:<system>:<id>, for example urn:tsk:ext:ticket:linear:TEAM1-546, or linear:TEAM1-546",
+            input, why
+        )
+    };
+    let bare = if input.starts_with(EXT_PREFIX) {
+        match split_ext(input) {
+            Some((TICKET_KIND, rest)) => rest,
+            Some((kind, _)) => {
+                return Err(bad(&format!(
+                    "the kind '{}' is not accepted here, only '{}'",
+                    kind, TICKET_KIND
+                )))
+            }
+            None => return Err(bad("it has no kind, system and ID")),
+        }
+    } else {
+        input
+    };
+    let Some((system, id)) = bare.split_once(':') else {
+        return Err(bad("it has no system and ID"));
+    };
+    let mut chars = system.chars();
+    let system_ok = chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if !system_ok {
+        return Err(bad(
+            "the system starts with a lower-case letter and holds only lower-case letters, digits and hyphens",
+        ));
+    }
+    if id.is_empty() {
+        return Err(bad("the ID is empty"));
+    }
+    if id.contains(':') || id.chars().any(char::is_whitespace) {
+        return Err(bad("the ID has a colon or whitespace"));
+    }
+    Ok(format!("{}{}:{}:{}", EXT_PREFIX, TICKET_KIND, system, id))
+}
+
+/// The system and the ID of an external ticket URN, as `(system, id)`: for
+/// `urn:tsk:ext:ticket:linear:TEAM1-546` that is `("linear", "TEAM1-546")`. None for a
+/// string that is not a ticket URN.
+pub fn tracking_parts(urn: &str) -> Option<(&str, &str)> {
+    let (kind, rest) = split_ext(urn)?;
+    if kind != TICKET_KIND {
+        return None;
+    }
+    let (system, id) = rest.split_once(':')?;
+    (!system.is_empty() && !id.is_empty()).then_some((system, id))
+}
+
+impl Task {
+    /// The system and the ID of the task's external ticket, as `(system, id)`, for example
+    /// `("linear", "TEAM1-546")`. None when the task has no ticket.
+    pub fn ext_tracking_parts(&self) -> Option<(&str, &str)> {
+        self.ext_tracking_id.as_deref().and_then(tracking_parts)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1107,5 +1189,71 @@ mod tests {
         assert_eq!(json["blocked_by"][0]["id"], "M-B");
         assert_eq!(json["blocked_by"][0]["blocking"], true);
         assert_eq!(json["blocked_by"][1]["blocking"], false);
+    }
+
+    #[test]
+    fn a_tracking_id_in_either_form_is_stored_as_the_full_urn() {
+        let full = "urn:tsk:ext:ticket:linear:TEAM1-546";
+        assert_eq!(parse_tracking_id("linear:TEAM1-546").unwrap(), full);
+        assert_eq!(parse_tracking_id(full).unwrap(), full);
+        assert_eq!(
+            parse_tracking_id("jira:ABC-12").unwrap(),
+            "urn:tsk:ext:ticket:jira:ABC-12"
+        );
+        assert_eq!(
+            parse_tracking_id("my-tracker2:x/1").unwrap(),
+            "urn:tsk:ext:ticket:my-tracker2:x/1"
+        );
+    }
+
+    #[test]
+    fn a_malformed_tracking_id_is_refused() {
+        for bad in [
+            "",
+            "linear",
+            "linear:",
+            ":TEAM1-546",
+            "Linear:TEAM1-546",
+            "1linear:TEAM1-546",
+            "-x:1",
+            "lin ear:1",
+            "linear:TEAM 1",
+            "linear:TEAM1:546",
+            "linear:TEAM1\t546",
+            "urn:tsk:ext:ticket:linear",
+            "urn:tsk:ext:ticket:linear:",
+            "urn:tsk:ext:pr:github:1",
+            "urn:tsk:ext:ticket",
+            "urn:tsk:tracking:linear:TEAM1-546",
+        ] {
+            let err = parse_tracking_id(bad).unwrap_err();
+            assert!(err.starts_with("error: "), "{:?}: {}", bad, err);
+            assert!(err.contains("urn:tsk:ext:ticket:<system>:<id>"), "{}", err);
+        }
+        assert!(parse_tracking_id("urn:tsk:ext:pr:github:1")
+            .unwrap_err()
+            .contains("only 'ticket'"));
+    }
+
+    #[test]
+    fn the_parts_of_a_ticket_urn_are_the_system_and_the_id() {
+        assert_eq!(
+            tracking_parts("urn:tsk:ext:ticket:linear:TEAM1-546"),
+            Some(("linear", "TEAM1-546"))
+        );
+        assert_eq!(tracking_parts("urn:tsk:ext:pr:github:1"), None);
+        assert_eq!(tracking_parts("urn:tsk:ext:ticket:linear"), None);
+        assert_eq!(tracking_parts("linear:TEAM1-546"), None);
+        let mut task = Task {
+            seq: 1,
+            description: "t".into(),
+            status: Status::Todo,
+            blocked_by: Vec::new(),
+            uid: String::new(),
+            ext_tracking_id: None,
+        };
+        assert_eq!(task.ext_tracking_parts(), None);
+        task.ext_tracking_id = Some("urn:tsk:ext:ticket:jira:ABC-12".into());
+        assert_eq!(task.ext_tracking_parts(), Some(("jira", "ABC-12")));
     }
 }

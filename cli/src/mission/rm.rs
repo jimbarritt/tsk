@@ -284,6 +284,7 @@ mod tests {
             status: model::Status::Todo,
             blocked_by,
             uid: String::new(),
+            ext_tracking_id: None,
         }
     }
 

@@ -3711,18 +3711,20 @@ fn save_sql(mission: &Mission) -> String {
             .iter()
             .map(|t| {
                 format!(
-                    "({}, {}, {}, '{}', {})",
+                    "({}, {}, {}, '{}', {}, {})",
                     id,
                     t.seq,
                     lit(&t.description),
                     t.status.as_str(),
-                    uid_sql(&t.uid)
+                    uid_sql(&t.uid),
+                    t.ext_tracking_id.as_deref().map_or("null".to_string(), lit)
                 )
             })
             .collect();
         sql.push_str(&format!(
-            "insert into tasks (mission_id, seq, description, status, uid) values {} \
-             on duplicate key update description = values(description), status = values(status);\n",
+            "insert into tasks (mission_id, seq, description, status, uid, ext_tracking_id) values {} \
+             on duplicate key update description = values(description), status = values(status), \
+             ext_tracking_id = values(ext_tracking_id);\n",
             rows.join(", ")
         ));
     }
@@ -3994,6 +3996,7 @@ fn read_missions_with(
             &index,
             version >= dolt::ADR_LAYOUT_VERSION,
             version >= dolt::RECORD_UIDS_LAYOUT_VERSION,
+            version >= dolt::EXT_TRACKING_LAYOUT_VERSION,
             &bad,
         )?;
     }
@@ -4011,14 +4014,21 @@ fn read_records(
     index: &HashMap<String, usize>,
     with_adr: bool,
     with_uid: bool,
+    with_tracking: bool,
     bad: &dyn Fn(&str, &str) -> String,
 ) -> Result<(), String> {
     let slot = |_: &[Mission], key: &str| index.get(key).copied();
     // A ledger below layout 13 has no `uid` column on the three tables.
     let uid = if with_uid { "uid" } else { "null as uid" };
+    // A ledger below layout 15 has no `ext_tracking_id` column on `tasks`.
+    let tracking = if with_tracking {
+        "ext_tracking_id"
+    } else {
+        "null as ext_tracking_id"
+    };
     for row in rows(&format!(
-        "select mission_id, seq, description, status, {} from tasks order by mission_id, seq",
-        uid
+        "select mission_id, seq, description, status, {}, {} from tasks order by mission_id, seq",
+        uid, tracking
     ))? {
         let id = text(&row, "mission_id").unwrap_or_default();
         if let Some(at) = slot(missions, &id) {
@@ -4029,6 +4039,7 @@ fn read_records(
                     .map_err(|_| bad("task status", &id))?,
                 blocked_by: Vec::new(),
                 uid: text(&row, "uid").unwrap_or_default(),
+                ext_tracking_id: text(&row, "ext_tracking_id").filter(|t| !t.is_empty()),
             });
         }
     }

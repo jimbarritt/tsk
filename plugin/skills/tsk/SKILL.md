@@ -393,7 +393,7 @@ published"). Setting a task to `in-progress` to take it is a claim: run `tsk led
 
 ```
 tsk task add <mission> <description>          # prints the new ID, T-01 upward
-tsk task set <mission> <task> <field> <value> # status (todo|in-progress|done) or description
+tsk task set <mission> <task> <field> <value> # status (todo|in-progress|done), description, or ext-tracking-id (<system>:<id> or none)
 tsk task block <mission> <task> <by>          # and unblock; <by> is a task of the same mission
 tsk task list <mission> [--porcelain]
 tsk task mv <mission> <task> <to-mission> [--force]   # next number in the target; its decisions move with it
