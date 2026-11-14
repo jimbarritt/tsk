@@ -76,8 +76,9 @@ Cardinality is the distinguishing fact, and it settles whether a thread is about
 or about the work. A human actor attends to one line of work at a time and switches
 between several. A robot's session is bound, through its instance, to one thread and runs
 beside other sessions. The human case and the robot case differ in who does the scheduling
-(Jim, 2026-10-16). Two sessions may be one actor at the same time: the model allows it,
-nothing checks it.
+(Jim, 2026-10-16). A robot is an identity: it works in any number of sessions at the same
+time, in any number of harness instances, and no rule limits it (Jim, 2026-11-14, ADR
+0032). The limit is on the [thread](#thread), which has one open session at a time.
 
 Related: operating context (`docs/kb/agent-context-self-regulation-and-unattended-handoff.md`
 in the tsk repo) describes how a session started and who or what supervises it:
@@ -132,6 +133,14 @@ session to the next, possibly as a different actor. See Actor for what "differen
 actor" means, and why thread identity is tsk's own rather than borrowed from a
 session's platform identifier. In a supervised session the thread is the human's
 attention with one robot (Jim, 2026-10-31).
+
+A thread only ties sessions together. The mission and the task bind the work (Jim,
+2026-11-14). A thread has at most one open session at a time, its holder: two robots never
+work one thread at the same time, and one robot does not work one thread from two sessions
+at the same time. A session takes a thread with a start or a resume and gives it up with a
+pause, a stop or a detach. A thread whose latest event is a pause is paused, and any
+session can resume it. A resume of a thread whose holder no longer runs is a take-over,
+which a person confirms (ADR 0032).
 
 Distinguished from: step, a movement made, independent of people and mostly of time,
 leaving a trail behind similar to a log. Step is not adopted as a unit in tsk.
@@ -301,9 +310,9 @@ never the ledger store.
 The link from a [harness instance](#harness-instance) to the thread it works: a row of the
 ledger's `thread_bindings` table, keyed on the instance key (the cloud session ID, or the
 clone ID from `.git/tsk-clone-id`, a slash, and the worktree name). A harness instance has
-one binding. Several instances can bind to one thread, `tsk thread list` shows them in
-`actors` with the name of each instance's actor, and `tsk thread resume` warns when the
-thread was written by another actor. The binding is on the instance and not on the
+one binding. Several instances can bind to one thread over its life, one open session at a
+time (ADR 0032). `tsk thread list` shows them in `actors` with the name of each instance's
+actor, and `tsk thread resume` warns when the thread was written by another actor. The binding is on the instance and not on the
 session, because the thread continues across sessions and the instance key is the one
 thing a new session has that it did not mint (ADR 0030). A binding is not an actor:
 `thread stop` deletes the binding; the actors of the sessions stay.
