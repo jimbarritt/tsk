@@ -1725,11 +1725,7 @@ mod tests {
 
     #[test]
     fn the_branch_suggestions_come_in_order_and_only_those_that_apply() {
-        let all = branch_suggestions(
-            Some(("T-25", "TEAM1-546")),
-            Some("M-TSK-PERF"),
-            "kudu",
-        );
+        let all = branch_suggestions(Some(("T-25", "TEAM1-546")), Some("M-TSK-PERF"), "kudu");
         let branches: Vec<Option<&str>> = all.iter().map(|s| s.branch.as_deref()).collect();
         assert_eq!(
             branches,
@@ -1745,11 +1741,8 @@ mod tests {
 
     #[test]
     fn the_branch_question_is_aligned_like_the_other_lists() {
-        let suggestions = branch_suggestions(
-            Some(("T-25", "TEAM1-546")),
-            Some("M-TSK-PERF"),
-            "kudu",
-        );
+        let suggestions =
+            branch_suggestions(Some(("T-25", "TEAM1-546")), Some("M-TSK-PERF"), "kudu");
         assert_eq!(
             render_branch_question(&suggestions),
             vec![
