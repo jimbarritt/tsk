@@ -664,10 +664,16 @@ struct Ticket {
     id: String,
 }
 
-/// The ticket ID of a task, such as `TEAM1-546`, or `None` when the task has none.
-// TODO(ext_tracking_id): read the `ext_tracking_id` field of the task after the merge.
-fn ticket_of_task(_mission: &str, _task: &str) -> Option<String> {
-    None
+/// The ticket ID of a task, such as `TEAM1-546`: the ID part of its `ext_tracking_id`.
+/// `None` when the mission, the task or the field is absent.
+fn ticket_of_task(store: &dyn LedgerStore, mission: &str, task: &str) -> Option<String> {
+    let missions = store.missions_load().ok()?;
+    let record = missions.iter().find(|m| m.id == mission)?;
+    let found = record
+        .tasks
+        .iter()
+        .find(|t| crate::mission::records::task_label(t.seq).eq_ignore_ascii_case(task))?;
+    found.ext_tracking_parts().map(|(_, id)| id.to_string())
 }
 
 /// The ticket of the task of the latest pause entry of a thread.
@@ -684,7 +690,7 @@ fn thread_ticket(
         .last()
         .and_then(|stored| stored.entry.task_id.clone())
         .filter(|task| !task.is_empty());
-    Ok(task.and_then(|task| ticket_of_task(mission, &task).map(|id| Ticket { task, id })))
+    Ok(task.and_then(|task| ticket_of_task(store, mission, &task).map(|id| Ticket { task, id })))
 }
 
 /// What the person or the flags chose.
