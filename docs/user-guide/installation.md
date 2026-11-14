@@ -46,7 +46,7 @@ that directory is writable, otherwise to `$HOME/.local/bin`, and sets a Dolt ide
 none is set. By hand, download the archive for your platform from
 `https://github.com/dolthub/dolt/releases/download/v2.5.0/` (`dolt-linux-amd64.tar.gz`,
 `dolt-linux-arm64.tar.gz`, `dolt-darwin-amd64.tar.gz` or `dolt-darwin-arm64.tar.gz`),
-unpack it and copy `bin/dolt` to a directory on your `PATH`. Then set an identity:
+extract it and copy `bin/dolt` to a directory on your `PATH`. Then set an identity:
 ```bash
 dolt version
 dolt config --global --add user.name tsk
@@ -111,13 +111,12 @@ then install as asked.
 
 With `--scope project` or `--scope local`, after the four steps succeed, the command
 writes the repo's `SessionStart` hook into
-`<repo root>/.claude/settings.json`. The repo root comes from
-`git rev-parse --show-toplevel`, so the command must run inside a git repo, or take
+`<repo root>/.claude/settings.json`. `git rev-parse --show-toplevel` gives the repo root, so the command must run inside a git repo, or take
 `--no-hook`. The hook runs `tsk thread session-start --install-plugin claude-cli`. The
 command creates the file and `.claude/` when absent, keeps every other key and hook
 entry, and does not add a second hook when a `SessionStart` command already contains
 `tsk thread session-start`. A settings file that is not valid JSON is an error, and the
-command leaves it as it was. Commit `.claude/settings.json` so every clone and every
+command does not change it. Commit `.claude/settings.json` so every clone and every
 cloud session of the repo has the hook.
 
 The hook installs the plugin, at user scope, only when `CLAUDE_CODE_REMOTE` is `true`, which is the case
@@ -164,7 +163,7 @@ It runs, through the `copilot` binary on `PATH`:
 3. `copilot plugin marketplace update tsk`
 4. `copilot plugin update tsk`
 
-Copilot installs plugins per user, so `--scope` is refused for `copilot-cli`.
+Copilot installs plugins per user, so `--scope` is an error for `copilot-cli`.
 `TSK_COPILOT_BIN` set to a path runs that binary in place of the one on `PATH`.
 
 Copilot runs the plugin's hooks from `plugin/hooks.json`:
@@ -192,13 +191,15 @@ upgrades by the method the running binary was installed with:
 
 | Install method | How tsk detects it | What `self-update` runs |
 |---|---|---|
-| Homebrew | The binary path contains `/Cellar/`, `/homebrew/` or `/linuxbrew/`. | `brew upgrade jimbarritt/tap/tsk` |
+| Homebrew | The binary path contains `/Cellar/`, `/homebrew/` or `/linuxbrew/`. | `brew update`, then `brew upgrade jimbarritt/tap/tsk`. |
 | Cargo | The binary is under `$CARGO_HOME/bin` or `~/.cargo/bin`. | Downloads the release archive and replaces the binary, as for a release binary. When the archive cannot be installed, it prints the error and runs `cargo install tsk-bin --locked --version <latest>`. |
 | Release binary | Any other path. | Downloads the archive for the platform from the GitHub release, then replaces the running binary. |
 
+On Homebrew, `tsk self-update` refreshes the tap first and checks the installed version after.
+
 The release binary method, and the archive step of the Cargo method, need `curl` and `tar`. It writes the new binary next to the old
 one and renames it over the old one. When the directory is not writable, the command names
-the path and asks you to rerun it with sufficient permissions, for example with `sudo`.
+the path and exits with an error. Rerun it with sufficient permissions, for example with `sudo`.
 
 `tsk self-update --check` only reports. It prints whether a newer release exists, and never
 installs.
@@ -210,10 +211,10 @@ lookup stops after 5 seconds, and a failure adds nothing.
 The lookup runs at most once in 24 hours. `tsk` keeps the time and the result of the
 last lookup in `update-check`, in the tsk state directory
 (`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/`). Inside the day, a session start reads
-that file and makes no network call. When the file says a newer release exists, the
+that file and makes no network call. When the file records a newer release exists, the
 sentence above is followed by `The release check is cached: it last ran <n> hours ago,
-and runs once a day. Set TSK_UPDATE_CHECK=always to check now.` A new release can reach
-you up to a day late. `tsk self-update` always asks the network.
+and runs once a day. Set TSK_UPDATE_CHECK=always to check now.` A new release can appear
+up to a day late. `tsk self-update` always queries the network.
 
 `TSK_UPDATE_CHECK` changes the rule:
 
@@ -232,7 +233,7 @@ cannot be installed, which takes about a minute.
 - `TSK_AUTO_UPDATED=1` marks the second run. If that run still meets an unsupported layout,
   it stops with the original error and `tsk was updated but still does not support layout
   N; update it by hand: tsk self-update`.
-- When the update fails, or leaves the version unchanged, tsk prints that error and then
+- When the update fails, or keeps the version unchanged, tsk prints that error and then
   the original one, and exits 1.
 - `tsk thread session-start` and `tsk thread guard` never update. They keep their timeouts.
 - `TSK_AUTO_UPDATE=never` or `TSK_NO_UPDATE_CHECK=1` switches it off. `always` is the
@@ -245,8 +246,8 @@ cannot be installed, which takes about a minute.
 
 In a Claude Code cloud session, `tsk thread session-start --install-plugin claude-cli`
 runs the upgrade before it installs the plugin. A failed upgrade adds a warning to the
-context and the session still starts. The session in which tsk upgrades itself carries on
-with the old binary. The next command uses the new one. No upgrade runs outside cloud
+context and the session still starts. The session in which tsk upgrades itself keeps
+running the old binary. The next command uses the new one. No upgrade runs outside cloud
 sessions.
 
 You can also upgrade with `cargo install tsk-bin --locked` or `brew upgrade jimbarritt/tap/tsk`
@@ -263,12 +264,12 @@ session, not after `/clear`.
 2. Start `claude`. The plugin's `SessionStart` hook installs `dolt` and `tsk` when needed,
    then runs `tsk thread session-start`.
 3. With no ledger ref on `origin`, the fetch creates a new, local ledger and prints a
-   note that the ref does not exist yet. The first `tsk ledger push` creates it. A new
+   message that the ref does not exist yet. The first `tsk ledger push` creates it. A new
    ledger uses a custom ref, `refs/tsk/ledger`, which GitHub does not list as a branch.
    Run `tsk config ledger-refs` to see the refs in use. A repo used from Claude Code
-   cloud sessions needs branches, because the cloud proxy refuses to push a custom ref:
+   cloud sessions needs branches, because the cloud proxy rejects a push of a custom ref:
    run `tsk config ledger-refs branches`, commit `.tsk/config.toml`, and do it before the
-   first push. In a cloud session a new ledger takes branches by itself and says so.
+   first push. In a cloud session a new ledger takes branches by itself and prints a message.
 
 ## CI
 
