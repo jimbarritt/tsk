@@ -32,6 +32,8 @@ Set up and maintain:
   nexus           Attach the nexus and list the repos it indexes
   tmux            Show each agent's mission, robot and state in the tmux session chooser
   harness         Make, list, sleep, wake and delete harnesses: a code worktree, a tmux session and claude
+  shell-init      Print the tsk shell function, so tsk harness cd changes your directory
+  install         Add a line to a shell config: tsk install zshrc
 
 Daily work:
   mission         Create, change, show and list missions
@@ -169,6 +171,21 @@ enum Commands {
         #[command(subcommand)]
         action: harness::HarnessCommands,
     },
+    #[command(
+        name = "shell-init",
+        about = "Print the shell code that defines the tsk function, so that tsk harness cd <name> changes the directory of your shell. Takes zsh or bash. Load it with eval \"$(tsk shell-init zsh)\", or run tsk install zshrc"
+    )]
+    ShellInit {
+        #[arg(value_name = "SHELL")]
+        shell: String,
+    },
+    #[command(
+        about = "Add a line to a shell config, such as the zsh config that loads the tsk function"
+    )]
+    Install {
+        #[command(subcommand)]
+        action: shell::InstallCommands,
+    },
     #[command(about = "Print guides for agents, such as importing an existing plan")]
     Guide {
         #[command(subcommand)]
@@ -259,6 +276,8 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
         }),
         Some(Commands::Tmux { action }) => tmux::run(action),
         Some(Commands::Harness { action }) => harness::run(action),
+        Some(Commands::ShellInit { shell }) => shell::run_shell_init(&shell),
+        Some(Commands::Install { action }) => shell::run_install(action),
         Some(Commands::Guide { action }) => guide::run(action).map(|()| 0),
         None => Ok(0),
     }
@@ -298,6 +317,7 @@ mod nexus_cmd;
 mod tmux;
 
 mod harness;
+mod shell;
 
 // ---------------------------------------------------------------------------
 // Unit tests

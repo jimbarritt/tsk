@@ -22,5 +22,6 @@ mod migrate_docs;
 mod nexus;
 mod nexus_cmd;
 mod self_update;
+mod shell;
 mod thread;
 mod transport;
