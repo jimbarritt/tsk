@@ -285,6 +285,46 @@ If the badge reads Unverified, check these in order:
 4. The private key in `TSK_ROBOT_SIGNING_KEY` matches the public key on GitHub. Compare
    `ssh-keygen -y -f <private key file>` with the public key.
 
+## Sign through an SSH agent
+
+A terminal session on a laptop can sign through an SSH agent, such as the 1Password SSH
+agent. No private key is on disk or in an environment variable.
+
+Two settings in `[attribution]` turn it on:
+
+| Setting | Value | Environment variable |
+|---|---|---|
+| `signing_key` | `agent:<public key>`, for example `agent:ssh-ed25519 AAAA...` | `TSK_ATTRIBUTION_SIGNING_KEY` |
+| `signing_program` | The value of `gpg.ssh.program`. Optional, `ssh-keygen` when unset. | `TSK_ATTRIBUTION_SIGNING_PROGRAM` |
+
+Each setting is read from the environment variable, then `.tsk/config.toml`, then the user
+config. Write them with these commands, and add `--user` to write the user config:
+
+```bash
+tsk config attribution --signing-key "agent:ssh-ed25519 AAAA..."
+tsk config attribution --signing-program <path of the signing program>
+```
+
+tsk rejects a `signing_key` value that does not start with `agent:` and hold `ssh-`, a key
+type and a base64 key. On macOS with 1Password, set `signing_program` to the path of the
+`op-ssh-sign` helper that 1Password installs.
+
+When `identity` is `robot` and `signing_key` is set, `tsk thread session-start` does not
+read `TSK_ROBOT_SIGNING_KEY` and writes no key file. It writes `gpg.format = ssh`,
+`gpg.ssh.program`, `user.signingkey = key::<public key>`, the signers file, `user.email` and
+`commit.gpgsign` to the worktree config. When both `signing_key` and `TSK_ROBOT_SIGNING_KEY`
+exist, `signing_key` wins. The next session start after a change of mode removes the key
+file of the other mode.
+
+Git then runs `ssh-keygen -Y sign`, or the program set, with the public key from
+`user.signingkey`. The agent signs with the matching private key.
+
+- The 1Password SSH agent offers only keys from the vaults that its `agent.toml` lists. The
+  default is the personal vault. A key in another vault must be added to `agent.toml`.
+- 1Password asks for approval when a key is used. An unattended session blocks until a
+  person approves.
+- Upload the public key to the robot's GitHub account as a Signing key (step 4).
+
 ## Rotate the key
 
 1. Repeat steps 3 and 4 with a new key.

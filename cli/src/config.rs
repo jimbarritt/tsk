@@ -43,7 +43,7 @@ pub enum ConfigCommands {
     #[command(
         name = "attribution",
         about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml or, with --user, the user config",
-        long_about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml, or with --user to the user config.\n\nidentity is default or robot, default when unset, so attribution is off until a config turns it on. default writes no git config, and the session start removes an earlier robot set-up. robot makes tsk thread session-start and tsk actor git-identity write the registered robot's name, the email, and the SSH signing settings to the repo's local git config. email has no built-in value. identity is read from the environment variable TSK_ATTRIBUTION_IDENTITY, then .tsk/config.toml, then the user config. email is read from the environment variable TSK_ATTRIBUTION_EMAIL, then .tsk/config.toml, then the user config. co_author has the form Name <email> and no built-in value. With identity robot and co_author set, the commit-msg hook adds, in a supervised session only (a human joined with tsk actor join), the trailer Co-authored-by: <co_author> after the Agent-Session trailer, once. co_author is read from the environment variable TSK_ATTRIBUTION_CO_AUTHOR, then .tsk/config.toml, then the user config. The private key comes from TSK_ROBOT_SIGNING_KEY."
+        long_about = "Print the [attribution] settings and where each came from, or write them to .tsk/config.toml, or with --user to the user config.\n\nidentity is default or robot, default when unset, so attribution is off until a config turns it on. default writes no git config, and the session start removes an earlier robot set-up. robot makes tsk thread session-start and tsk actor git-identity write the registered robot's name, the email, and the SSH signing settings to the repo's local git config. email has no built-in value. identity is read from the environment variable TSK_ATTRIBUTION_IDENTITY, then .tsk/config.toml, then the user config. email is read from the environment variable TSK_ATTRIBUTION_EMAIL, then .tsk/config.toml, then the user config. co_author has the form Name <email> and no built-in value. With identity robot and co_author set, the commit-msg hook adds, in a supervised session only (a human joined with tsk actor join), the trailer Co-authored-by: <co_author> after the Agent-Session trailer, once. co_author is read from the environment variable TSK_ATTRIBUTION_CO_AUTHOR, then .tsk/config.toml, then the user config. signing_key has the form agent:<public key>, such as agent:ssh-ed25519 <base64 key>, and no built-in value. When it is set, the session start writes no private key: git signs through an SSH agent, which holds the matching private key, and user.signingkey names the public key. signing_key is read from the environment variable TSK_ATTRIBUTION_SIGNING_KEY, then .tsk/config.toml, then the user config. signing_program is the value of gpg.ssh.program, ssh-keygen when unset, and applies to the signing_key mode. On macOS with the 1Password SSH agent, set it to the path of the op-ssh-sign helper. signing_program is read from the environment variable TSK_ATTRIBUTION_SIGNING_PROGRAM, then .tsk/config.toml, then the user config. Without signing_key, the private key comes from TSK_ROBOT_SIGNING_KEY. With both, signing_key wins."
     )]
     Attribution {
         #[arg(
@@ -61,7 +61,19 @@ pub enum ConfigCommands {
         co_author: Option<String>,
         #[arg(
             long,
-            help = "Write the identity, the email and the co-author to the user config (~/.config/tsk/config.toml) in place of .tsk/config.toml. Needs no repo"
+            value_name = "VALUE",
+            help = "The SSH agent signing key to write to .tsk/config.toml, in the form \"agent:ssh-ed25519 <base64 key>\""
+        )]
+        signing_key: Option<String>,
+        #[arg(
+            long,
+            value_name = "VALUE",
+            help = "The program to write as gpg.ssh.program to .tsk/config.toml, such as the path of op-ssh-sign"
+        )]
+        signing_program: Option<String>,
+        #[arg(
+            long,
+            help = "Write the identity, the email, the co-author and the signing settings to the user config (~/.config/tsk/config.toml) in place of .tsk/config.toml. Needs no repo"
         )]
         user: bool,
     },
@@ -506,10 +518,19 @@ pub fn run(action: ConfigCommands) -> Result<(), String> {
         identity,
         email,
         co_author,
+        signing_key,
+        signing_program,
         user,
     } = action
     {
-        return crate::attribution::run_config(identity, email, co_author, user);
+        return crate::attribution::run_config(
+            identity,
+            email,
+            co_author,
+            signing_key,
+            signing_program,
+            user,
+        );
     }
     if let ConfigCommands::LedgerServer { mode } = action {
         return ledger_server(mode);

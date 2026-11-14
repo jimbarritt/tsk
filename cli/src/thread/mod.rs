@@ -143,7 +143,7 @@ pub enum ThreadCommands {
         open: Option<Vec<String>>,
     },
     #[command(
-        about = "SessionStart hook: reads the session ID and source from stdin, exits with no output when another run already claimed that event, fetches the ledger, exports TSK_LEDGER_WT to CLAUDE_ENV_FILE when set, and prints the hook JSON with the session context in the --format shape (claude by default, or copilot); accepts session_id or sessionId on stdin; exits 0 even when the fetch fails"
+        about = "SessionStart hook: reads the session ID and source from stdin, exits with no output when another run already claimed that event, fetches the ledger, exports TSK_LEDGER_WT to CLAUDE_ENV_FILE when set, and prints the hook JSON with the session context in the --format shape (claude by default, or copilot); accepts session_id or sessionId on stdin; with [attribution] identity robot, writes the signing set-up to the worktree git config: a key file from TSK_ROBOT_SIGNING_KEY, or, when [attribution] signing_key is set, the public key of an SSH agent and no key file; exits 0 even when the fetch fails"
     )]
     SessionStart {
         #[arg(
