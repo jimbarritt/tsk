@@ -20,6 +20,8 @@ pub struct HarnessState {
     pub robot: Option<String>,
     #[serde(default)]
     pub mission: Option<String>,
+    #[serde(default)]
+    pub push: Option<String>,
     pub created_at: String,
 }
 
@@ -129,6 +131,7 @@ mod tests {
             thread_id: None,
             robot: Some("Marvin".to_string()),
             mission: None,
+            push: Some("main".to_string()),
             created_at: "2026-11-14T10:00:00Z".to_string(),
         }
     }

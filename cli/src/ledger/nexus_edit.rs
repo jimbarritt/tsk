@@ -332,7 +332,6 @@ pub fn publish(
     })
 }
 
-#[allow(dead_code)]
 pub fn set_repo_workflow(
     state_root: &Path,
     nexus_url: &str,
