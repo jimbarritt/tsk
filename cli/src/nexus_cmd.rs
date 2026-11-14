@@ -8,6 +8,7 @@ use crate::ledger::location::{state_root_from_env, Repo};
 use crate::ledger::nexus::{
     load_index, machine_name, valid_repo_id, Entry, NexusIndex, NEXUS_FILE,
 };
+use crate::ledger::nexus_edit::{self, Change, Published, RepoFields};
 use crate::ledger::refs::{LedgerRefs, RefsSource};
 use crate::ledger::register::{
     derive_repo_id, point_at_nexus, register, repo_name_from_url, NewEntry, Outcome,
@@ -108,6 +109,73 @@ pub enum NexusCommands {
         )]
         ledger_refs: Option<String>,
     },
+    #[command(
+        about = "Add an empty territory to nexus.json on the nexus's default branch, then commit and push it. A territory that exists is left as it is"
+    )]
+    AddTerritory {
+        #[arg(help = "Territory id: lowercase letters, digits and hyphens")]
+        id: String,
+        #[arg(long, help = "Display name; defaults to the id")]
+        name: Option<String>,
+    },
+    #[command(
+        about = "Change the display name of a territory in nexus.json, then commit and push it. An unknown id is an error"
+    )]
+    RenameTerritory {
+        #[arg(help = "Territory id")]
+        id: String,
+        #[arg(long, help = "New display name")]
+        name: String,
+    },
+    #[command(
+        about = "Remove a territory from nexus.json, then commit and push it. A territory that holds repos is an error"
+    )]
+    RemoveTerritory {
+        #[arg(help = "Territory id")]
+        id: String,
+    },
+    #[command(
+        about = "Set fields of a repo's entry in nexus.json, then commit and push it. Needs at least one option. A value equal to the stored one changes nothing"
+    )]
+    SetRepo {
+        #[arg(help = "Repo id of an existing entry")]
+        repo_id: String,
+        #[arg(
+            long,
+            value_parser = ["main", "pull-request"],
+            help = "How the repo takes changes: main (commit to the default branch) or pull-request"
+        )]
+        workflow: Option<String>,
+        #[arg(
+            long,
+            help = "Mission prefix, 3 or 4 capital letters that no other repo in the nexus uses"
+        )]
+        prefix: Option<String>,
+        #[arg(long, help = "Clone URL of the repo")]
+        url: Option<String>,
+    },
+    #[command(
+        about = "Move a repo's entry to another territory in nexus.json, then commit and push it. Moving to the current territory changes nothing"
+    )]
+    MoveRepo {
+        #[arg(help = "Repo id of an existing entry")]
+        repo_id: String,
+        #[arg(
+            long,
+            value_name = "TERRITORY_ID",
+            help = "Territory to move the entry to"
+        )]
+        territory: String,
+    },
+    #[command(
+        about = "Remove a repo's entry from nexus.json, then commit and push it. An entry whose ledger is in the nexus needs --force: the ledger branches stay in the nexus and are hidden"
+    )]
+    RemoveRepo {
+        #[arg(help = "Repo id of an existing entry")]
+        repo_id: String,
+        #[arg(long, help = "Remove an entry whose ledger is held in the nexus")]
+        force: bool,
+    },
 }
 
 pub fn run(action: NexusCommands) -> Result<(), String> {
@@ -158,7 +226,86 @@ pub fn run(action: NexusCommands) -> Result<(), String> {
             territory,
             ledger_refs,
         } => move_ledger(&file, id, territory, ledger_refs),
+        NexusCommands::AddTerritory { id, name } => edit_nexus(
+            &file,
+            "tsk nexus add-territory",
+            &format!("Add territory {}", id),
+            true,
+            &mut |doc| nexus_edit::add_territory(doc, &id, name.as_deref()),
+        ),
+        NexusCommands::RenameTerritory { id, name } => edit_nexus(
+            &file,
+            "tsk nexus rename-territory",
+            &format!("Rename territory {}", id),
+            false,
+            &mut |doc| nexus_edit::rename_territory(doc, &id, &name),
+        ),
+        NexusCommands::RemoveTerritory { id } => edit_nexus(
+            &file,
+            "tsk nexus remove-territory",
+            &format!("Remove territory {}", id),
+            false,
+            &mut |doc| nexus_edit::remove_territory(doc, &id),
+        ),
+        NexusCommands::SetRepo {
+            repo_id,
+            workflow,
+            prefix,
+            url,
+        } => {
+            let fields = RepoFields {
+                workflow,
+                prefix,
+                url,
+            };
+            edit_nexus(
+                &file,
+                "tsk nexus set-repo",
+                &format!("Set fields of {}", repo_id),
+                false,
+                &mut |doc| nexus_edit::set_repo(doc, &repo_id, &fields),
+            )
+        }
+        NexusCommands::MoveRepo { repo_id, territory } => edit_nexus(
+            &file,
+            "tsk nexus move-repo",
+            &format!("Move {} to territory {}", repo_id, territory),
+            false,
+            &mut |doc| nexus_edit::move_repo(doc, &repo_id, &territory),
+        ),
+        NexusCommands::RemoveRepo { repo_id, force } => edit_nexus(
+            &file,
+            "tsk nexus remove-repo",
+            &format!("Remove {} from the nexus", repo_id),
+            false,
+            &mut |doc| nexus_edit::remove_repo(doc, &repo_id, force),
+        ),
     }
+}
+
+fn edit_nexus(
+    config_file: &Path,
+    command: &str,
+    commit_message: &str,
+    create_file: bool,
+    edit: &mut dyn FnMut(&mut Value) -> Result<Change, String>,
+) -> Result<(), String> {
+    let nexus = config::read_nexus_url(config_file)?
+        .ok_or_else(|| "error: no nexus is attached; run tsk nexus add <url> first".to_string())?;
+    let state_root = state_root_from_env()?;
+    let published: Published = nexus_edit::publish(
+        &state_root,
+        &nexus,
+        command,
+        commit_message,
+        create_file,
+        &mut || {
+            eprintln!("note: the nexus's default branch moved before the push; fetching again and retrying once")
+        },
+        edit,
+    )?;
+    print!("{}", published.text(&nexus));
+    Ok(())
 }
 
 fn move_ledger(
@@ -506,11 +653,15 @@ pub fn listing_text(config_file: &Path, nexus: Option<&str>, index: Option<&Nexu
         }
         for entry in &territory.repos {
             text.push_str(&format!(
-                "  {}  {}  ledger: {}\n",
+                "  {}  {}  ledger: {}",
                 entry.id,
                 entry_place(entry),
                 entry_ledger(entry)
             ));
+            if let Some(workflow) = &entry.workflow {
+                text.push_str(&format!("  workflow: {}", workflow));
+            }
+            text.push('\n');
         }
     }
     text
@@ -526,12 +677,16 @@ pub fn listing_json(config_file: &Path, nexus: Option<&str>, index: Option<&Nexu
                 .repos
                 .iter()
                 .map(|entry| {
-                    json!({
+                    let mut value = json!({
                         "id": entry.id,
                         "url": entry.url,
                         "local": entry.local,
                         "ledger": entry_ledger(entry),
-                    })
+                    });
+                    if let Some(workflow) = &entry.workflow {
+                        value["workflow"] = json!(workflow);
+                    }
+                    value
                 })
                 .collect();
             json!({

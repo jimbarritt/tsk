@@ -828,3 +828,253 @@ fn register_repo_fetches_again_and_keeps_a_concurrent_change_after_a_rejected_pu
     assert_eq!(doc["owner"], "someone else");
     assert_eq!(doc["territories"][0]["repos"][1]["id"], "work-api");
 }
+
+const EDITABLE: &str = r#"{
+  "version": 1,
+  "owner": "acme",
+  "territories": [
+    {
+      "id": "work",
+      "name": "Work",
+      "repos": [
+        { "id": "billing", "url": "https://example.test/acme/billing", "ledger": "nexus", "prefix": "BIL", "note": "keep" },
+        { "id": "scratch", "url": "https://example.test/acme/scratch", "prefix": "SCR" }
+      ]
+    },
+    { "id": "home", "name": "Home", "repos": [] }
+  ]
+}
+"#;
+
+impl Fixture {
+    fn edit(&self, args: &[&str]) -> Output {
+        let mut all = vec!["nexus"];
+        all.extend_from_slice(args);
+        self.tsk(&all)
+    }
+
+    fn last_subject(&self) -> String {
+        git(
+            &self.nexus(),
+            &["log", "-1", "--format=%s", "refs/heads/main"],
+        )
+        .trim()
+        .to_string()
+    }
+}
+
+#[test]
+fn add_territory_commits_pushes_and_is_idempotent() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(EDITABLE);
+    fx.attach();
+    let before = fx.nexus_commits();
+
+    let output = fx.edit(&["add-territory", "play", "--name", "Play"]);
+
+    assert_success(&output);
+    let text = stdout(&output);
+    assert!(
+        text.starts_with("added territory play named \"Play\"\npushed "),
+        "{}",
+        text
+    );
+    assert_eq!(fx.nexus_commits(), before + 1);
+    assert_eq!(fx.last_subject(), "Add territory play");
+    let doc = fx.nexus_doc();
+    assert_eq!(doc["owner"], "acme");
+    assert_eq!(
+        doc["territories"][2],
+        serde_json::json!({"id": "play", "name": "Play", "repos": []})
+    );
+    assert!(fx.nexus_json().ends_with("}\n"));
+    assert!(fx.nexus_json().contains("\n  \"territories\": [\n"));
+
+    let again = fx.edit(&["add-territory", "play"]);
+    assert_success(&again);
+    assert_eq!(stdout(&again), "unchanged\n");
+    assert_eq!(fx.nexus_commits(), before + 1);
+}
+
+#[test]
+fn add_territory_creates_nexus_json_on_an_empty_nexus_with_the_id_as_name() {
+    let fx = Fixture::new();
+    fx.attach();
+
+    assert_success(&fx.edit(&["add-territory", "work"]));
+
+    let doc = fx.nexus_doc();
+    assert_eq!(doc["version"], 1);
+    assert_eq!(
+        doc["territories"][0],
+        serde_json::json!({"id": "work", "name": "work", "repos": []})
+    );
+}
+
+#[test]
+fn rename_and_remove_territory() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(EDITABLE);
+    fx.attach();
+    let before = fx.nexus_commits();
+
+    assert_failure_mentioning(
+        &fx.edit(&["rename-territory", "nope", "--name", "X"]),
+        "no territory \"nope\"",
+    );
+    assert_failure_mentioning(&fx.edit(&["remove-territory", "work"]), "holds 2 repos");
+    assert_eq!(fx.nexus_commits(), before);
+
+    let renamed = fx.edit(&["rename-territory", "home", "--name", "House"]);
+    assert_success(&renamed);
+    assert!(
+        stdout(&renamed).starts_with("renamed territory home from \"Home\" to \"House\"\n"),
+        "{}",
+        stdout(&renamed)
+    );
+    assert_eq!(fx.nexus_doc()["territories"][1]["name"], "House");
+    let same = fx.edit(&["rename-territory", "home", "--name", "House"]);
+    assert_eq!(stdout(&same), "unchanged\n");
+
+    let removed = fx.edit(&["remove-territory", "home"]);
+    assert_success(&removed);
+    assert_eq!(fx.nexus_doc()["territories"].as_array().unwrap().len(), 1);
+    assert_eq!(fx.nexus_commits(), before + 2);
+}
+
+#[test]
+fn set_repo_writes_workflow_and_prefix_and_keeps_the_other_fields() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(EDITABLE);
+    fx.attach();
+    let before = fx.nexus_commits();
+
+    let output = fx.edit(&[
+        "set-repo",
+        "billing",
+        "--workflow",
+        "pull-request",
+        "--prefix",
+        "BILL",
+    ]);
+
+    assert_success(&output);
+    assert!(
+        stdout(&output).starts_with("set billing: workflow pull-request, prefix BILL\npushed "),
+        "{}",
+        stdout(&output)
+    );
+    assert_eq!(fx.nexus_commits(), before + 1);
+    assert_eq!(
+        fx.nexus_doc()["territories"][0]["repos"][0],
+        serde_json::json!({
+            "id": "billing",
+            "url": "https://example.test/acme/billing",
+            "ledger": "nexus",
+            "prefix": "BILL",
+            "note": "keep",
+            "workflow": "pull-request"
+        })
+    );
+
+    let again = fx.edit(&["set-repo", "billing", "--workflow", "pull-request"]);
+    assert_success(&again);
+    assert_eq!(stdout(&again), "unchanged\n");
+    assert_eq!(fx.nexus_commits(), before + 1);
+
+    let listed = fx.edit(&["list"]);
+    assert!(
+        stdout(&listed).contains("ledger: nexus  workflow: pull-request"),
+        "{}",
+        stdout(&listed)
+    );
+}
+
+#[test]
+fn set_repo_refusals_leave_the_nexus_alone() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(EDITABLE);
+    fx.attach();
+    let before = fx.nexus_commits();
+
+    assert_failure_mentioning(&fx.edit(&["set-repo", "billing"]), "at least one");
+    assert_failure_mentioning(
+        &fx.edit(&["set-repo", "nope", "--workflow", "main"]),
+        "no repo \"nope\"",
+    );
+    assert_failure_mentioning(
+        &fx.edit(&["set-repo", "billing", "--prefix", "SCR"]),
+        "already used by the repo \"scratch\"",
+    );
+    assert_failure_mentioning(
+        &fx.edit(&["set-repo", "billing", "--prefix", "ab"]),
+        "3 or 4 capital letters",
+    );
+    let bad = fx.edit(&["set-repo", "billing", "--workflow", "trunk"]);
+    assert_eq!(bad.status.code(), Some(2), "{}", stderr(&bad));
+    assert_eq!(fx.nexus_commits(), before);
+}
+
+#[test]
+fn move_repo_moves_the_entry_and_is_a_no_op_in_its_own_territory() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(EDITABLE);
+    fx.attach();
+    let before = fx.nexus_commits();
+
+    assert_failure_mentioning(
+        &fx.edit(&["move-repo", "billing", "--territory", "nope"]),
+        "no territory \"nope\"",
+    );
+    let same = fx.edit(&["move-repo", "billing", "--territory", "work"]);
+    assert_eq!(stdout(&same), "unchanged\n");
+    assert_eq!(fx.nexus_commits(), before);
+
+    let output = fx.edit(&["move-repo", "billing", "--territory", "home"]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).starts_with("moved billing from territory work to territory home\n"),
+        "{}",
+        stdout(&output)
+    );
+    let doc = fx.nexus_doc();
+    assert_eq!(doc["territories"][0]["repos"].as_array().unwrap().len(), 1);
+    assert_eq!(doc["territories"][1]["repos"][0]["note"], "keep");
+    assert_eq!(fx.nexus_commits(), before + 1);
+}
+
+#[test]
+fn remove_repo_refuses_a_nexus_ledger_unless_forced() {
+    let fx = Fixture::new();
+    fx.write_nexus_json(EDITABLE);
+    fx.attach();
+    let before = fx.nexus_commits();
+
+    assert_failure_mentioning(
+        &fx.edit(&["remove-repo", "billing"]),
+        "ledger branches stay in the nexus",
+    );
+    assert_eq!(fx.nexus_commits(), before);
+
+    let plain = fx.edit(&["remove-repo", "scratch"]);
+    assert_success(&plain);
+    assert!(
+        stdout(&plain).starts_with("removed scratch from territory work\n"),
+        "{}",
+        stdout(&plain)
+    );
+
+    let forced = fx.edit(&["remove-repo", "billing", "--force"]);
+    assert_success(&forced);
+    assert_eq!(
+        fx.nexus_doc()["territories"][0]["repos"],
+        serde_json::json!([])
+    );
+    assert_eq!(fx.nexus_commits(), before + 2);
+}
+
+#[test]
+fn an_edit_with_no_nexus_attached_names_the_add_command() {
+    let fx = Fixture::new();
+    assert_failure_mentioning(&fx.edit(&["add-territory", "x"]), "tsk nexus add <url>");
+}

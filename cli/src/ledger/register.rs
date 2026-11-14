@@ -89,7 +89,7 @@ pub fn repo_name_from_url(url: &str) -> Option<String> {
     normalised.rsplit('/').next().map(str::to_string)
 }
 
-fn same_url(a: &str, b: &str) -> bool {
+pub(super) fn same_url(a: &str, b: &str) -> bool {
     match (normalise_url(a), normalise_url(b)) {
         (Some(a), Some(b)) => a == b,
         _ => a.trim() == b.trim(),
@@ -121,7 +121,7 @@ pub fn prefix_holder(doc: &Value, prefix: &str, own_id: &str) -> Option<String> 
         .map(str::to_string)
 }
 
-fn prefix_taken(prefix: &str, holder: &str) -> String {
+pub(super) fn prefix_taken(prefix: &str, holder: &str) -> String {
     format!(
         "error: the mission prefix {} is already used by the repo \"{}\" in the nexus. Choose another with tsk mission prefix <PREFIX>",
         prefix, holder
@@ -593,7 +593,7 @@ pub fn mark_nexus(
 
 /// Fetch `nexus.json` from the nexus's default branch, apply `edit`, and push the result,
 /// fetching again and retrying when the branch moved.
-fn update_nexus(
+pub(super) fn update_nexus(
     state_root: &Path,
     nexus_url: &str,
     territory: &TerritoryChoice,

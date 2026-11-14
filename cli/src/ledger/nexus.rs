@@ -27,6 +27,8 @@ pub struct Entry {
     /// registered before prefixes were recorded.
     #[serde(default)]
     pub prefix: Option<String>,
+    #[serde(default)]
+    pub workflow: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -562,6 +564,7 @@ mod tests {
             ledger: Some("repo".into()),
             ledger_refs: None,
             prefix: None,
+            workflow: None,
         };
         assert_eq!(
             entry_location(&repo, nexus).unwrap(),
@@ -585,6 +588,7 @@ mod tests {
             ledger: Some("nexus".into()),
             ledger_refs: None,
             prefix: None,
+            workflow: None,
         };
         assert!(entry_location(&entry, "n")
             .unwrap_err()
