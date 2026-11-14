@@ -689,7 +689,7 @@ fn new_with_no_terminal_and_no_flag_uses_the_first_suggestion() {
         "m-test-01/kudu"
     );
 
-    // A new mission has no code, so the only suggestion is a detached HEAD.
+    // A new mission has no code, so the first suggestion is the harness name.
     let output = fx.tsk(&[
         "harness",
         "new",
@@ -703,7 +703,7 @@ fn new_with_no_terminal_and_no_flag_uses_the_first_suggestion() {
     ]);
     assert_success(&output);
     assert!(
-        stdout(&output).contains("branch: detached HEAD"),
+        stdout(&output).contains("branch: ibis"),
         "{}",
         stdout(&output)
     );
@@ -948,7 +948,7 @@ fn sleep_pauses_a_held_thread_and_stops_the_session_and_wake_resumes_it() {
 }
 
 #[test]
-fn new_with_a_paused_thread_and_no_flag_uses_the_mission_and_the_thread() {
+fn new_with_a_paused_thread_and_no_flag_uses_the_mission_and_the_harness_name() {
     if !common::dolt_installed() {
         eprintln!("skipped: dolt is not installed");
         return;
@@ -969,7 +969,7 @@ fn new_with_a_paused_thread_and_no_flag_uses_the_mission_and_the_thread() {
         "--no-attach",
     ]);
     assert_success(&output);
-    let expected = format!("m-test-01/{}", thread);
+    let expected = "m-test-01/owl".to_string();
     assert!(
         stdout(&output).contains(&format!("branch: {}", expected)),
         "{}",

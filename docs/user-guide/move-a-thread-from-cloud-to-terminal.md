@@ -55,7 +55,8 @@ Run `tsk harness new` in the clone. It makes a code worktree, a tmux session and
 3. Which mission? It lists the missions that are not done, and you pick one or a new
    mission.
 4. Which branch? It lists suggestions, then you type a number, press Enter for the first,
-   or type a branch name.
+   or type a branch name. The suggestions are the ticket of the current task, the mission code
+   and the harness name (`m-tsk-env/gurnard`), the harness name, and a detached HEAD.
 
 To answer from a script, pass the thread:
 
