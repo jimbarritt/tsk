@@ -48,6 +48,18 @@ pub enum TmuxCommands {
         tmux_conf: Option<PathBuf>,
         #[arg(long, help = "Print the settings and change no file")]
         print: bool,
+        #[arg(
+            long,
+            value_name = "KEY",
+            help = "The key, after the prefix, that opens the sidebar (default B). Saved as [tmux] sidebar_key in the user config, so the next install keeps it"
+        )]
+        sidebar_key: Option<String>,
+        #[arg(
+            long,
+            value_name = "KEY",
+            help = "The key, after the prefix, that opens the session chooser (default s). Saved as [tmux] chooser_key in the user config, so the next install keeps it"
+        )]
+        chooser_key: Option<String>,
     },
     #[command(
         about = "Set the tsk options on this tmux pane ($TMUX_PANE): @tsk_actor, @tsk_mission and @tsk_mission_name, and name the tmux session after the mission code when @tsk_rename_session is on. Reads the ledger store as it is and never fetches. Does nothing outside tmux"
@@ -61,7 +73,7 @@ pub enum TmuxCommands {
         state: AgentState,
     },
     #[command(
-        about = "Run the tsk sidebar in this pane: every tmux session with its agent's state, mission and robot. j and k move, Enter or a digit switches to the session, q closes it. prefix b opens it, focuses it, or closes it when focused, and while it is open it follows you to each session and window (tsk tmux install sets up the key and the hooks)"
+        about = "Run the tsk sidebar in this pane: every tmux session with its agent's state, mission and robot. j and k move, Enter or a digit switches to the session, q closes it. prefix B (tsk tmux install --sidebar-key changes it) opens it, focuses it, or closes it when focused, and while it is open it follows you to each session and window (tsk tmux install sets up the key and the hooks)"
     )]
     Sidebar {
         #[command(subcommand)]
@@ -72,7 +84,7 @@ pub enum TmuxCommands {
 #[derive(Subcommand)]
 pub enum SidebarCommands {
     #[command(
-        about = "Open the sidebar in the window, focus it when it is open and not focused, or close it when it is focused. The prefix b binding runs it"
+        about = "Open the sidebar in the window, focus it when it is open and not focused, or close it when it is focused. The sidebar key binding (prefix B by default) runs it"
     )]
     Toggle {
         #[arg(value_name = "WINDOW_ID")]
@@ -112,7 +124,12 @@ impl AgentState {
 
 pub fn run(action: TmuxCommands) -> Result<i32, String> {
     match action {
-        TmuxCommands::Install { tmux_conf, print } => install(tmux_conf, print).map(|()| 0),
+        TmuxCommands::Install {
+            tmux_conf,
+            print,
+            sidebar_key,
+            chooser_key,
+        } => install(tmux_conf, print, sidebar_key, chooser_key).map(|()| 0),
         TmuxCommands::Sync => {
             if let Some(pane) = current_pane() {
                 if let Ok(session) = Session::discover() {
@@ -262,8 +279,37 @@ pub fn short_name(name: &str, max: usize) -> String {
     format!("{}…", out)
 }
 
+/// The keys, after the prefix, of the chooser and the sidebar. A tmux binding replaces any
+/// earlier binding of the same key, so the defaults leave `b` (the status bar in many configs)
+/// alone: the sidebar is on `B`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Keys {
+    pub chooser: String,
+    pub sidebar: String,
+}
+
+pub const DEFAULT_CHOOSER_KEY: &str = "s";
+pub const DEFAULT_SIDEBAR_KEY: &str = "B";
+
+impl Default for Keys {
+    fn default() -> Keys {
+        Keys {
+            chooser: DEFAULT_CHOOSER_KEY.to_string(),
+            sidebar: DEFAULT_SIDEBAR_KEY.to_string(),
+        }
+    }
+}
+
+/// A tmux key name: no whitespace and no quote.
+fn valid_key(key: &str) -> bool {
+    !key.is_empty()
+        && !key
+            .chars()
+            .any(|c| c.is_whitespace() || c == '\'' || c == '"')
+}
+
 /// The text of the tsk tmux config. tsk overwrites the file on each install.
-pub fn tsk_conf() -> String {
+pub fn tsk_conf(keys: &Keys) -> String {
     format!(
         "# Written by tsk tmux install, which overwrites this file. Put your own settings in\n\
          # your tmux config.\n\
@@ -279,18 +325,20 @@ pub fn tsk_conf() -> String {
          # Room in the status line for a mission code such as M-TSK-BOOT-06.\n\
          if -F '#{{e|<:#{{status-left-length}},30}}' 'set -g status-left-length 30'\n\
          \n\
-         # The session chooser: state, mission, robot and directory on each line.\n\
-         # ● waits for input, ◐ works, ✗ ended with an error.\n\
-         bind s choose-tree -Zs -F '{}'\n\
+         # The session chooser, on prefix {chooser}: state, mission, robot and directory on\n\
+         # each line. ● waits for input, ◐ works, ✗ ended with an error.\n\
+         bind {chooser} choose-tree -Zs -F '{format}'\n\
          \n\
-         # The sidebar: prefix b opens it, focuses it, or closes it when it is focused. While\n\
+         # The sidebar: prefix {sidebar} opens it, focuses it, or closes it when it is focused. While\n\
          # it is open it follows you to each session and window. Set @tsk_sidebar_width in\n\
          # your tmux config to change its width.\n\
          if -F '#{{==:#{{@tsk_sidebar_width}},}}' 'set -g @tsk_sidebar_width 32'\n\
-         bind b run-shell -b 'tsk tmux sidebar toggle #{{window_id}}'\n\
+         bind {sidebar} run-shell -b 'tsk tmux sidebar toggle #{{window_id}}'\n\
          set-hook -g 'client-session-changed[42]' \"run-shell -b 'tsk tmux sidebar follow #{{window_id}}'\"\n\
          set-hook -g 'session-window-changed[42]' \"run-shell -b 'tsk tmux sidebar follow #{{window_id}}'\"\n",
-        CHOOSER_FORMAT
+        chooser = keys.chooser,
+        sidebar = keys.sidebar,
+        format = CHOOSER_FORMAT
     )
 }
 
@@ -347,14 +395,57 @@ pub fn default_tmux_conf(home: &Path, config_home: &Path) -> PathBuf {
     home.join(".tmux.conf")
 }
 
-fn install(tmux_conf: Option<PathBuf>, print: bool) -> Result<(), String> {
+/// The keys for this install: a flag, else the user config, else the default. A flag is saved
+/// to the user config, unless `print`.
+fn install_keys(
+    sidebar: Option<String>,
+    chooser: Option<String>,
+    print: bool,
+) -> Result<Keys, String> {
+    let file = crate::config::config_file_from_env();
+    let mut keys = Keys::default();
+    for (flag, key, slot) in [
+        (sidebar, "sidebar_key", &mut keys.sidebar),
+        (chooser, "chooser_key", &mut keys.chooser),
+    ] {
+        match flag {
+            Some(value) => {
+                if !valid_key(&value) {
+                    return Err(format!("error: '{}' is not a tmux key name", value));
+                }
+                if let (Some(file), false) = (&file, print) {
+                    crate::config::write_string(file, "tmux", key, &value)?;
+                }
+                *slot = value;
+            }
+            None => {
+                if let Some(saved) = file
+                    .as_deref()
+                    .and_then(|f| crate::config::read_string(f, "tmux", key))
+                    .filter(|v| valid_key(v))
+                {
+                    *slot = saved;
+                }
+            }
+        }
+    }
+    Ok(keys)
+}
+
+fn install(
+    tmux_conf: Option<PathBuf>,
+    print: bool,
+    sidebar_key: Option<String>,
+    chooser_key: Option<String>,
+) -> Result<(), String> {
+    let keys = install_keys(sidebar_key, chooser_key, print)?;
     let home = home()?;
     let config_home = config_home(&home);
     let tsk_conf_path = config_home.join("tsk").join("tmux.conf");
     let tmux_conf = tmux_conf.unwrap_or_else(|| default_tmux_conf(&home, &config_home));
     if print {
         println!("# {}", tsk_conf_path.display());
-        print!("{}", tsk_conf());
+        print!("{}", tsk_conf(&keys));
         println!();
         println!("# added to {}", tmux_conf.display());
         print!("{}", source_lines(&tsk_conf_path));
@@ -365,7 +456,7 @@ fn install(tmux_conf: Option<PathBuf>, print: bool) -> Result<(), String> {
         std::fs::create_dir_all(dir)
             .map_err(|e| format!("error: could not create {}: {}", dir.display(), e))?;
     }
-    std::fs::write(&tsk_conf_path, tsk_conf())
+    std::fs::write(&tsk_conf_path, tsk_conf(&keys))
         .map_err(|e| format!("error: could not write {}: {}", tsk_conf_path.display(), e))?;
     println!("wrote {}", tsk_conf_path.display());
 
@@ -470,7 +561,17 @@ mod tests {
 
     #[test]
     fn the_tsk_conf_binds_the_chooser_with_the_format() {
-        let conf = tsk_conf();
+        let custom = tsk_conf(&Keys {
+            chooser: "S".to_string(),
+            sidebar: "y".to_string(),
+        });
+        assert!(custom.contains("bind S choose-tree -Zs -F"));
+        assert!(custom.contains("bind y run-shell -b 'tsk tmux sidebar toggle"));
+        assert!(!custom.contains("bind b "));
+        assert!(valid_key("B") && valid_key("C-b") && !valid_key("a b") && !valid_key("x'"));
+        let conf = tsk_conf(&Keys::default());
+        assert!(conf.contains("bind B run-shell -b 'tsk tmux sidebar toggle"));
+        assert!(!conf.contains("bind b "));
         assert!(conf.contains(&format!("bind s choose-tree -Zs -F '{}'", CHOOSER_FORMAT)));
         assert!(conf.contains("set -g @tsk_rename_session on"));
         assert!(conf.contains("'#{e|<:#{status-left-length},30}'"));

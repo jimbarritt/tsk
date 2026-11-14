@@ -1,6 +1,6 @@
 # Agents in tmux: the session chooser and the sidebar
 
-`tsk tmux install` sets up tmux to show each agent's state, mission and robot in the session chooser (`prefix s`), and in a sidebar that stays open beside your work (`prefix b`). It also names each tmux session after the mission code of its thread. It needs tsk 0.45.0 or later for the sidebar, and the tsk plugin 0.3.44 or later.
+`tsk tmux install` sets up tmux to show each agent's state, mission and robot in the session chooser (`prefix s`), and in a sidebar that stays open beside your work (`prefix B`). It also names each tmux session after the mission code of its thread. It needs tsk 0.45.0 or later for the sidebar, and the tsk plugin 0.3.44 or later.
 
 ## Quick start
 
@@ -17,7 +17,7 @@ Install the plugin once, at user scope. For Copilot CLI, run `tsk install-plugin
 Start a new agent session in a tmux pane. Then:
 
 - `prefix s` opens the session chooser.
-- `prefix b` opens the sidebar. `j` and `k` select a session, `Enter` switches to it, and `q` closes the sidebar.
+- `prefix B` opens the sidebar. `j` and `k` select a session, `Enter` switches to it, and `q` closes the sidebar.
 
 ## Install
 
@@ -25,6 +25,14 @@ Start a new agent session in a tmux pane. Then:
 tsk tmux install            # writes the settings and adds one line to your tmux config
 tsk tmux install --print    # prints the settings and changes no file
 ```
+
+The chooser is on `prefix s` and the sidebar on `prefix B` (shift and b). tsk leaves `prefix b` alone, because many tmux configs use it to hide the status bar. A tmux binding replaces any earlier binding of the same key, so choose keys your own config does not use:
+
+```bash
+tsk tmux install --sidebar-key B --chooser-key S
+```
+
+The keys are saved as `[tmux] sidebar_key` and `chooser_key` in the user config, so the next install keeps them.
 
 The command:
 
@@ -58,7 +66,7 @@ A robot that a tmux pane shows while the pane runs `claude` is taken: the robot 
 
 ## The sidebar
 
-`prefix b` opens the sidebar: a pane on the left that lists every tmux session.
+`prefix B` opens the sidebar: a pane on the left that lists every tmux session.
 
 ```
  tsk sessions
@@ -74,7 +82,7 @@ A robot that a tmux pane shows while the pane runs `claude` is taken: the robot 
 
 - `▸` marks the session you are in. The state glyphs are the same as in the chooser.
 - In the sidebar, `j` and `k` (or the arrow keys) select the next and the previous session, `Enter` switches to the selected session, a digit from `1` to `9` switches to that session, and `q` closes the sidebar.
-- `prefix b` opens the sidebar when it is closed, gives it the focus when it is open, and closes it when it has the focus.
+- `prefix B` opens the sidebar when it is closed, gives it the focus when it is open, and closes it when it has the focus.
 - While it is open, the sidebar follows you. Two tmux hooks, `client-session-changed` and `session-window-changed`, run `join-pane`, which puts the same pane into each session and window you switch to, and the focus stays on your work. The list program keeps running, so its selection stays.
 - The list refreshes every second.
 - The width is 32 columns. Put `set -g @tsk_sidebar_width 40` in your tmux config, before the `source-file` line, to change it.

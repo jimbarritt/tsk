@@ -310,6 +310,31 @@ pub enum RootSource {
 
 /// The `[worktrees] root` value in the config file. `None` when the file, the table, the
 /// key or its string value is absent, or the value is empty.
+/// A string value of `[table] key` in the user config, or `None` when absent or empty.
+pub fn read_string(file: &Path, table: &str, key: &str) -> Option<String> {
+    let parsed = read_table(file).ok()?;
+    match parsed.get(table)?.as_table()?.get(key)? {
+        toml::Value::String(value) if !value.trim().is_empty() => Some(value.trim().to_string()),
+        _ => None,
+    }
+}
+
+/// Write `[table] key = "value"` to the user config file, creating it when absent.
+pub fn write_string(file: &Path, table: &str, key: &str, value: &str) -> Result<(), String> {
+    let text = match std::fs::read_to_string(file) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("error: could not read {}: {}", file.display(), e)),
+    };
+    let updated = with_string_key(&text, table, key, value)?;
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("error: could not create {}: {}", dir.display(), e))?;
+    }
+    std::fs::write(file, updated)
+        .map_err(|e| format!("error: could not write {}: {}", file.display(), e))
+}
+
 pub fn read_worktrees_root(file: &Path) -> Option<String> {
     let table = read_table(file).ok()?;
     match table.get("worktrees")?.as_table()?.get("root")? {
