@@ -554,37 +554,70 @@ fn paused_threads(store: &dyn LedgerStore) -> Result<Vec<PausedThread>, String> 
     Ok(found)
 }
 
-fn render_paused(threads: &[PausedThread]) -> Vec<String> {
-    threads
-        .iter()
+/// Numbered rows with each column padded to its widest cell, the number right-aligned:
+/// `   1) M-TSK-ENV   Credit Where It's Due  e6b3c55c`. The last column is not padded.
+fn numbered(rows: &[Vec<String>]) -> Vec<String> {
+    let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
+    let widths: Vec<usize> = (0..cols)
+        .map(|c| {
+            rows.iter()
+                .filter_map(|r| r.get(c))
+                .map(|cell| cell.chars().count())
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+    let num_width = rows.len().to_string().len();
+    rows.iter()
         .enumerate()
-        .map(|(i, t)| {
-            format!(
-                "  {}) {}  {}  {}",
-                i + 1,
-                t.mission.as_deref().unwrap_or("-"),
-                t.robot.as_deref().unwrap_or("-"),
-                t.id
-            )
+        .map(|(i, row)| {
+            let cells: Vec<String> = row
+                .iter()
+                .enumerate()
+                .map(|(c, cell)| {
+                    if c + 1 == row.len() {
+                        cell.clone()
+                    } else {
+                        let pad = widths[c] - cell.chars().count();
+                        format!("{}{}", cell, " ".repeat(pad))
+                    }
+                })
+                .collect();
+            format!("  {:>w$}) {}", i + 1, cells.join("  "), w = num_width)
         })
         .collect()
 }
 
-fn render_robots(robots: &[binding::RobotStatus]) -> Vec<String> {
-    robots
+fn render_paused(threads: &[PausedThread]) -> Vec<String> {
+    let rows: Vec<Vec<String>> = threads
         .iter()
-        .enumerate()
-        .map(|(i, r)| format!("  {}) {}  {}", i + 1, r.name, r.state.render()))
-        .collect()
+        .map(|t| {
+            vec![
+                t.mission.as_deref().unwrap_or("-").to_string(),
+                t.robot.as_deref().unwrap_or("-").to_string(),
+                t.id.clone(),
+            ]
+        })
+        .collect();
+    numbered(&rows)
+}
+
+fn render_robots(robots: &[binding::RobotStatus]) -> Vec<String> {
+    let rows: Vec<Vec<String>> = robots
+        .iter()
+        .map(|r| vec![r.name.clone(), r.state.render()])
+        .collect();
+    numbered(&rows)
 }
 
 fn render_missions(missions: &[&crate::mission::model::Mission]) -> Vec<String> {
-    let mut lines: Vec<String> = missions
+    let rows: Vec<Vec<String>> = missions
         .iter()
-        .enumerate()
-        .map(|(i, m)| format!("  {}) {}  {}", i + 1, m.id, m.name))
+        .map(|m| vec![m.id.clone(), m.name.clone()])
         .collect();
-    lines.push("  n) new mission".to_string());
+    let mut lines = numbered(&rows);
+    let num_width = rows.len().to_string().len();
+    lines.push(format!("  {:>w$}) new mission", "n", w = num_width));
     lines
 }
 
@@ -1411,5 +1444,30 @@ mod tests {
             robot: None,
         }];
         assert_eq!(render_paused(&threads), vec!["  1) M-A  -  ab12"]);
+    }
+
+    #[test]
+    fn numbered_rows_align_every_column_and_the_number() {
+        let rows: Vec<Vec<String>> = (1..=10)
+            .map(|i| {
+                vec![
+                    if i == 1 {
+                        "M-TSK-PERF".to_string()
+                    } else {
+                        "M-X".to_string()
+                    },
+                    if i == 2 {
+                        "-".to_string()
+                    } else {
+                        "Credit Where It's Due".to_string()
+                    },
+                    format!("t{}", i),
+                ]
+            })
+            .collect();
+        let lines = numbered(&rows);
+        assert_eq!(lines[0], "   1) M-TSK-PERF  Credit Where It's Due  t1");
+        assert_eq!(lines[1], "   2) M-X         -                      t2");
+        assert_eq!(lines[9], "  10) M-X         Credit Where It's Due  t10");
     }
 }
