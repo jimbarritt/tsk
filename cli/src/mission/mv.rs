@@ -94,6 +94,8 @@ pub fn task_mv(
         blocked_by: Vec::new(),
         // A moved record is a new row under the new mission: it gets a uid of its own.
         uid: String::new(),
+        // The ticket stays with the task.
+        ext_tracking_id: moved.ext_tracking_id,
     });
     target.next_task = new_seq + 1;
     lines.push(format!(

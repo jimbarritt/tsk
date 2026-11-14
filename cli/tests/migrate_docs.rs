@@ -110,6 +110,7 @@ impl Fixture {
             .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
+            .env("TSK_AUTO_UPDATE", "never")
             .env("TSK_LEDGER_REFS", "branches")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove(CLOUD_VAR);
@@ -499,7 +500,7 @@ fn migrate_docs_moves_every_document_byte_for_byte_and_a_fresh_clone_reads_them(
     // The database: no table, version 9, and one Dolt commit for the change.
     assert_eq!(
         fx.dolt_sql(&a, "select v from manifest where k = 'version'"),
-        "v\n14\n"
+        "v\n15\n"
     );
     // The migrated thread gained the mission column, still null.
     assert_eq!(
@@ -587,16 +588,16 @@ fn an_older_tsk_stops_at_the_manifest_check_of_a_version_it_does_not_know() {
     need_dolt!();
     let fx = Fixture::new();
     // A version this tsk does not know stands in for what this tsk meets in a later release.
-    fx.old_ledger("15", &[], "");
+    fx.old_ledger("16", &[], "");
     let out = fx.tsk(&fx.a(), &["ledger", "fetch"]);
-    assert_fails(&out, "unsupported ledger version 15");
+    assert_fails(&out, "unsupported ledger version 16");
     assert!(
         stderr(&out).contains("supports version 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13"),
         "{}",
         stderr(&out)
     );
     let out = fx.tsk(&fx.a(), &["ledger", "migrate-docs"]);
-    assert_fails(&out, "unsupported ledger version 15");
+    assert_fails(&out, "unsupported ledger version 16");
     assert_eq!(fx.remote_ref(DOCS_REF), None);
 }
 

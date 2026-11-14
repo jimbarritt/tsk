@@ -150,7 +150,7 @@ A `mission_id` column in any table below contains the internal ID of a mission, 
 | `objective_outcomes` | `mission_id` varchar(64), foreign key; `seq` int; `outcome` longtext; `met` boolean, default false. Primary key (`mission_id`, `seq`) | One row per objective outcome. |
 | `mission_blocks` | `mission_id` varchar(64), foreign key; `blocked_by_id` varchar(64), foreign key to `missions(id)`. Primary key of both | One row per block. Whether a block still applies is derived, never stored. |
 | `mission_documents` | `mission_id` varchar(64), foreign key; `path` varchar(1024); `doc_id` varchar(8), null (version 14); `role` enum(`intelligence`, `report`, `design`). Primary key (`mission_id`, `path`); unique key (`mission_id`, `doc_id`) | One row per document a mission links. `doc_id` is the id in the file name of the document, and it is the link. `path` is the path the file has now, kept so an older reader still finds it, and it is refreshed when the document is renamed. |
-| `tasks` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `description` longtext; `status` enum(`todo`, `in-progress`, `done`), default `todo`. Primary key (`mission_id`, `seq`) | One row per task. The ID `T-nn` is `seq` zero padded to two digits. |
+| `tasks` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `description` longtext; `status` enum(`todo`, `in-progress`, `done`), default `todo`; `ext_tracking_id` varchar(255), null (version 15). Primary key (`mission_id`, `seq`) | One row per task. The ID `T-nn` is `seq` zero padded to two digits. `ext_tracking_id` is the URN of the task's ticket in an external tracker, `urn:tsk:ext:ticket:<system>:<id>`, or null. |
 | `task_blocks` | `mission_id` varchar(64); `task_seq` int; `blocked_by_seq` int. Primary key of all three. Foreign keys (`mission_id`, `task_seq`) and (`mission_id`, `blocked_by_seq`) to `tasks(mission_id, seq)` | One row per task block. Both tasks belong to one mission. Whether a block still applies is derived, never stored. |
 | `decisions` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext; `decided_by` varchar(255); `decided_on` date; `task_seq` int, null; `adr_path` varchar(1024), null. Primary key (`mission_id`, `seq`). Foreign key (`mission_id`, `task_seq`) to `tasks(mission_id, seq)` | One row per decision. `seq` orders the decisions and has no label. `decided_on` is the UTC date of the command. `adr_path` is the path of an ADR in the code repository, relative to its root, or null. It has no foreign key: the ADR is a file in another repository's tree. |
 | `questions` | `mission_id` varchar(64), foreign key to `missions(id)`; `seq` int; `text` longtext; `status` enum(`open`, `answered`), default `open`; `answer` longtext, null; `answered_by` varchar(255), null; `answered_on` date, null; `asked_on` date. Primary key (`mission_id`, `seq`) | One row per question. The ID `Q-nn` is `seq` zero padded to two digits. |
@@ -574,7 +574,8 @@ Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::di
 
 ### Manifest version
 
-The `version` row of the `manifest` table is `14` for a ledger whose documents have an id in
+The `version` row of the `manifest` table is `15` for a ledger whose `tasks` have
+`ext_tracking_id`, `14` for a ledger whose documents have an id in
 the file name and whose `mission_documents` has `doc_id`, `13` for a ledger whose `tasks`,
 `decisions` and `questions` have a `uid` column, `12` for a ledger with `thread_bindings`,
 `actors.uid`, `actor_names`, `session_actors` and the manifest key `ledger_id` (ADR 0030),
@@ -587,7 +588,7 @@ and out of scope are tables of their own with the bindings still in `cloud_sessi
 `mission_id`, `4` for a ledger with the mission, task, decision and question tables and the
 older `threads` table, `3` for a ledger with the mission tables only, and `2` for a
 ledger whose documents are files on `tsk/docs` and that has no mission tables. The Dolt
-backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 and 14. Version 1 is a ledger that still keeps its
+backend accepts versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 and 15. Version 1 is a ledger that still keeps its
 documents in a `documents` table.
 
 - A version 1 ledger makes every command fail except `tsk ledger fetch`,
@@ -744,6 +745,22 @@ documents in a `documents` table.
      clones that rename on their own make the same renames, so the second push rebases the
      same change onto the first. `tsk ledger push` sends the documents first, so a link never
      names a file the remote lacks.
+
+- A version 14 ledger works for everything it did before: its tasks have no
+  `ext_tracking_id`, and `task list` and `mission list --json` show no ticket for any task. A
+  read upgrades nothing. The first Dolt write that upgrades the ledger runs the version 15
+  step in the same local Dolt change: `tasks` gains `ext_tracking_id` (varchar(255), null),
+  with no value in any row. The step only adds a column, so two clones that upgrade on their
+  own write the same change and Dolt merges them. A `tsk` binary from before version 15 stops
+  at its manifest check with `unsupported ledger version 15`, before it writes.
+  - `tsk task set <mission> <task> ext-tracking-id <value>` sets the column. The value is
+    `urn:tsk:ext:ticket:<system>:<id>` or the bare form `<system>:<id>`, which is stored as the
+    full URN. The system starts with a lower-case letter and holds lower-case letters, digits
+    and hyphens. The ID is not empty and has no whitespace and no colon. Any other value is
+    refused and nothing is written. The value `none` clears the column.
+  - `tsk task list` prints the ID part of the URN (for example `TEAM1-546`) in a last column,
+    and `-` for a task with no ticket. `mission list --json` prints `ext_tracking_id` for each
+    task: the URN, or null.
 
 ### Migration from the file ledger
 

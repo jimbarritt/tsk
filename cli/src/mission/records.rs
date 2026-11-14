@@ -13,7 +13,7 @@ use super::change;
 use super::model::{self, Decision, Mission, Question, QuestionStatus, Status, Task};
 use super::table::print_lines_or;
 
-pub const TASK_FIELDS: &[&str] = &["status", "description"];
+pub const TASK_FIELDS: &[&str] = &["status", "description", "ext-tracking-id"];
 
 // --- Labels ---
 
@@ -153,6 +153,7 @@ pub fn task_add(missions: &[Mission], id: &str, description: &str) -> Result<Mis
         status: Status::Todo,
         blocked_by: Vec::new(),
         uid: String::new(),
+        ext_tracking_id: None,
     });
     mission.next_task = seq + 1;
     Ok(mission)
@@ -175,6 +176,14 @@ pub fn task_set(
         "description" => {
             check_line("a task description", value)?;
             task_mut(&mut mission, seq)?.description = value.to_string();
+        }
+        "ext-tracking-id" => {
+            let tracking = if value == "none" {
+                None
+            } else {
+                Some(model::parse_tracking_id(value)?)
+            };
+            task_mut(&mut mission, seq)?.ext_tracking_id = tracking;
         }
         other => {
             task_mut(&mut mission, seq)?;
@@ -497,6 +506,16 @@ pub fn task_line(mission: &Mission, task: &Task) -> String {
     )
 }
 
+/// One `task list` line: the columns of [`task_line`], then the ID of the external ticket
+/// (the part after the system, for example `TEAM1-546`) or `-`, tab-separated.
+pub fn task_list_line(mission: &Mission, task: &Task) -> String {
+    format!(
+        "{}\t{}",
+        task_line(mission, task),
+        task.ext_tracking_parts().map_or("-", |(_, id)| id)
+    )
+}
+
 /// One `decision list` line: date, who, task or `-`, text, ADR path or `-`,
 /// tab-separated.
 pub fn decision_line(decision: &Decision) -> String {
@@ -566,6 +585,8 @@ pub struct JsonTask<'a> {
     urn: Option<String>,
     description: &'a str,
     status: &'a str,
+    /// The URN of the task's ticket in an external tracker, or null; layout 15.
+    ext_tracking_id: Option<&'a str>,
     blocked: bool,
     blocked_by: Vec<JsonBlocker>,
 }
@@ -612,6 +633,7 @@ pub fn json_tasks<'a>(mission: &'a Mission, ledger_id: Option<&str>) -> Vec<Json
                 urn: record_urn("task", ledger_id, &task.uid),
                 description: &task.description,
                 status: task.status.as_str(),
+                ext_tracking_id: task.ext_tracking_id.as_deref(),
                 blocked: !blockers.is_empty(),
                 blocked_by: task
                     .blocked_by
@@ -674,7 +696,9 @@ pub enum TaskCommands {
         #[arg(allow_hyphen_values = true, help = "One-line description")]
         description: String,
     },
-    #[command(about = "Set a task field: status (todo, in-progress or done) or description")]
+    #[command(
+        about = "Set a task field: status (todo, in-progress or done), description, or ext-tracking-id. The ext-tracking-id names the task's ticket in an external tracker: urn:tsk:ext:ticket:<system>:<id> or <system>:<id>, for example linear:TEAM1-546. The value none clears it"
+    )]
     Set {
         mission: String,
         task: String,
@@ -941,7 +965,11 @@ pub fn run_task_with(store: &dyn LedgerStore, action: TaskCommands) -> Result<()
         TaskCommands::List { mission, porcelain } => {
             let all = store.missions_load()?;
             let found = mission_of(&all, &mission)?;
-            let lines = found.tasks.iter().map(|t| task_line(found, t)).collect();
+            let lines = found
+                .tasks
+                .iter()
+                .map(|t| task_list_line(found, t))
+                .collect();
             print_lines_or(
                 lines,
                 porcelain,
@@ -1102,6 +1130,39 @@ mod tests {
             put(&mut all, m);
         }
         all
+    }
+
+    #[test]
+    fn a_task_ext_tracking_id_is_set_shown_and_cleared() {
+        let mut all = with_tasks(2);
+        let m = task_set(&all, "M-A", "T-01", "ext-tracking-id", "linear:TEAM1-546").unwrap();
+        put(&mut all, m);
+        let task = &all[0].tasks[0];
+        assert_eq!(
+            task.ext_tracking_id.as_deref(),
+            Some("urn:tsk:ext:ticket:linear:TEAM1-546")
+        );
+        assert_eq!(
+            task_list_line(&all[0], task),
+            "T-01\ttodo\t-\ttask 1\tTEAM1-546"
+        );
+        assert_eq!(
+            task_list_line(&all[0], &all[0].tasks[1]),
+            "T-02\ttodo\t-\ttask 2\t-"
+        );
+        // The session context line keeps its four columns.
+        assert_eq!(task_line(&all[0], task), "T-01\ttodo\t-\ttask 1");
+        let json = serde_json::to_value(json_tasks(&all[0], None)).unwrap();
+        assert_eq!(
+            json[0]["ext_tracking_id"],
+            "urn:tsk:ext:ticket:linear:TEAM1-546"
+        );
+        assert!(json[1]["ext_tracking_id"].is_null());
+        let m = task_set(&all, "M-A", "T-01", "ext-tracking-id", "none").unwrap();
+        put(&mut all, m);
+        assert_eq!(all[0].tasks[0].ext_tracking_id, None);
+        let err = task_set(&all, "M-A", "T-01", "ext-tracking-id", "TEAM1-546").unwrap_err();
+        assert!(err.contains("not an external tracking ID"), "{}", err);
     }
 
     #[test]

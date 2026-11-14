@@ -37,6 +37,7 @@ decided when an ADR names them.
 | Decision | `urn:tsk:decision:<ledger-id>:<uid>` | the ledger, then the decision's uid | decided, built in 0.40.0 |
 | Question | `urn:tsk:question:<ledger-id>:<uid>` | the ledger, then the question's uid | decided, built in 0.40.0 |
 | Document | `urn:tsk:document:<ledger-id>:<id>` | the ledger, then the 8 hexadecimal character id in the file name | decided, M-TSK-ADHOC 2026-10-31, built in 0.41.0 |
+| External ticket | `urn:tsk:ext:ticket:<system>:<id>` | the tracker (`linear`, `jira`), then the tracker's ID | decided, layout 15 |
 
 The harness names in use are `claude-cloud`, `claude-cli`, `copilot-cli` and `pi`
 (ADR 0029). The instance key is the cloud session ID, or `<clone-id>/<worktree-name>`.

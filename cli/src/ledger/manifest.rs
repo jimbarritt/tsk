@@ -15,7 +15,7 @@ pub const MANIFEST_FILE: &str = ".tsk-ledger.toml";
 /// gives an actor a `uid` and a name history (`actor_names`), records a session's actors
 /// (`session_actors`) and the `ledger_id`. Version 13 gives a task, a decision and a question a
 /// `uid`. Version 14 gives a document an id in its file name and `mission_documents` a `doc_id`.
-pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 /// How the unsupported-version error starts. `auto_update` finds the error by this
 /// prefix, so the text is built from it and from nothing else.
@@ -88,9 +88,9 @@ mod tests {
     #[test]
     fn the_unsupported_layout_is_read_back_from_the_error_check_values_makes() {
         let err =
-            check_values(15, None, None, "the manifest", DOLT_SUPPORTED_VERSIONS).unwrap_err();
-        assert_eq!(unsupported_layout(&err), Some(15));
-        assert_eq!(unsupported_layout(&format!("note\n{}", err)), Some(15));
+            check_values(16, None, None, "the manifest", DOLT_SUPPORTED_VERSIONS).unwrap_err();
+        assert_eq!(unsupported_layout(&err), Some(16));
+        assert_eq!(unsupported_layout(&format!("note\n{}", err)), Some(16));
     }
 
     #[test]
@@ -177,16 +177,16 @@ mod tests {
             );
         }
         let err = check_values(
-            15,
+            16,
             None,
             None,
             "the manifest table",
             DOLT_SUPPORTED_VERSIONS,
         )
         .unwrap_err();
-        assert!(err.contains("unsupported ledger version 15"), "{}", err);
+        assert!(err.contains("unsupported ledger version 16"), "{}", err);
         assert!(
-            err.contains("supports version 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14"),
+            err.contains("supports version 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15"),
             "{}",
             err
         );
