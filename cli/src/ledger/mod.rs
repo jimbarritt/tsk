@@ -12,6 +12,7 @@ pub mod manifest;
 pub mod migrate_docs;
 pub mod migrate_transport;
 pub mod nexus;
+pub mod nexus_edit;
 pub mod push;
 pub mod refs;
 pub mod refs_cmd;

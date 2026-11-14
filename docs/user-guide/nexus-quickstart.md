@@ -47,7 +47,7 @@ tsk ledger init --nexus --prefix <PREFIX>
 4. Add `--territory <id>` for the first repo of a new nexus, which creates `nexus.json` and
    the territory, and whenever the nexus has more than one territory.
 
-In Claude Code, the `/tsk:init-ledger` skill runs the same steps and asks where the ledger
+In Claude Code, the `/tsk:init-ledger` skill runs the same steps, with a prompt for where the ledger
 goes. See [session-start.md](session-start.md#a-repo-with-no-ledger).
 
 Check the result:
@@ -70,7 +70,7 @@ claude plugin install swe@jimbarritt-claude-plugins --scope user
 claude
 ```
 
-On the first turn, the agent asks which robot the session is and what to work on. See
+On the first turn, the agent prompts for the robot of the session and the work to do. See
 [session-start.md](session-start.md).
 
 ## 5. A Claude Code cloud environment
@@ -112,6 +112,31 @@ The clone that ran the command, and every other clone after its next `tsk ledger
 reads and writes the ledger in the nexus. The old refs and their history stay readable on
 origin until you delete them. Delete them once every clone has fetched. A Claude Code cloud
 session cannot delete a branch: run the delete from a local clone.
+
+## Edit nexus.json
+
+These commands edit `nexus.json` on the nexus's default branch, commit and push the
+change with the machine's git credentials. Each prints one line that names the change,
+or `unchanged`, then the pushed commit.
+
+```bash
+tsk nexus add-territory play --name Play
+tsk nexus rename-territory play --name "Play and tests"
+tsk nexus set-repo app --workflow pull-request --prefix APP
+tsk nexus move-repo app --territory play
+tsk nexus remove-repo app
+tsk nexus remove-territory play
+```
+
+- `add-territory` adds an empty territory. The name defaults to the id. An id that exists
+  changes nothing.
+- `remove-territory` stops when the territory still contains repos, and names how many.
+- `set-repo` needs at least one option. The `--workflow` value is `main` or `pull-request`.
+  The `--prefix` value is 3 or 4 capital letters that no other repo in the nexus uses.
+  A value equal to the stored one changes nothing.
+- `move-repo` stops when the territory does not exist.
+- `remove-repo` stops when the entry keeps its ledger in the nexus. The ledger branches stay
+  in the nexus, and removing the entry hides them. `--force` removes the entry anyway.
 
 ## Another repo
 
