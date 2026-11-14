@@ -1,7 +1,7 @@
 # Move a thread from a cloud session to a terminal
 
 Use this page to continue a thread in a terminal on your machine when a cloud session
-works it. The thread moves through the ledger. The terminal session resumes the thread and
+works it. The thread passes through the ledger. The terminal session resumes the thread and
 becomes its holder. The cloud session keeps running until you stop it.
 
 ## Prerequisites
@@ -10,7 +10,7 @@ becomes its holder. The cloud session keeps running until you stop it.
   `tsk harness new`. Run `tsk --version`, and `tsk self-update` to update.
 - The plugin installed at user scope, for `/tsk:resume-thread`. See
   [installation.md](installation.md).
-- The nexus that holds the repo's ledger, attached to the machine, and `git` with read
+- The nexus that stores the repo's ledger, attached to the machine, and `git` with read
   and push access to it.
 - A clone of the repo on the machine. `tsk harness new` also needs `tmux`.
 
@@ -48,15 +48,18 @@ worked it.
 ## 2. Make a harness for the thread
 
 Run `tsk harness new` in the clone. It makes a code worktree, a tmux session and a
-`claude` process with a first prompt. On a terminal it asks in turn:
+`claude` process with a first prompt. On a terminal it puts these questions in turn:
 
 1. Pick up a paused thread? On yes, it lists the paused threads and you pick one.
 2. If not, attach an existing robot? On yes, it lists the robots, free ones first.
 3. Which mission? It lists the missions that are not done, and you pick one or a new
    mission.
-4. Which branch? It lists suggestions, then you type a number, press Enter for the first,
+4. Which branch? It lists suggestions, then you type a number, send an empty answer for the first,
    or type a branch name. The suggestions are the ticket of the current task, the mission code
    and the harness name (`m-tsk-env/gurnard`), the harness name, and a detached HEAD.
+5. Push to main or open pull requests? Answer `main` or `pr`. There is no default.
+   The question appears only when neither the repo's nexus entry nor `.tsk/config.toml`
+   has the workflow.
 
 To answer from a script, pass the thread:
 
@@ -69,13 +72,24 @@ tsk harness new --thread <thread-id> --branch <branch>
 questions. `--branch <NAME>` works on that branch. A new name is made from the default
 branch of origin. `--detach` detaches HEAD at the default branch of origin, and the agent
 names a branch later. `--no-claude` and `--no-attach` skip the `claude` start and the
-tmux attach. `--name <WORD>` names the harness.
+tmux attach. `--name <WORD>` names the harness. `--push main|pr` answers the push
+question, overrides a stored workflow and is not saved.
 
-tsk refuses a branch that another worktree has checked out. The worktree is
+The push workflow is `main` or `pull-request`. `tsk harness new` reads it from the `workflow`
+field of the repo's entry in the attached nexus, then from `workflow` under `[harness]` in
+`.tsk/config.toml`. When it finds one, it puts no question, prints where the value came from,
+and states the workflow in the first prompt. Your answer to the question is saved to the
+nexus entry. If the repo has no entry, or the save fails, the command prints a warning and
+continues with your answer for this harness. To set the workflow in a session that is
+already open, run `tsk nexus set-repo <repo id> --workflow main|pull-request`. With no
+terminal, no flag and no stored value, the first prompt instructs the agent to ask you before
+it pushes.
+
+tsk fails on a branch that another worktree has checked out. The worktree is
 `<root>/<repo name>/<harness name>`. `tsk harness list` shows each harness of the clone.
 
-The first prompt of `claude` registers the robot, then resumes the thread. A held thread
-is refused as in step 6.
+The first prompt of `claude` registers the robot, then resumes the thread. A thread in the `held` state
+fails as in step 6.
 
 To resume in a session you started yourself, continue with steps 3 and 4.
 
@@ -89,7 +103,7 @@ tsk thread list
 
 Each row is JSON. `state` is `paused` or `held`. `holder` is null for a paused thread.
 `tsk thread next` prints the question round: the registered robots and their threads, then
-the missions. A held thread is not offered there.
+the missions. A thread in the `held` state is not offered there.
 
 ## 4. Resume the thread in the terminal
 
@@ -100,9 +114,9 @@ tsk thread resume <thread-id>
 ```
 
 The command binds the terminal session to the thread and makes it the holder. It prints
-the latest continuation state entry as JSON. The binding is a local write, and it goes out
-with the next push. The skill then prints the mission, the task and where the thread
-stands, and asks whether to continue.
+the latest continuation state entry as JSON. The binding is a local write, and the next push
+publishes it. The skill then prints the mission, the task and where the thread
+stands, and prompts you to continue or not.
 
 To keep the robot of the cloud session, choose that robot in the question round. Or run:
 
@@ -110,8 +124,8 @@ To keep the robot of the cloud session, choose that robot in the question round.
 tsk actor register "<robot name>" --kind robot
 ```
 
-A name already registered joins that actor. A name registered with the other kind is
-refused with exit 1.
+A name already registered joins that actor. A name registered with the other kind fails
+with exit 1.
 
 ## 5. What happens to the cloud session
 
@@ -122,7 +136,7 @@ when you have no more use for it. tsk never archives a session.
 
 ## 6. When the cloud session did not pause
 
-A cloud session that ended, crashed or was archived with no pause still holds the thread.
+A cloud session that ended, crashed or was archived with no pause still has the thread.
 `tsk thread resume <thread-id>` exits 1 with `error: thread <id> is held by ...` and names
 the holder and the time it took the thread. `/tsk:resume-thread` asks you whether to take
 the thread over. Answer yes only when that session no longer runs. It then runs:
@@ -145,7 +159,7 @@ thread.
 | `tsk ledger status` does not show the nexus | No nexus is attached. | `tsk nexus add <nexus url>`, then `tsk ledger fetch`. |
 | `error: thread <id> is held by ...` | The cloud session did not pause. | Confirm it no longer runs, then `tsk thread resume <thread-id> --take-over`. |
 | `tsk harness new` is an unknown command | `tsk` is older than 0.67.0. | `tsk self-update`. |
-| `tsk harness new` refuses a branch | Another worktree has the branch checked out. | Pick another branch, or `--detach`. |
+| `tsk harness new` fails on a branch | Another worktree has the branch checked out. | Pick another branch, or `--detach`. |
 | `--take-over` is an unknown option | `tsk` is older than 0.65.0. | `tsk self-update`. |
 | `warning` is non-empty in the resume output | Another actor worked the thread. | Read it before you continue. |
 | `version_note` is set | An older `tsk` wrote the latest entry. | Treat a version or update step in the entry as possibly out of date. |

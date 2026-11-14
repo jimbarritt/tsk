@@ -155,6 +155,27 @@ pub fn read_nexus_url(file: &Path) -> Result<Option<String>, String> {
     }
 }
 
+pub fn read_harness_workflow(file: &Path) -> Result<Option<String>, String> {
+    let table = read_table(file)?;
+    let Some(harness) = table.get("harness") else {
+        return Ok(None);
+    };
+    let Some(harness) = harness.as_table() else {
+        return Err(format!(
+            "error: harness in {} must be a table",
+            file.display()
+        ));
+    };
+    match harness.get("workflow") {
+        None => Ok(None),
+        Some(toml::Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(format!(
+            "error: harness.workflow in {} must be a string",
+            file.display()
+        )),
+    }
+}
+
 /// Environment variable that once chose the ledger backend. A ledger is a Dolt database
 /// now. The variable is read only to refuse the value `git`.
 pub const BACKEND_ENV: &str = "TSK_LEDGER_BACKEND";
@@ -621,6 +642,22 @@ mod tests {
         // The environment wins over the file, and an empty value is unset.
         assert!(refuse_files_backend(Some("dolt".into()), Some(&file)).is_ok());
         assert!(refuse_files_backend(Some("".into()), Some(&file)).is_err());
+    }
+
+    #[test]
+    fn the_harness_workflow_is_read_from_the_harness_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("config.toml");
+        assert_eq!(read_harness_workflow(&file).unwrap(), None);
+        std::fs::write(&file, "[ledger]\nserver = \"on\"\n").unwrap();
+        assert_eq!(read_harness_workflow(&file).unwrap(), None);
+        std::fs::write(&file, "[harness]\nworkflow = \"main\"\n").unwrap();
+        assert_eq!(
+            read_harness_workflow(&file).unwrap().as_deref(),
+            Some("main")
+        );
+        std::fs::write(&file, "[harness]\nworkflow = 3\n").unwrap();
+        assert!(read_harness_workflow(&file).is_err());
     }
 
     #[test]

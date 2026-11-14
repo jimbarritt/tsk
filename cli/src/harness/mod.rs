@@ -26,14 +26,11 @@ use crate::thread::session::{worktree_actor, Session};
 use crate::thread::{binding, ops};
 
 mod names;
+mod push;
 mod state;
 
+use push::{PushSource, PushWorkflow};
 use state::HarnessState;
-
-/// What the first prompt says about branches when the worktree is detached: a harness worktree
-/// can start with a detached HEAD, because git refuses one branch in two worktrees, and a
-/// worktree holds several branches over its life.
-pub const BRANCH_STEP: &str = "This worktree has no branch: its HEAD is detached at origin's default branch. Before you commit, follow this repo's rule for branches: in a repo that works on main, rebase on origin's main and push with git push origin HEAD:main; otherwise create a branch named for the work, and a new one for each pull request.";
 
 /// The tmux session option that names the harness.
 pub const TMUX_OPTION: &str = "@tsk_harness";
@@ -44,7 +41,7 @@ const NO_ROOT: &str = "error: no worktrees root is set. Set the environment vari
 pub enum HarnessCommands {
     #[command(
         about = "Make a harness: a code worktree on a branch you name, or a detached HEAD, a tmux session in it, and claude with a first prompt",
-        long_about = "Make a harness: a code worktree on a branch you name, or a detached HEAD, a tmux session in it, and claude with a first prompt.\n\nOn a terminal the command asks four things in turn. Pick up a paused thread? If so, it lists the paused threads and you pick one. If not, attach an existing robot? If so, it lists the robots, free ones first. Then it lists the missions that are not done, and you pick one or a new mission. Last it asks the branch name. A flag answers its question, so a script can run the command.\n\nThe branch question lists suggestions, in this order and only those that apply: the ticket of the current task of the thread, the mission code and the harness name, the harness name, and a detached HEAD. Type a number, press Enter for the first suggestion, or type a branch name. tsk checks the name with git check-ref-format and refuses a branch that another worktree has checked out. A branch that exists is checked out. A new name is made from the default branch of origin. --branch <name> and --detach answer the question. With no terminal and no flag, the first suggestion is used.\n\nThe worktree is <root>/<repo name>/<harness name>. Git refuses one branch in two worktrees, so a detached HEAD at the default branch of origin leaves the agent to name the branch later. The root is GIT_WORKTREES_ROOT, else [worktrees] root in the user config (tsk config worktrees-root). The name is a random word that no harness of this clone has had. Ignored env files (.env, .env.local, .env.*.local) are copied from the main worktree.\n\nThe tmux session has the mission code as its name, else the harness name. claude starts in it with a first prompt that registers the robot, then resumes or starts the thread. tsk makes no robot and no mission itself: the new claude session does that. With no flag, the command then attaches to the session, or switches to it inside tmux."
+        long_about = "Make a harness: a code worktree on a branch you name, or a detached HEAD, a tmux session in it, and claude with a first prompt.\n\nOn a terminal the command asks up to five things in turn. Pick up a paused thread? If so, it lists the paused threads and you pick one. If not, attach an existing robot? If so, it lists the robots, free ones first. Then it lists the missions that are not done, and you pick one or a new mission. Then it asks the branch name. Last it asks whether to push to main or open pull requests. A flag answers its question, so a script can run the command.\n\nThe branch question lists suggestions, in this order and only those that apply: the ticket of the current task of the thread, the mission code and the harness name, the harness name, and a detached HEAD. Type a number, press Enter for the first suggestion, or type a branch name. tsk checks the name with git check-ref-format and refuses a branch that another worktree has checked out. A branch that exists is checked out. A new name is made from the default branch of origin. --branch <name> and --detach answer the question. With no terminal and no flag, the first suggestion is used.\n\nThe push workflow is main or pull-request. tsk reads it from the repo's entry in the attached nexus, then from [harness] workflow in .tsk/config.toml. The question \"Push to main or open pull requests?\" appears only when neither holds a value. It has no default. The answer is saved to the nexus entry. When it cannot be saved, the command prints a warning and continues. tsk nexus set-repo <repo id> --workflow main|pull-request sets it in a session that is already open. --push main|pr answers the question, overrides a stored value and is not saved. With no terminal, no flag and no stored value, the first prompt tells the agent to ask you before it pushes. The first prompt states the workflow, and tsk harness wake repeats it.\n\nThe worktree is <root>/<repo name>/<harness name>. Git refuses one branch in two worktrees, so a detached HEAD at the default branch of origin leaves the agent to name the branch later. The root is GIT_WORKTREES_ROOT, else [worktrees] root in the user config (tsk config worktrees-root). The name is a random word that no harness of this clone has had. Ignored env files (.env, .env.local, .env.*.local) are copied from the main worktree.\n\nThe tmux session has the mission code as its name, else the harness name. claude starts in it with a first prompt that registers the robot, then resumes or starts the thread. tsk makes no robot and no mission itself: the new claude session does that. With no flag, the command then attaches to the session, or switches to it inside tmux."
     )]
     New(NewArgs),
     #[command(
@@ -157,6 +154,13 @@ pub struct NewArgs {
         help = "Detach HEAD at origin's default branch. Skips the branch question"
     )]
     detach: bool,
+    #[arg(
+        long,
+        value_name = "WORKFLOW",
+        value_parser = push::parse_flag,
+        help = "Push to main (main) or open pull requests (pr). Skips the push question and overrides a stored value. Not saved"
+    )]
+    push: Option<PushWorkflow>,
     #[arg(long, help = "Do not start claude in the session")]
     no_claude: bool,
     #[arg(long, help = "Do not attach to the tmux session")]
@@ -420,12 +424,10 @@ pub enum MissionChoice {
     New,
 }
 
-/// The branch step of the first prompt: the branch that was chosen, or the detached text.
-pub fn branch_step(branch: Option<&str>) -> String {
-    match branch {
-        Some(branch) => format!("This worktree is on branch {}. Follow this repo's rule: in a repo that works on main, rebase on origin's main and push with git push origin HEAD:main; otherwise push {} and open a pull request from it.", branch, branch),
-        None => BRANCH_STEP.to_string(),
-    }
+/// The branch step of the first prompt: the branch that was chosen, or the detached text,
+/// with the push workflow.
+pub fn branch_step(branch: Option<&str>, push: Option<PushWorkflow>) -> String {
+    push::step(branch, push)
 }
 
 fn register_step(robot: &str) -> String {
@@ -439,6 +441,7 @@ pub fn first_prompt(
     robot: Option<&RobotChoice>,
     mission: Option<&MissionChoice>,
     branch: Option<&str>,
+    push: Option<PushWorkflow>,
 ) -> String {
     let mut steps: Vec<String> = Vec::new();
     match robot {
@@ -460,22 +463,29 @@ pub fn first_prompt(
     if steps.len() == 1 {
         steps[0] = steps[0].replacen("Then run", "Run", 1);
     }
-    steps.push(branch_step(branch));
+    steps.push(branch_step(branch, push));
     steps.join(" ")
 }
 
-/// The first prompt of `tsk harness wake`: register the robot when it is known, then resume
-/// the thread. Empty when the harness has no thread to resume.
-pub fn wake_prompt(robot: Option<&str>, thread: Option<&str>) -> String {
-    match (robot, thread) {
-        (_, None) => String::new(),
+/// The first prompt of `tsk harness wake`: register the robot when it is known, resume the
+/// thread, then state the branch and the push workflow of the harness. Empty when the
+/// harness has no thread to resume.
+pub fn wake_prompt(
+    robot: Option<&str>,
+    thread: Option<&str>,
+    branch: Option<&str>,
+    push: Option<PushWorkflow>,
+) -> String {
+    let resume = match (robot, thread) {
+        (_, None) => return String::new(),
         (Some(robot), Some(thread)) => format!(
             "{} Then run /tsk:resume-thread {}.",
             register_step(robot),
             thread
         ),
         (None, Some(thread)) => format!("Run /tsk:resume-thread {}.", thread),
-    }
+    };
+    format!("{} {}", resume, branch_step(branch, push))
 }
 
 // ---------------------------------------------------------------------------
@@ -1007,6 +1017,93 @@ fn choose_branch(
     }
 }
 
+fn ask_push() -> Result<PushWorkflow, String> {
+    for line in push::render_question() {
+        println!("{}", line);
+    }
+    loop {
+        if let Some(workflow) = PushWorkflow::parse(&read_answer("Answer:")?) {
+            return Ok(workflow);
+        }
+        println!("Answer main or pr.");
+    }
+}
+
+fn save_push(lookup: Option<&push::NexusEntry>, workflow: PushWorkflow, state_root: &Path) {
+    let Some((url, repo_id)) = push::save_target(lookup) else {
+        let why = match lookup {
+            None => "no nexus is attached",
+            Some(_) => "the nexus has no entry for this repo",
+        };
+        println!("{}", push::unsaved_warning(lookup, workflow, why));
+        return;
+    };
+    let saved = crate::ledger::nexus_edit::set_repo_workflow(
+        state_root,
+        url,
+        repo_id,
+        workflow.as_str(),
+        &mut || {},
+    );
+    match saved {
+        Ok(_) => println!(
+            "saved the workflow {} to the nexus entry {}",
+            workflow.as_str(),
+            repo_id
+        ),
+        Err(e) => {
+            let why = e.trim_start_matches("error: ").lines().next().unwrap_or("");
+            println!("{}", push::unsaved_warning(lookup, workflow, why));
+        }
+    }
+}
+
+/// The push workflow of the new harness: the `--push` flag, else the nexus entry, else
+/// `.tsk/config.toml`, else the answer of a person on a terminal. `None` when nothing holds
+/// it and nobody can answer.
+fn choose_push(ctx: &Ctx, args: &NewArgs) -> Result<Option<PushWorkflow>, String> {
+    if let Some(workflow) = args.push {
+        println!(
+            "push workflow: {}, from {}",
+            workflow.as_str(),
+            PushSource::Flag.label()
+        );
+        return Ok(Some(workflow));
+    }
+    let cwd = std::env::current_dir()
+        .map_err(|e| format!("error: could not read the current directory: {}", e))?;
+    let config_file = crate::config::config_file_from_env();
+    let lookup = match Repo::discover(&cwd)
+        .and_then(|repo| push::nexus_lookup(&repo, &ctx.state_root, config_file.as_deref()))
+    {
+        Ok(lookup) => lookup,
+        Err(e) => {
+            println!(
+                "warning: could not read the push workflow from the nexus: {}",
+                e.trim_start_matches("error: ")
+            );
+            None
+        }
+    };
+    let config_value =
+        crate::config::read_harness_workflow(&ctx.main_worktree.join(".tsk").join("config.toml"))?;
+    if let Some((workflow, source)) = push::stored(lookup.as_ref(), config_value.as_deref())? {
+        println!(
+            "push workflow: {}, from {}",
+            workflow.as_str(),
+            source.label()
+        );
+        return Ok(Some(workflow));
+    }
+    if !std::io::stdin().is_terminal() {
+        println!("There is no terminal, no --push and no stored push workflow: the first prompt asks the agent to ask you.");
+        return Ok(None);
+    }
+    let workflow = ask_push()?;
+    save_push(lookup.as_ref(), workflow, &ctx.state_root);
+    Ok(Some(workflow))
+}
+
 // ---------------------------------------------------------------------------
 // new
 // ---------------------------------------------------------------------------
@@ -1112,6 +1209,7 @@ fn new_harness(args: NewArgs) -> Result<i32, String> {
 
     let git = ctx.git();
     let branch = choose_branch(&git, &args, &selection, &name)?;
+    let push = choose_push(&ctx, &args)?;
     let base = base_ref(&git);
     if let Some(parent) = worktree.parent() {
         std::fs::create_dir_all(parent)
@@ -1137,6 +1235,7 @@ fn new_harness(args: NewArgs) -> Result<i32, String> {
         thread_id: selection.thread.clone(),
         robot: robot_name,
         mission: mission_code,
+        push: push.map(|workflow| workflow.as_str().to_string()),
         created_at: crate::thread::clock::utc_now(),
     };
     state::record_name(&names_file, &name)?;
@@ -1147,6 +1246,7 @@ fn new_harness(args: NewArgs) -> Result<i32, String> {
         selection.robot.as_ref(),
         selection.mission.as_ref(),
         branch.as_deref(),
+        push,
     );
     start_session(
         &session,
@@ -1408,7 +1508,13 @@ fn wake(name: &str, no_claude: bool, no_attach: bool) -> Result<i32, String> {
         let session = session_name(harness.mission.as_deref(), &harness.name, has_session);
         harness.tmux_session = session.clone();
         ctx.save(&harness)?;
-        let prompt = wake_prompt(harness.robot.as_deref(), harness.thread_id.as_deref());
+        let branch = (!harness.branch.is_empty()).then_some(harness.branch.as_str());
+        let prompt = wake_prompt(
+            harness.robot.as_deref(),
+            harness.thread_id.as_deref(),
+            branch,
+            harness.push.as_deref().and_then(PushWorkflow::parse),
+        );
         start_session(
             &session,
             &harness,
@@ -1571,26 +1677,30 @@ mod tests {
     #[test]
     fn the_first_prompt_follows_the_choices() {
         let robot = RobotChoice::Existing("Marvin".to_string());
+        let main = Some(PushWorkflow::Main);
+        let detached = branch_step(None, main);
         assert_eq!(
             first_prompt(
                 Some("t1"),
                 Some(&robot),
                 Some(&MissionChoice::Existing("M-A".into())),
-                None
+                None,
+                main
             ),
-            format!("Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread t1. {}", BRANCH_STEP)
+            format!("Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread t1. {}", detached)
         );
         assert_eq!(
             first_prompt(
                 None,
                 Some(&robot),
                 Some(&MissionChoice::Existing("M-A".into())),
-                Some("m-a/otter")
+                Some("m-a/otter"),
+                Some(PushWorkflow::PullRequest)
             ),
-            format!("Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-A. {}", branch_step(Some("m-a/otter")))
+            format!("Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-A. {}", branch_step(Some("m-a/otter"), Some(PushWorkflow::PullRequest)))
         );
         assert!(
-            first_prompt(None, Some(&robot), Some(&MissionChoice::New), None)
+            first_prompt(None, Some(&robot), Some(&MissionChoice::New), None, None)
                 .contains("ask me what the new mission is")
         );
         assert_eq!(
@@ -1598,31 +1708,44 @@ mod tests {
                 None,
                 Some(&RobotChoice::New),
                 Some(&MissionChoice::Existing("M-A".into())),
+                None,
                 None
             ),
             format!(
                 "Run /tsk:construct-robot. Then run /tsk:start-thread M-A. {}",
-                BRANCH_STEP
+                branch_step(None, None)
             )
         );
         assert_eq!(
-            first_prompt(Some("t1"), None, None, None),
-            format!("Run /tsk:resume-thread t1. {}", BRANCH_STEP)
+            first_prompt(Some("t1"), None, None, None, main),
+            format!("Run /tsk:resume-thread t1. {}", detached)
         );
         assert_eq!(
-            branch_step(Some("TEAM1-546")),
-            "This worktree is on branch TEAM1-546. Follow this repo's rule: in a repo that works on main, rebase on origin's main and push with git push origin HEAD:main; otherwise push TEAM1-546 and open a pull request from it."
+            branch_step(Some("TEAM1-546"), None),
+            "This worktree is on branch TEAM1-546. Ask me whether to push to main or to open a pull request before you push."
         );
     }
 
     #[test]
-    fn the_wake_prompt_registers_a_known_robot_and_resumes_the_thread() {
+    fn the_wake_prompt_registers_a_known_robot_resumes_the_thread_and_states_the_push() {
+        let step = branch_step(Some("otter"), Some(PushWorkflow::Main));
         assert_eq!(
-            wake_prompt(Some("Marvin"), Some("t1")),
-            "Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread t1."
+            wake_prompt(
+                Some("Marvin"),
+                Some("t1"),
+                Some("otter"),
+                Some(PushWorkflow::Main)
+            ),
+            format!(
+                "Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread t1. {}",
+                step
+            )
         );
-        assert_eq!(wake_prompt(None, Some("t1")), "Run /tsk:resume-thread t1.");
-        assert_eq!(wake_prompt(Some("Marvin"), None), "");
+        assert_eq!(
+            wake_prompt(None, Some("t1"), Some("otter"), Some(PushWorkflow::Main)),
+            format!("Run /tsk:resume-thread t1. {}", step)
+        );
+        assert_eq!(wake_prompt(Some("Marvin"), None, Some("otter"), None), "");
     }
 
     #[test]

@@ -444,7 +444,7 @@ fn new_starts_claude_with_a_first_prompt_and_names_the_session_after_the_harness
     let log = fx.tmux_lines();
     let keys: Vec<&String> = log.iter().filter(|l| l.starts_with("send-keys")).collect();
     assert_eq!(keys.len(), 2, "{:?}", log);
-    assert!(keys[0].contains("-l claude 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-TEST-01. This worktree is on branch m-test-01/fox. Follow this repo"), "{}", keys[0]);
+    assert!(keys[0].contains("-l claude 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-TEST-01. This worktree is on branch m-test-01/fox. Ask me whether to push to main or to open a pull request before you push."), "{}", keys[0]);
     assert!(keys[1].ends_with("Enter"), "{}", keys[1]);
 
     // A new mission gives no code, so the session has the harness name.
@@ -907,7 +907,7 @@ fn sleep_pauses_a_held_thread_and_stops_the_session_and_wake_resumes_it() {
         .unwrap();
     assert!(
         wake_keys.contains(&format!(
-            "claude 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread {}.'",
+            "claude 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread {}. This worktree is on branch ",
             thread
         )),
         "{}",
@@ -1140,4 +1140,201 @@ fn new_with_a_paused_thread_whose_task_has_a_ticket_uses_the_ticket_as_the_branc
         git(&owl, &["rev-parse", "--abbrev-ref", "HEAD"]),
         "TEAM1-546"
     );
+}
+
+const MAIN_SENTENCE: &str = "This repo works on main: before you push, rebase on origin's main with `git rebase origin/main`, then push with `git push origin HEAD:main`. Open no pull request.";
+const PR_SENTENCE: &str = "This repo uses pull requests: push m-test-01/fox with `git push origin m-test-01/fox` and open a pull request from it. Push nothing to main.";
+
+fn new_fox(fx: &Fixture, extra: &[&str]) -> Output {
+    let mut args = vec![
+        "harness",
+        "new",
+        "--robot",
+        "Marvin",
+        "--mission",
+        "M-TEST-01",
+        "--name",
+        "fox",
+        "--no-attach",
+    ];
+    args.extend_from_slice(extra);
+    fx.tsk(&args)
+}
+
+fn claude_keys(fx: &Fixture) -> String {
+    fx.tmux_lines()
+        .into_iter()
+        .find(|l| l.starts_with("send-keys") && l.contains("-l claude"))
+        .unwrap_or_default()
+        .replace("'\\''", "'")
+}
+
+#[test]
+fn new_with_push_main_or_pr_states_the_workflow_and_records_it() {
+    let fx = Fixture::new();
+    let output = new_fox(&fx, &["--push", "main"]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("push workflow: main, from the --push flag"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        claude_keys(&fx).contains(MAIN_SENTENCE),
+        "{}",
+        claude_keys(&fx)
+    );
+    assert_eq!(fx.state("fox")["push"], "main");
+
+    let fx = Fixture::new();
+    assert_success(&new_fox(&fx, &["--push", "pr"]));
+    assert!(
+        claude_keys(&fx).contains(PR_SENTENCE),
+        "{}",
+        claude_keys(&fx)
+    );
+    assert_eq!(fx.state("fox")["push"], "pull-request");
+
+    let output = fx.tsk(&["harness", "new", "--push", "sideways"]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("not a push workflow"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn new_with_no_terminal_no_flag_and_no_stored_value_asks_the_agent_to_ask() {
+    let fx = Fixture::new();
+    let output = new_fox(&fx, &[]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("There is no terminal, no --push and no stored push workflow"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        claude_keys(&fx)
+            .contains("Ask me whether to push to main or to open a pull request before you push."),
+        "{}",
+        claude_keys(&fx)
+    );
+    assert!(fx.state("fox")["push"].is_null());
+}
+
+#[test]
+fn new_uses_the_workflow_in_the_config_file_asks_nothing_and_the_flag_overrides_it() {
+    let fx = Fixture::new();
+    std::fs::create_dir_all(fx.work().join(".tsk")).unwrap();
+    std::fs::write(
+        fx.work().join(".tsk").join("config.toml"),
+        "[harness]\nworkflow = \"pull-request\"\n",
+    )
+    .unwrap();
+    let output = new_fox(&fx, &[]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("push workflow: pull-request, from .tsk/config.toml"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(!stdout(&output).contains("Push to main or open"));
+    assert!(
+        claude_keys(&fx).contains(PR_SENTENCE),
+        "{}",
+        claude_keys(&fx)
+    );
+    assert_eq!(fx.state("fox")["push"], "pull-request");
+
+    let fx = Fixture::new();
+    std::fs::create_dir_all(fx.work().join(".tsk")).unwrap();
+    std::fs::write(
+        fx.work().join(".tsk").join("config.toml"),
+        "[harness]\nworkflow = \"pull-request\"\n",
+    )
+    .unwrap();
+    assert_success(&new_fox(&fx, &["--push", "main"]));
+    assert!(
+        claude_keys(&fx).contains(MAIN_SENTENCE),
+        "{}",
+        claude_keys(&fx)
+    );
+    let config = std::fs::read_to_string(fx.work().join(".tsk").join("config.toml")).unwrap();
+    assert!(config.contains("pull-request"), "{}", config);
+
+    std::fs::write(
+        fx.work().join(".tsk").join("config.toml"),
+        "[harness]\nworkflow = \"direct\"\n",
+    )
+    .unwrap();
+    let err = assert_failure(&fx.tsk(&[
+        "harness",
+        "new",
+        "--robot",
+        "Marvin",
+        "--mission",
+        "M-TEST-01",
+        "--name",
+        "owl",
+        "--no-attach",
+    ]));
+    assert!(err.contains("harness.workflow"), "{}", err);
+}
+
+#[test]
+fn new_reads_the_workflow_of_the_nexus_entry_before_the_config_file() {
+    let fx = Fixture::new();
+    let root = fx.root.path();
+    git(
+        root,
+        &["init", "--quiet", "--bare", "-b", "main", "nexus.git"],
+    );
+    git(root, &["init", "--quiet", "-b", "main", "nexus-seed"]);
+    let seed = root.join("nexus-seed");
+    std::fs::write(
+        seed.join("nexus.json"),
+        r#"{"version":1,"territories":[{"id":"t","name":"T","repos":[{"id":"work","url":"https://example.test/acme/work","workflow":"main"}]}]}"#,
+    )
+    .unwrap();
+    git(&seed, &["add", "-A"]);
+    git(&seed, &["commit", "--quiet", "-m", "nexus.json"]);
+    let nexus = root.join("nexus.git");
+    git(
+        &seed,
+        &[
+            "push",
+            "--quiet",
+            nexus.to_str().unwrap(),
+            "HEAD:refs/heads/main",
+        ],
+    );
+    let config = fx.home().join("config").join("tsk");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join("config.toml"),
+        format!("[nexus]\nurl = \"{}\"\n", nexus.display()),
+    )
+    .unwrap();
+    std::fs::write(fx.work().join(".git").join("tsk-repo-id"), "work\n").unwrap();
+    std::fs::create_dir_all(fx.work().join(".tsk")).unwrap();
+    std::fs::write(
+        fx.work().join(".tsk").join("config.toml"),
+        "[harness]\nworkflow = \"pull-request\"\n",
+    )
+    .unwrap();
+
+    let output = new_fox(&fx, &[]);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("push workflow: main, from the nexus entry of this repo"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        claude_keys(&fx).contains(MAIN_SENTENCE),
+        "{}",
+        claude_keys(&fx)
+    );
+    assert_eq!(fx.state("fox")["push"], "main");
 }
