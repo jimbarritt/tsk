@@ -157,6 +157,11 @@ tsk actor join <uid> [--primary] [--session <urn>]                    add an act
 tsk actor name                                                        print the name of the primary actor of this session
 tsk actor list [--porcelain|--json]                list the actors: name, kind, state (a robot is free, or busy (holds <thread id> <mission>) while it holds a thread), missions, uid, and the instances that ran as each; --porcelain keeps name, kind, state, uid and instances; --json adds the URN, the name history and the missions
 tsk actor remove <name>                                               remove an actor: its record, name history, instance rows and session links; threads and pause entries stay; a local write
+tsk harness new [--thread ID | --robot NAME | --new-robot] [--mission ID | --new-mission]  make a harness: a code worktree under the worktree root, a tmux session named after the mission, and claude with a first prompt; asks when flags are missing
+tsk harness list [--porcelain|--json]                                 list this clone's harnesses: name, robot, mission, thread, awake or asleep, directory
+tsk harness path|sleep|wake|delete <name>                             print the directory; pause the thread and stop the session; start it again; remove the worktree (refuses unpushed work without --force)
+tsk config worktrees-root [<path>]                                    the worktree root: GIT_WORKTREES_ROOT, else [worktrees] root, else unset
+tsk install zshrc                                                     add the shell function that makes tsk harness cd <name> change directory
 tsk session actor [--session <urn>]                                   list the actors of this session: role, name, kind, uid
 tsk ledger id                                                         print the ledger's URN, urn:tsk:ledger:<ledger-id>
                                                                       (tsk mission list <id> --json prints a urn for the mission and for each task, decision and question)
