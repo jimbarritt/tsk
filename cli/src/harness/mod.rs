@@ -44,7 +44,7 @@ const NO_ROOT: &str = "error: no worktrees root is set. Set the environment vari
 pub enum HarnessCommands {
     #[command(
         about = "Make a harness: a code worktree on a branch you name, or a detached HEAD, a tmux session in it, and claude with a first prompt",
-        long_about = "Make a harness: a code worktree on a branch you name, or a detached HEAD, a tmux session in it, and claude with a first prompt.\n\nOn a terminal the command asks four things in turn. Pick up a paused thread? If so, it lists the paused threads and you pick one. If not, attach an existing robot? If so, it lists the robots, free ones first. Then it lists the missions that are not done, and you pick one or a new mission. Last it asks the branch name. A flag answers its question, so a script can run the command.\n\nThe branch question lists suggestions, in this order and only those that apply: the ticket of the current task of the thread, the mission code and the thread id, the mission code and the harness name, and a detached HEAD. Type a number, press Enter for the first suggestion, or type a branch name. tsk checks the name with git check-ref-format and refuses a branch that another worktree has checked out. A branch that exists is checked out. A new name is made from the default branch of origin. --branch <name> and --detach answer the question. With no terminal and no flag, the first suggestion is used.\n\nThe worktree is <root>/<repo name>/<harness name>. Git refuses one branch in two worktrees, so a detached HEAD at the default branch of origin leaves the agent to name the branch later. The root is GIT_WORKTREES_ROOT, else [worktrees] root in the user config (tsk config worktrees-root). The name is a random word that no harness of this clone has had. Ignored env files (.env, .env.local, .env.*.local) are copied from the main worktree.\n\nThe tmux session has the mission code as its name, else the harness name. claude starts in it with a first prompt that registers the robot, then resumes or starts the thread. tsk makes no robot and no mission itself: the new claude session does that. With no flag, the command then attaches to the session, or switches to it inside tmux."
+        long_about = "Make a harness: a code worktree on a branch you name, or a detached HEAD, a tmux session in it, and claude with a first prompt.\n\nOn a terminal the command asks four things in turn. Pick up a paused thread? If so, it lists the paused threads and you pick one. If not, attach an existing robot? If so, it lists the robots, free ones first. Then it lists the missions that are not done, and you pick one or a new mission. Last it asks the branch name. A flag answers its question, so a script can run the command.\n\nThe branch question lists suggestions, in this order and only those that apply: the ticket of the current task of the thread, the mission code and the harness name, the harness name, and a detached HEAD. Type a number, press Enter for the first suggestion, or type a branch name. tsk checks the name with git check-ref-format and refuses a branch that another worktree has checked out. A branch that exists is checked out. A new name is made from the default branch of origin. --branch <name> and --detach answer the question. With no terminal and no flag, the first suggestion is used.\n\nThe worktree is <root>/<repo name>/<harness name>. Git refuses one branch in two worktrees, so a detached HEAD at the default branch of origin leaves the agent to name the branch later. The root is GIT_WORKTREES_ROOT, else [worktrees] root in the user config (tsk config worktrees-root). The name is a random word that no harness of this clone has had. Ignored env files (.env, .env.local, .env.*.local) are copied from the main worktree.\n\nThe tmux session has the mission code as its name, else the harness name. claude starts in it with a first prompt that registers the robot, then resumes or starts the thread. tsk makes no robot and no mission itself: the new claude session does that. With no flag, the command then attaches to the session, or switches to it inside tmux."
     )]
     New(NewArgs),
     #[command(
@@ -853,12 +853,11 @@ pub struct BranchSuggestion {
 }
 
 /// The suggestions of the branch question, in order and only those that apply: the ticket of
-/// the current task of the thread, the mission and the thread, the mission and the harness
-/// name, and a detached HEAD.
+/// the current task of the thread, the mission and the harness name, the harness name, and a
+/// detached HEAD.
 pub fn branch_suggestions(
     ticket: Option<(&str, &str)>,
     mission: Option<&str>,
-    thread: Option<&str>,
     harness: &str,
 ) -> Vec<BranchSuggestion> {
     let mut found = Vec::new();
@@ -868,16 +867,15 @@ pub fn branch_suggestions(
             note: format!("the ticket of task {}", task),
         });
     }
-    match (mission, thread) {
-        (Some(mission), Some(thread)) => found.push(BranchSuggestion {
-            branch: Some(format!("{}/{}", mission.to_lowercase(), thread)),
-            note: "mission and thread".to_string(),
-        }),
-        (Some(mission), None) => found.push(BranchSuggestion {
+    match mission {
+        Some(mission) => found.push(BranchSuggestion {
             branch: Some(format!("{}/{}", mission.to_lowercase(), harness)),
             note: "mission and harness name".to_string(),
         }),
-        _ => {}
+        None => found.push(BranchSuggestion {
+            branch: Some(harness.to_string()),
+            note: "harness name".to_string(),
+        }),
     }
     found.push(BranchSuggestion {
         branch: None,
@@ -981,7 +979,7 @@ fn choose_branch(
         .ticket
         .as_ref()
         .map(|t| (t.task.as_str(), t.id.as_str()));
-    let suggestions = branch_suggestions(ticket, mission, selection.thread.as_deref(), harness);
+    let suggestions = branch_suggestions(ticket, mission, harness);
     if !std::io::stdin().is_terminal() {
         let first = &suggestions[0];
         if let Some(branch) = &first.branch {
@@ -1730,20 +1728,19 @@ mod tests {
         let all = branch_suggestions(
             Some(("T-25", "TEAM1-546")),
             Some("M-TSK-PERF"),
-            Some("25366ae1"),
             "kudu",
         );
         let branches: Vec<Option<&str>> = all.iter().map(|s| s.branch.as_deref()).collect();
         assert_eq!(
             branches,
-            vec![Some("TEAM1-546"), Some("m-tsk-perf/25366ae1"), None]
+            vec![Some("TEAM1-546"), Some("m-tsk-perf/kudu"), None]
         );
-        let by_harness = branch_suggestions(None, Some("M-TSK-PERF"), None, "kudu");
+        let by_harness = branch_suggestions(None, Some("M-TSK-PERF"), "kudu");
         let branches: Vec<Option<&str>> = by_harness.iter().map(|s| s.branch.as_deref()).collect();
         assert_eq!(branches, vec![Some("m-tsk-perf/kudu"), None]);
-        let none = branch_suggestions(None, None, None, "kudu");
-        assert_eq!(none.len(), 1);
-        assert_eq!(none[0].branch, None);
+        let none = branch_suggestions(None, None, "kudu");
+        let branches: Vec<Option<&str>> = none.iter().map(|s| s.branch.as_deref()).collect();
+        assert_eq!(branches, vec![Some("kudu"), None]);
     }
 
     #[test]
@@ -1751,16 +1748,15 @@ mod tests {
         let suggestions = branch_suggestions(
             Some(("T-25", "TEAM1-546")),
             Some("M-TSK-PERF"),
-            Some("25366ae1"),
             "kudu",
         );
         assert_eq!(
             render_branch_question(&suggestions),
             vec![
                 "Branch name?",
-                "  1) TEAM1-546            the ticket of task T-25",
-                "  2) m-tsk-perf/25366ae1  mission and thread",
-                "  3) detached HEAD        the agent names the branch later",
+                "  1) TEAM1-546        the ticket of task T-25",
+                "  2) m-tsk-perf/kudu  mission and harness name",
+                "  3) detached HEAD    the agent names the branch later",
                 "  or type a branch name",
             ]
         );
