@@ -1,8 +1,11 @@
 # Keep the nexus on local disk
 
-Use this page to run tsk on a machine that keeps every ledger on its own disk. The nexus
-is a bare git repo in a folder on that disk. tsk clones it and pushes to it through a
-`file://` address, the same way it uses a nexus on GitHub.
+Use this page to run tsk on a machine that keeps every ledger on its own disk.
+
+The set-up differs from a nexus on GitHub in one way: the nexus repo is a bare git repo in
+a folder on the machine, and tsk gets its `file://` address in place of an `https://` URL.
+Git clones from a `file://` address and pushes to it the same way as with a server, so every
+tsk command then works as normal.
 
 Tested with tsk 0.68.1 and git 2.43.0 on Linux, on 2026-11-15.
 
@@ -22,10 +25,16 @@ missing.
 git init --bare --initial-branch=main ~/tsk-nexus.git
 ```
 
-This is the local equivalent of an empty repo on GitHub. Keep `--initial-branch=main`:
-tsk writes `nexus.json` to `main`, and git's default branch for a new repo can be another
-name. With another default, every later command of tsk 0.68.x stops with `couldn't find
-remote ref HEAD`. The option needs git 2.28 or later.
+This command creates the local equivalent of an empty repo on GitHub.
+
+- `--bare` creates a repo with no checked-out files. Git accepts a push to any branch of a
+  bare repo, so tsk can push to it.
+- `--initial-branch=main` sets the repo's default branch to `main`. Without the option, git
+  uses the setting `init.defaultBranch` from your git config, and `master` when that is
+  not set. tsk writes `nexus.json` to `main` and reads the default branch, so the two must
+  match. Set the branch here, so the result does not depend on a config setting. GitHub
+  sets `main` as the default branch of a new repo in the same way.
+- The option needs git 2.28 or later.
 
 ## 3. Attach the nexus
 
@@ -33,7 +42,8 @@ remote ref HEAD`. The option needs git 2.28 or later.
 tsk nexus add file://$HOME/tsk-nexus.git
 ```
 
-tsk stores the address in its user config. It keeps a bare clone of the nexus in
+This is the one command that differs from a nexus on GitHub: the address is a `file://`
+path. tsk stores the address in its user config. It keeps a bare clone of the nexus in
 `~/.local/state/tsk/nexus/`, fetches into that clone on each command, and pushes ledger
 changes back to the address.
 
