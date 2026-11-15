@@ -6,9 +6,10 @@
 //!
 //! - `push.lock`: a lock taken with `flock` on a file descriptor. The parent takes it and
 //!   the child inherits the descriptor, so the lock lives as long as the child does, and
-//!   the kernel frees it when the child ends, however it ends. Every push of the clone
-//!   (`tsk ledger push`, `thread start`, `pause` and `stop`) takes the same lock, so two
-//!   pushes never write the store together.
+//!   the kernel frees it when the child ends, however it ends. It is the clone lock of
+//!   [`super::clone_lock`]: every push of the clone (`tsk ledger push`, `thread start`,
+//!   `pause` and `stop`) and every command that writes takes it, so no two of them write
+//!   the store together.
 //! - `background-push.result`: JSON with the state (`running`, `ok` or `failed`), the pid,
 //!   the time, the commit the push left on origin, the error text, and whether a warning
 //!   about the failure was shown.
@@ -22,7 +23,6 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -33,12 +33,6 @@ use crate::thread::clock::{format_utc, now_secs};
 pub const DEFAULT_MESSAGE: &str = "Background publish";
 /// `off` switches the background publish of the Stop hook off.
 pub const SWITCH_VAR: &str = "TSK_BACKGROUND_PUBLISH";
-/// How long a push waits for another push of the same clone, in seconds.
-pub const LOCK_WAIT_VAR: &str = "TSK_PUSH_LOCK_SECS";
-const DEFAULT_LOCK_WAIT_SECS: u64 = 60;
-
-/// True in the child, which holds the push lock through the descriptor it inherited.
-static HOLDS_LOCK: AtomicBool = AtomicBool::new(false);
 /// True in commands that must not print the warning (the pushes themselves).
 static QUIET: AtomicBool = AtomicBool::new(false);
 
@@ -240,36 +234,13 @@ pub fn status_line(db: &Path) -> Option<String> {
     Some(format!("Background publish: {}", text))
 }
 
-/// Held while a push runs.
-pub struct PushLock {
-    _file: Option<File>,
-}
+/// Held while a push runs: a hold on the clone lock (see [`super::clone_lock`]).
+pub type PushLock = super::clone_lock::CloneLock;
 
-/// Take the push lock of the clone, waiting for another push. The child of a background
-/// publish already holds it.
+/// Take the clone lock for a push, waiting for another push or a write. The child of a
+/// background publish already holds it, and so does a command that wrote first.
 pub fn lock_for_push(db: &Path) -> Result<PushLock, String> {
-    if HOLDS_LOCK.load(Ordering::SeqCst) {
-        return Ok(PushLock { _file: None });
-    }
-    let paths = Paths::of_store(db);
-    let file = open_lock(&paths)?;
-    let wait = std::env::var(LOCK_WAIT_VAR)
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .unwrap_or(DEFAULT_LOCK_WAIT_SECS);
-    let end = Instant::now() + Duration::from_secs(wait);
-    loop {
-        if try_flock(&file) {
-            return Ok(PushLock { _file: Some(file) });
-        }
-        if Instant::now() >= end {
-            return Err(format!(
-                "error: another push of this ledger (a background publish, say) holds {}.\n       Try again when it ends",
-                paths.lock.display()
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    super::clone_lock::take(db)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -290,8 +261,10 @@ pub fn start(store: &dyn LedgerStore, message: &str) -> Result<Started, String> 
     }
     let db = store.path()?;
     let paths = Paths::of_store(&db);
+    // A command that holds the clone lock already hands its own descriptor to the child.
+    let own = super::clone_lock::held_fd(&db);
     let lock = open_lock(&paths)?;
-    if !try_flock(&lock) {
+    if own.is_none() && !try_flock(&lock) {
         return Ok(Started::Busy);
     }
     if !store.status_local()?.has_unpushed() {
@@ -307,7 +280,7 @@ pub fn start(store: &dyn LedgerStore, message: &str) -> Result<Started, String> 
             ..Outcome::default()
         },
     );
-    match spawn(&paths, &lock, message) {
+    match spawn(&paths, own.unwrap_or(lock.as_raw_fd()), message) {
         Ok(pid) => Ok(Started::Child(pid)),
         Err(e) => {
             write_outcome(
@@ -324,7 +297,7 @@ pub fn start(store: &dyn LedgerStore, message: &str) -> Result<Started, String> 
     }
 }
 
-fn spawn(paths: &Paths, lock: &File, message: &str) -> Result<u32, String> {
+fn spawn(paths: &Paths, fd: i32, message: &str) -> Result<u32, String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("error: could not find the tsk binary: {}", e))?;
     let log = File::create(&paths.log)
@@ -332,7 +305,6 @@ fn spawn(paths: &Paths, lock: &File, message: &str) -> Result<u32, String> {
     let log_err = log
         .try_clone()
         .map_err(|e| format!("error: could not open {}: {}", paths.log.display(), e))?;
-    let fd = lock.as_raw_fd();
     let mut command = Command::new(exe);
     command
         .args(["ledger", "background-push-run", "--lock-fd"])
@@ -367,7 +339,7 @@ pub fn run_child(cwd: &Path, lock_fd: i32, message: &str) -> Result<(), String> 
     }
     // Keep the descriptor open for the whole run.
     let _lock = unsafe { File::from_raw_fd(lock_fd) };
-    HOLDS_LOCK.store(true, Ordering::SeqCst);
+    super::clone_lock::set_inherited();
     be_quiet();
 
     let paths = db_path(cwd).map(|db| Paths::of_store(&db));

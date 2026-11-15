@@ -217,6 +217,9 @@ fn main() {
     let cli = Cli::parse();
     ledger::location::enter_repo_below();
     let hook = is_hook_command(&cli);
+    if is_read_only_command(&cli) {
+        ledger::clone_lock::set_reader();
+    }
     match run_cli(cli) {
         Ok(0) => {}
         Ok(code) => std::process::exit(code),
@@ -249,6 +252,56 @@ fn is_hook_command(cli: &Cli) -> bool {
                 | tmux::TmuxCommands::State { .. }
                 | tmux::TmuxCommands::Sidebar { .. }
         })
+    )
+}
+
+/// The commands that only read the ledger store, and the commands that run for a long
+/// time (a tmux sidebar, a harness attached to tmux). Every other command holds the clone
+/// lock from its first access to the store (see `ledger::clone_lock`). A write, a refresh
+/// or a push from one of these commands takes the lock for its own duration.
+fn is_read_only_command(cli: &Cli) -> bool {
+    use harness::HarnessCommands as H;
+    use ledger::{DocCommands as D, LedgerCommands as L};
+    use mission::records::{DecisionCommands, QuestionCommands, TaskCommands};
+    use mission::MissionCommands as M;
+    use thread::ThreadCommands as T;
+    matches!(
+        cli.command,
+        Some(Commands::Mission {
+            action: M::List { .. } | M::Show { .. } | M::Summary { .. }
+        }) | Some(Commands::Task {
+            action: TaskCommands::List { .. }
+        }) | Some(Commands::Decision {
+            action: DecisionCommands::List { .. }
+        }) | Some(Commands::Question {
+            action: QuestionCommands::List { .. }
+        }) | Some(Commands::Thread {
+            action: T::List | T::Title | T::Guard
+        }) | Some(Commands::Actor {
+            action: actor::ActorCommands::Name | actor::ActorCommands::List { .. }
+        }) | Some(Commands::Session {
+            action: sessions::SessionCommands::List { .. } | sessions::SessionCommands::Find { .. }
+        }) | Some(Commands::Ledger {
+            action: L::Path
+                | L::Id
+                | L::Status { .. }
+                | L::Guard
+                | L::Server { .. }
+                | L::Push {
+                    background: true,
+                    ..
+                }
+                | L::Doc {
+                    action: D::Path { .. } | D::Get { .. } | D::List { .. }
+                }
+        }) | Some(Commands::Tmux { .. })
+            | Some(Commands::Harness {
+                action: H::List { .. }
+                    | H::Path { .. }
+                    | H::Cd { .. }
+                    | H::Sleep { .. }
+                    | H::Wake { .. }
+            })
     )
 }
 

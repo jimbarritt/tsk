@@ -677,6 +677,16 @@ fn procedure_call(args: &[String]) -> Option<Procedure> {
     }
 }
 
+/// How many times [`Dolt::exec`] runs a transaction that Dolt rejects with a
+/// serialization failure.
+pub const SERIALIZATION_ATTEMPTS: usize = 5;
+
+/// True for Dolt's error when a transaction conflicts with one that another client
+/// committed after it started. The transaction applied nothing.
+pub fn is_serialization_failure(error: &str) -> bool {
+    error.contains("serialization failure")
+}
+
 /// True when `dolt` says it could not write because another process holds the store.
 fn is_read_only_refusal(stderr: &str) -> bool {
     stderr.to_lowercase().contains("read only")
@@ -942,8 +952,30 @@ impl Dolt {
         Ok(results.split_off(results.len() - queries.len()))
     }
 
-    /// Run write statements in one transaction: all of them apply, or none.
+    /// Run write statements in one transaction: all of them apply, or none. A transaction
+    /// that Dolt rejects with a serialization failure applied nothing, and runs again, up to
+    /// [`SERIALIZATION_ATTEMPTS`] times. Under the clone lock no other tsk process writes the
+    /// store, so the failure comes only from a writer outside the lock: an older tsk, or
+    /// `dolt sql` run by hand.
     pub fn exec(&self, sql: &str) -> Result<(), String> {
+        let mut attempt = 1;
+        loop {
+            match self.exec_once(sql) {
+                Err(e) if is_serialization_failure(&e) && attempt < SERIALIZATION_ATTEMPTS => {
+                    eprintln!(
+                        "note: another writer changed the ledger store at the same time; writing again (attempt {} of {})",
+                        attempt + 1,
+                        SERIALIZATION_ATTEMPTS
+                    );
+                    std::thread::sleep(transport::retry_wait());
+                    attempt += 1;
+                }
+                other => return other,
+            }
+        }
+    }
+
+    fn exec_once(&self, sql: &str) -> Result<(), String> {
         if self.served {
             let script = format!("start transaction;\n{}\ncommit;\n", sql);
             if let Served::Done(result) = self.serve(false, |conn| conn.query(&script).map(|_| ()))
@@ -1160,6 +1192,19 @@ pub fn available() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_serialization_failure_is_recognised_in_the_server_and_command_line_forms() {
+        let message = "serialization failure: this transaction conflicts with a committed transaction from another client, try restarting transaction.";
+        assert!(is_serialization_failure(&format!(
+            "error: dolt sql failed:\n{}",
+            message
+        )));
+        assert!(is_serialization_failure(message));
+        assert!(!is_serialization_failure(
+            "error: dolt sql failed:\nduplicate primary key given: [1]"
+        ));
+    }
 
     #[test]
     fn lit_hex_encodes_so_quotes_and_semicolons_stay_data() {

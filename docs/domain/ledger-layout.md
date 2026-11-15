@@ -404,6 +404,19 @@ an external event at the same moment take the same `position` and conflict.
 On success, stdout has one line per renumbered row, then the Dolt commit hash, or the
 documents commit when only the documents changed. Notes go to stderr.
 
+### The clone lock
+
+`push.lock`, in the state directory of the clone beside the ledger store, is an `flock`
+that allows one writer at a time in a clone (ADR 0034). A command that can write takes it
+at its first access to the store and keeps it until it ends, so a record command reads and
+saves with no other tsk process in between. A push, a refresh, a discard and a write take
+it in every command. A command on the read-only list of `is_read_only_command` in
+`cli/src/main.rs` (the `list`, `show`, `status`, `path` and `doc get` commands, among
+others) takes it only for one of those. The lock is re-entrant in a process. A process
+waits up to `TSK_PUSH_LOCK_SECS` seconds (60 by default), then exits 1 and names the file.
+A transaction that Dolt rejects with a serialization failure applied nothing and runs
+again, up to 5 attempts.
+
 ### Numbers and collisions
 
 Tasks, questions, objective outcomes, constraints, out-of-scope items and decisions are
