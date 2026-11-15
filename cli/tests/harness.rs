@@ -139,6 +139,25 @@ impl Fixture {
         std::fs::write(dir.join(format!("{}.jsonl", session_id)), "{}\n").unwrap();
     }
 
+    fn record_session(&self, worktree: &Path, id: &str) {
+        use std::io::Write;
+        let mut child = self
+            .command_in(worktree, &["thread", "session-start"], Some(&self.trees()))
+            .env_remove("CLAUDE_ENV_FILE")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(format!("{{\"session_id\":\"{}\",\"source\":\"startup\"}}", id).as_bytes())
+            .unwrap();
+        assert_success(&child.wait_with_output().unwrap());
+    }
+
     fn claude_lines(&self) -> Vec<String> {
         self.tmux_lines()
             .into_iter()
@@ -969,9 +988,9 @@ fn sleep_pauses_a_held_thread_and_stops_the_session_and_wake_resumes_it() {
 }
 
 #[test]
-fn new_records_a_session_id_and_wake_resumes_it_only_when_its_transcript_exists() {
+fn new_starts_claude_with_a_session_id_and_no_state_field() {
     let fx = Fixture::new();
-    let output = fx.tsk(&[
+    assert_success(&fx.tsk(&[
         "harness",
         "new",
         "--robot",
@@ -981,69 +1000,171 @@ fn new_records_a_session_id_and_wake_resumes_it_only_when_its_transcript_exists(
         "--name",
         "fox",
         "--no-attach",
-    ]);
-    assert_success(&output);
-    let fox = fx.trees().join("work").join("fox");
-    let first = fx.state("fox")["session_id"].as_str().unwrap().to_string();
-    assert_eq!(first.len(), 36);
-    assert!(
-        fx.claude_lines()[0].contains(&format!("-l claude --session-id {} 'Run tsk actor", first)),
-        "{:?}",
-        fx.claude_lines()
-    );
-
-    // No transcript: wake falls back to a fresh start with a new id.
-    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
-    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
-    let second = fx.state("fox")["session_id"].as_str().unwrap().to_string();
-    assert_ne!(second, first);
-    let lines = fx.claude_lines();
-    assert!(
-        lines[1].contains(&format!("-l claude --session-id {}", second)),
-        "{:?}",
-        lines
-    );
-    assert!(!lines[1].contains("--resume"), "{}", lines[1]);
-
-    // A transcript exists: wake resumes the recorded session and keeps the id.
-    fx.write_transcript(&fox, &second);
-    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
-    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
-    assert_eq!(fx.state("fox")["session_id"], second.as_str());
-    let lines = fx.claude_lines();
-    assert!(
-        lines[2].contains(&format!("-l claude --resume {}", second)),
-        "{:?}",
-        lines
-    );
-    assert!(!lines[2].contains("--session-id"), "{}", lines[2]);
-}
-
-#[test]
-fn wake_with_no_recorded_session_id_starts_fresh_and_records_one() {
-    let fx = Fixture::new();
-    fx.new_harness("fox", "M-TEST-01");
-    assert!(fx.state("fox")["session_id"].is_null());
-    let mut state = fx.state("fox");
-    state.as_object_mut().unwrap().remove("session_id");
-    std::fs::write(fx.state_file("fox"), state.to_string()).unwrap();
-    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
-    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
-    let id = fx.state("fox")["session_id"].as_str().unwrap().to_string();
+    ]));
     let lines = fx.claude_lines();
     assert_eq!(lines.len(), 1, "{:?}", lines);
     assert!(
-        lines[0].contains(&format!("-l claude --session-id {}", id)),
+        lines[0].contains("-l claude --session-id ") && lines[0].contains("'Run tsk actor"),
+        "{:?}",
+        lines
+    );
+    assert!(fx.state("fox").get("session_id").is_none());
+}
+
+#[test]
+fn wake_resumes_the_latest_ledger_session_of_the_worktree_when_its_transcript_exists() {
+    if !common::dolt_installed() {
+        eprintln!("skipped: dolt is not installed");
+        return;
+    }
+    let fx = Fixture::new();
+    let fox = fx.new_harness("fox", "M-TEST-01");
+    let earlier = "11111111-1111-4111-8111-111111111111";
+    let latest = "22222222-2222-4222-8222-222222222222";
+    fx.record_session(&fox, earlier);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    fx.record_session(&fox, latest);
+    fx.write_transcript(&fox, earlier);
+    fx.write_transcript(&fox, latest);
+
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
+    assert_eq!(lines.len(), 1, "{:?}", lines);
+    assert!(
+        lines[0].contains(&format!("-l claude --resume {}", latest)),
+        "{:?}",
+        lines
+    );
+    assert!(!lines[0].contains("--session-id"), "{}", lines[0]);
+    assert!(fx.state("fox").get("session_id").is_none());
+}
+
+#[test]
+fn wake_prompt_confirms_the_thread_only_when_claude_resumes() {
+    if !common::dolt_installed() {
+        eprintln!("skipped: dolt is not installed");
+        return;
+    }
+    let fx = Fixture::new();
+    let fox = fx.new_harness("fox", "M-TEST-01");
+    let thread = start_thread(&fx, &fox);
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
+    assert!(lines[0].contains("-l claude --session-id "), "{:?}", lines);
+    assert!(
+        lines[0].contains(&format!("/tsk:resume-thread {}.", thread)),
+        "{:?}",
+        lines
+    );
+    assert!(
+        !lines[0].contains("has confirmed this thread"),
+        "{:?}",
+        lines
+    );
+
+    let id = "44444444-4444-4444-8444-444444444444";
+    fx.record_session(&fox, id);
+    fx.write_transcript(&fox, id);
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
+    assert!(
+        lines[1].contains(&format!("-l claude --resume {}", id)),
+        "{:?}",
+        lines
+    );
+    assert!(
+        lines[1].contains(&format!(
+            "/tsk:resume-thread {}. The person has confirmed this thread.",
+            thread
+        )),
+        "{:?}",
+        lines
+    );
+    assert!(
+        lines[1].contains("resumed with --resume and holds no thread yet"),
         "{:?}",
         lines
     );
 }
 
 #[test]
-fn new_with_no_claude_records_no_session_id() {
+fn wake_ignores_an_earlier_session_when_the_latest_has_no_transcript() {
+    if !common::dolt_installed() {
+        eprintln!("skipped: dolt is not installed");
+        return;
+    }
+    let fx = Fixture::new();
+    let fox = fx.new_harness("fox", "M-TEST-01");
+    let earlier = "11111111-1111-4111-8111-111111111111";
+    let latest = "22222222-2222-4222-8222-222222222222";
+    fx.record_session(&fox, earlier);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    fx.record_session(&fox, latest);
+    fx.write_transcript(&fox, earlier);
+
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
+    assert_eq!(lines.len(), 1, "{:?}", lines);
+    assert!(lines[0].contains("-l claude --session-id "), "{:?}", lines);
+    assert!(!lines[0].contains("--resume"), "{}", lines[0]);
+    assert!(!lines[0].contains(earlier), "{}", lines[0]);
+}
+
+#[test]
+fn wake_finds_the_session_of_a_worktree_whose_admin_directory_has_another_name() {
+    if !common::dolt_installed() {
+        eprintln!("skipped: dolt is not installed");
+        return;
+    }
+    let fx = Fixture::new();
+    let fox = fx.new_harness("fox", "M-TEST-01");
+    let admin = fx.work().join(".git").join("worktrees");
+    std::fs::rename(admin.join("fox"), admin.join("fox1")).unwrap();
+    std::fs::write(
+        fox.join(".git"),
+        format!("gitdir: {}\n", admin.join("fox1").display()),
+    )
+    .unwrap();
+    let id = "33333333-3333-4333-8333-333333333333";
+    fx.record_session(&fox, id);
+    fx.write_transcript(&fox, id);
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
+    assert!(
+        lines[0].contains(&format!("-l claude --resume {}", id)),
+        "{:?}",
+        lines
+    );
+}
+
+#[test]
+fn wake_with_no_ledger_session_for_the_worktree_starts_fresh() {
     let fx = Fixture::new();
     fx.new_harness("fox", "M-TEST-01");
-    assert!(fx.state("fox")["session_id"].is_null());
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
+    assert_eq!(lines.len(), 1, "{:?}", lines);
+    assert!(lines[0].contains("-l claude --session-id "), "{:?}", lines);
+    assert!(!lines[0].contains("--resume"), "{}", lines[0]);
+}
+
+#[test]
+fn a_state_file_with_a_session_id_still_wakes() {
+    let fx = Fixture::new();
+    fx.new_harness("fox", "M-TEST-01");
+    let mut state = fx.state("fox");
+    state["session_id"] = serde_json::Value::String("stale".to_string());
+    std::fs::write(fx.state_file("fox"), state.to_string()).unwrap();
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
+    assert!(!lines[0].contains("stale"), "{:?}", lines);
 }
 
 #[test]
