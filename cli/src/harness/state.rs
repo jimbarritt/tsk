@@ -22,8 +22,6 @@ pub struct HarnessState {
     pub mission: Option<String>,
     #[serde(default)]
     pub push: Option<String>,
-    #[serde(default)]
-    pub session_id: Option<String>,
     pub created_at: String,
 }
 
@@ -165,7 +163,6 @@ mod tests {
             robot: Some("Marvin".to_string()),
             mission: None,
             push: Some("main".to_string()),
-            session_id: Some("0b9a8f2e-4c1d-4e6a-9d3b-5a7c1e2f3a4b".to_string()),
             created_at: "2026-11-14T10:00:00Z".to_string(),
         }
     }
@@ -196,16 +193,16 @@ mod tests {
     }
 
     #[test]
-    fn a_state_file_with_no_session_id_loads_with_none() {
+    fn a_state_file_with_a_session_id_still_loads() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("fox.json"),
-            r#"{"name":"fox","worktree":"/w/fox","branch":"b","main_worktree":"/m","tmux_session":"fox","created_at":"2026-11-14T10:00:00Z"}"#,
+            r#"{"name":"fox","worktree":"/w/fox","branch":"b","main_worktree":"/m","tmux_session":"fox","session_id":"u1","created_at":"2026-11-14T10:00:00Z"}"#,
         )
         .unwrap();
         let all = load_all(dir.path()).unwrap();
         assert_eq!(all.len(), 1);
-        assert_eq!(all[0].session_id, None);
+        assert_eq!(all[0].name, "fox");
     }
 
     #[test]
