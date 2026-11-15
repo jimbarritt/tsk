@@ -19,14 +19,13 @@ missing.
 ## 2. Create the nexus
 
 ```bash
-git init --bare ~/tsk-nexus.git
+git init --bare --initial-branch=main ~/tsk-nexus.git
 ```
 
-This is the local equivalent of an empty repo on GitHub. tsk writes `nexus.json` to
-`main`. From tsk 0.69.0, it reads `main` when the nexus's default branch has another name.
-With tsk 0.68.x, create the repo with `git init --bare --initial-branch=main`, which needs
-git 2.28 or later: with another default branch, every later command stops with `couldn't
-find remote ref HEAD`.
+This is the local equivalent of an empty repo on GitHub. Keep `--initial-branch=main`:
+tsk writes `nexus.json` to `main`, and git's default branch for a new repo can be another
+name. With another default, every later command of tsk 0.68.x stops with `couldn't find
+remote ref HEAD`. The option needs git 2.28 or later.
 
 ## 3. Attach the nexus
 
