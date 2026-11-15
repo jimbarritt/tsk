@@ -22,12 +22,12 @@ the layout before the move.
 
 Missions, objectives, constraints, out of scope, tasks, decisions, questions and thread
 state are now records: typed rows in the Dolt database, written through `tsk` commands.
-The ledger is at layout 15: layout 15 adds tasks.ext_tracking_id. Layout 14 (0.41.0): a document carries an 8 character id in its file name (`report.3f2a9c1e.md`), `mission_documents` links by `doc_id`, and `tsk mission list <id> --json` prints `id` and `urn` for a linked document; the first `doc put`, `mv`, `rm` or push on a layout 14 ledger renames the files that have no id. Layout 13 (0.40.0): a task, a decision and a question have a `uid`, so
+The ledger is at layout 15: layout 15 adds tasks.ext_tracking_id. Layout 14 (0.41.0): a document has an 8 character id in its file name (`report.3f2a9c1e.md`), `mission_documents` links by `doc_id`, and `tsk mission list <id> --json` prints `id` and `urn` for a linked document; the first `doc put`, `mv`, `rm` or push on a layout 14 ledger renames the files that have no id. Layout 13 (0.40.0): a task, a decision and a question have a `uid`, so
 `tsk mission list <id> --json` prints a `urn` for each that survives a renumbering. Layout 12
 (ADR 0030, 0.39.0): an actor belongs to a session, never to a harness instance. `thread_bindings`, keyed by `instance`, replaces `bindings`; an actor has a
 `uid` and a name history (`actor_names`); a session's actors are rows of `session_actors`, one
 primary and any number supporting; a pause names the session that wrote it; and the manifest
-holds `ledger_id`, so `tsk ledger id`, `tsk thread list --json` and `tsk mission list --json`
+has `ledger_id`, so `tsk ledger id`, `tsk thread list --json` and `tsk mission list --json`
 print URNs. Layout 11 added `sessions` (0.38.0): a row for each session, naming its harness
 instance. Layout 10 is layout 9 plus `missions.code` of 0.30.0: a mission has an internal ID
 and the code a person types, so `tsk mission mv` renames it by one cell).
@@ -54,7 +54,7 @@ binary that fetches the Dolt branch finds no `.tsk-ledger.toml` and stops with a
 `.tsk-ledger.toml` error before it writes. That error means the binary needs updating.
 
 A ledger at manifest version 1 keeps its documents in a Dolt table. Run
-`tsk ledger migrate-docs` once to move them to `tsk/docs`. Until then every command except
+`tsk ledger migrate-docs` once to copy them to `tsk/docs`. Until then every command except
 `tsk ledger fetch` stops and names this command.
 
 ## Task and mission tracking
@@ -64,22 +64,22 @@ over the branch `refs/heads/tsk/ledger` on the `origin` remote. The branch start
 the tip of the earlier `tsk/bootstrap` branch. Its file-era history is on
 `archive/tsk-ledger-files`. It is a real branch (see
 `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md` for why: the
-Claude Code cloud sandbox proxy refuses to push or update anything outside
-`refs/heads/*`). It comes down with a plain clone, and `git branch -a` lists it, but it
-is never checked out in the code worktree. The branch holds Dolt table files, not
-Markdown. From 0.21.0 a new ledger's ref holds a Dolt file remote: a directory of
+Claude Code cloud sandbox proxy fails a push or update of anything outside
+`refs/heads/*`). A plain clone fetches it, and `git branch -a` lists it, but it
+is never checked out in the code worktree. The branch contains Dolt table files, not
+Markdown. From 0.21.0 a new ledger's ref contains a Dolt file remote: a directory of
 `manifest`, table files and `.tsk-transport`, which `tsk` keeps as a linked worktree beside
-the ledger store and moves with plain `git fetch` and `git push` (ADR 0017). Dolt never
-starts git. A ledger made before 0.21.0 holds Dolt's git blobstore (transport `git-remote`)
-until someone runs `tsk ledger migrate-transport` once. Every clone moves to the new layout
-on its next fetch. This repo's ref is in the new layout: its `.tsk-transport` reads
+the ledger store and syncs with plain `git fetch` and `git push` (ADR 0017). Dolt never
+starts git. A ledger made before 0.21.0 contains Dolt's git blobstore (transport `git-remote`)
+until someone runs `tsk ledger migrate-transport` once. Every clone uses the new layout
+from its next fetch. This repo's ref is in the new layout: its `.tsk-transport` reads
 `file-remote`. A clone needs `tsk` 0.21.0 or later to read it. The layout version stayed
 at 8, so a binary from 0.18.0 to 0.20.x does not update itself for this change: run
 `tsk self-update` by hand.
 
 This repo keeps its ledger on branches because it is used from Claude Code cloud
-sessions, and the cloud proxy refuses to push a custom ref. `.tsk/config.toml` in the
-tree says so (`[ledger]` and `refs = "branches"`), so the choice is explicit and
+sessions, and the cloud proxy fails a push of a custom ref. `.tsk/config.toml` in the
+tree states it (`[ledger]` and `refs = "branches"`), so the choice is explicit and
 committed. A new ledger in any other repo uses a custom ref, `refs/tsk/ledger` and
 `refs/tsk/docs`, which GitHub does not list as a branch (ADR 0016). `tsk config
 ledger-refs` prints the refs in use and where the choice came from, and `tsk config
@@ -140,11 +140,11 @@ The ledger store path is
 repository, per clone, and identical whether the session is local or a fresh cloud
 checkout. `<clone-id>` is minted once and stored in `.git/tsk-clone-id`, so it survives
 the clone directory being renamed or moved. See
-`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md` for why it sits outside
+`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md` for why it is outside
 `.git/`.
 
 **The ledger store is a Dolt database, not a directory of files.** Do not open files in
-it. It holds records, and the `tsk` commands read and write them. Documents are Markdown
+it. It contains records, and the `tsk` commands read and write them. Documents are Markdown
 files on a second branch, `refs/heads/tsk/docs`, checked out as a worktree beside the
 database. Read and write them with `tsk ledger doc` (below), and find a file on disk with
 `tsk ledger doc path <path>`. `tsk ledger push` pushes the documents first and the Dolt
@@ -163,7 +163,7 @@ is a write operation. `tsk ledger path` has no side effects.
 not run `git fetch`, `git rebase`, `git reset` or `git push` against `tsk/ledger`
 yourself, and never clone into a new or randomly named directory. A script you write that
 needs the ledger calls `tsk` from inside itself; it does not inline its own `dolt` or
-`git` sequence. The binary holds that logic once, with tests.
+`git` sequence. The binary contains that logic once, with tests.
 
 `tsk/bootstrap` is retired. Its final commit is tagged `archive/tsk-bootstrap`, and
 nothing writes to the branch.
@@ -186,12 +186,12 @@ invoke any plan skill it names (`load-plan`, `update-plan`, `pause-plan`,
 Do not read `~/.planning/{project}/plan.md` or any other home-directory plan file
 for this repo. The ledger is the sole source of truth for task and mission state here.
 
-Prose says "ledger store" for the local Dolt database and "code worktree" for a worktree
-of this repo's code. It never says "worktree" alone.
+Prose uses "ledger store" for the local Dolt database and "code worktree" for a worktree
+of this repo's code. It never uses "worktree" alone.
 
 ### Records and documents
 
-The ledger holds records (state) and documents (free text). Read the state with these
+The ledger contains records (state) and documents (free text). Read the state with these
 commands:
 
 ```bash
@@ -221,10 +221,10 @@ Every write changes the local ledger store only. Write freely: records are publi
 four points and nowhere else (ADR 0019): `tsk thread start` (the claim and the binding),
 `tsk thread pause` and `tsk thread stop` (the hand-off), the end of the session (the
 `SessionEnd` hook, and the `Stop` hook, which publishes in the background after a turn when
-the store holds unpushed changes, ADR 0020), and `tsk ledger push` when asked. `thread resume`, `detach`, `set mission`, `skip` and
+the store contains unpushed changes, ADR 0020), and `tsk ledger push` when asked. `thread resume`, `detach`, `set mission`, `skip` and
 `prune-bindings` do not push. Taking a task is a claim, so after setting a task to
 `in-progress`, run `tsk ledger push "Claim <mission> <task>"` straight away. Progress can
-wait for the next point. The `Stop` hook does not ask you to push: it runs
+wait for the next point. The `Stop` hook needs no push from you: it runs
 `tsk ledger push --background`, a detached one-shot child. If that push fails, the next
 `tsk` command prints `warning: the last background publish failed at <time>: <error>; run
 tsk ledger push` once, and `tsk ledger status` shows a `Background publish:` line. Then:
@@ -252,10 +252,10 @@ to push to it (see M-BOOT-02, T-06).
 
 ## Cloud environment set-up
 
-The setup script of a cloud environment for this repo holds one line: it downloads
+The setup script of a cloud environment for this repo contains one line: it downloads
 `ops/cloud/setup-environment.sh` from `main` and runs it. Put every set-up step for the
 environment in that file: a package install, a tool, a Claude Code setting. Do not add a
-step to the environment's own setup script, and do not ask Jim to. A step in the repo file
+step to the environment's own setup script, and do not require Jim to add one. A step in the repo file
 is under version control, and every environment that runs the file gets it.
 
 A step that only some environments want is an option of the script, which the
@@ -308,19 +308,19 @@ The repo's `SessionStart` hook (`ops/local/claude-session-start.sh`) unshallows 
 automatically, before anything else runs, if it finds one. Do not remove that step.
 
 Background, for the case where a clone is shallow anyway (the hook did not run, or
-ran before this fix landed): a shallow clone truncates history at a fetch-depth
+ran before this fix was merged): a shallow clone truncates history at a fetch-depth
 boundary and marks the commit there as having no parent, even though a parent
 exists on GitHub. A second shallow fetch, run later, can truncate at a different
 point. Comparing two branches that were each shallow-fetched at different times
 then finds no common ancestor and looks exactly like a rewritten, unrelated
-history, on a repository where nothing was actually rewritten.
+history, on a repository where nothing was rewritten.
 
 If `git merge-base` or `git log` ever reports two branches as unrelated and that
-is surprising, check `git rev-parse --is-shallow-repository` before concluding a
+surprises you, check `git rev-parse --is-shallow-repository` before concluding a
 history rewrite happened. If it prints `true`, run `git fetch --unshallow origin`
 and compare again. This is a real, recorded failure mode, found and fixed during
 M-STORY: a session spent real time and real concern diagnosing `main` as
-force-pushed with a disjoint history, when the clone was simply shallow at two
+force-pushed with a disjoint history, when the clone was shallow at two
 different boundaries.
 
 ## Recovery from a main rewrite
@@ -391,3 +391,20 @@ for these before sending:
 
 If a rule makes a technical fact wrong, keep the fact and break the
 rule. A term with one correct name keeps that name.
+
+### Checking a document
+
+Check a document with the `swe:lint-file` skill (or `swe:lint-fix`), and with nothing
+else. Never run `software_english_lint.py` yourself, never request a nonce, and never
+record a verdict with `--record-lint-result`. The skill does all three, and the commit
+hook accepts only a verdict that the skill recorded after a full read of the worklist.
+
+When a commit is blocked for a missing verdict:
+
+1. Run the skill in your own session on the file as it is now. Do not reuse a nonce from
+   an agent's report.
+2. Give an agent a document check only with an instruction to run the skill and read
+   the whole worklist. An agent that is denied reports the denial to its parent. The
+   parent does not replay the agent's command.
+3. If the skill's record step is denied in your own session, stop and tell Jim. Do not
+   commit with `--no-verify`, and do not change a permission setting.
