@@ -127,6 +127,25 @@ impl Fixture {
             .join(format!("{}.json", name))
     }
 
+    fn write_transcript(&self, worktree: &Path, session_id: &str) {
+        let real = std::fs::canonicalize(worktree).unwrap();
+        let project: String = real
+            .to_string_lossy()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let dir = self.home().join(".claude").join("projects").join(project);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(format!("{}.jsonl", session_id)), "{}\n").unwrap();
+    }
+
+    fn claude_lines(&self) -> Vec<String> {
+        self.tmux_lines()
+            .into_iter()
+            .filter(|l| l.starts_with("send-keys") && l.contains("-l claude"))
+            .collect()
+    }
+
     fn names_file(&self) -> PathBuf {
         self.root
             .path()
@@ -152,6 +171,7 @@ impl Fixture {
             .env("XDG_STATE_HOME", self.root.path().join("state"))
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
+            .env_remove("CLAUDE_CONFIG_DIR")
             .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("TSK_BACKGROUND_PUBLISH", "off")
             .env("TSK_NO_UPDATE_CHECK", "1")
@@ -444,7 +464,8 @@ fn new_starts_claude_with_a_first_prompt_and_names_the_session_after_the_harness
     let log = fx.tmux_lines();
     let keys: Vec<&String> = log.iter().filter(|l| l.starts_with("send-keys")).collect();
     assert_eq!(keys.len(), 2, "{:?}", log);
-    assert!(keys[0].contains("-l claude 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-TEST-01. This worktree is on branch m-test-01/fox. Ask me whether to push to main or to open a pull request before you push."), "{}", keys[0]);
+    assert!(keys[0].contains("-l claude --session-id "), "{}", keys[0]);
+    assert!(keys[0].contains(" 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-TEST-01. This worktree is on branch m-test-01/fox. Ask me whether to push to main or to open a pull request before you push."), "{}", keys[0]);
     assert!(keys[1].ends_with("Enter"), "{}", keys[1]);
 
     // A new mission gives no code, so the session has the harness name.
@@ -466,8 +487,8 @@ fn new_starts_claude_with_a_first_prompt_and_names_the_session_after_the_harness
     );
     let log = fx.tmux_lines();
     assert!(
-        log.iter().any(|l| l
-            .contains("-l claude 'Run /tsk:construct-robot. Then ask me what the new mission is")),
+        log.iter()
+            .any(|l| l.contains(" 'Run /tsk:construct-robot. Then ask me what the new mission is")),
         "{:?}",
         log
     );
@@ -907,7 +928,7 @@ fn sleep_pauses_a_held_thread_and_stops_the_session_and_wake_resumes_it() {
         .unwrap();
     assert!(
         wake_keys.contains(&format!(
-            "claude 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread {}. This worktree is on branch ",
+            " 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread {}. This worktree is on branch ",
             thread
         )),
         "{}",
@@ -939,12 +960,90 @@ fn sleep_pauses_a_held_thread_and_stops_the_session_and_wake_resumes_it() {
     assert!(
         fx.tmux_lines()
             .iter()
-            .any(|l| l.contains(&format!("claude 'Run /tsk:resume-thread {}. ", thread))),
+            .any(|l| l.contains(&format!(" 'Run /tsk:resume-thread {}. ", thread))),
         "{:?}",
         fx.tmux_lines()
     );
     let err = assert_failure(&fx.tsk(&["harness", "new", "--thread", "nope0000", "--no-attach"]));
     assert!(err.contains("no such thread"), "{}", err);
+}
+
+#[test]
+fn new_records_a_session_id_and_wake_resumes_it_only_when_its_transcript_exists() {
+    let fx = Fixture::new();
+    let output = fx.tsk(&[
+        "harness",
+        "new",
+        "--robot",
+        "Marvin",
+        "--mission",
+        "M-TEST-01",
+        "--name",
+        "fox",
+        "--no-attach",
+    ]);
+    assert_success(&output);
+    let fox = fx.trees().join("work").join("fox");
+    let first = fx.state("fox")["session_id"].as_str().unwrap().to_string();
+    assert_eq!(first.len(), 36);
+    assert!(
+        fx.claude_lines()[0].contains(&format!("-l claude --session-id {} 'Run tsk actor", first)),
+        "{:?}",
+        fx.claude_lines()
+    );
+
+    // No transcript: wake falls back to a fresh start with a new id.
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let second = fx.state("fox")["session_id"].as_str().unwrap().to_string();
+    assert_ne!(second, first);
+    let lines = fx.claude_lines();
+    assert!(
+        lines[1].contains(&format!("-l claude --session-id {}", second)),
+        "{:?}",
+        lines
+    );
+    assert!(!lines[1].contains("--resume"), "{}", lines[1]);
+
+    // A transcript exists: wake resumes the recorded session and keeps the id.
+    fx.write_transcript(&fox, &second);
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    assert_eq!(fx.state("fox")["session_id"], second.as_str());
+    let lines = fx.claude_lines();
+    assert!(
+        lines[2].contains(&format!("-l claude --resume {}", second)),
+        "{:?}",
+        lines
+    );
+    assert!(!lines[2].contains("--session-id"), "{}", lines[2]);
+}
+
+#[test]
+fn wake_with_no_recorded_session_id_starts_fresh_and_records_one() {
+    let fx = Fixture::new();
+    fx.new_harness("fox", "M-TEST-01");
+    assert!(fx.state("fox")["session_id"].is_null());
+    let mut state = fx.state("fox");
+    state.as_object_mut().unwrap().remove("session_id");
+    std::fs::write(fx.state_file("fox"), state.to_string()).unwrap();
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let id = fx.state("fox")["session_id"].as_str().unwrap().to_string();
+    let lines = fx.claude_lines();
+    assert_eq!(lines.len(), 1, "{:?}", lines);
+    assert!(
+        lines[0].contains(&format!("-l claude --session-id {}", id)),
+        "{:?}",
+        lines
+    );
+}
+
+#[test]
+fn new_with_no_claude_records_no_session_id() {
+    let fx = Fixture::new();
+    fx.new_harness("fox", "M-TEST-01");
+    assert!(fx.state("fox")["session_id"].is_null());
 }
 
 #[test]

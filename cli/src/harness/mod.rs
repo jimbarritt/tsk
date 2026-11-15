@@ -84,7 +84,7 @@ pub enum HarnessCommands {
     },
     #[command(
         about = "Wake a harness: start its tmux session again and resume its thread in claude",
-        long_about = "Wake a harness: start its tmux session again and resume its thread in claude.\n\nThe tmux session has the mission code as its name, else the harness name. claude starts with a first prompt that registers the robot, when it is known, and resumes the thread. With no flag, the command then attaches to the session, or switches to it inside tmux."
+        long_about = "Wake a harness: start its tmux session again and resume its thread in claude.\n\nThe tmux session has the mission code as its name, else the harness name. When the harness records a claude session whose transcript exists, claude resumes it with --resume. Otherwise claude starts a new session. Either way the first prompt registers the robot, when it is known, and resumes the thread. The command records the session ID in the harness state. With no flag, the command then attaches to the session, or switches to it inside tmux."
     )]
     Wake {
         #[arg(help = "The harness name, or a prefix that matches one harness")]
@@ -361,6 +361,42 @@ pub fn shell_quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "'\\''"))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClaudeStart {
+    Fresh(String),
+    Resume(String),
+}
+
+impl ClaudeStart {
+    pub fn session_id(&self) -> &str {
+        match self {
+            ClaudeStart::Fresh(id) | ClaudeStart::Resume(id) => id,
+        }
+    }
+}
+
+pub fn claude_command(start: &ClaudeStart, prompt: &str) -> String {
+    let mut command = match start {
+        ClaudeStart::Fresh(id) => format!("claude --session-id {}", id),
+        ClaudeStart::Resume(id) => format!("claude --resume {}", id),
+    };
+    if !prompt.is_empty() {
+        command.push(' ');
+        command.push_str(&shell_quote(prompt));
+    }
+    command
+}
+
+pub fn choose_claude_start(
+    harness: &HarnessState,
+    transcript_exists: impl Fn(&str) -> bool,
+) -> ClaudeStart {
+    match harness.session_id.as_deref() {
+        Some(id) if transcript_exists(id) => ClaudeStart::Resume(id.to_string()),
+        _ => ClaudeStart::Fresh(crate::ledger::dolt::mint_uuid()),
+    }
+}
+
 fn start_session(
     session: &str,
     harness: &HarnessState,
@@ -375,14 +411,9 @@ fn start_session(
         TMUX_OPTION,
         &harness.name,
     ])?;
-    if let Some(prompt) = start_claude {
-        let command = if prompt.is_empty() {
-            "claude".to_string()
-        } else {
-            format!("claude {}", shell_quote(prompt))
-        };
+    if let Some(command) = start_claude {
         let target = format!("={}:", session);
-        tmux_checked(&["send-keys", "-t", &target, "-l", &command])?;
+        tmux_checked(&["send-keys", "-t", &target, "-l", command])?;
         tmux_checked(&["send-keys", "-t", &target, "Enter"])?;
     }
     Ok(())
@@ -1236,6 +1267,7 @@ fn new_harness(args: NewArgs) -> Result<i32, String> {
         robot: robot_name,
         mission: mission_code,
         push: push.map(|workflow| workflow.as_str().to_string()),
+        session_id: (!args.no_claude).then(crate::ledger::dolt::mint_uuid),
         created_at: crate::thread::clock::utc_now(),
     };
     state::record_name(&names_file, &name)?;
@@ -1248,12 +1280,11 @@ fn new_harness(args: NewArgs) -> Result<i32, String> {
         branch.as_deref(),
         push,
     );
-    start_session(
-        &session,
-        &harness,
-        if args.no_claude { None } else { Some(&prompt) },
-    )
-    .map_err(|e| {
+    let command = harness
+        .session_id
+        .as_ref()
+        .map(|id| claude_command(&ClaudeStart::Fresh(id.clone()), &prompt));
+    start_session(&session, &harness, command.as_deref()).map_err(|e| {
         format!(
             "{}\nThe harness exists. Run tsk harness wake {} to start its tmux session",
             e, name
@@ -1507,7 +1538,6 @@ fn wake(name: &str, no_claude: bool, no_attach: bool) -> Result<i32, String> {
     } else {
         let session = session_name(harness.mission.as_deref(), &harness.name, has_session);
         harness.tmux_session = session.clone();
-        ctx.save(&harness)?;
         let branch = (!harness.branch.is_empty()).then_some(harness.branch.as_str());
         let prompt = wake_prompt(
             harness.robot.as_deref(),
@@ -1515,11 +1545,17 @@ fn wake(name: &str, no_claude: bool, no_attach: bool) -> Result<i32, String> {
             branch,
             harness.push.as_deref().and_then(PushWorkflow::parse),
         );
-        start_session(
-            &session,
-            &harness,
-            if no_claude { None } else { Some(&prompt) },
-        )?;
+        let start = (!no_claude).then(|| {
+            choose_claude_start(&harness, |id| {
+                state::transcript_exists(&harness.worktree, id)
+            })
+        });
+        if let Some(start) = &start {
+            harness.session_id = Some(start.session_id().to_string());
+        }
+        ctx.save(&harness)?;
+        let command = start.as_ref().map(|start| claude_command(start, &prompt));
+        start_session(&session, &harness, command.as_deref())?;
         println!("harness {} wakes", harness.name);
         println!("tmux session: {}", session);
     }
@@ -1890,5 +1926,46 @@ mod tests {
             parse_branch_answer("feature/x", 3),
             BranchAnswer::Typed("feature/x".to_string())
         );
+    }
+
+    fn harness_with_session(session_id: Option<&str>) -> HarnessState {
+        HarnessState {
+            name: "fox".to_string(),
+            worktree: PathBuf::from("/w/fox"),
+            branch: "b".to_string(),
+            main_worktree: PathBuf::from("/m"),
+            tmux_session: "fox".to_string(),
+            thread_id: None,
+            robot: None,
+            mission: None,
+            push: None,
+            session_id: session_id.map(str::to_string),
+            created_at: "2026-11-14T10:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn the_claude_command_names_the_session_and_quotes_the_prompt() {
+        let fresh = ClaudeStart::Fresh("u1".to_string());
+        let resume = ClaudeStart::Resume("u1".to_string());
+        assert_eq!(claude_command(&fresh, ""), "claude --session-id u1");
+        assert_eq!(claude_command(&resume, ""), "claude --resume u1");
+        assert_eq!(
+            claude_command(&resume, "it's"),
+            "claude --resume u1 'it'\\''s'"
+        );
+    }
+
+    #[test]
+    fn a_recorded_session_with_a_transcript_resumes_and_any_other_starts_fresh() {
+        let with_id = harness_with_session(Some("u1"));
+        assert_eq!(
+            choose_claude_start(&with_id, |id| id == "u1"),
+            ClaudeStart::Resume("u1".to_string())
+        );
+        let missing = choose_claude_start(&with_id, |_| false);
+        assert!(matches!(&missing, ClaudeStart::Fresh(id) if id != "u1" && id.len() == 36));
+        let none = choose_claude_start(&harness_with_session(None), |_| true);
+        assert!(matches!(none, ClaudeStart::Fresh(_)));
     }
 }
