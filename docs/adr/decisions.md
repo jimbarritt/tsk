@@ -31,3 +31,4 @@
 - [29. Sessions and harness instances are named by URNs in the tsk namespace](0029-sessions-and-harness-instances-are-named-by-urns.md)
 - [30. An actor belongs to a session, and a harness instance is the continuity key](0030-an-actor-belongs-to-a-session-and-an-instance-is-the-continuity-key.md)
 - [31. A thread's mission is its current focus, and only an instance with no thread creates one](0031-a-threads-mission-is-its-current-focus-and-an-instance-without-a-thread-creates-one.md)
+- [34. One writer at a time in a clone](0034-one-writer-at-a-time-in-a-clone.md)

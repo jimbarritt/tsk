@@ -11,6 +11,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::ledger::clone_lock::{self, CloneLock};
 use crate::ledger::docs;
 use crate::ledger::dolt::{
     self, flag, integer, lit, text, Dolt, BRANCH, LEGACY_LAYOUT_VERSION, REMOTE, REMOTE_BRANCH_NAME,
@@ -68,6 +69,9 @@ pub struct DoltStore {
     /// The documents worktree of this process has its ids (layout 14): a document with none
     /// was given the id of its path.
     docs_ready: Cell<bool>,
+    /// The clone lock a command that writes holds from its first access to the store until
+    /// the store is dropped (see [`crate::ledger::clone_lock`]).
+    held: RefCell<Option<CloneLock>>,
 }
 
 /// A write held back for the next commit: the statement, and a query whose first count is
@@ -191,7 +195,17 @@ impl DoltStore {
             trust_tips: Cell::new(false),
             queued: RefCell::new(Vec::new()),
             docs_ready: Cell::new(false),
+            held: RefCell::new(None),
         })
+    }
+
+    /// Hold the clone lock of the store at `db` until this store is dropped.
+    fn hold_lock(&self, db: &Path) -> Result<(), String> {
+        if self.held.borrow().is_none() {
+            let lock = clone_lock::take(db)?;
+            *self.held.borrow_mut() = Some(lock);
+        }
+        Ok(())
     }
 
     /// The record of the commits this clone last fetched, once the clone has an id.
@@ -552,6 +566,11 @@ impl DoltStore {
         if !is_database(&path) {
             return Err(missing(format!("{} does not exist", path.display())));
         }
+        // A command that can write reads and writes under the clone lock, so no other
+        // process changes the store between its read and its write.
+        if clone_lock::is_writer() {
+            self.hold_lock(&path)?;
+        }
         Ok(Dolt::store(path))
     }
 
@@ -637,6 +656,7 @@ impl DoltStore {
 
     /// A write in one transaction. The snapshot no longer holds.
     fn write(&self, db: &Dolt, sql: &str) -> Result<(), String> {
+        let _lock = clone_lock::take(db.dir())?;
         self.forget_snapshot();
         self.flush_queued(db)?;
         db.exec(sql)
@@ -1052,6 +1072,12 @@ impl DoltStore {
     /// `tsk ledger migrate-docs` when `lenient` is set: a version 1 ledger refreshes its
     /// Dolt database only and gets a note instead of the refusal.
     fn refresh_with(&self, lenient: bool, keep_local: bool) -> Result<RefreshOutcome, String> {
+        // The refresh can reset the store to origin after it finds no local change. Under
+        // the clone lock, no write lands between that check and the reset.
+        let _lock = match self.hint() {
+            Some(db) => Some(clone_lock::take(&db)?),
+            None => None,
+        };
         let (mut outcome, version) = self.refresh_data(keep_local)?;
         if version == LEGACY_LAYOUT_VERSION {
             if !lenient {
@@ -2283,6 +2309,10 @@ impl LedgerStore for DoltStore {
     }
 
     fn discard(&self) -> Result<(), String> {
+        let _lock = match self.hint() {
+            Some(db) => Some(clone_lock::take(&db)?),
+            None => None,
+        };
         self.forget_checked();
         self.forget_snapshot();
         let db = self.db()?;

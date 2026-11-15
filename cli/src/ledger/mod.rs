@@ -1,5 +1,6 @@
 pub mod absent;
 pub mod background;
+pub mod clone_lock;
 pub mod doc_hook;
 pub mod doc_id;
 pub mod docs;

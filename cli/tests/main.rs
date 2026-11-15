@@ -10,6 +10,7 @@ mod attribution;
 mod auto_update;
 mod background;
 mod broken_pipe;
+mod concurrent;
 mod conformance;
 mod dolt_server;
 mod events;
