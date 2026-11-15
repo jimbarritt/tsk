@@ -88,9 +88,10 @@ Measured on the test machine, with a local nexus:
 
 ## Known limits
 
-- **Concurrent writes.** Two writes at the same moment in one clone can fail with a Dolt
-  `serialization failure`, which tsk does not retry. Two clones that push at the same
-  moment can stop on a merge conflict.
+- **Concurrent writes.** Use tsk 0.69.0 or later. With an earlier release, two writes at
+  the same moment in one clone can fail with a Dolt `serialization failure`, or one can
+  replace the other with exit 0. From 0.69.0, writes in one clone run one at a time
+  (ADR 0034), and a push renumbers a task number that two clones both took.
 - **A repo with no origin.** `tsk ledger init` fetches the origin, so a repo with no
   origin is untested.
 - **macOS.** The steps were tested on Linux only.
