@@ -1078,3 +1078,30 @@ fn an_edit_with_no_nexus_attached_names_the_add_command() {
     let fx = Fixture::new();
     assert_failure_mentioning(&fx.edit(&["add-territory", "x"]), "tsk nexus add <url>");
 }
+
+#[test]
+fn a_nexus_whose_head_names_a_branch_with_no_commit_is_read_from_main() {
+    // `git init --bare` puts HEAD on the default branch of the machine, master here,
+    // while tsk writes nexus.json to main.
+    let fx = Fixture::new();
+    std::fs::remove_dir_all(fx.nexus()).unwrap();
+    git(
+        fx.root.path(),
+        &["init", "--quiet", "--bare", "-b", "master", "nexus.git"],
+    );
+    fx.attach();
+
+    assert_success(&fx.edit(&["add-territory", "work"]));
+    assert_eq!(fx.nexus_doc()["territories"][0]["id"], "work");
+
+    let listed = fx.tsk(&["nexus", "list"]);
+    assert_success(&listed);
+    assert!(
+        stdout(&listed).contains("territory: work"),
+        "{}",
+        stdout(&listed)
+    );
+
+    assert_success(&fx.edit(&["add-territory", "play"]));
+    assert_eq!(fx.nexus_doc()["territories"][1]["id"], "play");
+}
