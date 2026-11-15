@@ -195,7 +195,17 @@ pub fn load_index(state_root: &Path, nexus_url: &str) -> Result<NexusIndex, Stri
     if std::io::stderr().is_terminal() {
         eprintln!("fetching the latest nexus index from {}...", nexus_url);
     }
-    if let Err(fetch_error) = git.run(["fetch", "--quiet", nexus_url, refspec.as_str()]) {
+    // A bare nexus made with `git init --bare` can have HEAD on a default branch, such as
+    // master, that holds no commit, while tsk writes nexus.json to main. HEAD then names
+    // no ref, so fetch main by name when the fetch of HEAD fails.
+    let fallback = format!("+{}:{}", super::register::EMPTY_NEXUS_BRANCH, TRACKING_REF);
+    let fetched = git
+        .run(["fetch", "--quiet", nexus_url, refspec.as_str()])
+        .or_else(|head_error| {
+            git.run(["fetch", "--quiet", nexus_url, fallback.as_str()])
+                .map_err(|_| head_error)
+        });
+    if let Err(fetch_error) = fetched {
         let held = git
             .run_line(["rev-parse", "--verify", "--quiet", TRACKING_REF])
             .is_ok();

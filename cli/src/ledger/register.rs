@@ -335,6 +335,12 @@ fn default_branch(git: &Git, nexus_url: &str) -> Result<String, String> {
     if is_empty_remote(git, nexus_url) {
         return Ok(EMPTY_NEXUS_BRANCH.to_string());
     }
+    // HEAD names a branch with no commit, as in a bare repo made with `git init --bare`
+    // whose default branch is not main: use main when the nexus has it.
+    let main = git.run(["ls-remote", nexus_url, EMPTY_NEXUS_BRANCH])?;
+    if !main.trim().is_empty() {
+        return Ok(EMPTY_NEXUS_BRANCH.to_string());
+    }
     Err(format!(
         "error: could not read the default branch of the nexus {}; it has no HEAD branch",
         nexus_url
