@@ -22,6 +22,8 @@ pub struct HarnessState {
     pub mission: Option<String>,
     #[serde(default)]
     pub push: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
     pub created_at: String,
 }
 
@@ -36,6 +38,37 @@ pub fn names_file(state_root: &Path, clone_id: &str) -> PathBuf {
         .join("repos")
         .join(clone_id)
         .join("harness-names")
+}
+
+pub fn project_dir_name(cwd: &Path) -> String {
+    cwd.to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+pub fn transcript_path(config_dir: &Path, cwd: &Path, session_id: &str) -> PathBuf {
+    config_dir
+        .join("projects")
+        .join(project_dir_name(cwd))
+        .join(format!("{}.jsonl", session_id))
+}
+
+pub fn claude_config_dir() -> Option<PathBuf> {
+    match std::env::var_os("CLAUDE_CONFIG_DIR") {
+        Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
+        _ => std::env::var_os("HOME")
+            .filter(|home| !home.is_empty())
+            .map(|home| PathBuf::from(home).join(".claude")),
+    }
+}
+
+pub fn transcript_exists(cwd: &Path, session_id: &str) -> bool {
+    let Some(config_dir) = claude_config_dir() else {
+        return false;
+    };
+    let real = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    transcript_path(&config_dir, &real, session_id).is_file()
 }
 
 pub fn state_file(dir: &Path, name: &str) -> PathBuf {
@@ -132,6 +165,7 @@ mod tests {
             robot: Some("Marvin".to_string()),
             mission: None,
             push: Some("main".to_string()),
+            session_id: Some("0b9a8f2e-4c1d-4e6a-9d3b-5a7c1e2f3a4b".to_string()),
             created_at: "2026-11-14T10:00:00Z".to_string(),
         }
     }
@@ -159,5 +193,31 @@ mod tests {
         record_name(&file, "owl").unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "fox\nowl\n");
         assert_eq!(used_names(&file).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_state_file_with_no_session_id_loads_with_none() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("fox.json"),
+            r#"{"name":"fox","worktree":"/w/fox","branch":"b","main_worktree":"/m","tmux_session":"fox","created_at":"2026-11-14T10:00:00Z"}"#,
+        )
+        .unwrap();
+        let all = load_all(dir.path()).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].session_id, None);
+    }
+
+    #[test]
+    fn the_transcript_path_replaces_every_separator_and_dot_of_the_directory() {
+        let path = transcript_path(
+            Path::new("/home/u/.claude"),
+            Path::new("/Users/jm.db/trees/tsk/gur_nard"),
+            "abc",
+        );
+        assert_eq!(
+            path,
+            PathBuf::from("/home/u/.claude/projects/-Users-jm-db-trees-tsk-gur-nard/abc.jsonl")
+        );
     }
 }
