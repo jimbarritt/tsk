@@ -11,7 +11,8 @@ with Jepsen and Jev. A strategy section on adopting Dolt rather than beads was a
 2026-10-10. Pi Durable was added on 2026-10-16 as a case of independent convergence. Claude Code dynamic workflows and ultracode were added on 2026-10-22. Herdr was added on 2026-10-06 as a related runtime, not a system
 assessed, compared with tmux. OpenSpec was added on 2026-10-06 as a related
 system, not a system assessed. It is the first read that models parts of Product and Delta,
-and it models no Navigation or Scale.
+and it models no Navigation or Scale. LangChain's post "From tasks to goals" was added on
+2026-11-17 as a statement of principles, not a system assessed.
 
 ## Status
 
@@ -1215,6 +1216,61 @@ leaves is the one tsk sets out to fill. OpenSpec is a
 candidate for the Product and Delta records beneath a tsk mission, and a baseline for
 the token-saving experiment on those two dimensions.
 
+## From tasks to goals: LangChain states the principles behind tsk
+
+Research: [langchain-from-tasks-to-goals.md](langchain-from-tasks-to-goals.md). A post by
+Harrison Chase of LangChain, 2026-11-16. Jim, 2026-11-17: the post "sets out the
+principles behind tsk".
+
+The post states that people now give agents goals in place of tasks: an outcome in place
+of an action, and an ongoing responsibility in place of a bounded assignment. It lists six
+requirements of a goal:
+
+- The agent breaks the goal into tasks, and a person can see the task list.
+- Tool calls are not known in advance, so they need controls.
+- A background agent sends questions to a person through an inbox.
+- A metric or a person gives feedback on progress.
+- Triggers start the agent, and rules stop it, including a rule to do nothing.
+- Decisions and feedback from earlier runs apply to later runs.
+
+The person's role becomes "setting direction, defining boundaries, and reviewing
+progress".
+
+What tsk already does:
+
+- **A goal is a mission.** A mission has a purpose and an objective, a checkable state
+  taken from doctrine's mission command, and no prescribed sequence. An objective can be a
+  measure over time, and an administrative mission has no end point. This is the ongoing
+  responsibility.
+- **The actor writes the plan.** A plan is the mission's tasks, owned by the actor that
+  executes the mission and rewritten as the work proceeds. `tsk task list` is the to-do
+  list.
+- **Memory is the ledger.** The ledger has the decisions, questions, tasks and thread
+  continuations, and each new session reads them, whichever actor runs it.
+- **Direction and boundaries are fields of the mission record**: purpose, objective,
+  constraints, out of scope and decision authority.
+
+What tsk has in part:
+
+- **Tool controls.** Constraints and Execution constraints are text, and no component
+  enforces them.
+- **An inbox.** A question is a record, and `tsk question list` shows the open ones. tsk
+  sends no notification to a person, and an answer does not start the robot again
+  (M-TSK-COMMS-01).
+- **Feedback.** An objective outcome has a `met` flag, and tsk checks none. A decision
+  records a person's correction. No record exists for feedback on progress.
+- **Triggers and stopping rules.** The ledger has an external event queue, and the harness
+  runs schedules. tsk has no rule for a robot to do nothing on a trigger (M-TSK-AUTO).
+
+In the post, each goal is given to one agent. In tsk, the objective is a field of the
+mission, and tsk separates the mission, the thread and the actor, so a different actor on
+a different machine continues the work. A mission report gives feedback from the actor to
+the person. A delegated task becomes a mission of its own, at any scale.
+
+Position: no change to the three-part verdict. The post describes agents in Navigation
+terms and models no Product, Delta or Scale. Its principles match tsk's mission model,
+and tsk has part of four of its six requirements.
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Sources: Yegge's essay
@@ -1373,6 +1429,8 @@ collision above).
 - [claude-code-dynamic-workflows.md](claude-code-dynamic-workflows.md): the full reference
   for the Claude Code dynamic workflows and ultracode section above, with a comparison
   against tsk and four combinations.
+- [langchain-from-tasks-to-goals.md](langchain-from-tasks-to-goals.md): the full reference
+  for the From tasks to goals section above, with each principle mapped to tsk's terms.
 - [copilot-dynamic-workflows.md](copilot-dynamic-workflows.md): the full reference for the
   Copilot dynamic workflows section above, with a comparison against Claude Code's feature
   of the same name and against tsk.
