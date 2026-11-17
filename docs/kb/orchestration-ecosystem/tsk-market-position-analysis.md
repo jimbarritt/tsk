@@ -7,7 +7,7 @@ not a system assessed. Orca was added on 2026-10-02 as a fifth system assessed. 
 dynamic workflows were added on 2026-10-05 as a related mechanism, not a system assessed.
 Antithesis was added on 2026-10-05 as a related tool, not a system assessed, compared
 with Jepsen and Jev. A strategy section on adopting Dolt rather than beads was added on
-2026-10-09, with ADR 0014. Rex was added on 2026-10-09 as a related runtime beside Herdr. A closing section on interaction surfaces, with tmux, was added on
+2026-10-09, with ADR 0014. Rex was added on 2026-10-09 as a related runtime beside Herdr. A closing section on user interfaces, with tmux, was added on
 2026-10-10. Pi Durable was added on 2026-10-16 as a case of independent convergence. Claude Code dynamic workflows and ultracode were added on 2026-10-22. Herdr was added on 2026-10-06 as a related runtime, not a system
 assessed, compared with tmux. OpenSpec was added on 2026-10-06 as a related
 system, not a system assessed. It is the first read that models parts of Product and Delta,
@@ -21,7 +21,7 @@ experiment referenced below, which had not run as of this writing.
 
 ## Context
 
-This document holds tsk's strategic position against others building in the same space.
+The tsk market position analysis states tsk's strategic position against others building in the same space.
 One section per system assessed, then a single verdict over all of them. It is widened
 as new systems appear rather than split, so tsk's position is stated in one place and
 cannot drift between documents.
@@ -42,12 +42,12 @@ interchange format that is explicitly not the source of truth (the inverse of ts
 design, where the NDJSON event log is the source of truth and SQLite is a disposable
 cache, but the same two-layer instinct), an MCP package, and persistent-memory features
 (`bd remember`, `bd prime`). It is positioned as a plan-replacement and a
-token/context-economy play, the same positioning tsk holds.
+token/context-economy play, the same positioning as tsk.
 
 This raised the direct question: is tsk still worth pursuing, and is symbiosis with
 beads still possible, or is the space now purely competitive?
 
-### Where beads has converged, and where it hasn't
+### Where beads converges with tsk, and where it does not
 
 The overlap is architecture and positioning, not conceptual model.
 
@@ -64,23 +64,23 @@ The overlap is architecture and positioning, not conceptual model.
 Yegge's own framing of beads ("forensics, the why of your project, joined against the
 what/where/how of your git commits") gestures at a join between intent and change,
 loosely Product joined against Delta, but treats it as a join between two systems, not a
-modelled domain construct in its own right. It is the closest beads' framing comes to
-reaching outside Navigation.
+modelled domain construct. In that framing, beads is closest to a model outside
+Navigation.
 
-### Update 2026-10-09: beads reaches outside Navigation
+### Update 2026-10-09: beads models parts of Product and Delta
 
 Research: the update section of
 [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md), from the Gas
 City post of 2026-10-01 on Memory Beads, the Beads Protocol and versioning. The work is
-a preview on a fork's integration branch and has not landed in upstream beads.
+a preview on a fork's integration branch and is not merged into upstream beads.
 
 The post proposes a Memory Bead for long-lived knowledge, which is never closed, only
-corrected or retired, beside the Issue for work. It argues the split from a code flow
-policy: "an Issue for the change and a Memory for the knowledge it leaves behind". This
+corrected or retired, beside the Issue for work. It argues the split from a code workflow
+policy: an Issue records the change, and a Memory records the knowledge that remains after it. This
 is tsk's distinction between a story card and a product capability, and the pair has
 the shape of a Delta that updates the product record. A generic graph of typed Beads and
 Links, Types with a JSON Schema, addressable versions with attribution, guarded writes
-and Scopes with cross-Scope References come with it.
+and Scopes with cross-Scope References are part of the same proposal.
 
 The "Not converged" list above changes. Beads now has the start of a Product model and
 the shape of a Delta, with history that is superseded and not deleted. It still has no
@@ -90,26 +90,26 @@ models all four dimensions. Beads is now the system closest to doing so.
 
 ## Claude Code Projects
 
-Announced 2026-09-17, in beta. A project holds a goal, a repo or other context, and
+Announced 2026-09-17, in beta. A project has a goal, a repo or other context, and
 configuration for its cloud environment, connectors, plugins, instructions and model. A
 coordinator receives instructions and routes each one to a new or existing worker
 thread, monitors progress, reviews output, and assembles the result. Worker threads
-share a project memory that carries decisions across days of work, and draw on a library
-holding both the files a person adds and the artefacts Claude produces. Each worker
+share a project memory that records decisions over days of work, and draw on a library
+containing both the files a person adds and the artefacts Claude produces. Each worker
 thread is a full Claude Code cloud session on its own branch and copy of the repo, and
 can subdivide into subagents, loops and workflows.
 
-This matters more directly than beads does. Beads is an independent tool tsk could adopt
+Claude Code Projects affects tsk more directly than beads does. Beads is an independent tool tsk could adopt
 or measure against. Claude Code is the platform tsk's own harness runs inside.
 
-### Where Claude Code Projects has converged, and where it hasn't
+### Where Claude Code Projects converges with tsk, and where it does not
 
-- **Converged, on the unit that matters**: a thread that holds its own context, persists
+- **Converged, on the main unit of work**: a thread that has its own context, persists
   across days of work, can be checked on and steered mid-flight, and subdivides into
   subagents, loops and workflows. This is close to
   [Thread](../../domain/ubiquitous-language.md#thread) as tsk defines it, and as
-  [vision.md](../../vision.md) describes it, "fractal, pausable, resumable, and able to hold
-  their own context, the way a stack frame does in a programming model". The announcement
+  [vision.md](../../vision.md) describes it: fractal, pausable, resumable, and with its own
+  context. The announcement
   does not describe an explicit pause and resume state the way tsk's continuation
   mechanism does; what converges is the persistent, steerable unit itself, not a
   confirmed match on that specific mechanic. Two designs reaching a similar unit
@@ -120,14 +120,14 @@ or measure against. Claude Code is the platform tsk's own harness runs inside.
 |---|---|---|
 | Thread and session | one object | bound, not identical, with the reason recorded under [Actor](../../domain/ubiquitous-language.md#actor) |
 | Inputs and outputs | one library | [Ledger](../../domain/ubiquitous-language.md#ledger) and [Artefact](../../domain/ubiquitous-language.md#artefact), split by definition |
-| Work and its container | a project holds the work | no container; one entity at every zoom |
+| Work and its container | a project contains the work | no container; one entity at every zoom |
 
-None of those is tsk missing a part. Each is tsk declining to complect two things the
-product ships joined.
+None of those is tsk missing a part. Each is tsk declining to complect two parts that the
+product ships as one.
 
 **A project is a mission described loosely.** A repo, a goal and configuration is, in
 tsk, a territory, an objective and constraints, each with its own definition. tsk also
-refused a container above mission once already, on stronger grounds than this:
+rejected a container above mission once already, on stronger grounds than this:
 [domain-model-overview.md](../../domain/domain-model-overview.md) records that no campaign
 or major-operation type is added "even though doctrine nests campaign above mission:
 Scale, one of tsk's four dimensions, rejects fixed echelons". Doctrine offered a
@@ -177,7 +177,7 @@ the one exception found, and only at the worker layer, not the coordinator layer
   single vendor's product.
 
 Four of the five bolted the coordinator-and-threads shape to one vendor's execution
-layer, and that is not carelessness on any of their parts; a coordinator has to actually
+layer, and that is not carelessness on any of their parts; a coordinator has to
 run the threads it creates, and the fastest way to build one is against the runtime
 already in front of you. JetBrains Air shows a fifth way was available: decouple the
 worker layer from any single vendor by building against an open protocol instead of one
@@ -185,20 +185,20 @@ runtime.
 
 This is the premise tsk is built on: the
 domain, mission, thread, actor, ledger, is defined without reference to which substrate
-executes a thread, and that abstraction is more powerful than any one vendor's
-implementation precisely because it is not confined to that vendor. A tsk thread's actor
+executes a thread, and that abstraction is more general than any one vendor's
+implementation, because no vendor confines it. A tsk thread's actor
 could be a Claude Code session, a Copilot CLI session, or something else; nothing in the
 domain model encodes that choice, the way "every thread is a Claude Code cloud session"
 is encoded into Claude Code Projects by construction.
 
-**Not yet demonstrated, and worth being honest about.** tsk's own bootstrap harness
+**Not yet demonstrated.** tsk's own bootstrap harness
 currently runs inside Claude Code specifically; `CLAUDE.md` and ADR 0008 both describe
 mechanics tied to "the Claude Code cloud sandbox proxy". That is an implementation fact
 about how tsk bootstraps itself today, not evidence the domain model achieves substrate
-independence in practice. The real test is running a tsk thread with a Copilot CLI
-session, or some other substrate, as its actor, and confirming nothing in the domain
-model quietly assumed Claude Code underneath. Untested, and worth tracking as its own
-question rather than asserting the premise holds because it was designed to.
+independence. The test: run a tsk thread with a Copilot CLI session, or some other
+substrate, as its actor, and confirm that the domain model has no dependence on Claude
+Code. Untested, and worth tracking as its own
+question rather than asserting the premise is true because it was designed to be.
 
 JetBrains Air narrows what that test still has to prove. It shows a worker being
 vendor-independent is buildable and already shipping, at the protocol layer. What it
@@ -219,8 +219,8 @@ context.
 
 The announcement splits work by task or domain boundary, not by context size: its two
 worked examples are a thread per endpoint being profiled, and a thread per repo whose
-callers need migrating. It does not say whether or how a thread's scope is calibrated
-against its own context window, and it does not say what happens if a single thread's
+callers need migrating. It does not state whether or how a thread's scope is calibrated
+against its own context window, and it does not state what happens if a single thread's
 task runs long enough to approach that limit.
 
 This analysis draws a parallel, not a citation, to a separate pattern Anthropic has
@@ -232,12 +232,12 @@ decompose-first pattern is a plausible mechanism behind how Projects keeps its t
 completable. It is not confirmed by the Projects announcement itself, which never
 mentions it.
 
-tsk inverts it. A thread holds the mission and runs until it judges the objective met.
+tsk inverts it. A thread has the mission and runs until its actor finds the objective met.
 The unattended handoff pattern in that same document writes the stop condition as a
 disjunction: the thread prints its own context usage each turn, and crossing the ceiling
-makes the condition refuse until a handoff file exists, is committed and pushed, and a
-successor has been spawned from inside the condition. The document's own summary: "the
-goal clears with state on disk and a successor already running." No controller decides
+makes the condition return not met until a handoff file exists, is committed and pushed,
+and a successor, spawned from inside the condition, runs. The document's own summary: "the
+goal clears with state on disk and a successor already running." No controller sets
 the split. The thread establishes that it cannot continue and hands to itself.
 
 | | Claude Code Projects | tsk |
@@ -254,25 +254,24 @@ workers do. Continuation has to apply recursively, not only to the leaves." Shar
 project memory mitigates that without answering it, because retrieval of what was
 decided is not continuation of a running loop.
 
-**The announcement is silent on this, not just brief about it.** Read in full, it
+**The announcement does not describe a full context window.** Read in full, it
 describes shared memory for decisions and preferences, and describes usage limits at the
-plan level, aggregated across every thread a project runs at once. It says nothing about
+plan level, aggregated across every thread a project runs at once. It states nothing about
 what happens when one worker thread's own context window fills mid-task. That silence
-could mean the platform decomposes finely enough in practice that it rarely happens, or
-that it is not yet solved, or that it is handled by a mechanism the post simply did not
-cover. The test is cheap and settles it either way: give a Projects thread work that
+could mean the platform decomposes finely enough that it rarely happens, or that it is
+not yet solved, or that a mechanism the post did not cover handles it. The test is cheap and settles it either way: give a Projects thread work that
 cannot fit in one context and watch what it does.
 
-**This reframes the substrate question favourably.** If a Projects thread does hit a
-wall, tsk's continuation mechanism is what it needs. That is tsk sitting inside a thread
-rather than against one.
+**This reframes the substrate question favourably.** If a Projects thread does fill its
+context window, tsk's continuation mechanism is what it needs. tsk is then a mechanism
+inside a Projects thread, not a competitor to it.
 
 ## JetBrains Air
 
 Source: [Introducing JetBrains Air](https://blog.jetbrains.com/blog/2026/09/22/introducing-jetbrains-air/),
 2026-09-22, and JetBrains' Air documentation, as of 2026-09-22. A claim with no
 JetBrains source is marked as such. Pages were read with `WebFetch`, which passes each
-page through a summarising model. Quoted phrases come from that output and are not
+page through a summarising model. Quoted phrases are from that output and are not
 checked against the page text.
 
 The announcement covers "Air", "an open,
@@ -299,7 +298,7 @@ A task's work is split into agent roles: Planner turns an incoming task into an
 implementation-ready task brief, decomposing it if needed; Implementer changes code on a
 branch or pull request against that brief; Reviewer checks the result against scope and
 repository rules; QA proves the change works through verification and tests. One agent
-can hold all four roles in sequence, or a separate agent can hold each, run in parallel
+can take all four roles in sequence, or a separate agent can take each, run in parallel
 (no JetBrains page confirmed; `agentization-cookbook.html` returns 404, and the list is
 from independent coverage). Agents
 coordinate through repository artefacts, files and the pull request, not through shared
@@ -329,10 +328,10 @@ Two predictions follow from that incentive, neither confirmed by JetBrains:
   preview feature.
 - **A state backend outside git.** The open question recorded above, whether a task's
   brief and role history persist in git beyond ordinary commits, is also the seam a
-  vendor would use to hold a user to its own product: state that does not travel in the
-  git history does not travel to a competitor's tool either.
+  vendor would use to keep a user on its own product: state that is not in the git
+  history is not copied to a competitor's tool either.
 
-### Where JetBrains Air has converged, and where it hasn't
+### Where JetBrains Air converges with tsk, and where it does not
 
 - **Converged, on the same unit as Claude Code Projects**: a coordinator dispatching to
   a persistent worker, the same [Thread](../../domain/ubiquitous-language.md#thread)-shaped
@@ -355,7 +354,7 @@ Two predictions follow from that incentive, neither confirmed by JetBrains:
 
 ### Not locked to one execution vendor, at the worker layer
 
-Air bundles Claude, Codex, Gemini CLI and Junie as built-in agents, and reaches roughly
+Air bundles Claude, Codex, Gemini CLI and Junie as built-in agents, and runs roughly
 twenty more, including GitHub Copilot, OpenCode, Pi and Cline, through the Agent Client
 Protocol (ACP). ACP is co-developed by JetBrains and Zed, an open protocol, not one
 vendor's private interface: a new agent is added by pointing Air at it through an
@@ -377,7 +376,7 @@ Full reference: [cursor-projects.md](cursor-projects.md). Beta, announced 2026-0
 
 A project is one outcome in one repository. A coordinator agent produces a plan and
 delegates the work to subagents, cloud or local. It does not write code. Project files sync
-across every machine the agents use and hold research, artefacts and learned preferences.
+across every machine the agents use and contain research, artefacts and learned preferences.
 Subscriptions start work from pull requests, Slack or a schedule.
 
 - **Converged**: a coordinator that delegates and never edits code, workers handed only
@@ -388,7 +387,7 @@ Subscriptions start work from pull requests, Slack or a schedule.
   are not modelled. The same dimensional limit as beads, Claude Code Projects and Air.
 - **Substrate**: not added to "Locked to a substrate" above. Whether a project can run
   another vendor's agents is not documented.
-- **Availability**: not offered on Enterprise plans or with Privacy Mode (Legacy).
+- **Availability**: not offered to Enterprise customers or with Privacy Mode (Legacy).
 
 ## Orca
 
@@ -399,8 +398,8 @@ runs any command-line agent in parallel, each in its own git worktree, with term
 editor, a browser and a diff viewer in one window. It shows five agent states from
 terminal titles and agent hooks, and notifies when an agent finishes. An experimental
 orchestration layer adds Runs, Tasks with dependencies and statuses, Dispatches, supervised
-workers that report `worker_done`, and decision gates. A free-text checkpoint comment per
-worktree holds each agent's status.
+workers that report `worker_done`, and steps that wait for a decision. A free-text
+checkpoint comment per worktree has each agent's status.
 
 - **Converged**: a delegated worker reports an outcome with evidence and an unresolved
   blocker, which is close to tsk's mission report. A person gets a view of every agent's
@@ -430,10 +429,10 @@ Most of Orca's source was not read, and its claims are its own.
 
 1. **tsk as a research programme: yes.** Five independent designs have now converged on
    parts of tsk's model: beads on the architecture and the plan-replacement positioning,
-   Claude Code Projects and JetBrains Air both on Thread as the unit that holds context
-   and persists, Cursor Projects on a coordinator that delegates and keeps written
+   Claude Code Projects and JetBrains Air both on Thread as the unit that has its own
+   context and persists, Cursor Projects on a coordinator that delegates and keeps written
    state, and Orca on a supervised worker that reports an outcome and an unresolved
-   blocker. All five validate parts of tsk's underlying claim. None says anything
+   blocker. All five support parts of tsk's underlying claim. None of them shows anything
    about whether adding Product, Delta, and continuous Scale produces further measurable
    value. All five are credible baselines to measure the other three dimensions
    against, and this track continues regardless of the product outcome.
@@ -441,8 +440,8 @@ Most of Orca's source was not read, and its claims are its own.
    category has an incumbent with distribution, maturity, an evangelist, and most of
    tsk's architecture. Against Claude Code Projects it is worse: the incumbent is the
    platform tsk runs on, shipping orchestration as a native feature. JetBrains Air adds
-   a third incumbent with its own distribution, a JetBrains product line, and reach
-   across whichever agent a team already uses. Cursor Projects adds a fourth, shipped
+   a third incumbent with its own distribution, a JetBrains product line, and support
+   for whichever agent a team already uses. Cursor Projects adds a fourth, shipped
    inside an editor with its own user base. Orca adds a fifth, an open-source desktop
    app for parallel agents, whose site shows 83.5k beside its GitHub link. Entering any of
    these races confines tsk to Navigation, the one dimension all five already occupy.
@@ -456,7 +455,7 @@ Most of Orca's source was not read, and its claims are its own.
    the experiment tests that. The product decision waits on that experiment
    rather than being made now.
 
-Caveat in tsk's favour: beads' star count likely overstates independent, load-bearing
+Caveat in tsk's favour: beads' star count likely overstates independent
 adoption, since Gas Town/City is largely beads' own primary consumer. "Beads has won"
 overstates the case. The category is also visibly unsettled elsewhere (Linear's "issue
 tracking is dead" framing, the Block convergence). The product path is not closed, it is
@@ -467,12 +466,12 @@ not one to walk through on the Navigation axis.
 **Beads: technically symbiotic, not a partner to build strategy on.** The layers are
 compatible: tsk could use beads as its Navigation substrate, or as the baseline it
 measures against. But beads is an expanding project with momentum and an evangelist, and
-expanding incumbents tend to absorb adjacent value rather than leave room for a symbiote.
+expanding incumbents tend to absorb adjacent value rather than share it with a symbiote.
 Treat beads as a swappable substrate and a research baseline, not an ally.
 
 **Claude Code Projects: a dependency, not a symbiosis.** The swappable-substrate escape
-that applies to beads does not apply here. tsk's harness runs inside Claude Code, so the
-platform is not a layer tsk chooses. What the platform ships natively reduces what tsk
+that applies to beads does not apply here. tsk's harness runs inside Claude Code, so tsk
+has no choice of this platform. What the platform ships natively reduces what tsk
 needs to build, and also reduces what tsk can differentiate on within Navigation. Assume
 it keeps expanding along that axis.
 
@@ -486,11 +485,11 @@ question, what a tsk thread's actor looks like when it isn't a Claude Code sessi
 
 **Cursor Projects: a dependency only if adopted, like Air.** The coordinator, the cloud
 machines and the file sync are Cursor's. tsk's harness does not run inside Cursor, so it
-is a product to measure against, not one tsk is built on. Its documentation does not say
+is a product to measure against, not one tsk is built on. Its documentation does not state
 whether a project can run another vendor's agents, so it adds no evidence on the
 untested half of tsk's substrate question.
 
-**Unblocked: a symbiotic intelligence unit.** The two cover what the other leaves out.
+**Unblocked: a symbiotic intelligence unit.** Each covers a part that the other does not.
 Unblocked assembles input context from code, chat, tickets and production systems, which
 is the work of tsk's Intelligence term. tsk structures the mission, the briefing and the
 ledger, which Unblocked does not describe. It is not a dependency like Claude Code
@@ -516,11 +515,11 @@ layers. tsk delegates a mission with an objective and a briefing, and its Execut
 constraints section names the behavioural limits as text. OpenAPPA turns limits of that
 kind into contracts that an engine enforces before each tool call, with human approval
 through an authority and a deterministic decision. An authority's permitted marks
-resemble the scope of authority that a post would hold. OpenAPPA does not determine
+resemble the scope of authority that a post would have. OpenAPPA does not determine
 success criteria. Its benchmark shows one method for an objective check: score the
 observable side effects against a list of expected and forbidden ones. Three limits apply.
-No link between the two exists and none was tested. OpenAPPA governs data flow, and its
-documentation says it does not label actions as destructive, irreversible or out of scope,
+No link between the two exists and none was tested. OpenAPPA governs the transfer of data between tools,
+and its documentation states that it does not label actions as destructive, irreversible or out of scope,
 so it covers part of what Execution constraints name. The project is a preview and an RFC
 whose interfaces "may break without shims". Treat it as a candidate enforcement component
 beneath tsk's constraints, and as a source of the checkable-objective method. See
@@ -564,11 +563,11 @@ Jim's proposal, 2026-10-09, after the Dolt experiment and the Memory Beads readi
 rather than compete at the infrastructure layer, adopt Dolt, or even beads. The
 reasons given: both are established; it is the same direction as ADR 0013 took for
 Mission Control; tsk keeps its uniqueness and builds on platforms with momentum;
-"built on beads, plugs into Orca" reaches an existing market; and if tsk's features are
+"built on beads, plugs into Orca" sells to an existing market; and if tsk's features are
 absorbed into those platforms, that is still a win. A seam would allow either a beads
 backend or native Dolt.
 
-### Where the reasoning holds
+### Where the reasoning is sound
 
 - The direction matches ADR 0013. The git ledger was a zero-dependency choice, not a
   bid to compete with Dolt.
@@ -586,8 +585,9 @@ backend or native Dolt.
 2. **On beads, tsk's model is a guest in beads' schema.** The 2026-09-20 analysis found
    the conflicts: a status enum against an objective as a checkable state, fixed epic
    tiers against continuous Scale, mutable rows against append-only continuation.
-   Beads' charter prefers the `metadata` column to new first-class fields. Memory
-   Beads reaching into Product and Delta is the absorption this document warned of.
+   Beads' charter directs contributors to the `metadata` column, not to new first-class
+   fields. Memory Beads, with its parts of Product and Delta, is the absorption that the
+   symbiosis section above warns of.
 3. **The beads to build on is not upstream.** Memory Beads, BDP and versioning are on
    `versioned-beads/beads`. BDP serves reads only. Writes, history over HTTP,
    user-installed Types and cross-Scope References are ahead.
@@ -595,12 +595,12 @@ backend or native Dolt.
    actors push to a git ledger from anywhere with compare and swap. Native Dolt over
    git keeps that model.
 5. **Beads cannot push from a cloud session.** It sets its Dolt remote on
-   `refs/dolt/data`, which the proxy refuses. Dolt direct works through `--ref`.
+   `refs/dolt/data`, and the proxy rejects a push to that ref. Dolt direct works through `--ref`.
 6. **Beads' market may be the wrong one.** Its users chose a lightweight tracker. tsk
    adds missions, briefings and objectives. Whether they want that is what the
    token-saving experiment tests, and it has not run.
 7. **The substrate question follows the value question.** ADR 0012 retired `tskd` on
-   2026-10-04 to reach a zero-dependency ledger. The recorded pain since is a missing
+   2026-10-04 to get a zero-dependency ledger. The recorded pain since is a missing
    lock on same-clone writes, which no store fixes.
 8. **A binary store needs a reading path.** Agents open `index.md` and the briefings
    today. Either a projection or `tsk` commands that print them must exist first.
@@ -626,53 +626,53 @@ Position: no change to the three-part verdict. The store is below the model. Bea
 the system closest to modelling all four dimensions, and it is a substrate to re-check
 once BDP writes and Types are upstream, not a platform to build on today.
 
-## Surfaces: the core of tsk stays independent
+## User interfaces: the core of tsk stays independent
 
 Jim, 2026-10-10, closing the research of 2026-10-05 to 2026-10-10: tmux, Herdr, Rex,
-Orca, Efrit and Mission Control are surfaces, the places where a human sees and steers agent
+Orca, Efrit and Mission Control are user interfaces, the places where a human sees and steers agent
 work. They are not where the work is modelled. This is the case for keeping the core
 of tsk independent of every one of them.
 
-| Surface | What it is | Source | Maturity | Platforms | How it learns an agent's state |
+| Interface | What it is | Source | Maturity | Platforms | How it gets an agent's state |
 |---|---|---|---|---|---|
 | tmux | Multiplexer inside any terminal | Open. ISC, C | First commit 2007-07-09. Release 3.8. Two people write nearly all of it. No company | Unix | It does not |
 | Herdr | Multiplexer for agents inside any terminal | Open. Apache 2.0, Rust | 0.9.3. $6M seed, September 2026 | macOS, Linux, Windows | Reads the screen against a manifest per agent, or takes an integration's reports |
 | Rex | Terminal and multiplexer in one app, with a server | No source published. Free, self-hostable | Public beta from 2026-10-05, by invitation | macOS client only. Linux and Windows servers not shipped | The program reports it, through OSC 7501 |
 | Orca | Desktop app for parallel agents in worktrees | Open. MIT, Electron | 1.4.214 | macOS, Windows, Linux, with phone companions | Terminal titles and agent hooks |
-| Efrit | An agent inside Emacs, and a channel by which other agents drive a live Emacs | Open. Apache 2.0, Emacs Lisp | 0.4.1. First commit 2025-07-23. One author wrote 620 of 632 commits | Wherever Emacs runs | It is the agent: status and TODOs show in its buffer. For other agents it returns editor state after every command |
+| Efrit | An agent inside Emacs, and a channel by which other agents control a live Emacs | Open. Apache 2.0, Emacs Lisp | 0.4.1. First commit 2025-07-23. One author wrote 620 of 632 commits | Wherever Emacs runs | It is the agent: status and TODOs show in its buffer. For other agents it returns editor state after every command |
 | Mission Control | A tmux layout with a list of Claude sessions | Jim's own, in `jimbarritt/tsk-mission-control` | Built standalone | macOS | Claude Code hooks write a state file |
 
 What the research found:
 
-1. **Six surfaces give six answers to one question**: which agent needs a person.
-   A core that depended on one surface would inherit its answer, and its limits.
+1. **Each of the six interfaces detects in its own way which agent needs a person.** A
+   core that depended on one interface would inherit its detection, and its limits.
 2. **They differ most on openness and maturity.** tmux is open, nineteen years old and
    in every package list. Rex is closed and not yet public, and by its own words it
    replaces the terminal and the multiplexer. A core tied to Rex would depend on a beta
    whose server and client have no published licence.
 3. **None models a mission, an objective, a ledger or thread continuation.** Each ends
    where the agent's terminal ends.
-4. **The newer surfaces share a small interface.** Herdr and Rex expose a CLI that
-   prints JSON, and Efrit's channel answers each command with a JSON envelope that holds
-   the current state. Herdr, Rex and Orca each take a status that a program or a hook
+4. **The newer interfaces share a small API.** Herdr and Rex expose a CLI that prints
+   JSON, and Efrit's channel returns a JSON envelope with the current state after each
+   command. Herdr, Rex and Orca each take a status that a program or a hook
    reports. `tsk` meets both: the binary, ADR 0013's adapter per harness, and OSC 7501,
    which Jim adopted on 2026-10-09.
 
 Position: the core of tsk is the mission model, the ledger and thread continuation,
-reached through the `tsk` binary. A surface attaches through an adapter that calls the
-binary, and tsk reads no file that a surface writes (ADR 0013). ADR 0014 applies the
+used through the `tsk` binary. An interface attaches through an adapter that calls the
+binary, and tsk reads no file that an interface writes (ADR 0013). ADR 0014 applies the
 same rule below the model: the core does not depend on one store either. tmux stays the
 base for Mission Control. Herdr, Rex and Orca are places people can choose to use tsk.
 No change to the three-part verdict. Efrit is also the closest
-example of the surface that is its own harness: it runs the agent loop in Emacs, so a
-Claude Code plugin does not attach to it. A person or another agent reaches it through
-its channel, as they reach `tsk` through the binary.
+example of the interface that is its own harness: it runs the agent loop in Emacs, so a
+Claude Code plugin does not attach to it. A person or another agent uses it through its
+channel, as they use `tsk` through the binary.
 
 Yegge's own working stack, from replies read on 2026-10-10: tmux, Emacs inside it, and
 agents in eat terminal buffers inside Emacs. Rex is a trial alongside that stack, to
 replace tmux "when it gets more stable. It's definitely buggy right now." That is Emacs as the top-level host with terminals
 inside it, the same shape as Orca.
-One user, three of these surfaces in use and a fourth on trial: the case for a core
+One user, three of these interfaces in use and a fourth on trial: the case for a core
 that attaches to any of them and depends on none.
 
 Research: [efrit.md](efrit.md).
@@ -715,32 +715,32 @@ Position:
 - Pi Durable is a harness. Under ADR 0013, tsk works in it through an adapter that calls
   the `tsk` binary. It is also a possible runtime beneath a tsk actor. No adapter was
   written or tried.
-- The gap Pi Durable leaves is the gap tsk fills: continuity across machines and
-  actors, and a model of what the work is. A single-process storage owner does not
-  carry a thread from one clone to another.
+- The gap in Pi Durable is the gap tsk fills: continuity across machines and actors,
+  and a model of what the work is. A single-process storage owner cannot continue a
+  thread on another clone.
 - `replay: "safe"` is a candidate for a `tsk` command contract: a per-command statement
   of whether a second call is harmless.
 - No change to the three-part verdict.
 
 Research: [pi-durable.md](pi-durable.md).
 
-### Position of Jim, 2026-10-16: the mechanics moves into harnesses
+### Position of Jim, 2026-10-16: the mechanics becomes part of the harness
 
-Jim's position, from the Pi Durable research: durable and proactive running is becoming
-a feature of the harness. It is a layer underneath tsk. tsk keeps its own continuation,
+Jim's position, from the Pi Durable research: harnesses now add durable and proactive
+running as a feature. It is a layer underneath tsk. tsk keeps its own continuation,
 and implements durable and proactive behaviour only as a shim for harnesses that lack it.
 The main point of tsk is the semantic layer. The mechanics is mechanics.
 
-Evidence in this document and in [durable-and-proactive-agents-provenance.md](durable-and-proactive-agents-provenance.md):
+Evidence in this analysis and in [durable-and-proactive-agents-provenance.md](durable-and-proactive-agents-provenance.md):
 
 - Temporal, Microsoft and Inngest each built the durable mechanism into an agent
   engine, between July 2025 and May 2026.
 - Pi Durable builds checkpoints, forks, handoff and exactly-once submission into the
   harness itself.
-- Jim noted that Claude has goals, and that Orca and others are starting to gain these
+- Jim noted that Claude has goals, and that Orca and others add these
   features. Those two claims were not checked here.
 
-This is the same direction as the surfaces section and ADR 0013 (tsk works in any
+This is the same direction as the user interfaces section and ADR 0013 (tsk works in any
 harness) and ADR 0014 (a storage seam). A harness provides the mechanics, and tsk
 supplies the model of the work: mission, objective, actor, report, and the four
 dimensions. It is a position, not a decision. Open: what tsk's own continuation does
@@ -763,8 +763,8 @@ how the seam names a transport that is not git. It is recorded in the ledger.
 
 ## Net position
 
-Do not stop tsk. Do not ship tsk as a head-to-head tracker or orchestrator. Do not plan
-around beads' goodwill, and do not plan around the platform leaving a gap. Run the
+Do not stop tsk. Do not ship tsk as a head-to-head tracker or orchestrator. Do not depend
+on beads' goodwill, and do not depend on the platform leaving a gap. Run the
 token-saving experiment to de-risk the four-dimension claim, keep the research track
 moving regardless of the product outcome, and let the experiment's data decide the
 product question.
@@ -777,14 +777,14 @@ what a Projects thread does natively. Check before building it.
 
 The continuation is not provided, and it is M-BOOT-03's own objective line: "a second
 unattended run resumes the first run's thread from that state rather than starting the
-mission over." Nothing described in Projects does that. The coordinator reaches the same
-end by starting a fresh thread on a fresh piece, which is starting over by construction
+mission over." Nothing described in Projects does that. The coordinator gets the same
+result by starting a fresh thread on a fresh piece, which by construction starts over
 rather than resuming. That half is tsk's actual contribution to the mission and stands.
 
 A second consequence, not yet actioned anywhere: substrate independence is tsk's stated
 premise and an untested one. Worth a mission at some point that runs a tsk thread with a
-non-Claude-Code actor, to find out whether the domain model actually holds that
-abstraction or only claims to.
+non-Claude-Code actor, to find out whether the domain model has that
+abstraction or only claims it.
 
 ## Jev: a related component, not a competing system
 
@@ -798,13 +798,13 @@ evaluator mechanism behind a verification loop.
 evaluator as "a small, separate model (Haiku by default on the Claude API)" that reads
 a condition against the transcript and returns not-yet-met, met, or impossible. That is
 an LLM-as-judge pattern: a small model generating a verdict as text. Jev-as-a-Judge, also
-covered in `typesafe-jev-classifier.md`, answers the same kind of question, whether a
-condition holds against a given state, through a typed classifier instead: `Choice`,
+covered in `typesafe-jev-classifier.md`, returns the same kind of verdict, whether a
+condition is true of a given state, through a typed classifier instead: `Choice`,
 `Score` or `Noul`, with a probability and confidence, not generated text. Same job,
 different mechanism.
 
 Not a component decision. `/goal`'s evaluator is Claude Code's own mechanism, not one
-tsk built or could swap independently. Where this becomes live for tsk is if tsk ever
+tsk built or could swap independently. This applies to tsk if tsk ever
 needs a verification-loop or condition-evaluation mechanism of its own, rather than
 depending on `/goal`, at which point a typed classifier is one candidate shape for that
 evaluator, worth weighing against a small LLM judge on the axes
@@ -815,7 +815,7 @@ evaluator, worth weighing against a small LLM judge on the axes
 Research: [langsmith.md](langsmith.md). Announced 2026-09-24.
 
 LangSmith is LangChain's platform for tracing, evaluating and improving agents. It is not
-a coordinator-and-threads system, so it sits beside Jev and not in the systems-assessed
+a coordinator-and-threads system, so it is listed beside Jev and not in the systems-assessed
 list. It observes agents that run elsewhere. Three items announced together intersect
 tsk:
 
@@ -870,10 +870,10 @@ intersect tsk:
 Three points of contact:
 
 1. **Authority per action class is shipped.** The
-   [Post](../../domain/ubiquitous-language.md#post) placeholder holds authority and
+   [Post](../../domain/ubiquitous-language.md#post) placeholder has authority and
    standing instructions, and the
    [energy-constraints reference](underlying-energy-constraints-of-running-a-factory.md)
-   lists escalation and a comms medium as conditions for humans to hold posts. Dots
+   lists escalation and a comms medium as conditions for humans to fill posts. Dots
    ships the first of these as owner-set rules, and the third as Slack and Teams.
 2. **The authority is attached to the dot.** No source read describes a position that a
    different dot could be appointed to, which is the separation Post makes between a
@@ -900,7 +900,7 @@ systems assessed. Three items intersect tsk:
 - **Risk-based review**: a risk class selects the review path. Opted-in areas auto-approve
   low-risk pull requests. A human approves before deploy.
 - **A deploy agent that watches production**: it sets the signals that mean success or
-  failure and builds its own dashboard. This is the shape of tsk's Delta Gate.
+  failure and builds its own dashboard. This is the shape of tsk's `Delta Gate`.
 - **Production signals start work**: Perf Factory feeds latency regressions back as new
   work. tsk has no object for a signal.
 
@@ -950,10 +950,10 @@ backs the headline comparison.
 
 Research: [openappa.md](openappa.md). Version 0.30.0, 2026-09-30.
 
-OpenAPPA is an open-source (MIT) information-flow policy engine from Archestra. Before
+OpenAPPA is an open-source (MIT) information-transfer policy engine from Archestra. Before
 each tool call it checks the data the agent has read against the destination, using
 declarative TOML contracts, and the decision is deterministic. A blocked call returns
-remedy plans: clean the data, get approval from an authority (a person, a service or an
+remedies: clean the data, get approval from an authority (a person, a service or an
 LLM), or isolate the read in a subagent. It plugs into Claude Code through hooks, into
 agents through an SDK, and into Archestra's LLM proxy. It models no mission, thread or
 ledger, so it is listed beside Unblocked and Dots, not among the systems assessed. Four
@@ -973,7 +973,7 @@ items intersect tsk:
   proposes a policy change, and a person reviews it. tsk's mission report records what the
   briefing failed to give.
 
-Position: no change to the three-part verdict below. OpenAPPA governs data flow per tool
+Position: no change to the three-part verdict below. OpenAPPA governs the transfer of data per tool
 call, and it has no work record, no handover and no success criterion in the product.
 Archestra's benchmark figures are its own. The full paper and the website were not read.
 
@@ -983,10 +983,10 @@ Research: [copilot-dynamic-workflows.md](copilot-dynamic-workflows.md). Public p
 announced 2026-10-01.
 
 A dynamic workflow is a program, inside a Copilot extension, that defines the steps of a
-task and when agents take part. Code holds the order, the branching and the handoffs.
+task and when agents take part. Code defines the order, the branching and the handoffs.
 Agents do the parts that need judgement. It runs in Copilot CLI, the Copilot app and the
 SDK, and from a shell with `copilot workflow run`. Claude Code ships a feature with the
-same name. Both move the plan of a multi-agent task into code. It models no mission,
+same name. Both put the plan of a multi-agent task in code. It models no mission,
 thread or ledger, so it is listed beside OpenAPPA and Unblocked, not among the systems
 assessed. Four items intersect tsk:
 
@@ -1014,11 +1014,11 @@ record or continuation entry.
 ## Claude Code dynamic workflows and ultracode: the executor under a tsk task
 
 Research: [claude-code-dynamic-workflows.md](claude-code-dynamic-workflows.md). Raised by
-Jim, 2026-10-22, who saw in ultracode a combination with tsk. A shipped feature, on all
-paid plans, read in full on 2026-10-22.
+Jim, 2026-10-22, who saw in ultracode a combination with tsk. A shipped feature, for every
+paid subscription, read in full on 2026-10-22.
 
 A dynamic workflow is a JavaScript script that a runtime executes in the background. It
-starts many subagents, holds the loop and the intermediate results in script variables,
+starts many subagents, keeps the loop state and the intermediate results in script variables,
 and returns one answer to Claude's context. Ultracode is the setting that makes Claude
 write one for each substantive task in a session. It models no mission, thread or ledger,
 so it is listed beside Copilot dynamic workflows, not among the systems assessed. Five
@@ -1028,10 +1028,10 @@ items intersect tsk:
   and in a cloud session after the VM is reclaimed. The script is a file on one machine.
   tsk's continuation entry is in the ledger and any later actor reads it.
 - **A checker that tsk lacks.** The page's own pattern is independent agents that review
-  each other's findings. tsk holds objectives as records with a `met` flag and checks
+  each other's findings. tsk stores objectives as records with a `met` flag and checks
   none. A saved workflow could set `met` only when two agents confirm.
 - **Delivery through the plugin.** A plugin ships workflows in a `workflows/` directory
-  at its root, run as `/<plugin>:<name>`. The tsk plugin can carry them with no change to
+  at its root, run as `/<plugin>:<name>`. The tsk plugin can include them with no change to
   the binary.
 - **Stage boundaries.** There is no mid-run input. The page advises one workflow per
   stage with the sign-off between them, which is the boundary tsk's thread pause and
@@ -1046,7 +1046,7 @@ says each request uses more tokens, and that on a subscription plan these draw o
 limits.
 
 Position: no change to the three-part verdict below. This supports the position Jim
-recorded on 2026-10-16: the orchestration mechanics move into the harness, and tsk keeps
+recorded on 2026-10-16: the orchestration mechanics become part of the harness, and tsk keeps
 the semantic layer. Claude Code supplies the script, the runtime and the resume. tsk
 supplies the mission, the objective and the continuation across actors. Nothing here was
 run.
@@ -1066,14 +1066,14 @@ listed beside Jev, not among the systems assessed.
 
 Jepsen, Kyle Kingsbury's Clojure library, does the same kind of job on real nodes. A
 generator gives operations to clients, a nemesis injects faults, and a checker reads
-the recorded history. Antithesis moves that loop into one deterministic environment.
+the recorded history. Antithesis runs that loop in one deterministic environment.
 
 Jev does a different job. Its overlap with Antithesis is the check itself. That is the
 same point where Jev intersects tsk: the evaluator behind a verification loop.
 
 - **Antithesis** checks an assertion written in code, true or false in each timeline,
   against a system under generated load and faults.
-- **Jev** returns a probability that a condition holds on one given state, through a
+- **Jev** returns a probability that a condition is true of one given state, through a
   typed question.
 
 For tsk, a deterministic check fits a property of the binary, such as the ledger's
@@ -1092,7 +1092,7 @@ Two items intersect tsk:
   writes a starting set of properties from a system's architecture. tsk has no
   equivalent artefact.
 
-The word "ledger" is shared and nothing else. Formance's ledger holds money. tsk's
+The word "ledger" is shared and nothing else. Formance's ledger records money. tsk's
 ledger is a git branch of mission state.
 
 Position: no change to the three-part verdict below. Antithesis and Jepsen test the
@@ -1107,7 +1107,7 @@ Research: [herdr.md](herdr.md). Version 0.9.3, read 2026-10-06. Open source (Apa
 Herdr is a terminal multiplexer for coding agents, one Rust binary that runs inside an
 existing terminal. A background server owns the terminals, and the TUI, the CLI and
 plain SSH are clients. It keeps tmux's model, with the `ctrl+b` prefix, detach and
-reattach, and adds three things:
+reattach, and adds the following:
 
 - **Agent state per pane**: idle, working, blocked or done, read from the screen by a
   detection manifest per agent, or reported by the agent or an integration. State rolls
@@ -1115,7 +1115,7 @@ reattach, and adds three things:
 - **An API agents use**: a CLI and a socket API that print JSON. One agent starts
   another in a pane, prompts it, waits until it is blocked or idle, and reads its
   output. tmux offers panes and text, and a script polls them.
-- **Restore after a restart**: the layout comes back from `session.json`, and supported
+- **Restore after a restart**: the layout is restored from `session.json`, and supported
   agents restart with their own resume command, such as `claude --resume <id>`.
 
 It models no mission, objective, briefing or ledger, so it is listed beside Antithesis
@@ -1133,18 +1133,18 @@ and Jev, not among the systems assessed. Two items intersect tsk:
 Position: no change to the three-part verdict below. Herdr occupies the layer below a
 task: where an agent's terminal runs and what state it is in.
 
-## Rex: a terminal that asks programs to report their state
+## Rex: a terminal that reads the state that programs report
 
 Research: [rex.md](rex.md). Public beta from 2026-10-05, macOS only, by invitation.
 Free and self-hostable, from Superlogical, Mitchell Hashimoto's company, funded by
 Notable Capital and Amplify Partners.
 
 Rex is a terminal multiplexer that is also the terminal, built on libghostty. A server
-holds sessions, and the macOS app, the web and other devices attach. It is listed
+keeps sessions, and the macOS app, the web and other devices attach. It is listed
 beside Herdr, not among the systems assessed: it models no mission, objective, actor or
-ledger. It differs from Herdr on one point that matters to tsk:
+ledger. It differs from Herdr on one point that affects tsk:
 
-- **How a terminal learns an agent's state.** Herdr reads the screen against a manifest
+- **How a terminal gets an agent's state.** Herdr reads the screen against a manifest
   per agent. Rex publishes the Program Status Protocol, OSC 7501, and waits for programs
   to report `idle`, `working`, `blocked` with a kind, `done` or `error`. Rex names the
   screen-reading approach as the heuristic it replaces.
@@ -1159,7 +1159,7 @@ ledger. It differs from Herdr on one point that matters to tsk:
 Two items intersect tsk. A tsk actor that emits OSC 7501 appears in Rex's session
 picker with no Rex-specific code, and Mission Control could read the same sequence
 instead of its own state file. And Superlogical's second and third plan parts are a
-competitor to watch at the ledger layer, once they say what they hold.
+competitor to watch at the ledger layer, once Superlogical publishes what they contain.
 
 Position: no change to the three-part verdict. Rex is a harness under ADR 0013, and
 tsk works in it today as plain terminals do. OSC 7501 is the first open protocol read
@@ -1185,21 +1185,21 @@ repo that several code repos use.
 
 It models no mission, objective, actor, thread or report, so it is listed beside
 Herdr and Antithesis, not among the systems assessed. It is the first system read that
-models two of the dimensions the five assessed systems leave out:
+models two of the dimensions that the five assessed systems do not model:
 
 - **Product**: a spec requirement is a persistent description of what the product does,
-  held for the life of the product. This is tsk's Product capability. Scenarios match
+  kept for the life of the product. This is tsk's Product capability. Scenarios match
   acceptance criteria. OpenSpec gives a requirement no health state.
 - **Delta**: a change describes the diff to the specs, not the whole system. Archiving
   folds it into the record of what the product does. This is tsk's Delta, with a
-  different gate. tsk's `Delta Gate` opens when the delta deploys to production and the
+  different check. tsk's `Delta Gate` opens when the delta deploys to production and the
   system is healthy. OpenSpec archives when a person runs `/opsx:archive`.
 
 Three more items intersect tsk:
 
 - **A store resembles the nexus**: planning in a separate git repo, registered by name
   on each machine, and shared by push and pull that OpenSpec never runs itself. A store
-  holds the specs and changes. A tsk nexus holds an index of repos, and each repo keeps
+  contains the specs and changes. A tsk nexus contains an index of repos, and each repo keeps
   its own ledger.
 - **A plan, not a briefing**: a proposal and a design say why, what and how. Neither
   states an objective as a checkable end state, decision authority or constraints.
@@ -1276,7 +1276,7 @@ and tsk has part of four of its six requirements.
 Sources: Yegge's essay
 ["Seats and Sunsets"](https://yegge.ai/essays/seats-and-sunsets/), on Wheelhouse, his
 harness for the game Wyvern, and his essay
-["The Shape of Things to Come, Part 1: The Continuous Thunderdome"](https://yegge.ai/essays/the-shape-of-things-to-come/),
+["Part 1: The Continuous Thunderdome"](https://yegge.ai/essays/the-shape-of-things-to-come/),
 which describes Wheelhouse's crew and agent categories.
 
 A seat is a role-based position with persistent context, a defined scope of authority, a
@@ -1290,38 +1290,38 @@ Hypothesis: [Actor](../../domain/ubiquitous-language.md#actor) plus
 breakdown of a seat into tsk's terms, one object split into two.
 
 Decision, 2026-09-21: deferred. The bootstrap runs in supervised mode, with one human
-holding every position, so the position and the person are not yet separate. The concept
+in every position, so the position and the person are not yet separate. The concept
 enters the design when agents run autonomously and manage each other. Its tsk name is
 settled as [Post](../../domain/ubiquitous-language.md#post), a placeholder in the
 ubiquitous language; the doctrine mapping below is the reason for the name.
 
-### What each side holds
+### What each side records
 
-tsk's Actor holds identity and cardinality: whoever holds a thread, human or agent
-session, with the rule that a human holds many threads while an agent session is bound to
-one, and a different session picking up a thread later is a different actor holding it.
-Thread continuation holds a snapshot at each pause: the mission briefing link, the task
+tsk's Actor has identity and cardinality: whoever has a thread, human or agent session,
+with the rule that a human has many threads while an agent session is bound to one, and a
+different session that picks up a thread later is a different actor on it. Thread
+continuation records a snapshot at each pause: the mission briefing link, the task
 in progress, a written account of what's next, and a written-by field naming which actor
 wrote the entry, forming an audit trail of who touched the thread.
 
-Between them, Actor answers who holds the thread, and Thread continuation answers what
-happened on it so far. Neither holds a scope of authority, and neither caches a trust or
+Between them, Actor records who has the thread, and Thread continuation records what
+happened on it so far. Neither has a scope of authority, and neither caches a trust or
 permission decision the way a seat does. tsk's model today has no place that stores "this
 actor may act on this without re-checking."
 
-### Where the breakdown holds, and where it doesn't
+### Where the breakdown fits, and where it does not
 
-Holds: a seat's history component maps to Thread continuation's append-only store, and
+Fits: a seat's history component maps to Thread continuation's append-only store, and
 its identity component maps to Actor. Both systems separate who does the work from the
 record of what was done, even though tsk splits it into two named parts and Wheelhouse
-holds it in one.
+keeps it in one.
 
-Doesn't hold: a seat is tied to a named, standing role, such as the marshal or the
-seneschal in Wheelhouse's crew (described in "The Shape of Things to Come"), that persists across many threads and missions. tsk's
+Does not fit: a seat is tied to a named, standing role, such as the marshal or the
+seneschal in Wheelhouse's crew (described in the Continuous Thunderdome essay), that persists across many threads and missions. tsk's
 Actor is thread-scoped by definition: an agent session is bound to one thread, and picking
 up a different thread makes it, by the model's own cardinality rule, a different actor
-holding that thread, not the same actor changing seats. tsk has no concept of a role that
-outlives a single thread's binding and holds authority across missions. Building that
+on that thread, not the same actor changing seats. tsk has no concept of a role that
+outlives a single thread's binding and has authority across missions. Building that
 would mean either loosening Actor's cardinality rule or adding a new part above it, not
 just relabelling Thread continuation.
 
@@ -1334,7 +1334,7 @@ what already exists.
 Doctrine has the concept under another name, and splits it more finely than "seat" does.
 Sources and the verification caveat are in
 [military-doctrine-sources.md](../military-doctrine-sources.md): the terms the repo already
-cites were gathered in earlier sessions, and the ones added here come from the same body of
+cites were gathered in earlier sessions, and the ones added here are from the same body of
 vocabulary, not from primary text opened inside the sandbox, whose proxy blocks `jcs.mil`.
 
 Already cited in `mission-model.md`, and why each falls short of the seat:
@@ -1344,9 +1344,9 @@ Already cited in `mission-model.md`, and why each falls short of the seat:
   is an individual position, one level down. This is why "role" is rejected as the tsk
   name: it collides with doctrine's sense.
 - **Standing commitments** and **steady-state** (JDP 0-01) describe enduring work, not the
-  position that holds it. This is the standing-mission conversation recorded under mission
+  position responsible for it. This is the standing-mission conversation recorded under mission
   categories in `mission-model.md`: adjacent, not the same thing.
-- The **mission essential task list**, held per unit and derived from anticipated
+- The **mission essential task list**, kept per unit and derived from anticipated
   missions, is the nearest cited term for what a position must be able to do.
 
 Not yet cited in the repo, and the terms that do fit:
@@ -1356,10 +1356,10 @@ Not yet cited in the repo, and the terms that do fit:
   itself.
 - **Command** (DoD Dictionary): "the authority that a commander lawfully exercises over
   subordinates by virtue of rank or assignment". Authority is vested by assignment to the
-  position, not held by the person. This is the property the essay is built on: the trust
-  lookup is a lookup because the position holds the authority.
+  position, not in the person. This is the property the essay is built on: the trust
+  lookup is a lookup because the position has the authority.
 - **Standing orders** and **standing operating procedures**: instructions attached to a
-  position that persist across whoever fills it. "The Shape of Things to Come"
+  position that persist across whoever fills it. The Continuous Thunderdome essay
   describes Wheelhouse's third category of coding agent as "role agents with standing
   orders", so Yegge's writing already uses this vocabulary.
 - The **table of organisation**: the authorised set of posts, the structure they sit in.
@@ -1399,7 +1399,7 @@ collision above).
 - [herdr.md](herdr.md): the full reference for the Herdr section above, with tmux, the
   Mission Control task and tsk compared.
 - [efrit.md](efrit.md): the full reference for Efrit, an agent inside Emacs and a
-  channel for other agents, in the surfaces section above.
+  channel for other agents, in the user interfaces section above.
 - [rex.md](rex.md): the full reference for the Rex section above, with tmux, Herdr, the
   Mission Control task and tsk compared, and the Program Status Protocol.
 - [openspec.md](openspec.md): the full reference for the OpenSpec section above, with a
@@ -1407,8 +1407,8 @@ collision above).
 - [pi-durable.md](pi-durable.md): the full reference for the Pi Durable section above,
   with a comparison against tsk's thread continuation, ledger and storage seam.
 - [durable-and-proactive-agents-provenance.md](durable-and-proactive-agents-provenance.md):
-  where the terms "durable agents" and "proactive agents" in the Pi Durable section come
-  from.
+  the origin of the terms "durable agents" and "proactive agents" in the Pi Durable
+  section.
 - [beads-as-backing-store-analysis.md](beads-as-backing-store-analysis.md): a schema-level
   sharpening of the Beads section above, on whether beads could be tsk's official ledger,
   updated 2026-10-09 for Memory Beads, the Beads Protocol and versioning.
