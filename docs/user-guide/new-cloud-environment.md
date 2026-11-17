@@ -16,6 +16,7 @@ API call creates one. See
 | `tsk` and `dolt` on `PATH` | The environment's setup script (step 3). |
 | Access to the GitHub release downloads | The environment's network access setting (step 2). |
 | The `tsk` and `swe` plugins | The setup script, at user scope (step 3). |
+| The `swe` pre-commit check in each repo | A `SessionStart` hook in the user settings, which the setup script writes (step 3). |
 | `$TSK_LEDGER_WT` and the ledger store | `tsk thread session-start`, run by the plugin's `SessionStart` hook and by the repo's hook when the repo has one. |
 | The nexus URL, for a repo whose ledger is in a nexus | The `--nexus <nexus url>` option of the setup script (step 3). |
 | Access to the nexus repo | The agent attaches it with the `add_repo` tool on the first turn. See [session-start.md](session-start.md#a-cloud-session). |
@@ -86,7 +87,7 @@ curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup
 entries to `~/.claude/settings.json` that pre-approve the `add_repo` tool. A new session
 has only the opened repo attached, so the agent attaches the nexus repo with `add_repo` on
 its first turn, and `tsk` fetches it. The account's GitHub connection needs read and push
-access to the nexus repo. The URL differs per user, so the fetched script does not hold
+access to the nexus repo. The URL differs per user, so the fetched script does not contain
 it. See [session-start.md](session-start.md#a-cloud-session) for the first turn, step by
 step.
 
@@ -110,6 +111,13 @@ regeneration. The plugin's own hook installs `dolt` and `tsk` when they are abse
 the ledger and prints the context. A failed plugin step prints a `WARNING:` line and does
 not stop the script. This repo's own `SessionStart` script installs no plugin: it adds a
 `WARNING:` line to the context when `tsk` or `swe` has no user-scope install.
+
+The script also writes `~/.claude/hooks/swe-install-commit-hook.sh` and a `SessionStart`
+entry for it in `~/.claude/settings.json`. At each session start the hook installs the
+`swe` pre-commit check in the session's repo and in each git checkout beside it, when the
+check is not there. A clone has no `.git/hooks` from GitHub, so every new clone gets the
+check this way. The step is interim (M-TSK-ENV T-44): a switch for tsk's optional features
+is to replace it.
 
 Every download is checked against a SHA-256 before it is installed:
 
@@ -170,7 +178,7 @@ The setup script needs no Rust toolchain and runs no `cargo install`: `tsk`, `do
 `just` are prebuilt downloads. The `cargo` check and the `cargo_installed=yes|no` field of
 the earlier stamp line are gone with the build.
 
-A repo can also carry its own `SessionStart` hook: `tsk install-plugin claude-cli` writes
+A repo can also have its own `SessionStart` hook: `tsk install-plugin claude-cli` writes
 `tsk thread session-start --install-plugin claude-cli` to `.claude/settings.json`. In a
 cloud session that hook installs the plugin at project scope and upgrades `tsk` before the
 session start. See [installation.md](installation.md#installation). Do not use it in an environment whose setup script installs the plugins at user scope:
