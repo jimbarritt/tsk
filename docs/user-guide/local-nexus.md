@@ -55,7 +55,21 @@ path. tsk stores the address in its user config. It keeps a bare clone of the ne
 `~/.local/state/tsk/nexus/`, fetches into that clone on each command, and pushes ledger
 changes back to the address.
 
-## 4. Create each repo's ledger
+## 4. Install the plugins
+
+```bash
+claude plugin install tsk@jimbarritt-claude-plugins --scope user
+claude plugin install swe@jimbarritt-claude-plugins --scope user
+```
+
+Install the plugins before the first Claude session in a repo: the session uses the tsk
+skills to create the ledger and to import old plan files.
+
+## 5. Create each repo's ledger
+
+Create a repo's ledger by hand, or let a Claude session create it.
+
+### By hand
 
 Run this in each repo that tsk manages:
 
@@ -80,12 +94,18 @@ git -C ~/.local/share/tsk/nexus.git for-each-ref
 
 The nexus has the branches `ledgers/<repo-id>` and `ledgers/<repo-id>-docs`.
 
-## 5. Install the plugins
+### With a Claude session, which can also import old plan files
 
-```bash
-claude plugin install tsk@jimbarritt-claude-plugins --scope user
-claude plugin install swe@jimbarritt-claude-plugins --scope user
-```
+1. In the repo, start `claude`. Use plain `claude` for the first session, not
+   `tsk harness new`: `harness new` lists the threads, robots and missions of the ledger,
+   and the repo has no ledger yet. This case is untested.
+2. At session start the agent runs `tsk ledger status`, which names `tsk ledger init` as the
+   next step. The agent then runs the `/tsk:init-ledger` skill, which prompts you for the
+   place to keep the ledger and for the prefix. Choose the nexus.
+3. To import old plan files, ask the agent to read `tsk guide import` and follow it. By the
+   guide's rules, the agent shows you how it maps the plan to missions and tasks before it
+   writes a record. The import does not change the plan files.
+4. From the next session on, start each piece of work with `tsk harness new`.
 
 ## 6. Back up the nexus
 
