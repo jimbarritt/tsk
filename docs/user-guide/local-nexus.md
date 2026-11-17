@@ -92,20 +92,34 @@ tsk ledger status
 git -C ~/.local/share/tsk/nexus.git for-each-ref
 ```
 
-The nexus has the branches `ledgers/<repo-id>` and `ledgers/<repo-id>-docs`.
+The nexus has the refs `ledgers/<repo-id>` and `ledgers/<repo-id>-docs`, under `refs/tsk/`.
+A new ledger outside a Claude Code cloud session uses these custom refs, which `git branch`
+does not list (ADR 0016).
+
+Then set the repo's push workflow, `main` or `pull-request`. `tsk ledger init` does not
+set it. `tsk harness new` reads it from the repo's entry in `nexus.json`, and states it in
+the first prompt of each new session:
+
+```bash
+tsk nexus set-repo <repo-id> --workflow main
+```
+
+`<repo-id>` is the id that `tsk ledger init` printed, and `tsk nexus list` shows it.
 
 ### With a Claude session, which can also import old plan files
 
 1. In the repo, start `claude`. Use plain `claude` for the first session, not
    `tsk harness new`: `harness new` lists the threads, robots and missions of the ledger,
-   and the repo has no ledger yet. This case is untested.
+   and the repo has no ledger yet.
 2. At session start the agent runs `tsk ledger status`, which names `tsk ledger init` as the
    next step. The agent then runs the `/tsk:init-ledger` skill, which prompts you for the
    place to keep the ledger and for the prefix. Choose the nexus.
 3. To import old plan files, ask the agent to read `tsk guide import` and follow it. By the
    guide's rules, the agent shows you how it maps the plan to missions and tasks before it
    writes a record. The import does not change the plan files.
-4. From the next session on, start each piece of work with `tsk harness new`.
+4. Ask the agent to set the repo's push workflow with `tsk nexus set-repo <repo-id>
+   --workflow main`, or `pull-request`, as in the steps by hand above.
+5. From the next session on, start each piece of work with `tsk harness new`.
 
 ## 6. Back up the nexus
 
