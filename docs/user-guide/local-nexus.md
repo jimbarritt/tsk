@@ -22,11 +22,19 @@ missing.
 ## 2. Create the nexus
 
 ```bash
-git init --bare --initial-branch=main ~/tsk-nexus.git
+mkdir -p ~/.local/share/tsk
+chmod 700 ~/.local/share/tsk
+git init --bare --initial-branch=main ~/.local/share/tsk/nexus.git
 ```
 
-This command creates the local equivalent of an empty repo on GitHub.
+These commands create the local equivalent of an empty repo on GitHub.
 
+- `~/.local/share/tsk` is the XDG data directory for tsk, the place for files that a user
+  keeps. The nexus is the only copy of every ledger on the machine, so this guide puts it there. tsk
+  keeps its ledger stores and a clone of the nexus in `~/.local/state/tsk/`, which it
+  can rebuild from the nexus.
+- `chmod 700` lets only your user account read the folder. The ledgers can contain
+  sensitive planning records.
 - `--bare` creates a repo with no checked-out files. Git accepts a push to any branch of a
   bare repo, so tsk can push to it.
 - `--initial-branch=main` sets the repo's default branch to `main`. Without the option, git
@@ -39,7 +47,7 @@ This command creates the local equivalent of an empty repo on GitHub.
 ## 3. Attach the nexus
 
 ```bash
-tsk nexus add file://$HOME/tsk-nexus.git
+tsk nexus add file://$HOME/.local/share/tsk/nexus.git
 ```
 
 This is the one command that differs from a nexus on GitHub: the address is a `file://`
@@ -67,7 +75,7 @@ Check the result:
 
 ```bash
 tsk ledger status
-git -C ~/tsk-nexus.git for-each-ref
+git -C ~/.local/share/tsk/nexus.git for-each-ref
 ```
 
 The nexus has the branches `ledgers/<repo-id>` and `ledgers/<repo-id>-docs`.
@@ -81,9 +89,25 @@ claude plugin install swe@jimbarritt-claude-plugins --scope user
 
 ## 6. Back up the nexus
 
-The folder `~/tsk-nexus.git` contains every ledger and its full history. Copy the folder to
-back it up. To move the ledgers to a nexus on a server later, push the folder's branches
-to the new nexus repo.
+The folder `~/.local/share/tsk/nexus.git` contains every ledger and its full history. On
+this machine it is the only copy, so a lost disk loses every ledger. The ledgers can also
+contain sensitive planning records, so a backup is a copy of sensitive data. Keep each
+backup copy only where you would keep the ledgers themselves.
+
+- Check that your backup tool includes `~/.local`. Some tools skip hidden folders.
+- Check where your backup tool writes each copy: an external disk, a network disk or a cloud service.
+  A backup to a cloud service sends the ledgers off the machine.
+- Encrypt every backup copy, for example with an encrypted Time Machine disk on macOS.
+- Keep the folder out of any folder that a sync service copies, such as iCloud,
+  Dropbox or OneDrive.
+- To copy it by hand, copy the whole folder to an encrypted disk:
+
+  ```bash
+  cp -R ~/.local/share/tsk/nexus.git /Volumes/<encrypted disk>/tsk-nexus.git
+  ```
+
+To move the ledgers to a nexus on a server later, push the folder's branches to the new
+nexus repo. That push also sends the ledgers off the machine.
 
 ## Times
 
