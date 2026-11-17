@@ -12,7 +12,8 @@ with Jepsen and Jev. A strategy section on adopting Dolt rather than beads was a
 assessed, compared with tmux. OpenSpec was added on 2026-10-06 as a related
 system, not a system assessed. It is the first read that models parts of Product and Delta,
 and it models no Navigation or Scale. LangChain's post "From tasks to goals" was added on
-2026-11-17 as a statement of principles, not a system assessed.
+2026-11-17 as a statement of principles, not a system assessed. Dust was added on 2026-11-17
+as a related platform, not a system assessed.
 
 ## Status
 
@@ -1271,6 +1272,73 @@ Position: no change to the three-part verdict. The post describes agents in Navi
 terms and models no Product, Delta or Scale. Its principles match tsk's mission model,
 and tsk has part of four of its six requirements.
 
+## Dust: an agent platform for business teams, not for code
+
+Research: [hosted-agent-platforms-as-tsk-substrates.md](hosted-agent-platforms-as-tsk-substrates.md),
+which tests Dust as a place to run tsk. Company history read on 2026-11-17 from the
+sources below. Raised by Jim, 2026-11-17.
+
+Dust is a Paris company that sells a platform on which business teams build, deploy and
+manage AI agents, connected to company knowledge and to tools such as Slack, Notion and
+CRMs. It calls this "multiplayer AI". It models no mission, thread or ledger, so it is
+listed beside Unblocked and OpenAPPA, not among the systems assessed.
+
+History:
+
+- **Founders.** Gabriel Hubert (CEO) and Stanislas Polu met at Stanford in 2007. They
+  co-founded TOTEMS, a data analytics company that Stripe acquired, and spent five years
+  at Stripe. Polu then joined OpenAI as a research engineer, and Hubert became Chief
+  Product Officer at Alan. Dust's announcement gives 2014 for the acquisition, and
+  Voicebot gives 2015.
+- **Founding.** Polu left OpenAI in September 2022. The company states its founding thesis: the
+  models could already change how businesses work, but companies used them little,
+  because no product layer existed for them.
+- **Seed, July 2023.** $5.5 million, led by Sequoia. The product then indexed a company's
+  Slack, GitHub, `Google Drive` and Notion data, so that apps built on Dust could answer
+  questions from it, on models from OpenAI, AI21, Cohere and others.
+- **Series A, June 2024.** $16 million, led by Sequoia Capital, with XYZ, GG1, Connect
+  Ventures, Seedcamp and Motier Ventures. The product was custom assistants that a company
+  shares with its employees. Dust reported $1 million of annual recurring revenue, with
+  Watershed, Alan, Qonto, Pennylane and PayFit as customers.
+- **Series B, 18 May 2026.** $40 million, led by Abstract and Sequoia, with Snowflake and
+  Datadog. Dust states more than $60 million raised in total, over 300,000 agents deployed,
+  70 per cent weekly active usage and zero churn in 2025. These figures are the company's
+  own.
+
+Positioning: Dust places itself away from code on purpose. Its blog post of 27 March 2026
+states: "Claude Code agents are developer tools that automate coding tasks like debugging,
+testing, and code review across terminal, IDE, and web-based environments." It continues:
+"Dust is an enterprise platform that deploys AI agents across business teams to automate
+workflows involving Slack, Notion, CRMs, and other company tools." Its comparison table
+gives coding agents as built for "Developers writing, debugging, and reviewing code", and
+workflow agents as built for "Business teams automating knowledge work".
+
+Two items intersect tsk:
+
+- **Not a substrate.** The hosted platforms note found that Dust cannot run tsk: its
+  Computer sandbox is "temporary", connects to allowlisted HTTPS domains only, and documents
+  no shell or git. The fit runs the other way: a Dust agent calls tsk through an MCP
+  server over the ledger and thread commands, which tsk does not have yet.
+- **Shared context across a company.** Dust's "multiplayer" claim is agents and people
+  that share context across teams. tsk's ledger is shared state for missions, threads and
+  actors in a repo or a nexus. Dust shares company knowledge for business work, and tsk
+  shares the state of software work.
+
+Position: no change to the three-part verdict. Dust models no mission, objective,
+continuation or Product, Delta and Scale, and its own positioning puts it outside software
+work. It is a candidate front end that calls tsk, not a competitor.
+
+Sources:
+
+- [Tech.eu: Dust raises $40M Series B to build the "multiplayer" operating system for enterprise AI](https://tech.eu/2026/05/18/dust-raises-40m-series-b-to-build-the-multiplayer-operating-system-for-enterprise-ai/),
+  18 May 2026
+- [TechCrunch: Dust grabs another $16M for its enterprise AI assistants connected to internal data](https://techcrunch.com/2024/06/27/dust-grabs-another-16-million-for-its-enterprise-ai-assistants-connected-to-internal-data/),
+  Romain Dillet, 27 June 2024
+- [Voicebot.ai: Generative AI for Productivity Startup Dust Raises $5.5M](https://voicebot.ai/?p=29304),
+  Eric Hal Schwartz, 5 July 2023
+- [Dust blog: Claude Code agents: Everything teams need to know before choosing](https://dust.tt/blog/claude-code-agents),
+  Davis Christenhuis, 27 March 2026
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Sources: Yegge's essay
@@ -1426,6 +1494,8 @@ collision above).
 - [claude-code-dynamic-workflows.md](claude-code-dynamic-workflows.md): the full reference
   for the Claude Code dynamic workflows and ultracode section above, with a comparison
   against tsk and four combinations.
+- [hosted-agent-platforms-as-tsk-substrates.md](hosted-agent-platforms-as-tsk-substrates.md):
+  Dify, n8n, Dust and StackAI tested as places to run tsk, cited in the Dust section above.
 - [langchain-from-tasks-to-goals.md](langchain-from-tasks-to-goals.md): the full reference
   for the From tasks to goals section above, with each principle mapped to tsk's terms.
 - [copilot-dynamic-workflows.md](copilot-dynamic-workflows.md): the full reference for the
