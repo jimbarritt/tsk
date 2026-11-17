@@ -224,6 +224,9 @@ position analysis.
 - [tsk-market-position-analysis.md](tsk-market-position-analysis.md): tsk's position, with a
   summary of this note.
 - [langsmith.md](langsmith.md): LangSmith Trajectories, Engine v2 and Fine-Tuning.
+- [langsmith-rebuilt-around-the-agent.md](langsmith-rebuilt-around-the-agent.md): LangChain's
+  agent record, published the same day, mapped to tsk's actors, sessions and harness
+  instances.
 - [docs/domain/ubiquitous-language.md](../../domain/ubiquitous-language.md): the tsk terms
   used above.
 - [docs/domain/mission-model.md](../../domain/mission-model.md): the doctrine behind an
