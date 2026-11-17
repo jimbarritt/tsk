@@ -1,6 +1,6 @@
 # Check prose with Software English
 
-This step is optional. `tsk` does not depend on `swe` or Software English. It does not install the check and does not enforce it. Every step on this page changes your own machine, and none changes `tsk` or its ledger.
+This step is optional. `tsk` does not depend on `swe` or Software English. The `tsk` binary and plugin do not install the check and do not enforce it. The cloud environment script `ops/cloud/setup-environment.sh` installs it for now (M-TSK-ENV T-45). Every step on this page changes your own machine, and none changes `tsk` or its ledger.
 
 The `swe` plugin for Claude Code checks prose against [Software English](https://github.com/jimbarritt/software-english/blob/main/spec/SPEC.md). A git `pre-commit` check blocks a commit of markdown that has no clean check on record. This guide installs the plugin and the check, in one repo or in every repo you own.
 
@@ -71,7 +71,10 @@ What the script does:
 - It reads the newest installed `swe` version.
 - A repo owned by someone else is untouched. A repo owned by an organisation counts as someone else's.
 - It runs `gh api user` only in a repo that has no check.
-- Cloud sessions do not run it, because they read the settings of the environment.
+- A cloud session reads the settings of its environment, not yours. An environment set up
+  with `ops/cloud/setup-environment.sh` gets its own version of this hook, which installs the
+  check in every repo of the session with no owner check. See
+  [new-cloud-environment.md](new-cloud-environment.md).
 
 Claude Code reads hooks at startup. The entry applies from the next session.
 
@@ -112,5 +115,5 @@ install-commit-hook.sh --uninstall [<repo-path>]
 ## Limits
 
 - The check applies to markdown files only.
-- A cloud session has no check, unless the repo commits the `session-start` entry.
+- A cloud session has no check, unless the repo commits the `session-start` entry or its environment runs `ops/cloud/setup-environment.sh`.
 - A file with old violations is blocked on its next staged change, until it has a clean verdict.
