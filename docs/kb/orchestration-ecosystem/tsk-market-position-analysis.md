@@ -1297,15 +1297,15 @@ ubiquitous language; the doctrine mapping below is the reason for the name.
 
 ### What each side records
 
-tsk's Actor has identity and cardinality: whoever has a thread, human or agent session,
-with the rule that a human has many threads while an agent session is bound to one, and a
-different session that picks up a thread later is a different actor on it. Thread
-continuation records a snapshot at each pause: the mission briefing link, the task
+tsk's Actor is who does the work: a robot or a human, with a uid that never changes. An
+actor belongs to a session, and one robot works in many sessions and threads at once, as
+the same actor (ADR 0030, ADR 0032). Thread continuation records a snapshot at each
+pause: the mission, the task
 in progress, a written account of what's next, and a written-by field naming which actor
 wrote the entry, forming an audit trail of who touched the thread.
 
-Between them, Actor records who has the thread, and Thread continuation records what
-happened on it so far. Neither has a scope of authority, and neither caches a trust or
+Between them, Actor records who did the work, and Thread continuation records what
+happened on a thread so far. Neither has a scope of authority, and neither caches a trust or
 permission decision the way a seat does. tsk's model today has no place that stores "this
 actor may act on this without re-checking."
 
@@ -1317,13 +1317,10 @@ record of what was done, even though tsk splits it into two named parts and Whee
 keeps it in one.
 
 Does not fit: a seat is tied to a named, standing role, such as the marshal or the
-seneschal in Wheelhouse's crew (described in the Continuous Thunderdome essay), that persists across many threads and missions. tsk's
-Actor is thread-scoped by definition: an agent session is bound to one thread, and picking
-up a different thread makes it, by the model's own cardinality rule, a different actor
-on that thread, not the same actor changing seats. tsk has no concept of a role that
-outlives a single thread's binding and has authority across missions. Building that
-would mean either loosening Actor's cardinality rule or adding a new part above it, not
-just relabelling Thread continuation.
+seneschal in Wheelhouse's crew (described in the Continuous Thunderdome essay), that persists across many threads and missions. A tsk actor also persists across threads
+and missions, but an actor is the one who fills a position, not the position. tsk has no
+part for a standing position with authority across missions. Building one means adding
+the Post beside Actor, not relabelling Thread continuation.
 
 The essay's actual payload, caching a trust decision so it doesn't need re-deriving, has
 no counterpart in either tsk object. Bringing that in is a new mechanism, not a rename of
