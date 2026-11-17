@@ -98,11 +98,16 @@ The post states no name for an agent record beside its ID.
 agent". tsk has no owner on an actor. The nearest tsk fact is per session: a human who
 supervises a robot's session is a supporting actor of that session (ADR 0030 decision 2),
 and a robot commit in that session has a `Co-authored-by` trailer that names the person.
-So tsk records who supervised each session, and not who answers for the robot.
+So tsk records who supervised each session, and not who answers for the robot. Jim,
+2026-11-17: a robot can be owned by a team, not one person. A model of owners needs the
+people and their relationships, an organisation map, which is in tsk's remit to model work
+as a whole and is not built (M-TSK-AUTO T-06).
 
 **Difference: type.** A LangSmith type selects the dashboard and the evaluation criteria. A
-tsk actor's kind is `robot` or `human`, and nothing reads it to select a measure. tsk has no
-evaluation of an actor.
+tsk actor's kind is `robot` or `human`, and nothing reads it to select a measure. Robot
+roles and archetypes are planned and not built (M-TSK-AUTO T-07). Evaluation of a robot by
+sceptical robots and supervisor robots is proposed and not built (M-TSK-IDEA T-07,
+M-TSK-AUTO T-03 and T-09).
 
 ### One identity, many places where it runs
 
@@ -169,12 +174,14 @@ tsk session than to a tsk thread.
 
 **Difference: cost.** LangSmith rolls cost up to each agent, and a cost spike has a named
 owner to contact. tsk records no token cost per actor, session or mission. A budget is named
-in a briefing's Execution constraints as text, and no component enforces it.
+in a briefing's Execution constraints as text, and no component enforces it. Cost per actor,
+and cost in general, is a later addition, possibly with ksobr (M-TSK-AUTO T-08).
 
 **Difference: authority.** LangSmith's registry and LLM Gateway give "strict controls over
-every registered agent". tsk has no authority model. The
-[Post](../../domain/ubiquitous-language.md#post) placeholder is the tsk term for a standing
-position with a scope of authority, and it is not modelled.
+every registered agent". tsk's authority model is proposed and not built: the
+[Post](../../domain/ubiquitous-language.md#post), a standing position with a scope of
+authority, and supervisor robots. The permissions that control what a robot can do, such as
+its tools, repositories and credentials, are a separate question (M-TSK-HARDEN T-19).
 
 **Parallel: identity.** LangSmith's roadmap registers agents in an identity provider, so
 security teams manage them "like any other identity". tsk gives a robot a git identity
@@ -189,16 +196,16 @@ identifies robots as a group, and the actor name identifies the robot.
 |---|---|---|
 | Agent record | Actor record | Parallel |
 | ID, "globally unique, immutable" | Actor uid, `urn:tsk:actor:<uid>` (ADR 0030) | Parallel. tsk also keeps a name history |
-| Owner, a named person | A supporting human actor, per session (ADR 0030) | Different. tsk has no owner per robot |
-| Type, selects dashboard and evaluation | Kind, `robot` or `human` | Different. tsk evaluates no actor |
+| Owner, a named person | A supporting human actor, per session (ADR 0030) | Different. tsk has no owner per robot. Team ownership and an organisation map are to explore |
+| Type, selects dashboard and evaluation | Kind, `robot` or `human` | Different. Roles and archetypes are planned, evaluation by supervisor robots is proposed |
 | Environments under one agent ID | Harness instances, any number per robot (ADR 0030, 0032) | Parallel. LangSmith orders them as stages, and tsk does not |
 | Traces grouped under the agent | Sessions with their actors in `session_actors` (ADR 0030) | Parallel. Both replaced a link from the place to the identity |
 | Runtimes that send OTLP | Harness names in the session URN (ADR 0029) | Parallel. Both name the runtime and accept new ones |
 | GitHub connection for a coding agent | `Agent-Session` trailer on each commit (ADR 0029) | Parallel. Opposite direction: LangSmith reads GitHub, tsk writes the link into git |
 | None | Thread, the unit of continuation (ADR 0024, 0032) | tsk only |
 | None | Mission, with the thread's current focus (ADR 0031) | tsk only |
-| Cost per agent | None | LangSmith only |
-| Registry and LLM Gateway controls | Post, a placeholder | LangSmith only |
+| Cost per agent | None | LangSmith only. Cost is a later addition for tsk |
+| Registry and LLM Gateway controls | Post and supervisor robots, proposed | Built in LangSmith, proposed in tsk |
 | Identity provider, on the roadmap | Robot name on signed commits, with a shared GitHub robot account | Parallel. tsk has it now, for git |
 
 ## Convergence and difference
@@ -216,9 +223,9 @@ They differ:
 - LangSmith's unit is the agent. tsk separates the robot (who), the thread (the line of
   work) and the mission (the work), so a different robot continues the same work.
 - LangSmith records an owner, a type, cost and quality for each agent. tsk records none of
-  these for an actor.
-- LangSmith observes agents and evaluates them. tsk coordinates work, and evaluates neither
-  actors nor objectives.
+  these for an actor yet. Roles and archetypes are planned, and cost is a later addition.
+- LangSmith observes agents and evaluates them. tsk coordinates work. Evaluation by
+  sceptical robots and supervisor robots is proposed, and tsk checks no objective yet.
 
 The post models no [Product](../../domain/ubiquitous-language.md#product),
 [Delta](../../domain/ubiquitous-language.md#delta) or
