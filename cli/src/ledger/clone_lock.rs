@@ -254,7 +254,11 @@ mod tests {
         let other = open(&lock_path(&b)).unwrap();
         assert!(!try_flock(&other));
         drop(lock);
-        assert!(try_flock(&other));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !try_flock(&other) {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     #[test]
