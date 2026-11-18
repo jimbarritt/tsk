@@ -127,6 +127,7 @@ tsk thread list               # one JSON object per thread, most recently paused
 
 ```bash
 tsk actor register <name> --kind human|robot   # this session or worktree is <name>; a new name makes the actor
+tsk actor attach <name>                        # this session or worktree is the existing robot <name>; no actor is created
 tsk actor name                                 # the name this session or worktree is registered as, or "no actor registered"
 tsk actor list                                 # every actor, its kind, its state (free or taken), and the sessions and worktrees registered as it
 ```
