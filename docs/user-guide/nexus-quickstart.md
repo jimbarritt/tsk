@@ -57,8 +57,9 @@ tsk ledger status
 git ls-remote <nexus url>
 ```
 
-The status shows `refs branches (nexus)`. The nexus has the branches `ledgers/<repo-id>` and
-`ledgers/<repo-id>-docs`. The repo ID is the repo name in lower case.
+The status shows `refs branches (nexus)`. The nexus has the branches `ledgers/<repo-id>/ledger` and
+`ledgers/<repo-id>/docs`. The repo ID is the repo name in lower case. The ledger home on this
+machine is `~/.local/state/tsk/ledgers/<repo-id>`, one for every clone of the repo.
 
 ## 4. Install the plugin and start
 
@@ -102,8 +103,10 @@ The command:
 1. Stops when the ledger store on this machine has anything that origin does not have, or when origin
    cannot be checked.
 2. Copies origin's ledger ref and documents ref, with their full history, to
-   `ledgers/<repo-id>` and `ledgers/<repo-id>-docs` in the nexus. It stops when either ref
-   in the nexus points at a different commit, and skips a ref that points at the same one.
+   `ledgers/<repo-id>/ledger` and `ledgers/<repo-id>/docs` in the nexus, through the bare clone
+   of the clone's ledger home. It stops when either ref in the nexus points at a different
+   commit, and skips a ref that points at the same one. It then renames the ledger home of the
+   repo to the home of the ledger in the nexus.
 3. Sets the repo's entry in `nexus.json` to `"ledger": "nexus"` with `ledger_refs` and the
    mission prefix, and adds the entry when the nexus has none.
 4. Leaves the old refs on origin unchanged, and prints the command that deletes them.
@@ -147,6 +150,7 @@ Run section 3 in that repo. Run sections 1 and 2 once.
 An earlier section 3, with `tsk ledger fetch`, `tsk mission prefix` and
 `tsk nexus register-repo`, was run against a local bare repo as the nexus, with a repo that
 had a local origin. The ledger and its documents appeared as the branches `ledgers/app` and
-`ledgers/app-docs` in the nexus. `tsk ledger init` in the nexus is covered by the
+`ledgers/app-docs` in the nexus (the names of 0.69.0 and earlier; they are now
+`ledgers/app/ledger` and `ledgers/app/docs`). `tsk ledger init` in the nexus is covered by the
 integration tests of release 0.57.0. The current section 3 was not run by hand. Section 5
 and a push from a cloud session to a nexus on GitHub were not run.

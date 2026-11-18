@@ -5,7 +5,7 @@
 //!   before 0.21.0, kept as a fallback.
 //! - `file-remote`: the ledger ref holds a Dolt file remote, a directory of `manifest`,
 //!   table files and zero-byte `LOCK` files. tsk keeps that directory as a linked worktree
-//!   of the repository beside the ledger database. The ledger store's `origin` is
+//!   of the ledger home's bare clone, beside the ledger database. The ledger store's `origin` is
 //!   `file://<that directory>`, so Dolt never starts git. tsk moves the directory with one
 //!   `git fetch` and one plain `git push`.
 //!
@@ -16,9 +16,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::fetch::{add_worktree, ensure_worktree_of_repo};
+use super::fetch::{add_worktree, ensure_worktree_of};
 use super::git::{failure_message, split_nul, Git};
-use super::location::{LedgerLocation, Repo};
+use super::location::LedgerLocation;
 use super::push::{commit_changes, parse_push_status};
 use super::refs::{is_server_refusal, refused_push, LedgerRefs};
 
@@ -29,9 +29,10 @@ pub const MARKER_FILE: &str = ".tsk-transport";
 /// What a file remote directory ignores: Dolt's lock files hold no data.
 pub const GITIGNORE_FILE: &str = ".gitignore";
 pub const GITIGNORE_TEXT: &str = "LOCK\noldgen/LOCK\n";
-/// The name of the directory, beside the ledger database, that holds the file remote.
-pub const REMOTE_DIR_NAME: &str = "ledger-remote";
-/// The file, beside the ledger database, that records the ledger ref of a file-remote store.
+/// The name of the directory, beside the ledger database, that holds the file remote. A
+/// worktree of the ledger home's bare clone.
+pub const REMOTE_DIR_NAME: &str = "ledger";
+/// The file, beside the ledger database in the ledger home, that records the ledger ref of a file-remote store.
 /// A git remote records it in Dolt's `repo_state.json`; a file remote has no ref there.
 pub const REF_FILE: &str = "ledger-ref";
 
@@ -99,9 +100,16 @@ pub fn of_commit(git: &Git, commit: &str) -> Result<Transport, String> {
     })
 }
 
-/// The Dolt URL of a file remote directory.
+/// The Dolt URL of a file remote directory. A directory that does not exist yet is spelled
+/// as it will be once it does: its parent canonical, its name appended.
 pub fn file_url(dir: &Path) -> String {
-    let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let dir = match std::fs::canonicalize(dir) {
+        Ok(full) => full,
+        Err(_) => match (dir.parent().map(std::fs::canonicalize), dir.file_name()) {
+            (Some(Ok(parent)), Some(name)) => parent.join(name),
+            _ => dir.to_path_buf(),
+        },
+    };
     format!("file://{}", dir.to_string_lossy())
 }
 
@@ -125,18 +133,18 @@ pub fn initial_commit(git: &Git) -> Result<String, String> {
     ])
 }
 
-/// Make the directory at `path` a linked worktree of the repository at `commit`: created
-/// when absent, else reset to the commit. Anything in it that the commit does not hold is
-/// dropped; Dolt sends it again on the next push.
-pub fn sync_checkout(repo: &Repo, path: &Path, commit: &str) -> Result<(), String> {
+/// Make the directory at `path` a linked worktree of the ledger clone `owner` at `commit`:
+/// created when absent, else reset to the commit. Anything in it that the commit does not
+/// hold is dropped; Dolt sends it again on the next push.
+pub fn sync_checkout(owner: &Git, path: &Path, commit: &str) -> Result<(), String> {
     if path.exists() {
         let wt = Git::new(path);
-        ensure_worktree_of_repo(&wt, &repo.common_dir)?;
+        ensure_worktree_of(&wt, owner.dir())?;
         wt.run(["reset", "--hard", "--quiet", commit])?;
         wt.run(["clean", "-fdq"])?;
         Ok(())
     } else {
-        add_worktree(repo, path, commit)
+        add_worktree(owner, path, commit)
     }
 }
 
@@ -277,7 +285,7 @@ mod tests {
         assert_eq!(Transport::parse("git"), None);
         assert_eq!(Transport::FileRemote.as_str(), "file-remote");
         assert_eq!(
-            Transport::of_url("file:///s/tsk/repos/x/ledger-remote"),
+            Transport::of_url("file:///s/tsk/ledgers/x/ledger"),
             Transport::FileRemote
         );
         assert_eq!(Transport::of_url("git+file:///o.git"), Transport::GitRemote);
@@ -322,8 +330,8 @@ mod tests {
     #[test]
     fn the_remote_directory_sits_beside_the_database() {
         assert_eq!(
-            remote_dir_beside(Path::new("/s/tsk/repos/x/ledger-db")),
-            PathBuf::from("/s/tsk/repos/x/ledger-remote")
+            remote_dir_beside(Path::new("/s/tsk/ledgers/x/ledger-db")),
+            PathBuf::from("/s/tsk/ledgers/x/ledger")
         );
     }
 }

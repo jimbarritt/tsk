@@ -5516,15 +5516,19 @@ fn dolt_documents_are_plain_files_on_the_docs_branch_and_dolt_files_on_the_ledge
         fx.ok(&other, &["ledger", "doc", "list", "notes/"]),
         columns(&["notes/empty.1c0de01f.md"])
     );
-    // The documents worktree is a linked worktree of the clone, beside the database.
+    // The documents worktree is a linked worktree of the ledger clone, beside the database.
     let docs = fx.docs_path(&other);
     assert!(docs.join("missions/M-X.1c0de01e.md").is_file());
-    let listing = git(&other, &["worktree", "list", "--porcelain", "-z"]);
-    let canonical = std::fs::canonicalize(&docs).unwrap();
-    assert!(listing
-        .split('\0')
-        .filter_map(|f| f.strip_prefix("worktree "))
-        .any(|p| std::fs::canonicalize(p).ok() == Some(canonical.clone())));
+    let lists = |dir: &Path| {
+        let listing = git(dir, &["worktree", "list", "--porcelain", "-z"]);
+        let canonical = std::fs::canonicalize(&docs).unwrap();
+        listing
+            .split('\0')
+            .filter_map(|f| f.strip_prefix("worktree "))
+            .any(|p| std::fs::canonicalize(p).ok() == Some(canonical.clone()))
+    };
+    assert!(!lists(&other), "the code repo lists the documents worktree");
+    assert!(lists(&docs.parent().unwrap().join("git")));
 }
 
 #[test]
@@ -7363,8 +7367,8 @@ fn the_stop_hook_check_reads_the_local_ledger_store_and_works_offline() {
 
 // --- A ledger held in a nexus repo ---
 
-const NEXUS_REF: &str = "refs/heads/ledgers/work-api";
-const NEXUS_DOCS_REF: &str = "refs/heads/ledgers/work-api-docs";
+const NEXUS_REF: &str = "refs/heads/ledgers/work-api/ledger";
+const NEXUS_DOCS_REF: &str = "refs/heads/ledgers/work-api/docs";
 
 impl Fixture {
     /// A bare nexus repo whose `nexus.json` holds `work-api` as a nexus-held ledger local
@@ -7426,7 +7430,8 @@ fn a_ledger_held_in_a_nexus_repo_round_trips_between_clones() {
     let fetch = fx.tsk(&a, &["ledger", "fetch"]);
     assert_success(&fetch);
     assert!(
-        stderr(&fetch).contains("the nexus's refs/heads/ledgers/work-api does not exist yet"),
+        stderr(&fetch)
+            .contains("the nexus's refs/heads/ledgers/work-api/ledger does not exist yet"),
         "{}",
         stderr(&fetch)
     );
@@ -7458,7 +7463,8 @@ fn a_ledger_held_in_a_nexus_repo_round_trips_between_clones() {
     // The ledger and its documents are on the nexus, and nothing is on the managed repo.
     assert!(ref_exists(&nexus, NEXUS_REF));
     assert!(ref_exists(&nexus, NEXUS_DOCS_REF));
-    assert!(!ref_exists(&nexus, "refs/heads/ledgers/work-api/docs"));
+    assert!(!ref_exists(&nexus, "refs/heads/ledgers/work-api"));
+    assert!(!ref_exists(&nexus, "refs/heads/ledgers/work-api-docs"));
     assert_eq!(fx.remote_ledger(), None);
     assert_eq!(fx.remote_docs(), None);
     assert_eq!(fx.remote_branches(), vec!["refs/heads/main".to_string()]);

@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use super::fetch::{ensure_worktree_of_repo, fetch_tip};
+use super::fetch::{ensure_worktree_of, fetch_tip};
 use super::git::{failure_message, split_nul, Git};
-use super::location::{LedgerLocation, Repo};
+use super::home::Home;
+use super::location::LedgerLocation;
 use super::refs::{is_server_refusal, refused_push, LedgerRefs};
 
 /// How often a push tries again after origin moved between its fetch and its push.
@@ -44,7 +45,7 @@ impl PushStatus {
 /// saves the fetch before the first push. The push carries the tip as its lease, so a
 /// branch that has moved since rejects the push, and the retry fetches.
 pub fn push_worktree(
-    repo: &Repo,
+    home: &Home,
     location: &LedgerLocation,
     path: &Path,
     message: &str,
@@ -54,7 +55,7 @@ pub fn push_worktree(
     let location = location.clone();
     let path = path.to_path_buf();
     let wt = Git::new(&path);
-    ensure_worktree_of_repo(&wt, &repo.common_dir)?;
+    ensure_worktree_of(&wt, &home.git_dir())?;
 
     let mut tip = match known_tip {
         Some(tip) => tip,

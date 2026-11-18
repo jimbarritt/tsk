@@ -15,7 +15,8 @@ use std::path::Path;
 use crate::ledger::dolt::{self, Dolt, BRANCH, REMOTE};
 use crate::ledger::fetch::fetch_tip;
 use crate::ledger::git::Git;
-use crate::ledger::location::{dolt_db_path, state_root_from_env, Repo};
+use crate::ledger::home;
+use crate::ledger::location::{state_root_from_env, Repo};
 use crate::ledger::report_refresh;
 use crate::ledger::store::dolt::{remote_tip, DoltStore};
 use crate::ledger::tips::Tips;
@@ -46,7 +47,8 @@ pub fn run(cwd: &Path) -> Result<(), String> {
     // to it here.
     let (outcome, version) = store.refresh_data(false)?;
     let outcome = report_refresh(outcome);
-    let db = Dolt::new(dolt_db_path(&state_root, &repo.ensure_clone_id()?));
+    let home = home::for_location(&repo, &state_root, &location)?;
+    let db = Dolt::new(home.db());
     let dir = transport::remote_dir_beside(db.dir());
     let on_file_remote = transport::store_url(db.dir())
         .is_some_and(|url| Transport::of_url(&url) == Transport::FileRemote);
@@ -69,7 +71,7 @@ pub fn run(cwd: &Path) -> Result<(), String> {
         ));
     }
 
-    let old_tip = fetch_tip(&repo.git, &location)?.ok_or_else(|| {
+    let old_tip = fetch_tip(&home.git(), &location)?.ok_or_else(|| {
         format!(
             "error: {} on {} has no commit",
             location.ref_name(),
@@ -78,7 +80,7 @@ pub fn run(cwd: &Path) -> Result<(), String> {
     })?;
 
     // The directory starts from the old tip, and the old tree leaves it.
-    transport::sync_checkout(&repo, &dir, &old_tip)?;
+    transport::sync_checkout(&home.git(), &dir, &old_tip)?;
     let wt = Git::new(&dir);
     wt.run(["rm", "-r", "-q", "--ignore-unmatch", "--", "."])?;
     wt.run(["clean", "-fdxq"])?;

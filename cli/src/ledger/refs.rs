@@ -21,14 +21,15 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::location::{dolt_db_path, LedgerLocation, Repo};
+use super::home::{self, Opened};
+use super::location::{LedgerLocation, RefLayout, Repo};
 
 /// The environment variable that sets the mode for one process. It beats every other source.
 pub const ENV_VAR: &str = "TSK_LEDGER_REFS";
 /// The directory of the repo config, at the root of the code repo.
 pub const REPO_CONFIG_DIR: &str = ".tsk";
 pub const REPO_CONFIG_FILE: &str = "config.toml";
-/// The file in the clone's state directory that caches what discovery found.
+/// The file in the ledger home that caches what discovery found.
 pub const CACHE_FILE: &str = "ledger-refs";
 
 pub const BRANCH_LEDGER_REF: &str = "refs/heads/tsk/ledger";
@@ -103,6 +104,40 @@ impl LedgerRefs {
         } else {
             None
         }
+    }
+}
+
+/// The `ledger_refs` value of a nexus entry: the mode, and whether the entry carries the
+/// marker of the new ref layout (ADR 0035). `branches` and `custom` are layout 1 (the
+/// names of tsk 0.69.0 and earlier); `branches-v2` and `custom-v2` are layout 2, followed on
+/// a second line by text that makes an older tsk stop and update itself.
+///
+/// [`LedgerRefs::parse`] stays strict and accepts only the two modes. A tsk without this type
+/// fails on a marked entry, which is how it stops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EntryRefs {
+    pub refs: LedgerRefs,
+    pub layout: RefLayout,
+}
+
+impl EntryRefs {
+    /// Reads the text before the first newline.
+    pub fn parse(text: &str) -> Option<EntryRefs> {
+        let first = text.split('\n').next().unwrap_or("").trim();
+        let (mode, layout) = match first.strip_suffix("-v2") {
+            Some(mode) => (mode, RefLayout::V2),
+            None => (first, RefLayout::V1),
+        };
+        LedgerRefs::parse(mode).map(|refs| EntryRefs { refs, layout })
+    }
+
+    /// The value that marks an entry at the new layout in `refs` mode.
+    pub fn marker(refs: LedgerRefs) -> String {
+        format!(
+            "{}-v2\n{}",
+            refs.as_str(),
+            super::manifest::entry_marker_line()
+        )
     }
 }
 
@@ -260,11 +295,11 @@ pub fn configured(repo: &Repo, entry: Option<&EntrySetting>) -> Result<Option<Re
         }));
     }
     if let Some((id, value)) = entry {
-        let refs = LedgerRefs::parse(value).ok_or_else(|| {
+        let found = EntryRefs::parse(value).ok_or_else(|| {
             invalid_value(&format!("ledger_refs on the nexus entry \"{}\"", id), value)
         })?;
         return Ok(Some(RefsChoice {
-            refs,
+            refs: found.refs,
             source: RefsSource::Nexus,
         }));
     }
@@ -284,8 +319,9 @@ pub fn configured(repo: &Repo, entry: Option<&EntrySetting>) -> Result<Option<Re
 /// The mode of the ledger store on this machine, from the ref its `origin` remote records.
 /// A file read, no process.
 pub fn store_ref(repo: &Repo, state_root: &Path) -> Option<String> {
-    let id = repo.read_clone_id().ok().flatten()?;
-    let state = dolt_db_path(state_root, &id)
+    let dir = clone_dir(repo, state_root)?;
+    let state = dir
+        .join(super::location::DOLT_DIR_NAME)
         .join(".dolt")
         .join("repo_state.json");
     let state: serde_json::Value =
@@ -299,14 +335,26 @@ pub fn store_ref(repo: &Repo, state_root: &Path) -> Option<String> {
         return Some(held.to_string());
     }
     // A file remote records no ref in Dolt; tsk keeps it in a file beside the database.
-    super::transport::read_ref_file(&clone_dir(repo, state_root)?)
+    super::transport::read_ref_file(&dir)
 }
 
+/// The directory that holds the ledger store of this clone, and the files that go with it:
+/// the ledger home, or the state directory of 0.69.0 and earlier that is not moved yet.
 fn clone_dir(repo: &Repo, state_root: &Path) -> Option<PathBuf> {
-    let id = repo.read_clone_id().ok().flatten()?;
-    dolt_db_path(state_root, &id)
-        .parent()
-        .map(Path::to_path_buf)
+    match home::peek(repo, state_root).ok()? {
+        Opened::Home(found) => Some(found.root().to_path_buf()),
+        Opened::Pending(legacy) => Some(legacy),
+        Opened::None => None,
+    }
+}
+
+/// Where discovery caches its answer for `base`: the home of a nexus ledger, which every
+/// clone of the repo shares, else the home of this clone.
+fn cache_dir(repo: &Repo, state_root: &Path, base: &LedgerLocation) -> Option<PathBuf> {
+    match base.repo_id() {
+        Some(id) => Some(state_root.join(home::LEDGERS_DIR).join(id)),
+        None => clone_dir(repo, state_root),
+    }
 }
 
 fn cache_key(base: &LedgerLocation) -> String {
@@ -314,7 +362,7 @@ fn cache_key(base: &LedgerLocation) -> String {
 }
 
 fn read_cache(repo: &Repo, state_root: &Path, base: &LedgerLocation) -> Option<LedgerRefs> {
-    let file = clone_dir(repo, state_root)?.join(CACHE_FILE);
+    let file = cache_dir(repo, state_root, base)?.join(CACHE_FILE);
     let key = cache_key(base);
     std::fs::read_to_string(file)
         .ok()?
@@ -326,13 +374,10 @@ fn read_cache(repo: &Repo, state_root: &Path, base: &LedgerLocation) -> Option<L
 }
 
 fn write_cache(repo: &Repo, state_root: &Path, base: &LedgerLocation, refs: LedgerRefs) {
-    let Ok(id) = repo.ensure_clone_id() else {
+    if repo.ensure_clone_id().is_err() {
         return;
-    };
-    let Some(dir) = dolt_db_path(state_root, &id)
-        .parent()
-        .map(Path::to_path_buf)
-    else {
+    }
+    let Some(dir) = cache_dir(repo, state_root, base) else {
         return;
     };
     let _ = std::fs::create_dir_all(&dir);
@@ -342,18 +387,66 @@ fn write_cache(repo: &Repo, state_root: &Path, base: &LedgerLocation, refs: Ledg
     );
 }
 
+/// The layout of the ref names a nexus data ref belongs to: `ledgers/<id>/ledger` is the new
+/// layout, `ledgers/<id>` the old one. `None` for any other ref, a ledger in its repo among them.
+pub fn layout_of_ref(ref_name: &str) -> Option<RefLayout> {
+    for mode in [LedgerRefs::Branches, LedgerRefs::Custom] {
+        if let Some(rest) = ref_name.strip_prefix(mode.nexus_prefix()) {
+            return Some(match rest.strip_suffix("/ledger") {
+                Some(id) if !id.is_empty() && !id.contains('/') => RefLayout::V2,
+                _ if !rest.is_empty() && !rest.contains('/') => RefLayout::V1,
+                _ => return None,
+            });
+        }
+    }
+    None
+}
+
+/// A store made for the old ref names of this ledger is pointed at the new ones, once the
+/// remote holds them: a file read when nothing changed.
+pub fn sync_store_layout(
+    repo: &Repo,
+    state_root: &Path,
+    location: &LedgerLocation,
+) -> Result<(), String> {
+    if location.layout() != RefLayout::V2 {
+        return Ok(());
+    }
+    let (Some(held), Some((legacy, _))) =
+        (store_ref(repo, state_root), location.legacy_ref_names())
+    else {
+        return Ok(());
+    };
+    if held == legacy {
+        repoint_store(repo, state_root, location)?;
+    }
+    Ok(())
+}
+
 /// Forget what discovery cached. A failure to remove is ignored: a stale answer is
 /// corrected by the check that follows every fetch.
 pub fn forget_cache(repo: &Repo, state_root: &Path) {
     if let Some(dir) = clone_dir(repo, state_root) {
         let _ = std::fs::remove_file(dir.join(CACHE_FILE));
     }
+    if let Ok(Some(id)) = repo.read_repo_id() {
+        let _ = std::fs::remove_file(state_root.join(home::LEDGERS_DIR).join(id).join(CACHE_FILE));
+    }
 }
 
-/// The refs `base` would use in `refs` mode: the ledger ref and the documents ref.
-fn refs_of(base: &LedgerLocation, refs: LedgerRefs) -> (String, String) {
+/// Every data ref `base` may hold in `refs` mode: the current name, the name of tsk 0.69.0
+/// and earlier, and the backup name of a move in progress (ADR 0035). A ledger in its repo has
+/// one.
+fn data_refs_of(base: &LedgerLocation, refs: LedgerRefs) -> Vec<String> {
     let located = base.with_refs(refs, RefsSource::Discovered);
-    (located.ref_name().to_string(), located.docs_ref_name())
+    let mut names = vec![located.ref_name().to_string()];
+    if let Some((legacy, _)) = located.legacy_ref_names() {
+        names.push(legacy);
+    }
+    if let Some((backup, _)) = located.backup_ref_names() {
+        names.push(backup);
+    }
+    names
 }
 
 /// What `git ls-remote` listed for the exact ref names.
@@ -375,22 +468,24 @@ fn ask_origin(repo: &Repo, base: &LedgerLocation) -> Option<LedgerRefs> {
 /// Which data ref of `base` its remote holds: `Some(Some(refs))` for one found,
 /// `Some(None)` for none, and `None` when the remote cannot be asked.
 pub fn remote_ledger_refs(repo: &Repo, base: &LedgerLocation) -> Option<Option<LedgerRefs>> {
-    let (branch, _) = refs_of(base, LedgerRefs::Branches);
-    let (custom, _) = refs_of(base, LedgerRefs::Custom);
-    let (_, output) = repo
-        .git
-        .output(["ls-remote", base.remote(), branch.as_str(), custom.as_str()])
-        .ok()?;
+    let branch = data_refs_of(base, LedgerRefs::Branches);
+    let custom = data_refs_of(base, LedgerRefs::Custom);
+    let mut args: Vec<&str> = vec!["ls-remote", base.remote()];
+    args.extend(branch.iter().map(String::as_str));
+    args.extend(custom.iter().map(String::as_str));
+    let (_, output) = repo.git.output(args).ok()?;
     if !output.status.success() {
         return None;
     }
-    let found = listed(
-        &String::from_utf8_lossy(&output.stdout),
-        &[branch.as_str(), custom.as_str()],
-    );
-    Some(if found.contains(&branch) {
+    let names: Vec<&str> = branch
+        .iter()
+        .chain(custom.iter())
+        .map(String::as_str)
+        .collect();
+    let found = listed(&String::from_utf8_lossy(&output.stdout), &names);
+    Some(if found.iter().any(|f| branch.contains(f)) {
         Some(LedgerRefs::Branches)
-    } else if found.contains(&custom) {
+    } else if found.iter().any(|f| custom.contains(f)) {
         Some(LedgerRefs::Custom)
     } else {
         None
@@ -409,6 +504,16 @@ pub fn cloud_default_used() -> bool {
 /// cloud default.
 pub fn cloud_default_note() -> Option<&'static str> {
     cloud_default_used().then_some(CLOUD_DEFAULT_NOTE)
+}
+
+/// The mode a new nexus ledger takes when nothing chose one: branches in a Claude Code cloud
+/// session, else a custom ref.
+pub fn default_mode() -> LedgerRefs {
+    if in_cloud_session() {
+        LedgerRefs::Branches
+    } else {
+        LedgerRefs::Custom
+    }
 }
 
 fn in_cloud_session() -> bool {
@@ -519,17 +624,36 @@ pub fn check_store(
 /// second ledger.
 pub fn check_origin_has_no_other(repo: &Repo, location: &LedgerLocation) -> Result<(), String> {
     let other = location.with_refs(location.refs().other(), location.source());
-    let tip = crate::ledger::store::dolt::remote_tip(&repo.git, &other)?;
-    if tip.is_none() {
-        return Ok(());
+    // The other mode under every name this ledger had, and this mode under the older and the
+    // backup names: a ledger found there must not be answered with a second one.
+    for (name, mode) in data_refs_of(&other, other.refs())
+        .into_iter()
+        .map(|n| (n, other.refs()))
+        .chain(
+            data_refs_of(location, location.refs())
+                .into_iter()
+                .filter(|n| n != location.ref_name())
+                .map(|n| (n, location.refs())),
+        )
+    {
+        let probe = location.with_refs(mode, location.source());
+        let probe = LedgerLocation::named(&probe, &name);
+        if crate::ledger::store::dolt::remote_tip(&repo.git, &probe)?.is_none() {
+            continue;
+        }
+        forget_cache_for(repo);
+        if mode == location.refs() {
+            return Err(format!(
+                "error: {} on {} holds this ledger under the name {}, which a move to the new names has not finished.\n       \
+                 Run tsk ledger fetch again to finish it, with write access to the nexus. tsk does not start a second ledger",
+                location.ref_name(),
+                location.label(),
+                name
+            ));
+        }
+        return Err(mismatch(location, location.label(), mode, &name));
     }
-    forget_cache_for(repo);
-    Err(mismatch(
-        location,
-        location.label(),
-        other.refs(),
-        other.ref_name(),
-    ))
+    Ok(())
 }
 
 fn forget_cache_for(repo: &Repo) {
@@ -623,10 +747,10 @@ pub fn repoint_store(
     state_root: &Path,
     location: &LedgerLocation,
 ) -> Result<bool, String> {
-    let Some(id) = repo.read_clone_id()? else {
+    let Opened::Home(found) = home::open(repo, state_root)? else {
         return Ok(false);
     };
-    let path = dolt_db_path(state_root, &id);
+    let path = found.db();
     if !path.join(".dolt").is_dir() {
         return Ok(false);
     }
@@ -679,6 +803,62 @@ mod tests {
         assert_eq!(LedgerRefs::parse(""), None);
         assert_eq!(LedgerRefs::Branches.as_str(), "branches");
         assert_eq!(LedgerRefs::Custom.other(), LedgerRefs::Branches);
+    }
+
+    #[test]
+    fn the_strict_parse_rejects_the_marked_values_so_an_older_tsk_stops() {
+        // An older tsk reads the entry with this strict parse: a marked value is an error there.
+        for value in [
+            "custom-v2",
+            "branches-v2",
+            "custom-v2\nerror: unsupported ledger version 16 in the nexus entry",
+        ] {
+            assert_eq!(LedgerRefs::parse(value), None, "{}", value);
+        }
+    }
+
+    #[test]
+    fn an_entry_value_is_a_mode_and_maybe_the_marker_and_its_second_line_is_ignored() {
+        let marked = EntryRefs::marker(LedgerRefs::Custom);
+        assert!(marked.starts_with("custom-v2\nerror: unsupported ledger version 16 in "));
+        assert_eq!(
+            EntryRefs::parse(&marked),
+            Some(EntryRefs {
+                refs: LedgerRefs::Custom,
+                layout: RefLayout::V2
+            })
+        );
+        assert_eq!(
+            EntryRefs::parse("branches"),
+            Some(EntryRefs {
+                refs: LedgerRefs::Branches,
+                layout: RefLayout::V1
+            })
+        );
+        assert_eq!(
+            EntryRefs::parse(" branches-v2 \nwhatever"),
+            Some(EntryRefs {
+                refs: LedgerRefs::Branches,
+                layout: RefLayout::V2
+            })
+        );
+        assert_eq!(EntryRefs::parse("tags-v2"), None);
+        assert_eq!(EntryRefs::parse(""), None);
+    }
+
+    #[test]
+    fn the_layout_of_a_nexus_data_ref_is_read_from_its_name() {
+        assert_eq!(
+            layout_of_ref("refs/tsk/ledgers/work-api"),
+            Some(RefLayout::V1)
+        );
+        assert_eq!(
+            layout_of_ref("refs/heads/ledgers/work-api/ledger"),
+            Some(RefLayout::V2)
+        );
+        assert_eq!(layout_of_ref("refs/tsk/ledger"), None);
+        assert_eq!(layout_of_ref("refs/heads/tsk/ledger"), None);
+        assert_eq!(layout_of_ref("refs/tsk/ledgers/work-api/docs"), None);
     }
 
     #[test]

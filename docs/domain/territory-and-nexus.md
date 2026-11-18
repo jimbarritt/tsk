@@ -38,7 +38,8 @@ A nexus is a git repo with a `nexus.json` at the root of its default branch. A t
 attaches one with `tsk config attach-nexus <url>`, which writes the user config.
 
 A managed repo's entry in `nexus.json` sets where its ledger lives. With
-`"ledger": "nexus"` the ledger is the branch `refs/heads/ledgers/<repo-id>` in the nexus repo. With
+`"ledger": "nexus"` the ledger is the pair of refs `ledgers/<repo-id>/ledger` and `ledgers/<repo-id>/docs` (under
+`refs/heads/` or `refs/tsk/`) in the nexus repo. With
 `"ledger": "repo"`, or no `ledger` field, or no entry, the ledger is the branch
 `refs/heads/tsk/ledger` in the managed repo. The layout and the resolution rules are in
 [ledger-layout.md](ledger-layout.md#location-and-ref).

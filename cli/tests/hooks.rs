@@ -1789,7 +1789,7 @@ fn the_guard_denies_git_against_a_ledger_ref_and_allows_tsk() {
 #[test]
 fn the_guard_denies_a_write_in_the_ledger_store_and_the_switch_allows_it() {
     let state = tempfile::tempdir().unwrap();
-    let path = state.path().join("tsk/repos/x/docs/a.md");
+    let path = state.path().join("tsk/ledgers/x/docs/a.md");
     let input = serde_json::json!({
         "tool_name": "Write",
         "tool_input": {"file_path": path},

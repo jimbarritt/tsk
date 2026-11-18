@@ -54,6 +54,8 @@ impl Places {
         let mut prefixes = Vec::new();
         if let Ok(root) = super::location::state_root_from_env() {
             prefixes.push(format!("{}/repos", root.display()));
+            // The ledger homes: the store, the bare clone and both worktrees (ADR 0035).
+            prefixes.push(format!("{}/ledgers", root.display()));
         }
         if let Some(wt) = std::env::var_os("TSK_LEDGER_WT").filter(|v| !v.is_empty()) {
             prefixes.push(Path::new(&wt).display().to_string());
@@ -112,7 +114,7 @@ fn names_ref(word: &str) -> bool {
     word.split(':').any(|part| {
         let part = part.trim_start_matches('+');
         if let Some(rest) = part.strip_prefix("refs/tsk/") {
-            return matches!(rest, "ledger" | "docs" | "bootstrap");
+            return matches!(rest, "ledger" | "docs" | "bootstrap") || names_nexus_ref(rest);
         }
         let mut part = part;
         for prefix in [
@@ -126,8 +128,18 @@ fn names_ref(word: &str) -> bool {
                 break;
             }
         }
-        LEDGER_REFS.contains(&part)
+        LEDGER_REFS.contains(&part) || names_nexus_ref(part)
     })
+}
+
+/// Whether a ref, with the `refs/heads/` or `refs/tsk/` prefix removed, is a ref of a nexus
+/// ledger: `ledgers/<id>/ledger`, `ledgers/<id>/docs`, the same under `ledgers-backup/`.
+fn names_nexus_ref(rest: &str) -> bool {
+    let mut parts = rest.split('/');
+    matches!(
+        (parts.next(), parts.next(), parts.next(), parts.next()),
+        (Some("ledgers" | "ledgers-backup"), Some(id), Some("ledger" | "docs"), None) if !id.is_empty()
+    )
 }
 
 /// The words of a command, split into simple commands. A quote, a backslash escape and a
@@ -346,7 +358,10 @@ mod tests {
 
     fn places() -> Places {
         Places {
-            prefixes: vec!["/home/me/.local/state/tsk/repos".to_string()],
+            prefixes: vec![
+                "/home/me/.local/state/tsk/repos".to_string(),
+                "/home/me/.local/state/tsk/ledgers".to_string(),
+            ],
             home: "/home/me".to_string(),
             xdg_state_home: String::new(),
         }
@@ -407,6 +422,42 @@ mod tests {
             "/home/me/.local/state/tsk/repos/tsk-abc/ledger-db"
         )
         .is_some());
+    }
+
+    #[test]
+    fn the_ledger_home_and_its_bare_clone_are_guarded() {
+        for command in [
+            "git -C /home/me/.local/state/tsk/ledgers/work-api/git log",
+            "git -C ~/.local/state/tsk/ledgers/work-api/docs status",
+            "ls /home/me/.local/state/tsk/ledgers/_tsk-1234abcd/ledger",
+            "rm -rf /home/me/.local/state/tsk/ledgers/work-api/ledger-db",
+        ] {
+            assert!(bash(command).is_some(), "{}", command);
+        }
+        assert!(bash_in(
+            "git status",
+            "/home/me/.local/state/tsk/ledgers/work-api/docs"
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn the_refs_of_a_nexus_ledger_and_its_backup_are_guarded() {
+        for command in [
+            "git push origin :refs/tsk/ledgers/work-api/ledger",
+            "git fetch origin refs/heads/ledgers/work-api/docs",
+            "git push nexus +abc:refs/heads/ledgers-backup/work-api/ledger",
+            "git branch -D ledgers/work-api/ledger",
+            "git log origin/ledgers/work-api/docs",
+        ] {
+            assert!(bash(command).is_some(), "{}", command);
+        }
+        for command in [
+            "git push origin refs/heads/ledgers-notes",
+            "git checkout feature/ledgers/x",
+        ] {
+            assert!(bash(command).is_none(), "{}", command);
+        }
     }
 
     #[test]

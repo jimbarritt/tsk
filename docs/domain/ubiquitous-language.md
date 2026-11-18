@@ -89,14 +89,14 @@ one with a supporting human actor.
 ## Supervised session
 
 A [session](#session) with a human as a supporting [actor](#actor). `tsk actor join <uid>`
-adds the human. A robot commit in a supervised session carries a `Co-authored-by` trailer
+adds the human. A robot commit in a supervised session has a `Co-authored-by` trailer
 that names the person, when the `co_author` setting is set. See
 [commit-attribution.md](commit-attribution.md).
 
 ## Autonomous session
 
 A [session](#session) with no human supporting [actor](#actor). A robot commit in an
-autonomous session carries no `Co-authored-by` trailer.
+autonomous session has no `Co-authored-by` trailer.
 
 ## Robot
 
@@ -281,17 +281,42 @@ intelligence, a report, a design, or a briefing from the file era. Written with
 `tsk ledger doc put`. Free text that nobody needs to query. A mission links to a
 document with a role: `intelligence`, `report` or `design`.
 
+## Ledger home
+
+The directory `${XDG_STATE_HOME:-$HOME/.local/state}/tsk/ledgers/<key>/` that contains a machine's
+one copy of a repo's [ledger](#ledger): the [ledger store](#ledger-store), the
+[ledger clone](#ledger-clone) and the worktrees of the clone. Outside the code repo (ADR 0035).
+`<key>` is the nexus entry id, so every clone and every linked code worktree of one repo on
+the machine shares one home, one lock, one Dolt server and one working set. A ledger in its
+repo has `_<clone-id>`. Written "ledger home", never "ledger directory".
+
+## Ledger clone
+
+The bare git clone in `git/` of a [ledger home](#ledger-home), which tsk owns. It contains the
+commits, trees and refs of the ledger and of its documents. The worktrees `ledger/` (the Dolt file
+remote) and `docs/` (the documents) belong to it. The code repo has none of it. Not the
+clone of the code repo, which is the [clone state directory](#clone-state-directory)'s
+subject.
+
+## Clone state directory
+
+`<state>/repos/<clone-id>/`: the files that belong to one clone of the code repo, not to the
+ledger. `harness-names`, the robot signing key and signers file (git configuration names them
+by path), and `hooks/`. Before 0.70.0 it also contained the ledger store, and the old copy is kept in
+its `legacy-leftovers/` after an upgrade.
+
 ## Ledger store
 
-The local Dolt database that contains a clone's copy of the [ledger](#ledger), at
-`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db`, with the
-documents checked out beside it from `tsk/docs`. One per clone. Every session in that
-clone shares it. `tsk ledger fetch` creates and refreshes it, and `tsk ledger push`
+The local Dolt database that contains the machine's copy of the [ledger](#ledger), at
+`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/ledgers/<key>/ledger-db`, with the
+documents checked out beside it from `tsk/docs`. One per [ledger home](#ledger-home), so one per repo for a
+ledger in a nexus. Every session in every clone of that repo
+shares it. `tsk ledger fetch` creates and refreshes it, and `tsk ledger push`
 commits and pushes from it, documents first. It is a database, not a directory of files:
 nothing opens files in it, and an agent touches it only through `tsk` commands.
 
 Supersedes "ledger worktree", the file-era term for the detached linked worktree that
-contained the `tsk/ledger` branch at `.../<clone-id>/ledger`
+contained the `tsk/ledger` branch at `.../<clone-id>/ledger` (a path of those releases)
 (`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md` for why it is outside
 `.git/`). The `git` backend, removed in 0.16.0, used one. Write "ledger store" in prose, never
 "worktree" alone.
@@ -592,9 +617,9 @@ The nesting is consistent across scales.
 
 ## Waypoint
 
-A point at which the system is fully functional and could be stopped at. Not just
-"code compiles" or "tests pass," but a shippable, working system, even one doing less
-than eventually intended.
+A point at which the system is fully functional and could be stopped at: a shippable,
+working system, even one doing less than eventually intended. "Code compiles" or "tests
+pass" is not enough.
 
 ## Product
 

@@ -477,6 +477,63 @@ pub fn register(
     )
 }
 
+/// Mark the entry `id` as moved to the new ref names: `ledger_refs` becomes the marker of
+/// [`super::refs::EntryRefs`] in `refs` mode. Returns whether a commit was pushed. An entry that
+/// the nexus lacks, or that does not hold its ledger there, is left alone.
+pub fn set_entry_marker(
+    state_root: &Path,
+    nexus_url: &str,
+    id: &str,
+    refs: super::refs::LedgerRefs,
+) -> Result<bool, String> {
+    let value = super::refs::EntryRefs::marker(refs);
+    let outcome = update_nexus(
+        state_root,
+        nexus_url,
+        &TerritoryChoice {
+            id: None,
+            name: None,
+        },
+        "tsk ledger fetch",
+        &mut || {},
+        &mut |doc| {
+            let none = |territory: String| Edit::AlreadyRegistered {
+                territory,
+                entry: Value::Null,
+            };
+            let Some(territories) = doc.get_mut("territories").and_then(Value::as_array_mut) else {
+                return Ok(none(String::new()));
+            };
+            for t in territories.iter_mut() {
+                let territory_id = t["id"].as_str().unwrap_or("").to_string();
+                let Some(repos) = t.get_mut("repos").and_then(Value::as_array_mut) else {
+                    continue;
+                };
+                for existing in repos.iter_mut() {
+                    if existing["id"].as_str() != Some(id)
+                        || existing["ledger"].as_str() != Some("nexus")
+                    {
+                        continue;
+                    }
+                    if existing["ledger_refs"].as_str() == Some(value.as_str()) {
+                        return Ok(none(territory_id));
+                    }
+                    if let Some(object) = existing.as_object_mut() {
+                        object.insert("ledger_refs".to_string(), json!(value));
+                        return Ok(Edit::Added {
+                            territory: territory_id,
+                            created: false,
+                        });
+                    }
+                }
+            }
+            Ok(none(String::new()))
+        },
+        &|_, _| format!("Mark the ledger of {} as moved to the new ref names", id),
+    )?;
+    Ok(matches!(outcome, Outcome::Registered { .. }))
+}
+
 /// Set the entry of `entry.id` to hold its ledger in the nexus on `entry.ledger_refs`,
 /// adding the entry when the nexus has none. Used by `tsk nexus move-ledger`.
 pub fn point_at_nexus(

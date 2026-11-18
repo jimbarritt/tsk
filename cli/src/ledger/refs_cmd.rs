@@ -19,7 +19,7 @@ pub fn show() -> Result<(), String> {
     let state_root = state_root_from_env()?;
     let config_file = crate::config::config_file_from_env();
     let (placement, choice) = nexus::choose(&repo, &state_root, config_file.as_deref())?;
-    let location = placement.base.with_refs(choice.refs, choice.source);
+    let location = nexus::display_location(&repo, &state_root, &placement, &choice);
     println!("ledger refs: {}", choice.refs.as_str());
     match (choice.source, refs::repo_config_path(&repo)) {
         (RefsSource::RepoConfig, Some(file)) => {
@@ -38,7 +38,7 @@ pub fn summary() -> Result<String, String> {
     let state_root = state_root_from_env()?;
     let config_file = crate::config::config_file_from_env();
     let (placement, choice) = nexus::choose(&repo, &state_root, config_file.as_deref())?;
-    let location = placement.base.with_refs(choice.refs, choice.source);
+    let location = nexus::display_location(&repo, &state_root, &placement, &choice);
     Ok(format!(
         "refs {} ({}): data {}, documents {}",
         choice.refs.as_str(),
@@ -63,7 +63,15 @@ pub fn set(mode: LedgerRefs) -> Result<(), String> {
     if let Some(held_ref) = refs::store_ref(&repo, &state_root) {
         if let Some(held) = LedgerRefs::of_ref(&held_ref).filter(|held| *held != mode) {
             let held_location = placement.base.with_refs(held, RefsSource::LedgerStore);
-            if remote_tip(&repo.git, &held_location)?.is_some() {
+            // Under the current name, or under the name of tsk 0.69.0 and earlier.
+            let mut names = vec![held_location.ref_name().to_string()];
+            names.extend(held_location.legacy_ref_names().map(|(data, _)| data));
+            let mut published = false;
+            for name in names {
+                let probe = super::location::LedgerLocation::named(&held_location, &name);
+                published |= remote_tip(&repo.git, &probe)?.is_some();
+            }
+            if published {
                 return Err(refs::cannot_switch(
                     held_location.ref_name(),
                     held_location.label(),
@@ -103,10 +111,11 @@ fn overriding_note(placement: &nexus::Placement, mode: LedgerRefs) -> Option<Str
         }
     }
     let (id, value) = placement.entry_refs.as_ref()?;
-    (LedgerRefs::parse(value) != Some(mode)).then(|| {
+    (refs::EntryRefs::parse(value).map(|found| found.refs) != Some(mode)).then(|| {
         format!(
             "note: the nexus entry \"{}\" sets ledger_refs to \"{}\", which takes precedence over the repo config",
-            id, value
+            id,
+            value.lines().next().unwrap_or("")
         )
     })
 }

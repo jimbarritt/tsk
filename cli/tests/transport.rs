@@ -353,7 +353,7 @@ fn a_new_ledger_publishes_a_file_remote_and_two_clones_read_each_other() {
         "{}",
         fx.store_url("a")
     );
-    let remote_dir = fx.ledger_db("a").parent().unwrap().join("ledger-remote");
+    let remote_dir = fx.ledger_db("a").parent().unwrap().join("ledger");
     assert!(remote_dir.join(".git").exists());
 
     // `b` reads the mission, adds a task and publishes. `a` reads it back.
@@ -563,7 +563,7 @@ fn documents_and_records_publish_together() {
 fn a_store_whose_remote_directory_is_gone_fetches_it_again() {
     need_dolt!();
     let fx = Fixture::published();
-    let remote_dir = fx.ledger_db("a").parent().unwrap().join("ledger-remote");
+    let remote_dir = fx.ledger_db("a").parent().unwrap().join("ledger");
     fx.ok("a", &["task", "add", "M-ONE", "after the loss"]);
     // Remove the directory and its registration, as a cleaned state directory would.
     std::fs::remove_dir_all(&remote_dir).unwrap();

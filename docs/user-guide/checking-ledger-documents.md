@@ -22,7 +22,7 @@ uses the first one that exists:
 | Order | Place | Use it when |
 |---|---|---|
 | 1 | The file that the environment variable `TSK_DOCS_HOOK` names | You want to run one command with a different hook. |
-| 2 | `<state>/repos/<clone-id>/hooks/pre-docs-commit` | You want the check for one clone only. `tsk ledger path` prints the ledger store path in the same directory. |
+| 2 | `<state>/repos/<clone-id>/hooks/pre-docs-commit` | You want the check for one clone only. The hook stays in the state directory of the clone, not in the ledger home that `tsk ledger path` names (ADR 0035). |
 | 3 | `~/.config/tsk/hooks/pre-docs-commit` (or `$XDG_CONFIG_HOME/tsk/hooks/pre-docs-commit`) | You want the check for every ledger you work with. This is the right place for a repo you do not control. |
 | 4 | `.tsk/hooks/pre-docs-commit` in the repo | You control the repo and want every contributor checked. Commit the file. |
 

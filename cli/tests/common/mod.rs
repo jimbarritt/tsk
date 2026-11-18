@@ -6,6 +6,7 @@
 
 #![allow(dead_code)]
 
+pub mod legacy;
 pub mod templates;
 
 use std::path::{Path, PathBuf};
@@ -66,8 +67,31 @@ fn pids_of(pid_file: &Path) -> Vec<i32> {
     pids
 }
 
-/// Every `dolt-server.pid` under `<root>/**/tsk/repos/*/`, found by looking two levels
-/// below each directory named `repos`.
+/// The ledger home of the clone at `work` (ADR 0035): `<state>/tsk/ledgers/<name>`, where the
+/// name is the one `.git/tsk-ledger-home` records, else `_<clone-id>`. `state` is the
+/// directory `XDG_STATE_HOME` names.
+pub fn ledger_home(state: &Path, work: &Path) -> PathBuf {
+    let git = work.join(".git");
+    let named = std::fs::read_to_string(git.join("tsk-ledger-home"))
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty());
+    let name = named.unwrap_or_else(|| {
+        let id = std::fs::read_to_string(git.join("tsk-clone-id")).unwrap_or_default();
+        format!("_{}", id.trim())
+    });
+    state.join("tsk").join("ledgers").join(name)
+}
+
+/// The per-clone state directory, `<state>/tsk/repos/<clone-id>`: harness names, the robot
+/// signing files and the documents hooks stay there.
+pub fn clone_state_dir(state: &Path, work: &Path) -> PathBuf {
+    let id = std::fs::read_to_string(work.join(".git").join("tsk-clone-id")).unwrap_or_default();
+    state.join("tsk").join("repos").join(id.trim())
+}
+
+/// Every `dolt-server.pid` under `<root>/**/tsk/ledgers/*/`, found by walking the tree
+/// below `root`.
 pub fn pid_files(root: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut stack = vec![(root.to_path_buf(), 0usize)];
@@ -82,7 +106,13 @@ pub fn pid_files(root: &Path) -> Vec<PathBuf> {
             } else if depth < 6 && entry.file_type().is_ok_and(|t| t.is_dir()) {
                 let name = entry.file_name();
                 // The git directories and the stores hold nothing of interest.
-                if name != ".git" && name != "ledger-db" && name != "ledger-remote" {
+                if name != ".git"
+                    && name != "ledger-db"
+                    && name != "ledger-remote"
+                    && name != "git"
+                    && name != "ledger"
+                    && name != "docs"
+                {
                     stack.push((path, depth + 1));
                 }
             }

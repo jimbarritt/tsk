@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use super::git::Git;
 use super::location::LedgerLocation;
 
-/// The file, beside the ledger database and the documents worktree.
+/// The file in the ledger home, beside the ledger database and the documents worktree.
 pub const TIPS_FILE: &str = "remote-tips";
 
 /// What origin holds for the two refs of a ledger. `None` means the ref is absent.
@@ -131,8 +131,8 @@ pub struct Tips {
 }
 
 impl Tips {
-    /// The record of the clone whose state directory is `clone_dir`
-    /// (`<state>/repos/<clone-id>`).
+    /// The record of the ledger home whose directory is `home_dir`
+    /// (`<state>/ledgers/<key>`).
     pub fn new(clone_dir: &Path) -> Tips {
         Tips {
             file: clone_dir.join(TIPS_FILE),
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn a_tip_is_recorded_replaced_and_forgotten_per_remote_and_ref() {
         let dir = tempfile::tempdir().unwrap();
-        let tips = Tips::new(&dir.path().join("repos").join("id"));
+        let tips = Tips::new(&dir.path().join("ledgers").join("id"));
         assert_eq!(tips.get("origin", LEDGER), None);
         tips.set("origin", LEDGER, Some("1111"));
         tips.set("origin", DOCS, Some("2222"));

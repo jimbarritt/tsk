@@ -2,6 +2,27 @@
 
 Start at [docs/index.md](docs/index.md) to find design docs, domain model, user guide, and ADRs by topic.
 
+## Migration note (2026-11-18): one ledger home per repo, outside the code repo
+
+The ledger is stored outside the code repo (ADR 0035, 0.70.0). The state moved from
+`<state>/repos/<clone-id>/` to `<state>/ledgers/<key>/`, where `<key>` is the nexus entry id (a
+ledger in its repo: `_<clone-id>`). The home contains `ledger-db/`, a bare clone `git/`, and the
+worktrees `ledger/` (was `ledger-remote`) and `docs/`, which belong to the bare clone, not to the
+code repo. `git worktree list` in the code repo lists none of them. The nexus refs are now
+`ledgers/<id>/ledger` and `ledgers/<id>/docs` (`refs/tsk/` or `refs/heads/`), and the entry in
+`nexus.json` has a marker in `ledger_refs`.
+
+- The upgrade is automatic. The next ledger command of the new `tsk` migrates the state and the
+  nexus refs. No step by hand. The old directories are kept in
+  `<state>/repos/<clone-id>/legacy-leftovers/`.
+- An older `tsk` stops at the marker with the `ledger_refs` error and updates itself. Where
+  updates are off (`TSK_AUTO_UPDATE=never`, the hook commands), run `tsk self-update`.
+- Two clones of one repo on a machine share one home: one lock, one Dolt server and one
+  working set. The per-clone files (`harness-names`, the robot signing key, `hooks/`) stay in
+  `<state>/repos/<clone-id>/`.
+- A git command you run by hand names a ledger ref in full, such as
+  `refs/tsk/ledgers/<id>/ledger`, as before.
+
 ## Migration note (2026-11-13): the ledger is in the private nexus
 
 This repo's ledger is no longer on `origin`. It is in a private nexus repo, on the branches
@@ -68,8 +89,9 @@ Claude Code cloud sandbox proxy fails a push or update of anything outside
 `refs/heads/*`). A plain clone fetches it, and `git branch -a` lists it, but it
 is never checked out in the code worktree. The branch contains Dolt table files, not
 Markdown. From 0.21.0 a new ledger's ref contains a Dolt file remote: a directory of
-`manifest`, table files and `.tsk-transport`, which `tsk` keeps as a linked worktree beside
-the ledger store and syncs with plain `git fetch` and `git push` (ADR 0017). Dolt never
+`manifest`, table files and `.tsk-transport`, which `tsk` keeps as a worktree of the ledger
+home's bare clone beside the ledger store (the directory `ledger`, ADR 0035) and syncs with
+plain `git fetch` and `git push` (ADR 0017). Dolt never
 starts git. A ledger made before 0.21.0 contains Dolt's git blobstore (transport `git-remote`)
 until someone runs `tsk ledger migrate-transport` once. Every clone uses the new layout
 from its next fetch. This repo's ref is in the new layout: its `.tsk-transport` reads
@@ -136,17 +158,19 @@ WT="${TSK_LEDGER_WT:-$(tsk ledger fetch)}"
 ```
 
 The ledger store path is
-`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db`: outside the
-repository, per clone, and identical whether the session is local or a fresh cloud
-checkout. `<clone-id>` is minted once and stored in `.git/tsk-clone-id`, so it survives
-the clone directory being renamed or moved. See
-`docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md` for why it is outside
-`.git/`.
+`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/ledgers/<key>/ledger-db`: outside the
+repository, one per repo on a machine, and identical whether the session is local or a fresh
+cloud checkout. `<key>` is the nexus entry id, or `_<clone-id>` for a ledger in its repo.
+`<clone-id>` is minted once and stored in `.git/tsk-clone-id`, so it survives the clone
+directory being renamed or moved. `.git/tsk-ledger-home` names the home. See
+`docs/adr/0035-ledger-state-is-in-one-home-per-repo-outside-the-code-repo.md` for the layout,
+and `docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md` for why it is outside
+`.git/`. `tsk ledger status` prints the path of the store and the refs in use.
 
 **The ledger store is a Dolt database, not a directory of files.** Do not open files in
 it. It contains records, and the `tsk` commands read and write them. Documents are Markdown
-files on a second branch, `refs/heads/tsk/docs`, checked out as a worktree beside the
-database. Read and write them with `tsk ledger doc` (below), and find a file on disk with
+files on a second branch, `refs/heads/tsk/docs`, checked out as a worktree of the home's
+bare clone beside the database. Read and write them with `tsk ledger doc` (below), and find a file on disk with
 `tsk ledger doc path <path>`. `tsk ledger push` pushes the documents first and the Dolt
 data second. A ledger is a Dolt database. The files backend was removed in 0.16.0 (ADR
 0015). If `[ledger] backend = "git"` in
@@ -218,7 +242,7 @@ intelligence|report|design`. Read one with `tsk ledger doc get <path>`, and list
 `tsk ledger doc list [<prefix>]`.
 
 Every write changes the local ledger store only. Write freely: records are published at
-four points and nowhere else (ADR 0019): `tsk thread start` (the claim and the binding),
+these points and nowhere else (ADR 0019): `tsk thread start` (the claim and the binding),
 `tsk thread pause` and `tsk thread stop` (the hand-off), the end of the session (the
 `SessionEnd` hook, and the `Stop` hook, which publishes in the background after a turn when
 the store contains unpushed changes, ADR 0020), and `tsk ledger push` when asked. `thread resume`, `detach`, `set mission`, `skip` and

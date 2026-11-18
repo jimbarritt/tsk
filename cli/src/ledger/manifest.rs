@@ -21,6 +21,22 @@ pub const DOLT_SUPPORTED_VERSIONS: &[i64] = &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
 /// prefix, so the text is built from it and from nothing else.
 pub const UNSUPPORTED_PREFIX: &str = "error: unsupported ledger version ";
 
+/// The number that the line in a nexus entry marker names (ADR 0035). It is the generation
+/// of the ref layout of the entry (`ledgers/<id>/ledger`), not a Dolt manifest version: the
+/// manifest stays at layout 15. The line is shaped like the unsupported-version error so
+/// that a tsk older than the refs, which stops at the entry, updates itself (ADR 0023).
+pub const ENTRY_LAYOUT_NUMBER: i64 = 16;
+
+/// The second line of a `ledger_refs` value that marks an entry at the new ref layout.
+pub fn entry_marker_line() -> String {
+    format!(
+        "{}{} in the nexus entry (ledger ref layout 2); this tsk supports up to ledger version {}. Update tsk",
+        UNSUPPORTED_PREFIX,
+        ENTRY_LAYOUT_NUMBER,
+        DOLT_SUPPORTED_VERSIONS.iter().max().copied().unwrap_or(0)
+    )
+}
+
 /// The layout number of an unsupported-version error that `check_values` made, or `None`
 /// for any other error. The error may follow other lines or text on its own line.
 pub fn unsupported_layout(error: &str) -> Option<i64> {
@@ -91,6 +107,19 @@ mod tests {
             check_values(16, None, None, "the manifest", DOLT_SUPPORTED_VERSIONS).unwrap_err();
         assert_eq!(unsupported_layout(&err), Some(16));
         assert_eq!(unsupported_layout(&format!("note\n{}", err)), Some(16));
+    }
+
+    #[test]
+    fn the_entry_marker_line_reads_as_an_unsupported_layout() {
+        let line = entry_marker_line();
+        assert_eq!(unsupported_layout(&line), Some(ENTRY_LAYOUT_NUMBER));
+        // An older tsk embeds the whole value in its own error, after other text.
+        let embedded = format!(
+            "error: ledger_refs on the nexus entry \"x\" is \"custom-v2\n{}\"; the values are \"branches\" and \"custom\"",
+            line
+        );
+        assert_eq!(unsupported_layout(&embedded), Some(ENTRY_LAYOUT_NUMBER));
+        assert!(ENTRY_LAYOUT_NUMBER > DOLT_SUPPORTED_VERSIONS.iter().max().copied().unwrap());
     }
 
     #[test]

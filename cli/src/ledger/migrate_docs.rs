@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 use crate::ledger::docs;
 use crate::ledger::dolt::{self, text, Dolt, BRANCH, REMOTE};
 use crate::ledger::git::Git;
-use crate::ledger::location::{dolt_db_path, state_root_from_env, LedgerLocation, Repo};
+use crate::ledger::home;
+use crate::ledger::location::{state_root_from_env, LedgerLocation, Repo};
 use crate::ledger::push::{commit_changes, PushStatus};
 use crate::ledger::store::check_docs_path;
 use crate::ledger::store::dolt::{remote_tip, DoltStore};
@@ -60,8 +61,9 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
     if version != dolt::LEGACY_LAYOUT_VERSION {
         return Err("error: the documents are already on the tsk/docs branch".to_string());
     }
-    let db = Dolt::new(dolt_db_path(&state_root, &repo.ensure_clone_id()?));
-    let ledger_tip = remote_tip(&repo.git, &location)?;
+    let home = home::for_location(&repo, &state_root, &location)?;
+    let db = Dolt::new(home.db());
+    let ledger_tip = remote_tip(&home.git(), &location)?;
 
     let documents = read_documents(&db)?;
     eprintln!(
@@ -73,10 +75,10 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
     // A version 1 ledger has no documents worktree, and the commands that refuse it rely
     // on that. A worktree this run creates is therefore removed again unless the table
     // is dropped: on a dry run, and on any failure before the drop.
-    let created_worktree = !docs::worktree_path(&repo, &state_root)?.exists();
-    let fetched = docs::fetch(&repo, &state_root, &location, false)?;
+    let created_worktree = !docs::worktree_path(&home).exists();
+    let fetched = docs::fetch(&home, &location, false)?;
     let mut guard = TempWorktree {
-        git: repo.git.clone(),
+        git: home.git(),
         path: fetched.path.clone(),
         keep: !created_worktree,
     };
@@ -112,7 +114,7 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
         return Ok(());
     }
 
-    check_unmoved(&repo, &location, &ledger_tip, false)?;
+    check_unmoved(&home, &location, &ledger_tip, false)?;
 
     db.exec(&format!(
         "drop table documents;\n{}",
@@ -126,7 +128,7 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
     let mut on_retry =
         |attempt: usize, status: &PushStatus| eprintln!("{}", retry_note(attempt, status));
     docs::push(
-        &repo,
+        &home,
         &location,
         &docs_path,
         DOCS_COMMIT,
@@ -143,7 +145,7 @@ pub fn run(cwd: &Path, dry_run: bool) -> Result<(), String> {
         )
     })?;
 
-    check_unmoved(&repo, &location, &ledger_tip, true)?;
+    check_unmoved(&home, &location, &ledger_tip, true)?;
     db.run(["push", REMOTE, BRANCH]).map_err(|e| {
         format!(
             "{}\n       The documents are on {}. The drop is committed in {}.\n       \
@@ -286,12 +288,12 @@ fn verify(wt: &Git, documents: &[(String, String)]) -> Result<(), String> {
 
 /// Stop when the ledger ref moved since the migration read it: another writer pushed.
 fn check_unmoved(
-    repo: &Repo,
+    home: &home::Home,
     location: &LedgerLocation,
     expected: &Option<String>,
     docs_pushed: bool,
 ) -> Result<(), String> {
-    let now = remote_tip(&repo.git, location)?;
+    let now = remote_tip(&home.git(), location)?;
     if &now == expected {
         return Ok(());
     }

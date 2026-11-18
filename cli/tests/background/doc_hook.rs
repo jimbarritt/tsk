@@ -105,6 +105,26 @@ fn a_failing_docs_hook_blocks_the_push_and_nothing_is_published() {
 }
 
 #[test]
+fn a_failing_clone_level_docs_hook_blocks_the_push() {
+    let fx = Fixture::new();
+    assert_success(&put(&fx, "notes/clone.1c0de0a1.md", true));
+    write_hook(
+        &clone_state_dir(&fx).join("hooks/pre-docs-commit"),
+        "#!/bin/sh\necho \"lint: clone hook\"\nexit 1\n",
+        0o755,
+    );
+    let before = fx.origin_sha();
+    let out = push(&fx, false);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("lint: clone hook"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(fx.origin_sha(), before);
+}
+
+#[test]
 fn a_passing_docs_hook_gets_the_paths_the_directory_and_the_environment() {
     let fx = Fixture::new();
     let log = fx.root.path().join("hook.log");
@@ -263,7 +283,7 @@ fn the_hook_is_looked_up_in_the_environment_then_the_clone_then_the_user_then_th
     let fx = Fixture::new();
     let log = fx.root.path().join("which.log");
     let repo = docs_hook(&fx);
-    let clone = fx.state_dir().join("hooks/pre-docs-commit");
+    let clone = clone_state_dir(&fx).join("hooks/pre-docs-commit");
     let user = fx.home().join("config/tsk/hooks/pre-docs-commit");
     let env = fx.root.path().join("env-hook");
 
@@ -321,7 +341,7 @@ fn a_hook_that_is_named_but_missing_or_not_executable_is_an_error_that_names_its
         stderr(&out)
     );
 
-    let clone = fx.state_dir().join("hooks/pre-docs-commit");
+    let clone = clone_state_dir(&fx).join("hooks/pre-docs-commit");
     write_hook(&clone, "#!/bin/sh\nexit 0\n", 0o644);
     let out = fx.tsk(&["config", "docs-hook"]);
     assert_eq!(out.status.code(), Some(1));
@@ -330,4 +350,9 @@ fn a_hook_that_is_named_but_missing_or_not_executable_is_an_error_that_names_its
         "{}",
         stderr(&out)
     );
+}
+
+/// The per-clone state directory of the clone under test: the hooks stay there.
+fn clone_state_dir(fx: &Fixture) -> PathBuf {
+    crate::common::clone_state_dir(&fx.state(), &fx.work())
 }
