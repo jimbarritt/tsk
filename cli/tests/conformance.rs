@@ -10428,7 +10428,7 @@ fn the_commit_msg_hook_adds_the_co_author_only_after_a_human_joined_the_session(
     let other = commit_message_after_hook(&fx, &a, Some("urn:tsk:session:claude-cli:s9"));
     assert_eq!(
         other,
-        format!("Add a thing\n\nAgent-Session: urn:tsk:session:claude-cli:s9\n")
+        "Add a thing\n\nAgent-Session: urn:tsk:session:claude-cli:s9\n".to_string()
     );
     assert_eq!(commit_message_after_hook(&fx, &a, None), "Add a thing\n");
 }
