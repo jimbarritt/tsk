@@ -8,9 +8,11 @@ pub mod dolt;
 pub mod fetch;
 pub mod git;
 pub mod guard;
+pub mod home;
 pub mod location;
 pub mod manifest;
 pub mod migrate_docs;
+pub mod migrate_home;
 pub mod migrate_transport;
 pub mod nexus;
 pub mod nexus_edit;
@@ -18,6 +20,7 @@ pub mod push;
 pub mod refs;
 pub mod refs_cmd;
 pub mod register;
+pub mod remote_move;
 pub mod status;
 pub mod store;
 pub mod tips;
@@ -247,6 +250,11 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
     if matches!(action, LedgerCommands::Push { .. }) {
         // A push reports its own outcome; an earlier failure is not news to it.
         background::be_quiet();
+        // A move to the new ref names that failed is tried again at a push.
+        remote_move::request_retry();
+    }
+    if matches!(action, LedgerCommands::Fetch) {
+        remote_move::request_full_check();
     }
     if let LedgerCommands::Init {
         nexus,
@@ -375,6 +383,20 @@ fn ledger_block(store: &dyn LedgerStore) -> Vec<String> {
     if let Ok(text) = refs_cmd::summary() {
         lines.push(pad(text));
     }
+    // A move of the nexus refs to the new names that did not finish (ADR 0035).
+    if let Some(root) = path_of_home(store) {
+        if let Ok(text) = std::fs::read_to_string(root.join(remote_move::LAST_FILE)) {
+            let why = text
+                .lines()
+                .nth(1)
+                .unwrap_or("")
+                .trim_start_matches("error: ");
+            lines.push(pad(format!(
+                "the nexus refs are not at the new names yet; tsk tries again at the next push: {}",
+                why
+            )));
+        }
+    }
     let count = |n: usize, noun: &str| format!("{} {}{}", n, noun, if n == 1 { "" } else { "s" });
     if let Ok(missions) = store.missions_load() {
         let tasks: usize = missions.iter().map(|m| m.tasks.len()).sum();
@@ -389,6 +411,11 @@ fn ledger_block(store: &dyn LedgerStore) -> Vec<String> {
         )));
     }
     lines
+}
+
+/// The ledger home that holds the store, from the path of the store.
+fn path_of_home(store: &dyn LedgerStore) -> Option<PathBuf> {
+    store.path().ok()?.parent().map(PathBuf::from)
 }
 
 /// The `Server` line of `tsk ledger status`: whether the local Dolt server runs, and the
@@ -692,12 +719,12 @@ mod tests {
     fn pending_note_names_each_commit_and_the_reset_command() {
         let outcome = fetch::FetchOutcome {
             location: location::LedgerLocation::in_repo(),
-            path: PathBuf::from("/s/tsk/repos/x/ledger"),
+            path: PathBuf::from("/s/tsk/ledgers/x/ledger"),
             pending: vec!["1111111 first".to_string(), "2222222 second".to_string()],
             unpublished: false,
         };
         let note = pending_note(&outcome);
-        assert!(note.starts_with("note: /s/tsk/repos/x/ledger holds a commit"));
+        assert!(note.starts_with("note: /s/tsk/ledgers/x/ledger holds a commit"));
         assert!(note.contains("refs/heads/tsk/ledger"));
         assert!(note.contains("        1111111 first\n"));
         assert!(note.contains("        2222222 second\n"));
@@ -710,20 +737,20 @@ mod tests {
     fn unpublished_note_names_the_ref_and_the_first_push() {
         let outcome = fetch::FetchOutcome {
             location: location::LedgerLocation::nexus("https://example.test/o/nexus", "work-api"),
-            path: PathBuf::from("/s/tsk/repos/x/ledger"),
+            path: PathBuf::from("/s/tsk/ledgers/x/ledger"),
             pending: Vec::new(),
             unpublished: true,
         };
         let note = unpublished_note(&outcome);
-        assert!(note.contains("the nexus's refs/heads/ledgers/work-api does not exist yet"));
-        assert!(note.contains("/s/tsk/repos/x/ledger holds a new ledger"));
+        assert!(note.contains("the nexus's refs/heads/ledgers/work-api/ledger does not exist yet"));
+        assert!(note.contains("/s/tsk/ledgers/x/ledger holds a new ledger"));
         assert!(note.ends_with("The first tsk ledger push creates the branch"));
     }
 
     fn push_outcome(committed: bool, result: push::PushResult) -> push::PushOutcome {
         push::PushOutcome {
             location: location::LedgerLocation::in_repo(),
-            path: PathBuf::from("/s/tsk/repos/x/ledger"),
+            path: PathBuf::from("/s/tsk/ledgers/x/ledger"),
             committed,
             commit: "abc123".to_string(),
             result,
@@ -741,7 +768,7 @@ mod tests {
         let outcome = push_outcome(false, push::PushResult::AlreadyOnRemote);
         let notes = push_notes(&outcome);
         assert_eq!(notes.len(), 2);
-        assert!(notes[0].contains("nothing to commit in /s/tsk/repos/x/ledger"));
+        assert!(notes[0].contains("nothing to commit in /s/tsk/ledgers/x/ledger"));
         assert!(notes[1].contains("origin's refs/heads/tsk/ledger already holds"));
     }
 

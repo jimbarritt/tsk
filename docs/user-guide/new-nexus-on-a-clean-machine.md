@@ -1,12 +1,12 @@
 # A new nexus on a clean machine
 
-These steps set up tsk on a machine that has never run it, with a new nexus that holds
-the ledger of a repo you work in. Use them when you cannot, or do not want to, push a
-ledger branch to the repo itself: a work repo, for example.
+These steps set up tsk on a machine that has never run it, with a new nexus that contains
+the ledger of a repo you work in. Use them when you cannot push a
+ledger branch to the repo itself, or choose not to: a work repo, for example.
 
 The result:
 
-- a nexus repo, holding `nexus.json` on its default branch and one ledger branch,
+- a nexus repo, containing `nexus.json` on its default branch and one ledger branch,
   `ledgers/<repo-id>`, per managed repo;
 - the `tsk` binary and the `tsk` Claude Code plugin on the machine;
 - a managed repo whose ledger lives in the nexus, ready for a first mission.
@@ -31,7 +31,7 @@ tsk --version
 
 ## 3. Create the nexus repo
 
-A nexus is an ordinary git repo with a `nexus.json` at its root. It holds no code. Create
+A nexus is an ordinary git repo with a `nexus.json` at its root. It contains no code. Create
 it as a private repo on any git host that the machine can push to.
 
 On GitHub, with the GitHub CLI:
@@ -52,7 +52,7 @@ git init -b main
 git remote add origin <nexus url>
 ```
 
-### What the nexus repo holds
+### What the nexus repo contains
 
 One file, `nexus.json`, on the default branch. `tsk nexus register-repo` creates it on
 the first registration in step 6, or you write it in step 4, and the command adds each
@@ -62,9 +62,9 @@ managed repo's entry. tsk creates the ledger branches. Nothing else is required.
 <name>-nexus
 ├── main                     default branch
 │   └── nexus.json           the index of territories and repos
-├── ledgers/work-api         branch tsk creates in step 7: the Dolt database
-├── ledgers/work-api-docs    branch tsk creates in step 7: the documents, as Markdown files
-└── ledgers/<other-id>       one pair of branches per managed repo with "ledger": "nexus"
+├── ledgers/work-api/ledger  branch tsk creates in step 7: the Dolt database
+├── ledgers/work-api/docs    branch tsk creates in step 7: the documents, as Markdown files
+└── ledgers/<other-id>/...   one pair of branches per managed repo with "ledger": "nexus"
 ```
 
 A `README.md` on `main` is optional. tsk does not read it.
@@ -76,7 +76,7 @@ with.
 
 ## 4. Write `nexus.json` (optional)
 
-Skip this step to leave the nexus empty: step 6 then creates `nexus.json`, with
+Skip this step to keep the nexus empty: step 6 then creates `nexus.json`, with
 `--territory <id> --territory-name <name>`. The nexus repo can have no commits at all.
 With no commits, the command creates the branch `main`.
 
@@ -114,7 +114,7 @@ tsk nexus add <nexus url>
 tsk nexus list
 ```
 
-`tsk nexus add` writes the nexus URL to `~/.config/tsk/config.toml`. A machine holds one
+`tsk nexus add` writes the nexus URL to `~/.config/tsk/config.toml`. A machine has one
 nexus. `tsk config attach-nexus <nexus url>` does the same.
 
 `tsk nexus list` prints the config path and the nexus URL, fetches the nexus and prints
@@ -128,7 +128,7 @@ territory: work (Work)
 ```
 
 `tsk nexus list --json` prints the same as one JSON object. When the nexus cannot be
-fetched and no copy is held from an earlier fetch, the command exits 1 with the error.
+fetched and no copy from an earlier fetch exists, the command exits 1 with the error.
 
 ## 6. Register the managed repo
 
@@ -157,8 +157,8 @@ next: run tsk ledger fetch in this repo
 |---|---|
 | `id` | The repo ID: `--id <id>`, or the repo name in lower case with each run of other characters as `-`. Lower case letters, digits and `-`, starting with a letter or digit. The ledger branch is `ledgers/<id>`. |
 | `url` | The managed repo's `origin` URL. The HTTPS and SSH forms of one URL match each other. |
-| `ledger` | `--ledger nexus`, the default, holds the ledger in the nexus. `--ledger repo` holds it on `tsk/ledger` in the managed repo. |
-| `ledger_refs` | `--ledger-refs custom` or `--ledger-refs branches` sets which refs hold the ledger. Omit it to leave the choice to the repo config and discovery. A new ledger uses `custom`. |
+| `ledger` | `--ledger nexus`, the default, stores the ledger in the nexus. `--ledger repo` stores it on `tsk/ledger` in the managed repo. |
+| `ledger_refs` | `--ledger-refs custom` or `--ledger-refs branches` sets which refs contain the ledger. Omit it to defer the choice to the repo config and discovery. A new ledger uses `custom`. |
 
 With more than one territory in `nexus.json`, name one with `--territory <id>`. With none,
 `--territory <id> --territory-name <name>` creates it.
@@ -213,14 +213,14 @@ tsk ledger fetch
 ```
 
 The command finds the `work-api` entry, writes `work-api` to `.git/tsk-repo-id`, and
-reports that `ledgers/work-api` does not exist yet. It creates a new ledger: a Dolt
+reports that `ledgers/work-api/ledger` does not exist yet. It creates a new ledger: a Dolt
 database and a documents worktree with an `index.md` stub. It prints the database path.
 
 Push it to create the ref in the nexus:
 
 ```bash
 tsk ledger push "Create the ledger"
-git ls-remote <nexus url> refs/tsk/ledgers/work-api
+git ls-remote <nexus url> refs/tsk/ledgers/work-api/ledger
 ```
 
 The push creates the ref only when it does not exist, so it never overwrites a
@@ -254,8 +254,8 @@ claude
 ```
 
 The plugin's `SessionStart` hook checks for `tsk` at the version the plugin requires and
-installs it when it is missing. It then runs `tsk thread session-start`, which fetches the
-ledger, exports its path as `$TSK_LEDGER_WT`, and asks for a thread binding.
+installs it when it is absent. It then runs `tsk thread session-start`, which fetches the
+ledger, exports its path as `$TSK_LEDGER_WT`, and prints the thread binding prompt.
 
 ## 10. Add a first mission
 
@@ -290,7 +290,7 @@ Run step 6 with `--local`:
 tsk nexus register-repo --local
 ```
 
-The entry carries `"local": "<machine name>"` in place of `url`. The machine name is
+The entry has `"local": "<machine name>"` in place of `url`. The machine name is
 `$TSK_MACHINE_NAME` when set, otherwise the output of `hostname`. Other machines skip the
 entry. The ID defaults to the working tree's directory name, and the command writes it to
 the repo's git directory, `$(git rev-parse --git-common-dir)/tsk-repo-id`, where step 7

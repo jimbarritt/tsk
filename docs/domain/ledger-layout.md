@@ -9,11 +9,13 @@ Depends on: `docs/domain/session-continuation-design.md` (threads, bindings and
 continuation state), `docs/adr/0008-bootstrap-data-on-a-detached-branch-not-a-custom-ref.md`,
 `docs/adr/0009-bootstrap-worktree-outside-the-git-directory.md`,
 `docs/adr/0010-ledger-stays-a-branch-not-a-directory-on-main.md`,
-`docs/adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md`.
+`docs/adr/0016-a-custom-ref-is-the-default-for-a-new-ledger.md`,
+`docs/adr/0035-ledger-state-is-in-one-home-per-repo-outside-the-code-repo.md`.
 
 ## Contents
 
 - [Dolt backend](#dolt-backend)
+- [Moving the state](#moving-the-state)
 - [Mission commands](#mission-commands)
 - [Task, decision and question commands](#task-decision-and-question-commands)
 - [File ledger (removed)](#file-ledger-removed)
@@ -57,16 +59,59 @@ other than `git` is ignored.
 
 ### Location
 
-The Dolt database is a `dolt clone` at:
+The Dolt database is a `dolt clone` in the ledger home of the repo (ADR 0035):
 
 ```
-${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
+${XDG_STATE_HOME:-$HOME/.local/state}/tsk/ledgers/<key>/ledger-db
 ```
 
-- `tsk ledger path` prints this path. `$TSK_LEDGER_WT` names it.
+The state directory is organised like this:
+
+```
+<state>/                         ${XDG_STATE_HOME:-$HOME/.local/state}/tsk
+├── nexus/                       tsk's bare clone of the nexus
+├── harnesses/<clone-id>/        harness instance state
+├── repos/<clone-id>/            per-clone files: harness-names, robot-signing-key,
+│                                robot-allowed-signers, hooks/, legacy-leftovers/
+├── migrate.lock                 the lock of the move of the state of 0.69.0 and earlier
+└── ledgers/
+    └── <key>/                   one ledger home per repo (a ledger copy)
+        ├── .tsk-home            marker: layout, nexus identity, clones moved in
+        ├── git/                 tsk's bare clone: the ledger and documents objects and refs
+        ├── ledger-db/           the Dolt database
+        ├── ledger/              worktree of git/ for the Dolt file remote
+        ├── docs/                worktree of git/ for the documents
+        ├── scratch/             input documents that stay out of the ledger
+        └── push.lock ledger-ref remote-tips dolt-server.* remote-move.last ...
+```
+
+- **The ledger key.** For a ledger in a nexus it is the nexus entry id. Every clone and every linked
+  code worktree of the repo on a machine shares the home. The same entry id in a second
+  nexus gets `<id>~<hash8>` (the first 8 hex characters of the SHA-256 of the identity of the
+  nexus URL, recorded in `.tsk-home`). A ledger in its repo has no identity that is stable
+  across clones, so its key is `_<clone-id>`: one home per clone. `_` cannot start a repo
+  id, and `~` cannot appear in one, so the three kinds never collide.
+- **The code repo keeps** `.git/tsk-clone-id`, `.git/tsk-repo-id` and `.git/tsk-ledger-home`,
+  the name of its home under `ledgers/`. `git worktree list` in the code repo lists no ledger
+  directory, `git for-each-ref` lists no ledger ref, and the code repo adds no ledger object to its
+  object database.
+- **`git/` is a bare clone that tsk owns.** `ledger/` and `docs/` are detached worktrees of
+  it. For a ledger in its repo, tsk sets `remote.origin.url` (and `pushurl`) in it from the code
+  repo (`git remote get-url`, so `url.*.insteadOf` applies; a relative path is made absolute) and copies the effective
+  values of `core.sshCommand`, `credential.*`, `http.*` and `protocol.*`, read in the code
+  repo so that `includeIf` applies. A value set for one command is not copied, `url.*` is not
+  copied, and the keys copied are listed in `tsk.copiedkeys` so that a key the repo drops is
+  dropped. The copy is read again when a git configuration file of the repo or the user
+  changes in size or time (the file `tsk-config-stamp`). A nexus location has a URL, so
+  nothing is configured. Git hooks are off.
+- **A moved state directory is repaired.** When a worktree's `.git` file names a missing
+  directory, `git worktree repair` runs, and the store's `origin` URL follows the new path.
+
+- `tsk ledger path` prints the path. `$TSK_LEDGER_WT` names it. It creates nothing unless
+  there is state of 0.69.0 or earlier to migrate.
 - The clone has one remote, `origin`. On the `file-remote` transport (the default from
-  0.21.0) its URL is `file://<state>/tsk/repos/<clone-id>/ledger-remote`, a directory that
-  `tsk` keeps as a linked worktree of the code repository (see [Transport](#transport)).
+  0.21.0) its URL is `file://<home>/ledger`, a directory that `tsk` keeps as a worktree of
+  the home's bare clone (see [Transport](#transport)).
   On the older `git-remote` transport it is added with `--ref refs/tsk/ledger` for an
   in-repo ledger, or `--ref refs/tsk/ledgers/<repo-id>` for a nexus ledger, or the
   `refs/heads/...` form of either on a ledger that uses branches (see
@@ -77,27 +122,32 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
 - No file in `ledger-db` is edited by hand. The `tsk ledger` commands are the interface.
 - The documents have their own worktree, `docs`, beside `ledger-db` (see
   [Documents](#documents)).
+- **One copy per repo.** Two clones of one repo, or a clone and a linked code worktree, share
+  the home, so they share one lock (`push.lock`), one Dolt server and one working set. An
+  uncommitted change in one clone is visible in the other, and `tsk ledger discard` in either
+  drops it (ADR 0035).
 
 ### Scratch
 
-Each clone has a `scratch` directory beside `ledger-db` and `docs`:
+Each ledger home has a `scratch` directory beside `ledger-db` and `docs`:
 
 ```
-${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/scratch
+${XDG_STATE_HOME:-$HOME/.local/state}/tsk/ledgers/<key>/scratch
 ```
 
-It holds input documents that must not enter the ledger or source control: a full meeting
+It contains input documents that must stay out of the ledger and out of source control: a full meeting
 transcript, a Slack conversation, a page from the internet. A record or a document may cite
-what the file says, but the file itself stays local.
+the content of the file, but the file itself stays local.
 
-- It sits outside the Dolt database and outside the documents worktree and the transport
-  worktree, so it needs no ignore rule. Dolt does not see it, and no git tree holds it.
+- It is outside the Dolt database and outside the documents worktree and the transport
+  worktree, so it needs no ignore rule. Dolt does not see it, and no git tree contains it.
 - `tsk ledger push` does not publish it, `tsk ledger status` does not list it, and
   `tsk ledger discard` does not drop it.
 - `tsk ledger scratch` creates it when absent and prints its path. `tsk ledger fetch`
   creates it too, so every clone has it after its next fetch. `tsk ledger path` stays free of
   side effects and does not create it.
-- Each clone has its own. Nothing copies it to another clone or machine.
+- Each home has its own, so the clones of one repo on a machine share it. Nothing copies it to
+  another machine.
 
 ### Transport
 
@@ -107,7 +157,7 @@ gives the reasons.
 
 | Transport | What the ledger ref contains | The store's `origin` | Who talks to origin |
 |---|---|---|---|
-| `file-remote` (default from 0.21.0) | A Dolt `file://` remote directory: `manifest`, table files, `.tsk-transport`, `.gitignore`. Zero-byte `LOCK` and `oldgen/LOCK` files are ignored by git | `file://<state>/tsk/repos/<clone-id>/ledger-remote` | `tsk`, with `git fetch` and `git push`. Dolt reads and writes a local directory |
+| `file-remote` (default from 0.21.0) | A Dolt `file://` remote directory: `manifest`, table files, `.tsk-transport`, `.gitignore`. Zero-byte `LOCK` and `oldgen/LOCK` files are ignored by git | `file://<state>/tsk/ledgers/<key>/ledger` | `tsk`, with `git fetch` and `git push`. Dolt reads and writes a local directory |
 | `git-remote` (before 0.21.0, a fallback) | Dolt's own git blobstore | `git+<remote url>` with `--ref` | Dolt, through git processes it starts |
 
 - `.tsk-transport` contains the text `file-remote`. A ref without it contains the `git-remote`
@@ -117,8 +167,8 @@ gives the reasons.
 - A new ledger uses `file-remote`. `TSK_LEDGER_TRANSPORT=git-remote` makes a new ledger use
   `git-remote`; any other value but `file-remote` is an error. The variable has no effect
   on a clone of a ledger that exists: the ref sets it.
-- The directory `ledger-remote` is a detached linked worktree, as `docs` is. A fetch resets
-  it to origin's commit, so anything in it that origin lacks is dropped. A new ledger
+- The directory `ledger` (named `ledger-remote` before 0.70.0) is a detached worktree of the
+  home's bare clone, as `docs` is. A fetch resets it to origin's commit, so anything in it that origin lacks is dropped. A new ledger
   starts it from an orphan commit that contains `.tsk-transport` and `.gitignore`.
 - The manifest version stays at 8. No table changed. A `tsk` older than 0.21.0 cannot read
   a `file-remote` ref and is expected to stop with a Dolt error, not with `unsupported ledger version`.
@@ -234,14 +284,15 @@ need a branch of their own. Any tool can open them: GitHub, an editor, `marq`.
 | Item | Value |
 |---|---|
 | Ref, in-repo ledger | `refs/tsk/docs` (`refs/heads/tsk/docs` in `branches` mode) on the same remote as the ledger ref |
-| Ref, nexus ledger | `refs/tsk/ledgers/<repo-id>-docs` (`refs/heads/ledgers/<repo-id>-docs` in `branches` mode) on the nexus remote |
-| Local checkout | `${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/docs`, a detached linked worktree of the managed clone |
+| Ref, nexus ledger | `refs/tsk/ledgers/<repo-id>/docs` (`refs/heads/ledgers/<repo-id>/docs` in `branches` mode) on the nexus remote |
+| Local checkout | `${XDG_STATE_HOME:-$HOME/.local/state}/tsk/ledgers/<key>/docs`, a detached worktree of the ledger home's bare clone |
 | First commit | An orphan commit containing `README.md` ("Documents of the tsk ledger. Written by tsk ledger doc put.") and the seed `index.md`, made with git plumbing |
 | Manifest | None. The documents branch has no manifest |
 
-The nexus ref ends in `-docs` and not `/docs`. Git cannot contain both `ledgers/<repo-id>`
-and `ledgers/<repo-id>/docs` as refs, because one would be a file and the other a
-directory.
+Before 0.70.0 the nexus ref was `ledgers/<repo-id>-docs`, because git cannot contain both
+`ledgers/<repo-id>` and `ledgers/<repo-id>/docs` as refs: one would be a file and the other a
+directory. With the data ref at `ledgers/<repo-id>/ledger` the folder contains both refs, and the
+`-docs` name is gone (see [Moving the state](#moving-the-state)).
 
 The worktree, the refresh and the compare-and-swap push (`cli/src/ledger/fetch.rs` and
 `push.rs`) run with the documents ref. The path rules are those of a file in git: no
@@ -346,12 +397,13 @@ state directory of the clone, whatever contains the ledger.
 
 ### Git hooks in the ledger worktrees
 
-The documents worktree and the ledger transport worktree are linked worktrees of the
-managed clone of the code repo, so `git rev-parse --git-common-dir` in them is the code
+Before 0.70.0 the documents worktree and the ledger transport worktree were linked worktrees
+of the managed clone of the code repo, so `git rev-parse --git-common-dir` in them was the code
 repo's `.git`, and git would run the code repo's hooks (`pre-commit`, `commit-msg`,
 `pre-push`, `post-checkout` and the rest) for the commits, merges, checkouts and pushes
-`tsk` makes there. A hook written for the code (a lint of staged Markdown, say) stopped
-`tsk ledger push` before it pushed anything. `tsk` therefore starts every git process of
+`tsk` makes there. They are worktrees of the ledger home's bare clone now, which has no hooks,
+and the rule stays as a second guard. A hook written for the code (a lint of staged Markdown,
+say) stopped `tsk ledger push` before it pushed anything. `tsk` therefore starts every git process of
 the ledger with `core.hooksPath` set to `/dev/null`, so no git hook runs for them. The
 setting is set in the environment (`GIT_CONFIG_COUNT` and its keys, the way `gitenv.rs` sets
 `protocol.version`), so the arguments of the command stay the plain ones and the setting
@@ -374,7 +426,7 @@ applies to any git process that git starts. `--no-verify` would skip only `pre-c
    retry:
    1. Fetches. On `file-remote`: `git fetch` of the ledger ref (skipped when the up-to-date
       check finds origin unchanged and the directory at that commit), `git reset --hard` of
-      the `ledger-remote` directory to it, then `dolt fetch origin`, which reads the
+      the `ledger` directory to it, then `dolt fetch origin`, which reads the
       directory. On `git-remote`: `dolt fetch origin`. If `HEAD` already equals
       `origin/main` or is its ancestor, the remote contains this state: exit 0.
    2. When both sides contain commits the other lacks, renumbers the local rows that took
@@ -406,8 +458,9 @@ documents commit when only the documents changed. Notes go to stderr.
 
 ### The clone lock
 
-`push.lock`, in the state directory of the clone beside the ledger store, is an `flock`
-that allows one writer at a time in a clone (ADR 0034). A command that can write takes it
+`push.lock`, in the ledger home beside the ledger store, is an `flock` that allows one writer
+at a time in a ledger home (ADR 0034, ADR 0035). Two clones of one repo on a machine, and a
+linked code worktree, take the same lock. A command that can write takes it
 at its first access to the store and keeps it until it ends, so a record command reads and
 saves with no other tsk process in between. A push, a refresh, a discard and a write take
 it in every command. A command on the read-only list of `is_read_only_command` in
@@ -519,7 +572,7 @@ Origin  2 data commits and 1 document commit to fetch (tsk ledger fetch)
   with a zero count is left out, and one commit is singular.
 - When the fetch fails, one line is written to stderr (`note: could not fetch ...; reporting from what is local`), and `Origin` shows `unknown`.
 
-`tsk ledger status --local` makes no network call. It prints the `Local` block and `Origin  not checked (--local)`, and with `--porcelain` the two remote lines read `not checked`. A refresh, `status`, `thread list` and `thread session-start` first run one `git ls-remote` of both ledger refs and skip the fetch when both tips match the tips last fetched, which are recorded in `<state>/repos/<clone-id>/remote-tips` after each successful fetch. When `ls-remote` fails, they fetch as before. A clone with no ledger store, or no record of a fetch, runs one `git fetch` of both refs instead (into `refs/tsk-fetch/ledger` and `refs/tsk-fetch/docs`), because it has to fetch both whatever origin contains. `thread pause`, `thread start`, `thread binding` and `ledger push` run neither: on a store with a file remote and a record of both refs, the record stands in for the answer, and a push that finds origin moved is rejected and retried after a fetch (0.22.0, `docs/arch/2026-10-20-session-start-and-pause.md`).
+`tsk ledger status --local` makes no network call. It prints the `Local` block and `Origin  not checked (--local)`, and with `--porcelain` the two remote lines read `not checked`. A refresh, `status`, `thread list` and `thread session-start` first run one `git ls-remote` of both ledger refs and skip the fetch when both tips match the tips last fetched, which are recorded in `<home>/remote-tips` after each successful fetch. When `ls-remote` fails, they fetch as before. A clone with no ledger store, or no record of a fetch, runs one `git fetch` of both refs instead (into `refs/tsk-fetch/ledger` and `refs/tsk-fetch/docs` of the home's bare clone), because it has to fetch both whatever origin contains. `thread pause`, `thread start`, `thread binding` and `ledger push` run neither: on a store with a file remote and a record of both refs, the record stands in for the answer, and a push that finds origin moved is rejected and retried after a fetch (0.22.0, `docs/arch/2026-10-20-session-start-and-pause.md`).
 
 `tsk ledger status --porcelain` prints one fact per line, tab-separated where a line has
 columns, with no header. This is the stable form for scripts and agents:
@@ -586,6 +639,14 @@ documents, so a trial mission can be undone without `dolt reset`. It is destruct
 Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::discard`).
 
 ### Manifest version
+
+The move of the ledger state and of the nexus refs (0.70.0, ADR 0035) does not change the
+manifest. The version stays `15`, `DOLT_SUPPORTED_VERSIONS` is unchanged, and no table
+changed, because the Dolt data is the same. The number 16 in the marker of a nexus entry
+(see [Moving the state](#moving-the-state)) is the generation of the ref layout of the
+entry, not a manifest version. A bump would also have made every older tsk that uses a
+ledger in its repo update for no reason, and would not have protected a nexus ledger,
+because an older tsk never reads the new refs.
 
 The `version` row of the `manifest` table is `15` for a ledger whose `tasks` have
 `ext_tracking_id`, `14` for a ledger whose documents have an id in
@@ -793,7 +854,7 @@ It runs in one clone, once.
    it and the command prints `migrated-transport:already`.
 2. It stops with exit 1 for a version 1 ledger (run `tsk ledger migrate-docs` first) and
    for a store that contains commits origin lacks (run `tsk ledger push` first).
-3. It resets `ledger-remote` to the ref's tip, removes the old tree, and pushes the
+3. It resets `ledger` to the ref's tip, removes the old tree, and pushes the
    store's history into it through a temporary Dolt remote. It adds `.tsk-transport` and
    `.gitignore` and commits.
 4. It pushes that commit to the ledger ref with a plain `git push`. The commit's parent is
@@ -833,6 +894,162 @@ table to files on `tsk/docs`. It steps through:
 `--dry-run` does steps 1 to 4, removes the documents worktree it created, prints
 `dry-run:ok`, and drops and pushes nothing. When a push fails after step 5, the drop stays
 committed locally, and `tsk ledger push` publishes both branches in the right order.
+
+### Moving the state
+
+0.70.0 (ADR 0035) migrates the ledger out of the code repo in two parts. Both run by themselves
+at the first ledger command of the new tsk. Neither needs a step by hand. The local migration
+is phase L, and the move of the refs in a nexus is phase R.
+
+#### Phase L: the state of the machine, with no network
+
+`DoltStore::open`, `tsk ledger path` and every other command that finds the home call
+`home::open`. It looks for state of 0.69.0 or earlier: a directory `ledger-db`, `docs` or
+`ledger-remote` in `<state>/repos/<clone-id>/`, the worktrees registered in the code repo and
+`refs/tsk-fetch/*`. With none, and with `.git/tsk-ledger-home` present, it makes no git call.
+
+The ledger key is read from the store's recorded ref: `ledgers/<id>` names the nexus entry,
+`tsk/ledger` names the clone. When the ref cannot be read (a store with a database and no
+recorded ref, or no store at all), a command that has no location migrates nothing, and the
+first command that has the ledger location finishes the move.
+
+Three locks, always in this order: `<state>/migrate.lock`, the push lock of the old store,
+the push lock of the home. After the first lock, a process looks again, so a second process
+that waited finds nothing to do. The steps, each probing its own state, so a run that stopped is
+finished by the next one (`TSK_TEST_MIGRATE_STOP_AFTER=<step>` stops a process after a step, for the
+tests):
+
+1. `servers`: stop the Dolt servers of the old and the new place.
+2. `git`: make the bare clone.
+3. `dolt`: `rename` the database into the home. Commits, unpushed commits and the working set
+   move as they are. When the home has a database already (a second clone of one repo), the
+   copy is folded in (below).
+4. `docs` and `ledger`: import the legacy worktree's commit into the bare
+   clone with no network (the code repo's object directory is an alternate for one `repack`,
+   which copies only what the refs of the bare clone point at, and a pin ref keeps
+   them), add a worktree of the bare clone at that commit, and copy every file over
+   it. A modified, deleted or untracked file stays so. A worktree that git cannot read (a
+   dangling `.git` link) is renamed untouched into the leftovers, and the normal fetch makes
+   the new one.
+5. `url`: rewrite `remotes.origin.url` in Dolt's `repo_state.json` to the new `ledger`
+   directory, after the directory exists, so both sides canonicalise the same way (a
+   state root reached through a symlink included). The remote-tracking branch stays, so
+   unpushed commits stay recognised.
+6. `scratch`: move `scratch` and the background log. Drop the caches that tsk rebuilds
+   (`remote-tips`, `ledger-refs`, the server files).
+7. `verify`: compare every copied worktree to its source, file by file: kind, executable
+   bit, size and bytes, `.git` apart. A difference stops the move before anything is
+   removed, with `stopped at verify`, and the next run copies again.
+8. `unregister`: rename each legacy directory into `<state>/repos/<clone-id>/legacy-leftovers/`.
+   Remove only the administrative directories under the code repo's `.git/worktrees/` whose
+   `gitdir` points into the old state directory (a global `git worktree prune` would also
+   drop a worktree of the user's own that no longer exists). Delete `refs/tsk-fetch/ledger` and
+   `refs/tsk-fetch/docs`. Print the path and the size of the leftovers once.
+9. `finish`: write `.tsk-home` (the nexus identity and the clone ids moved in), write
+   `.git/tsk-ledger-home`, and remove the journal and the file that names the home a move is
+   going to (`.legacy-key` in the clone state directory, written before the first step so a run
+   that stopped finds its way back).
+
+`repos/<clone-id>` stays: it contains the per-clone files. Nothing removes a directory
+recursively. The error of a failed step reads `error: moving the ledger state of this clone
+to <home> stopped at <step>: <cause>. Nothing was lost; run the command again.` No
+command continues over a half state: the legacy directories stay until the move ends.
+
+**A second copy of one repo's ledger.** The first clone to upgrade migrates its copy. A later
+copy is folded in under both locks, and every step can run again: commit the working set
+of both stores (Dolt fails to merge into a dirty working set, and the commit lets a failed
+merge abort with nothing lost); push the copy through a scratch Dolt file remote into the
+home's store (a database cannot be another database's remote); merge with the renumbering of
+ADR 0022; read `dolt_conflicts` and `dolt_constraint_violations`, never the exit status. A
+conflict, or a copy of a different ledger (another `ledger_id`), is set aside. In every case
+the copy is renamed into `<home>/preserved/<clone-id>/`, and tsk prints the path and the
+cause. A second copy of the documents becomes one commit that is merged into the shared
+worktree. After a conflict, the commit stays under `refs/tsk/preserved/<clone-id>` in the bare clone.
+A later copy of the documents is folded in only after the first copy there has passed the
+`verify` check: a clone whose migration stopped before it (`docs.started` in its journal, no
+`docs.verified`) makes the later clone stop with `has not finished`, and a copy that passed the
+check is not compared again when its move resumes.
+
+**A changed key.** When the ledger of a clone resolves to another home than the one it used,
+the old home is inspected. Unpushed Dolt commits, uncommitted rows, uncommitted documents or
+documents commits not pushed stop the command: `this clone has unpushed ledger work in <home> and the ledger now resolves to <home>. Run tsk nexus move-ledger, or tsk ledger discard there, then run the command again.` A store with no rows and only its creation commits, and a
+pushed home, are left and named in a note. `tsk nexus move-ledger` renames the home of the
+ledger in the repo to the home of the ledger in the nexus, points its store at the new
+directory and ref, and writes `.git/tsk-ledger-home`.
+
+#### Phase R: the refs in a nexus
+
+Runs for a nexus location only, in the resolution of the location. It does nothing, and starts
+no network call, when the entry has the marker, or when the store was made for the new
+names. `tsk ledger fetch` reads the remote's refs of the ledger even then, to find documents
+that an older tsk wrote to the old name. Otherwise it reads the remote with one
+`git ls-remote` of the new, old and backup names of both modes, and takes the home lock
+before it reads, so a second process waits for the first. If the ledger exists on the other refs
+only, it writes nothing and the mismatch error follows.
+
+The data pair and the documents pair are migrated one after the other, the data pair first. With `n` the
+new ref, `o` the old ref and `b` the backup ref of one pair:
+
+| n | o | b | action |
+|---|---|---|---|
+| present | absent | absent | settled |
+| present | absent | present | delete `b` when `n` contains its commit, else error naming both |
+| present | present | any | data pair: error (git cannot store both). Documents pair: a stray ref, below |
+| absent | present | absent | migrate |
+| absent | present | present, `b == o` | move |
+| absent | present | present, `b != o` | stop: error naming both tips, nothing moved or deleted |
+| absent | absent | present | resume: put `b` at `n`, then delete `b` |
+| absent | absent | absent | no ledger for this pair |
+
+A new ledger, and a first documents commit, are never made while `o` or `b` exists for the
+pair. The move:
+
+1. Fetch `o` into a pin ref of the bare clone and push `<tip>:<b>`: the backup.
+2. One push with a lease on each old tip: `git push --force-with-lease=<o>:<tip> <remote>
+   :<o> <tip>:<n>`. Git cannot hold `n` and `o` together, so the server deletes first and
+   creates after. `--atomic` is not used (git rejects it for a ref and its folder), so a
+   push can succeed for one ref and not the other, and the porcelain line of each ref is read.
+3. A server that rejects the combined push gets `:<o>` with a lease and then `<tip>:<n>`, with
+   three tries for the create. The backup is in place, so at every point one remote ref points at
+   the tip. If an older tsk recreates `o` in the gap, the table finds it (`b != o`) and nothing
+   is lost.
+4. When `n` points at the backup, push `:<b>`.
+5. The marker is written last, when both pairs are at the new names: the entry's `ledger_refs`
+   becomes `<mode>-v2`, a newline and the marker line. A machine that finds the refs moved and
+   the entry unmarked sets it at its next publish point (`tsk ledger push`, thread start,
+   pause, stop), never from a command that only reads. A failed write is a note.
+6. The store is pointed at the new names (`ledger-ref`, or the remote of a git-remote store).
+
+A rejected delete (a protected branch, the cloud proxy), an unreachable remote and a lost lease
+leave the pair on its old names for that process, with one note, and nothing is lost. The
+error and the time are in `remote-move.last` in the home. The move runs again after an hour
+and at every `tsk ledger push`. An unreachable remote uses the layout the store was made
+for. The data pair and the documents pair can differ for a process while one of them
+is stuck: each ref has its own layout.
+
+**A stray old documents ref.** An older tsk that bypassed the marker can create
+`ledgers/<id>-docs` again. Its documents are real work. `tsk ledger fetch` finds it when both
+exist. If the old ref is contained in the new one, it is deleted with a lease. Otherwise the
+commits are merged into the new documents ref in a temporary worktree, pushed with a lease,
+and then the old ref is deleted. After a conflict, the old ref stays and prints its commit.
+
+#### Older binaries
+
+An older tsk finds the marker in the entry before any ledger work. It reads the value with
+a strict parse that accepts only `branches` and `custom`, so it fails with `error:
+ledger_refs on the nexus entry "<id>" is "<mode>-v2\nerror: unsupported ledger version 16 in the
+nexus entry ...; the values are "branches" and "custom"`. The error contains a line that
+starts as the unsupported-version error of ADR 0023, so the older tsk updates itself and
+runs the command again with the new tsk. With `TSK_AUTO_UPDATE=never`, and in the hook
+commands, it stops with the error. An older tsk with no store makes no new ledger: its
+`tsk ledger status` prints `Next fetch`, and the fetch stops with that error.
+
+If an older tsk gets past the marker (`TSK_LEDGER_REFS` set in its environment returns before
+the entry is read), the server rule stops it. With `ledgers/<id>/ledger` present, no client can
+create `ledgers/<id>`, in either mode. It makes a local, unpublished ledger, and its push is
+rejected. The remote is never forked. On a ledger in its repo the refs did not change, so
+an older tsk keeps working on it. After the upgrade it starts a separate legacy copy in
+`repos/<clone-id>`, which is not supported: run one version of tsk per machine.
 
 ## Mission commands
 
@@ -1044,7 +1261,7 @@ selected as the `git` backend. The branch contained a `.tsk-ledger.toml` manifes
 `index.md` and a `continuation-state.jsonl`, and the cloud and worktree bindings as JSON
 files), `external-events/` and, from layout version 1 on, `records/missions/<ID>.json` for
 the mission records. It was checked out as a detached linked worktree at
-`.../repos/<clone-id>/ledger` and published with a git commit and a compare-and-swap push.
+`.../repos/<clone-id>/ledger` (a path of those releases) and published with a git commit and a compare-and-swap push.
 
 0.16.0 removed it (ADR 0015). Release 0.15.1 is the last that has it, and every release up
 to it is tagged. The full history of this repo's file ledger is on the branch
@@ -1066,10 +1283,15 @@ Two modes decide which refs contain it (ADR 0016):
 | Location | Remote | Ref in `custom` | Ref in `branches` |
 |---|---|---|---|
 | In-repo (default) | the managed repo's `origin` | `refs/tsk/ledger` | `refs/heads/tsk/ledger` |
-| Nexus (option) | the nexus repo | `refs/tsk/ledgers/<repo-id>` | `refs/heads/ledgers/<repo-id>` |
+| Nexus (option) | the nexus repo | `refs/tsk/ledgers/<repo-id>/ledger` | `refs/heads/ledgers/<repo-id>/ledger` |
 
 The documents ref is `refs/tsk/docs` or `refs/heads/tsk/docs` in-repo, and
-`refs/tsk/ledgers/<repo-id>-docs` or `refs/heads/ledgers/<repo-id>-docs` on a nexus.
+`refs/tsk/ledgers/<repo-id>/docs` or `refs/heads/ledgers/<repo-id>/docs` on a nexus.
+
+Before 0.70.0 a nexus contained `ledgers/<repo-id>` and `ledgers/<repo-id>-docs`. A move renamed
+them (see [Moving the state](#moving-the-state)). The names `refs/tsk/ledgers-backup/<repo-id>/...`
+contain a copy of a pair of refs while that migration runs. The refs of a ledger in its repo did not
+change.
 
 The binary passes the full ref name to every git command, and `dolt remote add --ref` takes
 the full name too. It never passes `tsk/ledger` or any other unqualified name. On the tsk
@@ -1099,9 +1321,9 @@ The mode is read from these sources. The first that has an answer wins:
 4. Discovery, for a ledger that no person or file configured:
    1. The ledger store on this machine, when it exists. The ref its `origin` remote
       records decides the mode. This is a file read.
-   2. The answer an earlier discovery cached in `<state>/repos/<clone-id>/ledger-refs`.
+   2. The answer an earlier discovery cached in `ledger-refs` in the ledger home.
    3. One `git ls-remote <remote> refs/heads/tsk/ledger refs/tsk/ledger` (the nexus ref
-      names for a nexus ledger). The branch ledger wins when both exist. The answer is
+      names for a nexus ledger, under the new, the old and the backup names). The branch ledger wins when both exist. The answer is
       cached. When origin cannot be reached, nothing is cached and the next rule applies.
    4. A new ledger takes `custom`. In a Claude Code cloud session
       (`CLAUDE_CODE_REMOTE=true`) it takes `branches` instead, because the first push of a
@@ -1169,8 +1391,8 @@ ledger store, and after the fix the next `tsk ledger push` sends them.
 
 The nexus location is for a managed repo the operator cannot push a ledger branch to,
 such as a work repo. The ledger data is stored in the nexus repo. The managed repo's clone
-fetches and pushes them against the nexus URL as the remote. The documents worktree stays
-a linked worktree of the managed repo's clone.
+fetches and pushes them against the nexus URL as the remote. The documents worktree is a
+worktree of the ledger home's bare clone, not of the managed repo's clone.
 
 ### User config
 
@@ -1214,7 +1436,7 @@ The choice is per managed repo:
       otherwise the output of `hostname`. An entry whose `local` names another machine
       is skipped in both steps.
 3. No entry means in-repo. An entry with no `ledger` field, or `"ledger": "repo"`, means
-   in-repo. `"ledger": "nexus"` means the ref `ledgers/<repo-id>` in the nexus (under
+   in-repo. `"ledger": "nexus"` means the refs `ledgers/<repo-id>/ledger` and `ledgers/<repo-id>/docs` in the nexus (under
    `refs/heads/` or `refs/tsk/`, by the mode), where `<repo-id>` is the entry's `id`. Any
    other `ledger` value stops with an error.
 4. When an entry is found and `tsk-repo-id` does not already contain its `id`, tsk writes the
@@ -1254,11 +1476,11 @@ not: it needs only the clone ID.
 
 | Field | Required | Meaning |
 |---|---|---|
-| `id` | yes | The repo ID. It names the ledger branch, `ledgers/<id>`, and is stored in the ledger's manifest. `[a-z0-9][a-z0-9-]*`. |
+| `id` | yes | The repo ID. It names the ledger refs, `ledgers/<id>/ledger` and `ledgers/<id>/docs`, and the ledger home, and is stored in the ledger's manifest. `[a-z0-9][a-z0-9-]*`. |
 | `url` | no | The repo's clone URL, in any form that normalises to the same name (see [Origin URL normalisation](#origin-url-normalisation)). Absent for a repo with no remote yet. |
 | `local` | no | A machine name. The entry is visible only on that machine, and is found only through the cached repo ID. Used with no `url`. |
 | `ledger` | no | `"repo"` or `"nexus"`. Absent means `"repo"`. |
-| `ledger_refs` | no | `"branches"` or `"custom"`: which refs contain the ledger (see [Which mode a repo uses](#which-mode-a-repo-uses)). When absent, the choice is left to the repo config and discovery. Any other value stops with an error. |
+| `ledger_refs` | no | `"branches"` or `"custom"`: which refs contain the ledger (see [Which mode a repo uses](#which-mode-a-repo-uses)). `"branches-v2"` or `"custom-v2"`, then a newline and one line of marker text, marks an entry whose ledger is at the new ref names (see [Moving the state](#moving-the-state)). A tsk reads the text before the first newline. When absent, the choice is left to the repo config and discovery. Any other value stops with an error. |
 | `prefix` | no | The mission prefix of the repo's ledger (3 to 4 capital letters), written at registration. Two entries in one nexus cannot have the same prefix. Absent for an entry registered before 0.36.0; registering again records it. |
 
 `tsk nexus register-repo`, run in the managed repo, adds its entry. It fetches the
@@ -1288,15 +1510,18 @@ the new entry. When the repo's entry exists without a prefix, registering again 
   to read, so the command writes `refs/heads/main`, in a commit with no parent, and pushes
   it only when the branch does not exist yet. The commit message is
   `Create nexus.json and register <id> in territory <territory>`.
-- `ledger` is `--ledger`, `nexus` by default, and is always written. `ledger_refs` is
-  `--ledger-refs`, written only when the option is given.
+- `ledger` is `--ledger`, `nexus` by default, and is always written. For a ledger in the
+  nexus, `ledger_refs` is written with the marker of the new ref layout, in the mode of
+  `--ledger-refs`, else the mode in force (`TSK_LEDGER_REFS`, then `.tsk/config.toml`), else
+  `custom` (`branches` in a Claude Code cloud session). For `--ledger repo` it is written only
+  when the option is given.
 - An entry with the same normalised `url` and the same ID, or the same ID and the same
   `local`, means the repo is registered: the command prints `already registered` and
   commits nothing. The same `url` under another ID, or the same ID for another repo, stops
   with an error.
 - The command rewrites `nexus.json` from its parsed form, pretty printed with a trailing
   newline. Every field is kept, and object keys keep the order the file has, so the diff of
-  the commit holds only the change. A new entry is the last of its territory's `repos`, with
+  the commit contains only the change. A new entry is the last of its territory's `repos`, with
   its keys in the order `id`, `url` or `local`, `ledger`, `ledger_refs`, `prefix`. The
   binary builds serde_json with `preserve_order` for this, so every JSON object it prints
   keeps the order of its source.
@@ -1352,10 +1577,11 @@ different URL needs no clean-up.
 ### Fetching and pushing a nexus ledger
 
 The Dolt remote of a nexus ledger is `git+<nexus-url>` with the ref
-`refs/tsk/ledgers/<repo-id>` (`refs/heads/ledgers/<repo-id>` in `branches` mode). The
-documents ref is `refs/tsk/ledgers/<repo-id>-docs` (`refs/heads/ledgers/<repo-id>-docs`) on
-the same remote. The managed repo's clone fetches the documents ref into its own object
-database, which `git worktree add` needs. The nexus repo is not an `origin` or any named
+`refs/tsk/ledgers/<repo-id>/ledger` (`refs/heads/ledgers/<repo-id>/ledger` in `branches` mode). The
+documents ref is `refs/tsk/ledgers/<repo-id>/docs` (`refs/heads/ledgers/<repo-id>/docs`) on
+the same remote. The ledger home's bare clone fetches both refs into its own object
+database, which `git worktree add` needs, so the managed repo's object database receives
+nothing. The nexus repo is not an `origin` or any named
 remote of the managed clone, and no `.git/config` entry is written. A manifest `repo_id`
 that differs from the entry's `id` stops `tsk ledger fetch` and `tsk ledger push` before
 anything is written.
@@ -1599,8 +1825,18 @@ and `updated_at`, the UTC time the watermark was last advanced. Positions `1` to
 
 ## Local-only files
 
-Three files belong to one clone and are never committed to the ledger, in either ledger
-location.
+Four files belong to one clone and are never committed to the ledger, in either ledger
+location. The fourth, `.git/tsk-ledger-home`, names the clone's ledger home.
+
+### `.git/tsk-ledger-home`
+
+Path: `$(git rev-parse --path-format=absolute --git-common-dir)/tsk-ledger-home`. Content: the
+name of the directory under `<state>/ledgers/`, one line: the nexus entry id, `<id>~<hash8>`, or
+`_<clone-id>`. Written by the first command that has the ledger location, after the home
+exists. A command that has no location (`tsk ledger path`) reads it, and without it uses
+`ledgers/_<clone-id>` when that exists, else prints that path and creates nothing. When
+the ledger key that the location gives differs from the one in the file, the home it names is
+inspected before the file changes (see [Moving the state](#moving-the-state)).
 
 ### `.git/tsk-clone-id`
 
@@ -1617,8 +1853,9 @@ Content: `<name>-<suffix>` and a trailing newline. Readers strip all whitespace.
 Example: `tsk-180ae86e`. Minted once, by the first command that needs it and finds the
 file absent or empty, and read unchanged forever after. It survives a rename or relocation of
 the clone directory, which a hash of the path would not. A failure to mint writes
-nothing. The `tsk/bootstrap` scripts and the binary share this file, so the stores of
-the clone sit under the same `<clone-id>` directory.
+nothing. The `tsk/bootstrap` scripts and the binary share this file. It names the
+per-clone state directory, `<state>/repos/<clone-id>`, and, for a ledger in its repo, the home
+`_<clone-id>`.
 
 ### `tsk-repo-id`
 
@@ -1704,14 +1941,16 @@ which mints it.
 ### `tsk ledger fetch`
 
 1. Resolve the ledger location (see [Choosing the location](#choosing-the-location)).
-2. Read `.git/tsk-clone-id`, minting it if absent or empty, and compute the paths of the
-   database and of the documents worktree.
+2. Read `.git/tsk-clone-id`, minting it if absent or empty. Migrate the state of 0.69.0 and
+   earlier into its ledger home, and migrate the nexus refs, when that is due (see
+   [Moving the state](#moving-the-state)). Find or make the ledger home, and compute the
+   paths of the database and of the documents worktree in it.
 3. Ask the remote whether the ledger ref exists, by its full name. If it is absent,
    create a new local ledger instead (see
    [A ledger that does not exist yet](#a-ledger-that-does-not-exist-yet)). If the ref
    contains a file ledger, stop with the error for a removed files backend.
 4. Clone the database from the remote when it does not exist locally: from the
-   `ledger-remote` directory, reset to the ref's commit, when the ref contains `file-remote`
+   `ledger` directory, reset to the ref's commit, when the ref contains `file-remote`
    (see [Transport](#transport)). Otherwise fetch it
    and merge a newer remote tip, unless local changes are not committed, in which case
    stop with exit 1, with the store unchanged. Check the manifest version and, for a

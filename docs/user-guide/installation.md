@@ -126,8 +126,8 @@ install step does not stop the session start. It adds a warning to the session c
 At user scope the command does not write the hook, because a user-scope install is not
 about one repo. `copilot-cli` does not write it either, because Copilot reads the plugin's hooks.
 
-The plugin's `SessionStart` hook installs the `tsk` version the plugin requires when
-The hook installs `tsk` when none is on the path or the one found is older than that version.
+The plugin's `SessionStart` hook installs the `tsk` version the plugin requires when no `tsk`
+is on the path, or when the one found is older than that version.
 It installs the latest release binary with no compile (`plugin/hooks/install-tsk.sh`). A newer `tsk` is accepted and never replaced. A `tsk` that is
 older runs `tsk self-update`, and the release archive replaces that file if self-update
 cannot. A `tsk` under `~/.cargo/bin` takes the archive directly, because self-update would
@@ -257,6 +257,40 @@ version the plugin requires (`plugin/tsk-version`).
 `tsk install-plugin claude-cli` updates the plugin. Claude Code loads plugin hooks and
 skills when its process starts, so a new plugin version takes effect in the next new
 session, not after `/clear`.
+
+### Upgrading from 0.69.0 or earlier: the ledger migrates automatically
+
+0.70.0 moves the ledger out of the code repo (ADR 0035). Upgrade tsk, and the next ledger
+command migrates the state. No step by hand.
+
+- **What is migrated.** The state of each clone, `<state>/repos/<clone-id>/ledger-db`, `docs` and
+  `ledger-remote`, goes to `<state>/ledgers/<key>/`, where `<key>` is the nexus entry id (a
+  ledger in its repo: `_<clone-id>`). On a nexus, the refs `ledgers/<id>` and `ledgers/<id>-docs`
+  become `ledgers/<id>/ledger` and `ledgers/<id>/docs`, and the entry in `nexus.json` gets a
+  marker.
+- **What it keeps.** Unpushed Dolt commits, uncommitted rows, and uncommitted and unpushed
+  documents. The move checks every copied file against its source before it unregisters
+  anything. It can run twice at once, and again after an interruption.
+- **What remains.** The old directories are renamed to
+  `<state>/repos/<clone-id>/legacy-leftovers/`, and tsk prints the path and the size once. Delete
+  them when the ledger works. The code repo's object database keeps the data that older
+  versions fetched into it, until git's own garbage collection drops them (two weeks after
+  they are unreachable). tsk never runs `git gc` or `git prune` in your repo.
+- **Two clones of one repo on a machine** end with one shared home. The second copy is merged
+  in, with its tasks renumbered when both clones added one to the same mission, and the copy is kept in
+  `<home>/preserved/<clone-id>/`. From then on they share one lock, one Dolt server and one
+  working set.
+- **Other machines and sessions.** A machine with an older tsk stops at its next ledger command
+  with an error about `ledger_refs` that names an unsupported ledger version, and updates
+  itself. Where updates are off (`TSK_AUTO_UPDATE=never`, the hook commands), run
+  `tsk self-update`. An older tsk never starts a new empty ledger on the old names: the server
+  rejects its push once the new refs exist.
+- **A nexus that blocks the move** (a protected branch, a cloud proxy that blocks deleting a
+  branch) keeps the ledger working on the old names, with a note and no loss. tsk retries
+  once an hour and at every `tsk ledger push`. A machine with direct access finishes the
+  move.
+- **One version per machine.** Do not run an older tsk and the new one against one ledger in a
+  repo on one machine. The older one starts a separate copy in `repos/<clone-id>`.
 
 ## First session in a repo
 

@@ -328,6 +328,9 @@ fn move_ledger(
         ));
     }
 
+    // The ledger of this clone, in its home. The home of the repo in the nexus is the next one.
+    let source_home = crate::ledger::home::for_location(&repo, &state_root, &source)?;
+
     // Nothing that is only on this machine may be left behind.
     let store = crate::ledger::store::open(&cwd)?;
     let status = store.status()?;
@@ -361,12 +364,23 @@ fn move_ledger(
     )?;
     let target = crate::ledger::location::LedgerLocation::nexus(&nexus, &entry.id)
         .with_refs(refs, RefsSource::Nexus);
+    let target_home = crate::ledger::home::Home::of_key(
+        &state_root,
+        crate::ledger::home::HomeKey::Nexus(entry.id.clone()),
+    );
+    if target_home.root().exists() {
+        return Err(format!(
+            "error: {} holds a ledger already; move it aside before tsk nexus move-ledger moves this clone's ledger there",
+            target_home.root().display()
+        ));
+    }
 
     let pairs = [
         (source.clone(), target.clone()),
         (source.docs(), target.docs()),
     ];
-    let git = &repo.git;
+    // The copy goes through the bare clone of this clone's ledger home, never the code repo.
+    let git = &source_home.git();
     let mut moved = Vec::new();
     for (from, to) in &pairs {
         let tip = crate::ledger::store::dolt::remote_tip(git, from)?;
@@ -425,6 +439,14 @@ fn move_ledger(
             eprintln!("note: the nexus's default branch moved before the push; fetching again and retrying once")
         },
     )?;
+    adopt_home(
+        &repo,
+        &state_root,
+        &source_home,
+        &target_home,
+        &target,
+        &nexus,
+    )?;
     crate::ledger::refs::forget_cache(&repo, &state_root);
     crate::ledger::refs::memo_forget();
 
@@ -449,6 +471,51 @@ fn move_ledger(
         source.ref_name(),
         source.docs_ref_name()
     );
+    Ok(())
+}
+
+/// The home of the repo's ledger in its repo becomes the home of the ledger in the nexus: the
+/// directory moves, the store points at the new `ledger` directory and ref, and the code repo
+/// names the new home (ADR 0035).
+fn adopt_home(
+    repo: &Repo,
+    state_root: &Path,
+    from: &crate::ledger::home::Home,
+    to: &crate::ledger::home::Home,
+    target: &crate::ledger::location::LedgerLocation,
+    nexus: &str,
+) -> Result<(), String> {
+    use crate::ledger::home;
+    if from.db().join(".dolt").is_dir() {
+        crate::ledger::store::server::stop(&from.db())?;
+    }
+    if let Some(parent) = to.root().parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("error: could not create {}: {}", parent.display(), e))?;
+    }
+    std::fs::rename(from.root(), to.root()).map_err(|e| {
+        format!(
+            "error: could not move {} to {}: {}",
+            from.root().display(),
+            to.root().display(),
+            e
+        )
+    })?;
+    for derived in ["remote-tips", "ledger-refs", "background-push.result"] {
+        let _ = std::fs::remove_file(to.root().join(derived));
+    }
+    let marker = home::Marker {
+        nexus: home::nexus_identity(nexus),
+        migrated: Vec::new(),
+    };
+    marker.write(to)?;
+    home::write_home_file(repo, to)?;
+    to.heal()?;
+    crate::ledger::migrate_home::rewrite_store_url(to)?;
+    crate::ledger::transport::write_ref_file(to.root(), target.ref_name())?;
+    crate::ledger::refs::memo_forget();
+    // A store on a git remote names the ref and the nexus URL in Dolt's own state.
+    crate::ledger::refs::repoint_store(repo, state_root, target)?;
     Ok(())
 }
 
@@ -535,6 +602,23 @@ fn new_entry(
     local: bool,
     prefix: String,
 ) -> Result<NewEntry, String> {
+    let ledger_refs = match (&ledger, ledger_refs) {
+        // A ledger in the nexus is written at the new ref layout, with the marker that makes
+        // an older tsk stop and update itself (ADR 0035).
+        (LedgerChoice::Nexus, given) => {
+            let mode = match given.as_deref() {
+                Some(text) => LedgerRefs::parse(text)
+                    .ok_or_else(|| format!("error: \"{}\" is not branches or custom", text))?,
+                // The mode in force (the environment, then the repo config), else the default
+                // for a new ledger.
+                None => crate::ledger::refs::configured(repo, None)?
+                    .map(|choice| choice.refs)
+                    .unwrap_or_else(crate::ledger::refs::default_mode),
+            };
+            Some(crate::ledger::refs::EntryRefs::marker(mode))
+        }
+        (_, given) => given,
+    };
     let (name, url, machine) = if local {
         let machine = machine_name().ok_or_else(|| {
             "error: could not read this machine's name; set TSK_MACHINE_NAME".to_string()

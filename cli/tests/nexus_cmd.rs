@@ -189,6 +189,12 @@ fn assert_failure_mentioning(output: &Output, needle: &str) {
     );
 }
 
+/// The `ledger_refs` value of an entry that `tsk` writes at the new ref layout (ADR 0035), in
+/// the `branches` mode these tests run in.
+const MARKER: &str = "branches-v2\nerror: unsupported ledger version 16 in the nexus entry (ledger ref layout 2); this tsk supports up to ledger version 15. Update tsk";
+/// [`MARKER`] as it is written in the text of `nexus.json`.
+const MARKER_JSON: &str = "branches-v2\\nerror: unsupported ledger version 16 in the nexus entry (ledger ref layout 2); this tsk supports up to ledger version 15. Update tsk";
+
 const TWO_TERRITORIES: &str = r#"{
   "version": 1,
   "territories": [
@@ -358,7 +364,7 @@ fn register_repo_adds_the_origin_entry_commits_and_pushes() {
     assert_eq!(doc["territories"][0]["repos"][0]["note"], "keep");
     assert_eq!(
         doc["territories"][0]["repos"][1],
-        serde_json::json!({"id": "work-api", "url": ORIGIN_URL, "ledger": "nexus", "prefix": "WRK"})
+        serde_json::json!({"id": "work-api", "url": ORIGIN_URL, "ledger": "nexus", "ledger_refs": MARKER, "prefix": "WRK"})
     );
     assert!(fx.nexus_json().ends_with("}\n"));
     assert_eq!(
@@ -384,7 +390,7 @@ fn register_repo_adds_the_origin_entry_commits_and_pushes() {
     let fetched = fx.tsk(&["ledger", "fetch"]);
     assert_success(&fetched);
     assert!(
-        stderr(&fetched).contains("refs/heads/ledgers/work-api does not exist yet"),
+        stderr(&fetched).contains("refs/heads/ledgers/work-api/ledger does not exist yet"),
         "{}",
         stderr(&fetched)
     );
@@ -429,16 +435,16 @@ fn register_repo_keeps_the_key_order_of_nexus_json_and_appends_the_entry() {
     let expected = HAND_ORDERED.replace(
         "          \"note\": \"keep\"\n        }\n      ],",
         &format!(
-            "          \"note\": \"keep\"\n        }},\n        {{\n          \"id\": \"work-api\",\n          \"url\": \"{}\",\n          \"ledger\": \"nexus\",\n          \"prefix\": \"WRK\"\n        }}\n      ],",
-            ORIGIN_URL
+            "          \"note\": \"keep\"\n        }},\n        {{\n          \"id\": \"work-api\",\n          \"url\": \"{}\",\n          \"ledger\": \"nexus\",\n          \"ledger_refs\": \"{}\",\n          \"prefix\": \"WRK\"\n        }}\n      ],",
+            ORIGIN_URL, MARKER_JSON
         ),
     );
     assert_ne!(expected, HAND_ORDERED);
     assert_eq!(fx.nexus_json(), expected);
     assert!(
         stdout(&output).contains(&format!(
-            "registered in territory work: {{\"id\":\"work-api\",\"url\":\"{}\",\"ledger\":\"nexus\",\"prefix\":\"WRK\"}}\n",
-            ORIGIN_URL
+            "registered in territory work: {{\"id\":\"work-api\",\"url\":\"{}\",\"ledger\":\"nexus\",\"ledger_refs\":\"{}\",\"prefix\":\"WRK\"}}\n",
+            ORIGIN_URL, MARKER_JSON
         )),
         "{}",
         stdout(&output)
@@ -678,8 +684,8 @@ fn register_repo_creates_nexus_json_in_an_empty_nexus_and_pushes_it() {
     assert_eq!(
         fx.nexus_json(),
         format!(
-            "{{\n  \"version\": 1,\n  \"territories\": [\n    {{\n      \"id\": \"work\",\n      \"name\": \"Work\",\n      \"repos\": [\n        {{\n          \"id\": \"work-api\",\n          \"url\": \"{}\",\n          \"ledger\": \"nexus\",\n          \"prefix\": \"WRK\"\n        }}\n      ]\n    }}\n  ]\n}}\n",
-            ORIGIN_URL
+            "{{\n  \"version\": 1,\n  \"territories\": [\n    {{\n      \"id\": \"work\",\n      \"name\": \"Work\",\n      \"repos\": [\n        {{\n          \"id\": \"work-api\",\n          \"url\": \"{}\",\n          \"ledger\": \"nexus\",\n          \"ledger_refs\": \"{}\",\n          \"prefix\": \"WRK\"\n        }}\n      ]\n    }}\n  ]\n}}\n",
+            ORIGIN_URL, MARKER_JSON
         )
     );
     assert_eq!(
@@ -746,7 +752,7 @@ fn register_repo_local_names_this_machine_and_writes_the_repo_id() {
     assert_success(&output);
     assert_eq!(
         fx.nexus_doc()["territories"][0]["repos"][1],
-        serde_json::json!({"id": "work-api", "local": "laptop", "ledger": "nexus", "prefix": "WRK"})
+        serde_json::json!({"id": "work-api", "local": "laptop", "ledger": "nexus", "ledger_refs": MARKER, "prefix": "WRK"})
     );
     assert_eq!(
         std::fs::read_to_string(fx.repo_id_file()).unwrap(),
@@ -761,7 +767,7 @@ fn register_repo_local_names_this_machine_and_writes_the_repo_id() {
     let fetched = fx.tsk(&["ledger", "fetch"]);
     assert_success(&fetched);
     assert!(
-        stderr(&fetched).contains("refs/heads/ledgers/work-api does not exist yet"),
+        stderr(&fetched).contains("refs/heads/ledgers/work-api/ledger does not exist yet"),
         "{}",
         stderr(&fetched)
     );

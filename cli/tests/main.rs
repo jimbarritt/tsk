@@ -21,6 +21,7 @@ mod install_plugin;
 mod ledger;
 mod ledger_refs;
 mod migrate_docs;
+mod migrate_home;
 mod nexus;
 mod nexus_cmd;
 mod self_update;

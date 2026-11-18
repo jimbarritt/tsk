@@ -31,8 +31,8 @@ These commands create the local equivalent of an empty repo on GitHub.
 
 - `~/.local/share/tsk` is the XDG data directory for tsk, the place for files that a user
   keeps. The nexus is the only copy of every ledger on the machine, so this guide puts it there. tsk
-  keeps its ledger stores and a clone of the nexus in `~/.local/state/tsk/`, which it
-  can rebuild from the nexus.
+  keeps its ledger homes and a clone of the nexus in `~/.local/state/tsk/`, which it
+  can rebuild from the nexus (see [The folders on disk](#the-folders-on-disk)).
 - `chmod 700` lets only your user account read the folder. The ledgers can contain
   sensitive planning records.
 - `--bare` creates a repo with no checked-out files. Git accepts a push to any branch of a
@@ -54,6 +54,56 @@ This is the one command that differs from a nexus on GitHub: the address is a `f
 path. tsk stores the address in its user config. It keeps a bare clone of the nexus in
 `~/.local/state/tsk/nexus/`, fetches into that clone on each command, and pushes ledger
 changes back to the address.
+
+## The folders on disk
+
+This is the whole layout on a machine with a local nexus and two repos, `foo` and `bar`, after
+both have a ledger. The names `foo` and `bar` are the entry ids in `nexus.json`.
+
+```
+~/.local/share/tsk/                      XDG data directory: the files you keep
+└── nexus.git/                           the local nexus, a bare git repo: the only copy of every ledger
+    └── refs/                            the refs that `git for-each-ref` lists
+        ├── heads/main                   branch with nexus.json, the entry of each repo
+        └── tsk/ledgers/
+            ├── foo/ledger               the Dolt data of foo
+            ├── foo/docs                 the documents of foo
+            ├── bar/ledger               the Dolt data of bar
+            └── bar/docs                 the documents of bar
+
+~/.local/state/tsk/                      XDG state directory: what tsk rebuilds from the nexus
+├── nexus/                               tsk's bare clone of the nexus, fetched on each command
+├── harnesses/<clone-id>/                state of the harness instances of one clone
+├── repos/<clone-id>/                    per-clone files only: harness names, the robot signing key, hooks
+└── ledgers/                             one ledger home for each repo, shared by every clone of it
+    ├── foo/                             the ledger home of foo, named by its entry id
+    │   ├── git/                         tsk's bare clone of the ledger refs of foo
+    │   ├── ledger-db/                   the Dolt database: missions, tasks, decisions, questions
+    │   ├── ledger/                      worktree of git/ with the Dolt file remote
+    │   ├── docs/                        worktree of git/ with the documents, as Markdown files
+    │   ├── scratch/                     input documents that stay out of the ledger
+    │   └── push.lock                    one writer at a time in this home
+    └── bar/                             the ledger home of bar, with the same folders
+        ├── git/
+        ├── ledger-db/
+        ├── ledger/
+        ├── docs/
+        ├── scratch/
+        └── push.lock
+```
+
+- Each repo has one ledger home on the machine, however many clones and code worktrees of it
+  you have. They share the home, its lock and its Dolt server.
+- The code repos contain no ledger data. `git worktree list` in `foo` lists no ledger folder,
+  `git for-each-ref` lists no ledger ref, and tsk adds no ledger object to its object database.
+  The repo keeps three small files in `.git/`: `tsk-clone-id`, `tsk-repo-id` and `tsk-ledger-home`.
+- Everything under `~/.local/state/tsk/` can be rebuilt from the nexus, except a change you
+  made and did not push. Run `tsk ledger push` before you delete a home.
+- `tsk ledger path` prints the `docs/` folder of the current repo. Do not edit the other
+  folders by hand.
+- Before 0.70.0, tsk kept these folders in `~/.local/state/tsk/repos/<clone-id>/` and named the
+  nexus refs `ledgers/<repo-id>` and `ledgers/<repo-id>-docs`. The first ledger command of
+  0.70.0 moves them, with no step by hand (ADR 0035).
 
 ## 4. Install the plugins
 
@@ -92,7 +142,7 @@ tsk ledger status
 git -C ~/.local/share/tsk/nexus.git for-each-ref
 ```
 
-The nexus has the refs `ledgers/<repo-id>` and `ledgers/<repo-id>-docs`, under `refs/tsk/`.
+The nexus has the refs `ledgers/<repo-id>/ledger` and `ledgers/<repo-id>/docs`, under `refs/tsk/`.
 A new ledger outside a Claude Code cloud session uses these custom refs, which `git branch`
 does not list (ADR 0016).
 

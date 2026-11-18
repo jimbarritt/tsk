@@ -100,6 +100,17 @@ jobs:
           git config --global user.name tsk-ci
           git config --global user.email tsk-ci@localhost
 
+      - name: Fetch the last release before the new ref names, for the test of an older tsk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # An older tsk must stop at the marker of a nexus entry and update itself (ADR 0035).
+          # The test runs against a real release binary. A missing binary fails the run.
+          mkdir -p "$RUNNER_TEMP/old-tsk"
+          bash ops/local/fetch-last-release.sh "$RUNNER_TEMP/old-tsk"
+          echo "TSK_OLD_BIN=$RUNNER_TEMP/old-tsk/tsk" >> "$GITHUB_ENV"
+          echo "TSK_REQUIRE_OLD_BIN=1" >> "$GITHUB_ENV"
+
       - name: Run the tests
         run: cargo test --workspace --locked
 

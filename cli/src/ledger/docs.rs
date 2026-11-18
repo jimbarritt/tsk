@@ -1,18 +1,20 @@
 //! The documents branch of a Dolt ledger. Dolt owns the whole tree of the ledger ref, so
 //! documents cannot live there. They are plain files on a second branch, `tsk/docs`
-//! (`ledgers/<id>-docs` on a nexus), checked out as a detached linked worktree beside the
-//! Dolt database. The worktree, the refresh and the compare-and-swap push are in
+//! (`ledgers/<id>/docs` on a nexus), checked out as a detached linked worktree of the ledger
+//! home's bare clone, beside the Dolt database. The worktree, the refresh and the
+//! compare-and-swap push are in
 //! [`super::fetch`] and [`super::push`].
 //! There is no `.tsk-ledger.toml` on the documents branch.
 
 use std::path::{Path, PathBuf};
 
 use super::fetch::{
-    add_worktree, ensure_worktree_of_repo, fetch_tip, refresh_worktree, DOCS_CREATION_MESSAGE,
+    add_worktree, ensure_worktree_of, fetch_tip, refresh_worktree, DOCS_CREATION_MESSAGE,
     INITIAL_INDEX,
 };
 use super::git::Git;
-use super::location::{docs_worktree_path, LedgerLocation, Repo};
+use super::home::Home;
+use super::location::LedgerLocation;
 use super::push::{self, PushOutcome, PushStatus};
 
 /// The `README.md` a new documents branch starts with.
@@ -33,86 +35,99 @@ pub struct DocsFetch {
     pub replaced: bool,
 }
 
-/// Where this clone's documents worktree is, or would be.
-pub fn worktree_path(repo: &Repo, state_root: &Path) -> Result<PathBuf, String> {
-    Ok(docs_worktree_path(state_root, &repo.ensure_clone_id()?))
+/// Where the documents worktree of the ledger home is, or would be.
+pub fn worktree_path(home: &Home) -> PathBuf {
+    home.docs()
 }
 
 /// Fetch the documents branch and bring the worktree up to it, creating the worktree when
 /// it is absent. A new branch starts from an orphan commit holding `README.md` and the
 /// seed `index.md`. Refuses a dirty worktree, unless `keep_local` is set, and leaves unpushed commits as they are.
 pub fn fetch(
-    repo: &Repo,
-    state_root: &Path,
+    home: &Home,
     location: &LedgerLocation,
     keep_local: bool,
 ) -> Result<DocsFetch, String> {
-    let clone_id = repo.ensure_clone_id()?;
-    let path = docs_worktree_path(state_root, &clone_id);
-    fetch_at(repo, location, &path, keep_local)
-}
-
-/// [`fetch`] with the worktree at `path`.
-pub fn fetch_at(
-    repo: &Repo,
-    location: &LedgerLocation,
-    path: &Path,
-    keep_local: bool,
-) -> Result<DocsFetch, String> {
-    let tip = fetch_tip(&repo.git, &location.docs())?;
-    fetch_at_tip(repo, location, path, keep_local, tip)
+    let tip = fetch_tip(&home.git(), &location.docs())?;
+    fetch_at_tip(home, location, keep_local, tip)
 }
 
 /// [`fetch`] for a caller that already holds the documents tip: the commit origin's branch
-/// is at, with its objects in the repository, or `None` for a branch origin does not hold.
+/// is at, with its objects in the ledger clone, or `None` for a branch origin does not hold.
 pub fn fetch_with_tip(
-    repo: &Repo,
-    state_root: &Path,
+    home: &Home,
     location: &LedgerLocation,
     keep_local: bool,
     tip: Option<String>,
 ) -> Result<DocsFetch, String> {
-    let clone_id = repo.ensure_clone_id()?;
-    let path = docs_worktree_path(state_root, &clone_id);
-    fetch_at_tip(repo, location, &path, keep_local, tip)
+    fetch_at_tip(home, location, keep_local, tip)
 }
 
 fn fetch_at_tip(
-    repo: &Repo,
+    home: &Home,
     location: &LedgerLocation,
-    path: &Path,
     keep_local: bool,
     tip: Option<String>,
 ) -> Result<DocsFetch, String> {
     let docs = location.docs();
+    let path = home.docs();
+    let git = home.git();
     let Some(commit) = tip else {
         if path.exists() {
-            ensure_worktree_of_repo(&Git::new(path), &repo.common_dir)?;
+            ensure_worktree_of(&Git::new(&path), &home.git_dir())?;
         } else {
-            let commit = create_initial_commit(&repo.git)?;
-            add_worktree(repo, path, &commit)?;
+            // A new documents branch is never started while the ledger holds one under an
+            // older or a backup name: that would fork its documents.
+            refuse_over_older_ref(&git, location)?;
+            let commit = create_initial_commit(&git)?;
+            add_worktree(&git, &path, &commit)?;
         }
         return Ok(DocsFetch {
             location: docs,
-            path: path.to_path_buf(),
+            path,
             pending: Vec::new(),
             unpublished: true,
             replaced: false,
         });
     };
     let (pending, replaced) = if path.exists() {
-        refresh_worktree(repo, path, &commit, keep_local)?
+        refresh_worktree(&home.git_dir(), &path, &commit, keep_local)?
     } else {
-        add_worktree(repo, path, &commit)?;
+        add_worktree(&git, &path, &commit)?;
         (Vec::new(), false)
     };
     Ok(DocsFetch {
         location: docs,
-        path: path.to_path_buf(),
+        path,
         pending,
         unpublished: false,
         replaced,
     })
+}
+
+/// Stop a first documents commit while the remote holds the documents of this ledger under
+/// the name of tsk 0.69.0 and earlier, or under a backup name (ADR 0035).
+fn refuse_over_older_ref(git: &Git, location: &LedgerLocation) -> Result<(), String> {
+    let (Some((old, _)), Some(backup)) = (
+        location.legacy_ref_names().map(|(_, docs)| (docs, ())),
+        location.backup_ref_names(),
+    ) else {
+        return Ok(());
+    };
+    for name in [old, backup.1] {
+        let (_, output) =
+            git.output(["ls-remote", "--exit-code", location.remote(), name.as_str()])?;
+        if output.status.code() == Some(0) {
+            return Err(format!(
+                "error: {} on {} holds the documents of this ledger under the name {}, which a move to the new names has not finished.\n       \
+                 Run tsk ledger fetch again to finish it, with write access to the nexus. tsk does not start a second documents branch",
+                location.docs().ref_name(),
+                location.label(),
+                name
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// An orphan commit holding `README.md` and the seed `index.md`, made with git plumbing
@@ -136,14 +151,14 @@ pub fn is_seed(path: &str, body: &str) -> bool {
 /// Commit every change in the documents worktree and push it with a compare and swap,
 /// rebasing onto a newer remote tip. `HEAD` already on the remote pushes nothing.
 pub fn push(
-    repo: &Repo,
+    home: &Home,
     location: &LedgerLocation,
     path: &Path,
     message: &str,
     known_tip: Option<Option<String>>,
     on_retry: &mut dyn FnMut(usize, &PushStatus),
 ) -> Result<PushOutcome, String> {
-    push::push_worktree(repo, &location.docs(), path, message, known_tip, on_retry)
+    push::push_worktree(home, &location.docs(), path, message, known_tip, on_retry)
 }
 
 #[cfg(test)]

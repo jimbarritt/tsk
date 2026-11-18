@@ -277,6 +277,30 @@ mod tests {
     }
 
     #[test]
+    fn the_marker_line_of_a_nexus_entry_is_matched_by_decide() {
+        // The error an older tsk prints for a marked entry (ADR 0035): its own text around the
+        // value of `ledger_refs`, which holds the marker line on its second line.
+        let value = format!(
+            "custom-v2\n{}",
+            crate::ledger::manifest::entry_marker_line()
+        );
+        let error = format!(
+            "error: ledger_refs on the nexus entry \"work-api\" is \"{}\"; the values are \"branches\" and \"custom\"",
+            value
+        );
+        assert_eq!(
+            decide(&error, false, None, None, None),
+            Decision::Update(crate::ledger::manifest::ENTRY_LAYOUT_NUMBER)
+        );
+        // Where updates are off, and in a hook, it stops with the error.
+        assert_eq!(decide(&error, true, None, None, None), Decision::Keep);
+        assert_eq!(
+            decide(&error, false, Some("never"), None, None),
+            Decision::Keep
+        );
+    }
+
+    #[test]
     fn a_layout_this_tsk_supports_is_not_a_newer_ledger() {
         let old = ERR.replace("version 16", "version 0");
         assert_eq!(decide(&old, false, None, None, None), Decision::Keep);

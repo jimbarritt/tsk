@@ -349,7 +349,11 @@ fn fetch_materialises_the_ledger_at_the_fixed_path() {
         .chars()
         .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
 
-    let base = fx.state().join("tsk").join("repos").join(clone_id);
+    let base = fx
+        .state()
+        .join("tsk")
+        .join("ledgers")
+        .join(format!("_{}", clone_id));
     assert_eq!(path, base.join("ledger-db"));
     assert!(path.join(".dolt").is_dir());
     let docs = base.join("docs");
@@ -358,7 +362,7 @@ fn fetch_materialises_the_ledger_at_the_fixed_path() {
 }
 
 #[test]
-fn fetch_creates_a_detached_documents_worktree_of_the_clone() {
+fn fetch_creates_a_detached_documents_worktree_of_the_ledger_clone() {
     let fx = Fixture::with_ledger();
     let docs = fx.fetch_docs();
 
@@ -368,12 +372,19 @@ fn fetch_creates_a_detached_documents_worktree_of_the_clone() {
         "worktree HEAD should be detached"
     );
 
-    let listing = git(&fx.work(), &["worktree", "list", "--porcelain", "-z"]);
+    // The worktree belongs to the bare clone in the ledger home, not to the code repo.
     let canonical = std::fs::canonicalize(&docs).unwrap();
-    assert!(listing
-        .split('\0')
-        .filter_map(|f| f.strip_prefix("worktree "))
-        .any(|p| std::fs::canonicalize(p).ok() == Some(canonical.clone())));
+    let lists = |dir: &Path| {
+        git(dir, &["worktree", "list", "--porcelain", "-z"])
+            .split('\0')
+            .filter_map(|f| f.strip_prefix("worktree ").map(str::to_string))
+            .any(|p| std::fs::canonicalize(p).ok() == Some(canonical.clone()))
+    };
+    assert!(
+        !lists(&fx.work()),
+        "the code repo lists the documents worktree"
+    );
+    assert!(lists(&docs.parent().unwrap().join("git")));
 }
 
 #[test]
@@ -491,7 +502,10 @@ fn fetch_reuses_an_existing_clone_id() {
 
     let path = fx.fetch_ok();
 
-    assert_eq!(path, fx.state().join("tsk/repos/custom-1234abcd/ledger-db"));
+    assert_eq!(
+        path,
+        fx.state().join("tsk/ledgers/_custom-1234abcd/ledger-db")
+    );
     assert_eq!(
         std::fs::read_to_string(fx.clone_id_file()).unwrap(),
         "custom-1234abcd\n"
@@ -514,7 +528,7 @@ fn fetch_recreates_a_documents_worktree_whose_directory_was_deleted() {
 fn fetch_refuses_a_documents_directory_that_is_not_a_worktree_of_this_clone() {
     let fx = Fixture::with_ledger();
     write(&fx.clone_id_file(), "work-00000000\n");
-    let docs = fx.state().join("tsk/repos/work-00000000/docs");
+    let docs = fx.state().join("tsk/ledgers/_work-00000000/docs");
     std::fs::create_dir_all(&docs).unwrap();
     write(&docs.join("stray.txt"), "not a worktree\n");
 
@@ -522,7 +536,7 @@ fn fetch_refuses_a_documents_directory_that_is_not_a_worktree_of_this_clone() {
 
     assert!(!output.status.success());
     assert!(
-        stderr(&output).contains("not a worktree of this clone"),
+        stderr(&output).contains("not a worktree of the ledger clone"),
         "{}",
         stderr(&output)
     );
@@ -625,8 +639,8 @@ fn path_without_a_clone_id_fails_and_writes_nothing() {
     assert!(!fx
         .state()
         .join("tsk")
-        .join("repos")
-        .join("work-abcdef12")
+        .join("ledgers")
+        .join("_work-abcdef12")
         .exists());
 }
 
@@ -643,11 +657,11 @@ fn path_with_a_clone_id_prints_the_path_before_any_fetch() {
         format!(
             "{}\n",
             fx.state()
-                .join("tsk/repos/work-abcdef12/ledger-db")
+                .join("tsk/ledgers/_work-abcdef12/ledger-db")
                 .display()
         )
     );
-    assert!(!fx.state().join("tsk/repos/work-abcdef12").exists());
+    assert!(!fx.state().join("tsk/ledgers/_work-abcdef12").exists());
 }
 
 #[test]
@@ -672,7 +686,7 @@ fn path_falls_back_to_home_when_xdg_state_home_is_empty() {
         format!(
             "{}\n",
             fx.home()
-                .join(".local/state/tsk/repos/work-abcdef12/ledger-db")
+                .join(".local/state/tsk/ledgers/_work-abcdef12/ledger-db")
                 .display()
         )
     );

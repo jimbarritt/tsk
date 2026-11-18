@@ -48,7 +48,7 @@ An instance has one binding, so binding it again replaces the old one. More than
 instance can bind to the same thread, and `tsk thread list` shows them in `actors`, an
 array of `{"actor", "kind", "name"}` entries (`cloud` or `worktree`; `name` is the actor of
 the instance's latest session, or `null`), empty when none is bound. A thread has one open session
-at a time (ADR 0032): resuming a thread that another session holds is refused unless
+at a time (ADR 0032): resuming a thread that another session has open fails unless
 `--take-over` is given. Resuming a paused thread that another actor wrote to binds, and
 prints a warning.
 
@@ -111,7 +111,7 @@ When the ledger branch does not exist yet, `tsk ledger fetch` creates a new ledg
 local ledger store, and the first `tsk ledger push` creates the branch. With a nexus
 attached that has no entry for the repo, and no ledger on origin, every ledger command
 stops instead: `tsk ledger init --nexus` or `--repo` creates the ledger where the person
-chooses (the `init-ledger` skill asks).
+chooses (the `init-ledger` skill prompts for the choice).
 
 ## Commands
 
@@ -198,16 +198,20 @@ construct-robot skills set it the same way.
 ### Ledger
 
 The ledger store is a Dolt database at
-`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db`, synced over git
-on `refs/tsk/ledger` or the branch `refs/heads/tsk/ledger` (see Ledger refs).
+`${XDG_STATE_HOME:-$HOME/.local/state}/tsk/ledgers/<key>/ledger-db` (the ledger home of the repo:
+the nexus entry id, or `_<clone-id>` for a ledger in its repo; every clone of the repo on a
+machine shares it), synced over git
+on `refs/tsk/ledger` or the branch `refs/heads/tsk/ledger` (on a nexus ledger,
+`refs/tsk/ledgers/<repo-id>/ledger` or `refs/heads/ledgers/<repo-id>/ledger`; see Ledger refs).
 `$TSK_LEDGER_WT` names it. Do not open files in it and do not
 run `dolt` against it by hand. The files backend was removed in 0.16.0: `tsk` stops with an
 error when `[ledger] backend = "git"` is set in the user config or `TSK_LEDGER_BACKEND=git`
 is set. Use `tsk` 0.15.1 to read an old file ledger.
 
 Documents are plain Markdown files on a second ref, `refs/tsk/docs` or `refs/heads/tsk/docs`
-(on a nexus ledger, `refs/tsk/ledgers/<repo-id>-docs` or `refs/heads/ledgers/<repo-id>-docs`). They are checked out as a worktree beside the
-database, at `.../tsk/repos/<clone-id>/docs`. Read and change them with `tsk ledger doc`.
+(on a nexus ledger, `refs/tsk/ledgers/<repo-id>/docs` or `refs/heads/ledgers/<repo-id>/docs`). They are checked out as a worktree beside the
+database, at `.../tsk/ledgers/<key>/docs`; it belongs to the home's bare clone, not to the
+code repo. Read and change them with `tsk ledger doc`.
 Documents contain intelligence, research and reports. They do not contain state: a mission's
 purpose, tasks, decisions and questions are records, and a document must not repeat them.
 Link a document to its mission with `tsk mission link`. To write one, run
@@ -270,7 +274,7 @@ ledger.** Check `tsk ledger status` first: a discard cannot be undone.
   block names the ledger store, the refs in use and the counts of missions, tasks, threads
   and actors. The `Origin` line shows whether origin has the ledger yet.
   In a clone with no ledger store it prints `Local   no ledger in this clone`, what the
-  nexus and origin say, and a `Next` line: do what it says.
+  nexus and origin show, and a `Next` line: run the step it names.
 - Do not run `ls`, `find`, `cat` or `git` against the ledger store. It is a Dolt database,
   not a directory of files, and a `tsk` command reads it.
 - Do not pipe `tsk` output through `head`, `tail` or another command. The pipe hides the
@@ -453,7 +457,7 @@ to stderr.
 | `thread start` | `started:<thread-id>` | `resume-required:<thread-id>` and exit status 2 when a binding exists |
 | `thread pause` | `paused:<thread-id>`, then `code: clean` or `code: dirty (N files)`, `code pushed: yes` or `no`, `ledger: pushed` or `ledger: N changes not pushed` | exit 1 when the managed repo's `HEAD` is not on any branch on origin, or when a thread with no mission gets a task ID |
 | `thread set mission` | `mission-set:<thread-id>:<mission-id>`, or `mission-cleared:<thread-id>` with `--none` | exit 1 for an unknown mission or thread, or with no thread ID and no binding |
-| `thread resume` | `{"thread_id":"...","latest":{...},"warning":"...","mission":{"id","name"}|null,"task":{"id","description"}|null}` | exit 1, nothing on stdout, when another session holds the thread (ADR 0032): ask me, then run again with `--take-over` only if I confirm that the holder no longer runs |
+| `thread resume` | `{"thread_id":"...","latest":{...},"warning":"...","mission":{"id","name"}|null,"task":{"id","description"}|null}` | exit 1, nothing on stdout, when another session has the thread open (ADR 0032): ask me, then run again with `--take-over` only if I confirm that the holder no longer runs |
 | `thread detach` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding |
 | `thread stop` | `stopped:<thread-id>` | exit 1 with no binding and no thread ID given |
 | `thread skip` | `skipped` | |
@@ -529,6 +533,6 @@ A change of mission keeps the thread (ADR 0031): run `/tsk:switch-mission`, whic
 on the old focus and runs `tsk thread set mission`. No single command switches a session to
 another thread. To switch: `tsk thread binding` to find the current thread,
 `tsk thread detach`, then `tsk thread resume <new-thread-id>`. `tsk thread list` gives the
-candidates, each `paused` or `held`: a held thread is not offered, and a resume of it is
-refused unless I confirm a `--take-over`. Run `tsk thread stop <old-thread-id>` only when the line of work is finished,
+candidates, each `paused` or `held`: a thread in state `held` is not offered, and a resume of it
+fails unless I confirm a `--take-over`. Run `tsk thread stop <old-thread-id>` only when the line of work is finished,
 because a stopped thread is deleted. To work with no thread at all, run `tsk thread skip`.

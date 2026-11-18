@@ -224,8 +224,8 @@ impl Fx {
     fn state_dir(&self, who: char) -> PathBuf {
         self.state()
             .join("tsk")
-            .join("repos")
-            .join(self.clone_id(who))
+            .join("ledgers")
+            .join(format!("_{}", self.clone_id(who)))
     }
 
     fn store(&self, who: char) -> PathBuf {
@@ -1025,7 +1025,7 @@ fn a_push_that_conflicts_stops_with_the_same_message_and_leaves_origin_alone() {
     let strip = |text: &str| {
         // The clone id names the store directory.
         text.split_whitespace()
-            .filter(|word| !word.contains("/state/tsk/repos/"))
+            .filter(|word| !word.contains("/state/tsk/ledgers/"))
             .collect::<Vec<_>>()
             .join(" ")
     };

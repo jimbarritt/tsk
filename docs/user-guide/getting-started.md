@@ -43,12 +43,12 @@ WT="$(tsk ledger fetch)"
 ```
 
 It clones the ledger as a Dolt database, the ledger store, outside the repository
-(`.../tsk/repos/<clone-id>/ledger-db`) and prints its path. `tsk ledger path` prints the
+(`.../tsk/ledgers/<key>/ledger-db`) and prints its path. `tsk ledger path` prints the
 same path without fetching. Do not open files in it.
 
 The ledger has a second branch, `tsk/docs`, that contains the documents as plain Markdown
 files. `tsk ledger fetch` checks it out beside the database, at
-`.../tsk/repos/<clone-id>/docs`. Read and write documents with `tsk ledger doc`:
+`.../tsk/ledgers/<key>/docs`. Read and write documents with `tsk ledger doc`:
 
 ```bash
 tsk ledger doc list missions/                    # list the documents under a prefix

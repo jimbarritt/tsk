@@ -20,7 +20,7 @@ behind it, see `docs/domain/session-continuation-design.md`; for the terms, see
 Work on tsk involves two separate stores, in two different places. They have names:
 see the Artefact and Ledger entries in `docs/domain/ubiquitous-language.md`.
 
-| | What it holds | Where |
+| | What it contains | Where |
 |---|---|---|
 | **The artefacts** | What a mission builds: source, `docs/`, `ops/`, `.claude/` | `main`, in the ordinary checkout |
 | **The ledger** | Mission records (tasks, decisions, questions), documents, threads, continuation state entries | A Dolt database (the ledger store), synced over the ledger ref (`refs/tsk/ledger`, or the branch `tsk/ledger`) |
@@ -32,7 +32,7 @@ GitHub does not list as a branch. They are never checked out together. Changes t
 ledger is written through the `tsk ledger` commands.
 
 The reason they are split: the ledger is data, not a line of development. Keeping it on
-its own branch means a change to what a mission says never appears in a diff of the
+its own branch means a change to what a mission records never appears in a diff of the
 artefacts, and vice versa. The artefacts are what a mission builds; the ledger is the
 account of the building.
 
@@ -43,20 +43,22 @@ account of the building.
 **The ledger**: the ledger store, a Dolt database (a `dolt clone` of the ledger ref) at
 
 ```
-${XDG_STATE_HOME:-$HOME/.local/state}/tsk/repos/<clone-id>/ledger-db
+${XDG_STATE_HOME:-$HOME/.local/state}/tsk/ledgers/<key>/ledger-db
 ```
 
-exported to every session as `$TSK_LEDGER_WT`. `<clone-id>` is minted once per
-clone and stored in that clone's `.git/tsk-clone-id`, so two clones of tsk on one
-machine each get their own store, and renaming a clone directory does not orphan
-it. The ordinary checkout of the repository is the code worktree. The default backend
+exported to every session as `$TSK_LEDGER_WT`. `<key>` is the nexus entry id for a ledger in a
+nexus, so two clones of one repo on a machine, and its linked code worktrees, share one store,
+one lock and one Dolt working set: an uncommitted change in one clone is visible in the other.
+For a ledger in its repo, `<key>` is `_<clone-id>`, with `<clone-id>` minted once per clone and
+stored in that clone's `.git/tsk-clone-id`, so each clone has its own store, and renaming a
+clone directory does not orphan it. The ordinary checkout of the repository is the code worktree. The default backend
 needs the `dolt` binary, version 2.5.0 or later. The `git` backend keeps the ledger as files in a
 ledger worktree instead (see `docs/domain/ledger-layout.md`).
 
-The store holds records, as tables. You read and write them with the `tsk mission`,
+The store contains records, as tables. You read and write them with the `tsk mission`,
 `tsk task`, `tsk decision` and `tsk question` commands. `tsk mission list` lists the
 missions, and `tsk mission list <id> --json` prints one in full. The documents are
-Markdown files on the branch `tsk/docs`. They hold free text only, such as intelligence,
+Markdown files on the branch `tsk/docs`. They contain free text only, such as intelligence,
 research and reports, and a mission links to them with `tsk mission link`. You read and
 write them with `tsk ledger doc`, not as files:
 
@@ -85,7 +87,7 @@ The `tsk` binary provides these. Use them rather than running git against
 | Command | Does | Side effects |
 |---|---|---|
 | `tsk ledger path` | Prints the ledger store path | None. Safe to call any time |
-| `tsk ledger fetch` | Refreshes the ledger store to origin's latest, prints the path | Updates the ledger store. Refuses if it holds uncommitted work |
+| `tsk ledger fetch` | Refreshes the ledger store to origin's latest, prints the path | Updates the ledger store. Fails if it contains uncommitted work |
 | `tsk ledger doc get <path>` | Prints a document | None |
 | `tsk ledger doc list [<prefix>]` | Lists document paths | None |
 | `tsk ledger doc put <path> [<file>]` | Writes a document from a file or stdin | Local store only |
@@ -93,31 +95,31 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk ledger doc mv <from> <to>` | Renames a document and the mission links to it; one line per change | Local store only (0.30.0) |
 | `tsk mission prefix [<PREFIX>]` | Prints the mission prefix of the ledger, or sets it: 3 or 4 capital letters that `create` and `mv` add to an ID; a number at the end of an ID marks a part of a mission | Setting is local only (0.31.0) |
 | `tsk mission mv <old> <new> [--dry-run] [--rewrite]` | Renames a mission: its ID changes, and every record, thread, block and parent follows; linked documents named for it are renamed; one line per change. `--rewrite` also replaces the old ID in record text | Local store only (0.30.0) |
-| `tsk mission reparent <id> <parent> [--dry-run] [--rewrite]` | Moves a mission under another parent. A numbered part takes the next free number there (`M-TSK-BOOT-03` under `M-TSK-AUTO` becomes `M-TSK-AUTO-01`) and is renamed as `mv` does; any other mission keeps its ID. Records, tasks, decisions, questions, threads, blocks, linked documents and the parent follow. Task IDs, `uid` and `urn` stay. Refuses an unknown parent, a cycle, and a numbered mission that has parts. References by ID in free text are listed, not changed, unless `--rewrite` is given | Local store only (0.44.0) |
-| `tsk mission rewrite <old> <new> [--dry-run]` | Replaces the ID `<old>` with `<new>`, as a whole word, in the text of every mission: names, purposes, objectives, constraints, out-of-scope items, tasks, decisions, questions and answers. Prints one `rewrote <mission> <record>` line for each change. `<old>` can be the ID of a mission renamed earlier. Documents are not changed | Local store only (0.32.0) |
+| `tsk mission reparent <id> <parent> [--dry-run] [--rewrite]` | Moves a mission under another parent. A numbered part takes the next free number there (`M-TSK-BOOT-03` under `M-TSK-AUTO` becomes `M-TSK-AUTO-01`) and is renamed as `mv` does; any other mission keeps its ID. Records, tasks, decisions, questions, threads, blocks, linked documents and the parent follow. Task IDs, `uid` and `urn` stay. Fails for an unknown parent, a cycle, and a numbered mission that has parts. References by ID in free text are listed, not changed, unless `--rewrite` is given | Local store only (0.44.0) |
+| `tsk mission rewrite <old> <new> [--dry-run]` | Replaces the ID `<old>` with `<new>`, as a whole word, in the text of every mission: names, purposes, objectives, constraints, out-of-scope items, tasks, decisions, questions and the replies recorded for them. Prints one `rewrote <mission> <record>` line for each change. `<old>` can be the ID of a mission renamed earlier. Documents are not changed | Local store only (0.32.0) |
 | `tsk task mv <mission> <task> <to>` | Moves a task and the decisions that name it to another mission; `--force` drops its blocks | Local store only (0.30.0) |
 | `tsk decision mv <mission> <n> <to> [--task <task>]` | Moves a decision, by its place in `tsk decision list`, to another mission | Local store only (0.30.0) |
 | `tsk question mv <mission> <question> <to>` | Moves a question to another mission | Local store only (0.30.0) |
-| `tsk task rm <mission> <task> [--force]` | Removes a task. Refused while a block or a decision refers to it; `--force` drops the blocks and clears the task of the decisions | Local store only (0.35.0) |
+| `tsk task rm <mission> <task> [--force]` | Removes a task. Fails while a block or a decision refers to it; `--force` drops the blocks and clears the task of the decisions | Local store only (0.35.0) |
 | `tsk decision rm <mission> <n>` | Removes a decision, by its place in `tsk decision list <mission>`, from 1 | Local store only (0.35.0) |
 | `tsk question rm <mission> <question>` | Removes a question, open or answered | Local store only (0.35.0) |
-| `tsk mission rm <id> [--force]` | Removes a mission. Always refused while it has child missions. Refused while it holds tasks, decisions or questions, has threads, blocks or blockers, or links documents, unless `--force` removes the records with it, drops the blocks, unlinks the documents and detaches the threads. Documents and threads are kept | Local store only (0.35.0) |
+| `tsk mission rm <id> [--force]` | Removes a mission. Always fails while it has child missions. Fails while it has tasks, decisions or questions, has threads, blocks or blockers, or links documents, unless `--force` removes the records with it, drops the blocks, unlinks the documents and detaches the threads. Documents and threads are kept | Local store only (0.35.0) |
 | `tsk mission show <id>` | Prints one mission as plain text | Read only (0.34.0) |
 | `tsk mission summary [--json] [--porcelain]` | Counts the missions by status (`todo`, `in-progress`, `done`) with the total, and for each mission its tasks by status. Every count is of records. A mission counts under its own status and its own tasks: a parent does not roll up its children. `--porcelain` prints tab-separated lines that start with `missions` or `tasks`, with no header | Read only (0.44.0) |
 | `tsk ledger push "<message>"` | Commits everything in the ledger store, pulls the latest ledger and pushes to `tsk/ledger` | Commits and pushes |
 | `tsk thread start [<mission-id>]` | Mints and binds a thread, for a mission or with none | Writes and pushes |
 | `tsk thread set mission <mission-id> [<thread-id>]` | Attaches a mission to a thread, or changes it; `--none` removes it | Local store only (0.24.0) |
 | `tsk thread pause` | Appends a continuation state entry | Writes and pushes |
-| `tsk thread resume [--take-over]` | Loads a thread's latest continuation state entry. A thread that another session holds is refused, and the message names the holder. `--take-over` resumes it anyway | Binds in the local store only (0.24.0) |
-| `tsk thread list` | Prints one JSON object per thread. `state` is `paused` or `held`, and `holder` names the session that holds the thread, or is null | None beyond a fetch |
+| `tsk thread resume [--take-over]` | Loads a thread's latest continuation state entry. Fails for a thread that another session has open, and the message names the holder. `--take-over` resumes it anyway | Binds in the local store only (0.24.0) |
+| `tsk thread list` | Prints one JSON object per thread. `state` is `paused` or `held`, and `holder` names the session that has the thread, or is null | None beyond a fetch |
 | `tsk thread detach` | Removes this session's binding | Local store only (0.24.0) |
 | `tsk thread binding` | Prints the current binding, if any, and the actor this session or worktree is registered as | None beyond a fetch |
 | `tsk thread title` | Prints the session title: `<mission ID>: <actor name>`, `NO-MISSION: <actor name>`, or the mission ID alone. Exit 1 with neither | None. It reads the ledger store as it is and never fetches |
 | `tsk actor register <name> --kind human\|robot` | Registers this session or worktree as an actor; needs no thread | Local store only (0.26.0) |
 | `tsk actor name` | Prints the actor this session or worktree is registered as | None |
-| `tsk actor list` | Lists the actors with their kind, state (`free`, or `busy (holds <thread id> <mission>)` while the robot holds a thread), missions, and the sessions and worktrees registered as each | None (state 0.63.0) |
+| `tsk actor list` | Lists the actors with their kind, state (`free`, or `busy (holds <thread id> <mission>)` while the robot has a thread), missions, and the sessions and worktrees registered as each | None (state 0.63.0) |
 | `tsk thread next [--open <id>,...]` | Prints `bound:<thread-id>` for a bound session, else the robot question. `--open` takes the cloud sessions that are not archived | None. Never fetches (0.58.0) |
-| `tsk thread guard` | Stop hook check for a binding; starts a background publish when the store holds unpushed changes | None. Never fetches |
+| `tsk thread guard` | Stop hook check for a binding; starts a background publish when the store contains unpushed changes | None. Never fetches |
 | `tsk thread session-start` | SessionStart hook: fetches the ledger, exports `$TSK_LEDGER_WT` | Updates the ledger store |
 
 To read the path, use `tsk ledger path`. `tsk ledger fetch` also refreshes, so calling
@@ -130,16 +132,16 @@ identity, minted once, and a session or a code worktree binds to it. See the Thr
 Actor entries in `docs/domain/ubiquitous-language.md`.
 
 **`/start-thread <mission>`** mints a thread for a mission and binds this session or
-code worktree to it. If a binding already exists, it says so and points you at
+code worktree to it. If a binding already exists, it reports the binding and points you at
 `/resume-thread` instead, because that case is a resume, not a start.
 
 **`/pause-thread`** runs one command, `tsk thread pause --bound`, and reads three
 verification lines it prints (`code: clean`, `code pushed: yes`, `ledger: pushed`). It
-says the session is safe to clear only when all three pass. It writes one continuation state entry: the mission, the task in
+reports the session as safe to clear only when all three pass. It writes one continuation state entry: the mission, the task in
 progress, a short account of where things stand, plus the commit on `tsk/ledger`,
 the commit on `main`, a timestamp, and which actor wrote it. Run it before `/clear`.
-The mission, the commit hashes and the timestamp come from `tsk thread pause`; the two
-judgement fields, the task and the account, come from the agent.
+`tsk thread pause` supplies the mission, the commit hashes and the timestamp; the agent
+supplies the two judgement fields, the task and the account.
 
 **`/resume-thread <thread-id>`** loads the latest continuation state entry, binds the current
 session or code worktree to that thread, and reports:
@@ -154,7 +156,7 @@ then asks whether to continue. When the session start context already shows the 
 its latest entry, the agent writes that summary at once and runs no command until you
 confirm. Take-over is additive: a different actor can bind to a
 thread someone else has worked. That prints a warning naming the other actors and
-proceeds, rather than refusing.
+proceeds, rather than failing.
 
 ## What happens at session start
 
@@ -166,7 +168,7 @@ a session ID and source does the work, and a second run exits with no output.
 `tsk thread session-start`:
 
 1. Fetches `tsk/ledger` and refreshes the ledger store, exporting
-   `$TSK_LEDGER_WT`. The context it prints tells the agent to run `tsk mission list`, or
+   `$TSK_LEDGER_WT`. The context it prints names `tsk mission list` for the agent to run, or
    shows the bound thread's mission and its open tasks. In a terminal it warns when the
    loaded plugin is older than the plugin version this tsk needs. In a cloud session with
    a nexus, the fetch fails until the agent attaches the nexus with the `add_repo` tool,
@@ -175,14 +177,14 @@ a session ID and source does the work, and a second run exits with no output.
    cloud session ID (`CLAUDE_CODE_REMOTE_SESSION_ID`) if there is one, otherwise the row
    of the code worktree (`<clone-id>/<worktree-name>`). A `tsk-thread-id` marker file
    from an older tsk becomes a row the first time a command resolves it.
-3. Tells the agent what to do next: run `/resume-thread <id>` when a binding is
+3. Prints the next step for the agent: run `/resume-thread <id>` when a binding is
    found. With no binding, it prints the robot question: which robot this session is, from
    every robot, the free ones first, and what to work on. `tsk thread next` prints the
    same question, and the `Stop` hook prints it after each turn until the session has a
    binding or runs `tsk thread skip`.
 
-The hook never creates a thread. Both branches name a command and leave the agent to
-invoke it. [session-start.md](session-start.md) describes the first turn step by step, in
+The hook never creates a thread. Both branches name a command, and the agent
+invokes it. [session-start.md](session-start.md) describes the first turn step by step, in
 a cloud session and in a terminal.
 
 ## A worked session
@@ -212,21 +214,21 @@ a cloud session and in a terminal.
 ```
 
 To pick up someone else's thread, name it explicitly: `/resume-thread <their-id>`. The
-warning tells you who else has worked it.
+warning names the other actors who worked it.
 
-A thread has one open session at a time (ADR 0032). A thread is held when its latest binding
-is later than its latest pause, and paused otherwise. Any session resumes a paused thread. A
-resume of a held thread exits with status 1 and names the holder. If the holder no longer
+A thread has one open session at a time (ADR 0032). A thread is in state `held` when its latest
+binding is later than its latest pause, and in state `paused` otherwise. Any session resumes a paused thread. A
+resume of a thread in state `held` exits with status 1 and names the holder. If the holder no longer
 runs, `tsk thread resume <thread-id> --take-over` takes the thread over. The
-`/tsk:resume-thread` skill asks you first, and runs it only on yes. A robot is an identity
+`/tsk:resume-thread` skill requires your confirmation first, and runs it only on yes. A robot is an identity
 and works in many sessions at once, so a busy robot is marked in the robot list and not
 hidden. The session then takes a new thread or no thread. See
 [ADR 0032](../adr/0032-a-thread-has-one-open-session-and-a-robot-works-in-many.md) and
 [session-start.md](session-start.md).
 
-`tsk thread next` and the session start tell a bound session that another session holds its
-thread, and not to work it. A pause entry with no timestamp (written before timestamps) counts as
-a pause at 2026-11-14T00:00:00Z, so a binding older than that does not hold the thread.
+`tsk thread next` and the session start report to a bound session that another session has
+its thread open, and print an instruction not to work it. A pause entry with no timestamp (written before timestamps) counts as
+a pause at 2026-11-14T00:00:00Z, so a binding older than that does not keep the thread open.
 
 ## Rules that matter
 
@@ -241,7 +243,7 @@ a pause at 2026-11-14T00:00:00Z, so a binding older than that does not hold the 
   them and `tsk ledger discard`.** Never `dolt reset` or `git reset` by hand.
 - **A script that needs to push to `tsk/ledger` calls `tsk ledger push`**
   rather than inlining the same git sequence. One copy of that logic, in one place.
-- **Code work goes to `main` directly.** No development branch, no pull request unless
+- **Commit code work to `main` directly.** No development branch, no pull request unless
   asked.
 - **`/pause-thread` is run manually, by a human, in this operating context.** An
   automated trigger for it is future work and deliberately not built.

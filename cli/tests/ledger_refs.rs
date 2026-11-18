@@ -205,6 +205,17 @@ impl Fx {
             "{{\"version\":1,\"territories\":[{{\"id\":\"t\",\"name\":\"T\",\"repos\":[{{\"id\":\"work-api\",\"local\":\"laptop\",\"ledger\":\"nexus\"{}}}]}}]}}\n",
             extra
         );
+        // The nexus may have moved: tsk marks an entry at a publish.
+        if crate::common::cmd("git")
+            .args(["fetch", "--quiet", "origin", "main"])
+            .current_dir(&seed)
+            .output()
+            .unwrap()
+            .status
+            .success()
+        {
+            git(&seed, &["reset", "--quiet", "--hard", "FETCH_HEAD"]);
+        }
         write(&seed.join("nexus.json"), &text);
         git(&seed, &["add", "-A"]);
         git(&seed, &["commit", "--quiet", "-m", "Set nexus.json"]);
@@ -216,15 +227,7 @@ impl Fx {
 
     /// The directory of a clone's ledger store, which exists once the store was made.
     fn store_dir(&self, work: &Path) -> PathBuf {
-        let id = std::fs::read_to_string(work.join(".git/tsk-clone-id"))
-            .unwrap()
-            .trim()
-            .to_string();
-        self.root
-            .path()
-            .join("state/tsk/repos")
-            .join(id)
-            .join("ledger-db")
+        common::ledger_home(&self.root.path().join("state"), work).join("ledger-db")
     }
 
     /// A pre-receive hook on a bare repo that refuses each ref matching one of `patterns`.
@@ -465,8 +468,8 @@ fn a_nexus_ledger_round_trips_on_custom_refs_by_default() {
         "",
         &[
             "refs/heads/main",
-            "refs/tsk/ledgers/work-api",
-            "refs/tsk/ledgers/work-api-docs",
+            "refs/tsk/ledgers/work-api/docs",
+            "refs/tsk/ledgers/work-api/ledger",
         ],
     );
 }
@@ -478,8 +481,8 @@ fn a_nexus_entry_sets_custom_refs() {
         ",\"ledger_refs\":\"custom\"",
         &[
             "refs/heads/main",
-            "refs/tsk/ledgers/work-api",
-            "refs/tsk/ledgers/work-api-docs",
+            "refs/tsk/ledgers/work-api/docs",
+            "refs/tsk/ledgers/work-api/ledger",
         ],
     );
 }
@@ -490,8 +493,8 @@ fn a_nexus_entry_sets_branches() {
     nexus_round_trip(
         ",\"ledger_refs\":\"branches\"",
         &[
-            "refs/heads/ledgers/work-api",
-            "refs/heads/ledgers/work-api-docs",
+            "refs/heads/ledgers/work-api/docs",
+            "refs/heads/ledgers/work-api/ledger",
             "refs/heads/main",
         ],
     );
@@ -521,7 +524,7 @@ fn the_nexus_entry_beats_the_repo_config_and_the_environment_beats_both() {
         shown
     );
     assert!(
-        shown.contains("ledger ref: refs/heads/ledgers/work-api"),
+        shown.contains("ledger ref: refs/heads/ledgers/work-api/ledger"),
         "{}",
         shown
     );
@@ -537,7 +540,7 @@ fn the_nexus_entry_beats_the_repo_config_and_the_environment_beats_both() {
         "{}",
         stdout(&output)
     );
-    assert!(stdout(&output).contains("ledger ref: refs/tsk/ledgers/work-api\n"));
+    assert!(stdout(&output).contains("ledger ref: refs/tsk/ledgers/work-api/ledger\n"));
     // A value that is neither mode is an error that names it.
     let bad = fx.tsk_env(
         &fx.work(),
@@ -574,13 +577,7 @@ fn discovery_asks_origin_once_and_caches_the_answer() {
     // work2 has no store yet: the first command asks, the cache answers the next.
     let first = fx.ok(&fx.work2(), &["config", "ledger-refs"]);
     assert!(first.contains("source: discovered on origin"), "{}", first);
-    let id = std::fs::read_to_string(fx.work2().join(".git/tsk-clone-id")).unwrap();
-    let cache = fx
-        .root
-        .path()
-        .join("state/tsk/repos")
-        .join(id.trim())
-        .join("ledger-refs");
+    let cache = common::ledger_home(&fx.root.path().join("state"), &fx.work2()).join("ledger-refs");
     assert_eq!(
         std::fs::read_to_string(&cache).unwrap(),
         "origin\t-\tcustom\n"
@@ -1045,7 +1042,7 @@ fn git_is_given_full_ref_names_for_a_repos_own_custom_ledger() {
 #[test]
 fn git_is_given_full_ref_names_for_a_nexus_custom_ledger() {
     need_dolt!();
-    full_spelling(Some(""), "refs/tsk/ledgers/work-api-docs");
+    full_spelling(Some(""), "refs/tsk/ledgers/work-api/docs");
 }
 
 #[test]

@@ -1135,11 +1135,15 @@ pub enum ServerCommands {
 /// The ledger store of the clone that holds `cwd`.
 pub fn store_of(cwd: &Path) -> Result<PathBuf, String> {
     let repo = crate::ledger::location::Repo::discover(cwd)?;
-    let id = repo.read_clone_id()?.ok_or_else(|| {
-        "error: this clone has no ledger store yet. Run tsk ledger fetch first".to_string()
-    })?;
     let root = crate::ledger::location::state_root_from_env()?;
-    let store = crate::ledger::location::dolt_db_path(&root, &id);
+    let store = match crate::ledger::home::open(&repo, &root)? {
+        crate::ledger::home::Opened::Home(found) => found.db(),
+        _ => {
+            return Err(
+                "error: this clone has no ledger store yet. Run tsk ledger fetch first".to_string(),
+            )
+        }
+    };
     if !store.join(".dolt").is_dir() {
         return Err(format!(
             "error: {} is not a Dolt database. Run tsk ledger fetch first",

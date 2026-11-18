@@ -111,9 +111,9 @@ impl Fixture {
         self.root.path().join("bin")
     }
 
-    /// The state directories of the clones: `<state>/tsk/repos/<clone-id>`.
+    /// The ledger homes: `<state>/tsk/ledgers/<key>`.
     fn state_dirs(&self) -> Vec<PathBuf> {
-        let repos = self.state().join("tsk").join("repos");
+        let repos = self.state().join("tsk").join("ledgers");
         std::fs::read_dir(repos)
             .map(|entries| entries.flatten().map(|e| e.path()).collect())
             .unwrap_or_default()

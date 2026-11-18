@@ -128,17 +128,19 @@ pub fn repo_hook_path(repo: &Repo) -> Option<PathBuf> {
     Some(top.join(HOOK_FILE))
 }
 
+/// The per-clone state directory, `<state>/repos/<clone-id>`, which holds `hooks/`.
+pub(crate) fn clone_state_dir_of(repo: &Repo) -> Option<PathBuf> {
+    let root = super::location::state_root_from_env().ok()?;
+    let id = repo.read_clone_id().ok().flatten()?;
+    Some(super::home::clone_state_dir(&root, &id))
+}
+
 /// `tsk config docs-hook`: print the script that applies and where it came from.
 pub fn show() -> Result<(), String> {
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
     let repo = Repo::discover(&cwd)?;
-    let clone_dir = match (super::location::state_root_from_env(), repo.read_clone_id()) {
-        (Ok(root), Ok(Some(id))) => super::location::dolt_db_path(&root, &id)
-            .parent()
-            .map(Path::to_path_buf),
-        _ => None,
-    };
+    let clone_dir = clone_state_dir_of(&repo);
     match resolve(&repo, clone_dir.as_deref())? {
         Some((path, source)) => {
             println!("docs hook: {}", path.display());
@@ -161,8 +163,8 @@ fn skip_requested() -> bool {
 /// The hook's output passes through unchanged: stdout to stdout and stderr to stderr when
 /// it exits 0, and in the error text when it does not. `paths` empty runs nothing.
 pub fn run(repo: &Repo, docs_root: &Path, paths: &[String]) -> Result<HookRun, String> {
-    // The documents worktree sits in the state directory of the clone.
-    let Some((hook, _)) = resolve(repo, docs_root.parent())? else {
+    // The hook of the clone sits in its state directory, not in the ledger home.
+    let Some((hook, _)) = resolve(repo, clone_state_dir_of(repo).as_deref())? else {
         return Ok(HookRun::NotRun);
     };
     run_hook(&hook, docs_root, paths)

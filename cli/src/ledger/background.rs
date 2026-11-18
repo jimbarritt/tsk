@@ -386,9 +386,11 @@ pub fn run_child(cwd: &Path, lock_fd: i32, message: &str) -> Result<(), String> 
 /// The ledger store of the clone that holds `cwd`, when the clone has a clone id.
 fn db_path(cwd: &Path) -> Option<PathBuf> {
     let repo = super::location::Repo::discover(cwd).ok()?;
-    let id = repo.read_clone_id().ok().flatten()?;
     let root = super::location::state_root_from_env().ok()?;
-    Some(super::location::dolt_db_path(&root, &id))
+    match super::home::peek(&repo, &root).ok()? {
+        super::home::Opened::Home(found) => Some(found.db()),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

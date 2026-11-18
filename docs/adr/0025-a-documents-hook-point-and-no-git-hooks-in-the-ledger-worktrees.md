@@ -4,6 +4,8 @@ Date: 2026-10-24
 
 ## Status
 
+Amended by [ADR 0035](0035-ledger-state-is-in-one-home-per-repo-outside-the-code-repo.md): The ledger worktrees are worktrees of the bare clone in the ledger home. The hook scope and the hook files in the clone state directory are unchanged.
+
 Accepted. Decided by Jim on 2026-10-24 after a field test of 0.26.0. ADR 0017 (the ledger
 is carried by plain git) and ADR 0020 (background publish) stand.
 
@@ -19,7 +21,7 @@ at the colon, because `tsk` kept the failing command's stderr out of the result 
 the hook had written its findings to stdout.
 
 Two needs followed. The code repo's git hooks must not apply to the ledger. And a repo
-must be able to check the ledger's documents as part of the push flow, with a lint tool of
+must be able to check the ledger's documents as part of the push, with a lint tool of
 its choice, without `tsk` depending on that tool or naming it.
 
 ## Decision
@@ -28,7 +30,7 @@ its choice, without `tsk` depending on that tool or naming it.
    helper of `cli/src/ledger/git.rs` starts git with `core.hooksPath` set to `/dev/null`
    (`NUL` on Windows), through the `GIT_CONFIG_COUNT` environment entries of
    `cli/src/gitenv.rs` and not through `-c`, so the arguments stay the plain ones and the
-   setting reaches any git process that git starts. One place covers the commits, merges, rebases, checkouts, worktree
+   setting applies to any git process that git starts. One place covers the commits, merges, rebases, checkouts, worktree
    changes and pushes in the documents worktree, the transport worktree and the managed
    clone. `--no-verify` is not enough, because it skips only `pre-commit` and
    `commit-msg`. The one helper that runs in the user's own code worktree,
@@ -49,7 +51,7 @@ its choice, without `tsk` depending on that tool or naming it.
      pushed and exits 1. Local state stays.
    - The hook's output passes through unchanged. In a failed background publish it is in
      the result record, and the next command's warning shows its first 20 lines.
-   - `TSK_SKIP_DOC_CHECK=1` skips the hook at both points, and `tsk` says so on stderr.
+   - `TSK_SKIP_DOC_CHECK=1` skips the hook at both points, and `tsk` prints a notice on stderr.
    - A hook file that cannot start is an error that names its path. No file means nothing
      runs.
 4. **The hook is looked up in four places, and the first that exists wins.**
@@ -70,7 +72,7 @@ its choice, without `tsk` depending on that tool or naming it.
    cannot commit `.tsk/hooks/pre-docs-commit` to it, and an untracked file there is
    noise they cannot add to `.gitignore` either. The clone, user and environment places
    let that person check the ledger documents of any repo, for one clone, for every repo,
-   or for one command. The repo place stays for a repo that wants every contributor
+   or for one command. The repo place stays for a repo that requires every contributor to be
    checked.
 5. **A failed publish shows its cause.** The failure text of a git command includes its
    stdout as well as its stderr, and the warning of a failed background publish shows the
@@ -80,12 +82,12 @@ its choice, without `tsk` depending on that tool or naming it.
 
 - A repo can enforce a rule on its ledger documents, for example the lint of its prose,
   with a one-line shell script. `swe` or any other tool plugs in through that file.
-  `tsk` carries no name of such a tool.
-- The hook runs in the push flow, so an agent that put a document with `TSK_SKIP_DOC_CHECK=1`
-  meets the same findings at the push. The skill tells agents not to skip.
+  `tsk` contains no name of such a tool.
+- The hook runs at the push, so an agent that put a document with `TSK_SKIP_DOC_CHECK=1`
+  meets the same findings at the push. The skill requires agents not to skip it.
 - A document that was changed before the repo added the hook is checked at the next push.
 - The code repo's `pre-push`, `pre-commit` and every other git hook stay with the code.
-  A repo that wants a check on the ledger uses the hook point, not a git hook.
+  A repo that needs a check on the ledger uses the hook point, not a git hook.
 - A hook that is slow slows each push. It runs once for the whole set of changed
   documents.
 - A `post-checkout` or `reference-transaction` hook of the code repo no longer sees the

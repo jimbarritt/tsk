@@ -8,8 +8,8 @@ use crate::common;
 use common::templates;
 
 const IN_REPO_REF: &str = "refs/heads/tsk/ledger";
-const NEXUS_REF: &str = "refs/heads/ledgers/work-api";
-const NEXUS_DOCS_REF: &str = "refs/heads/ledgers/work-api-docs";
+const NEXUS_REF: &str = "refs/heads/ledgers/work-api/ledger";
+const NEXUS_DOCS_REF: &str = "refs/heads/ledgers/work-api/docs";
 const ORIGIN_URL: &str = "https://example.test/acme/work-api";
 const BRIEFING: &str = "missions/operational/M-TEST-01-example.1c0de060.md";
 const WORK_API_ENTRY: &str =
@@ -176,6 +176,8 @@ impl Fixture {
             "{{\"version\":1,\"territories\":[{{\"id\":\"t\",\"name\":\"T\",\"repos\":[{}]}}]}}\n",
             entries
         );
+        // The nexus may have moved: tsk marks an entry at a publish.
+        sync_to_origin(&self.nexus_seed());
         write(&self.nexus_seed().join("nexus.json"), &text);
         commit_all(&self.nexus_seed(), "Set nexus.json");
         git(
@@ -262,10 +264,13 @@ impl Fixture {
             .to_string()
     }
 
-    /// Forget this clone's ledger: the next fetch mints a new clone ID, so it builds a
-    /// new database from what the remote holds.
+    /// Forget this clone's ledger: the home is removed, so the next fetch builds a new
+    /// database from what the remote holds.
     fn forget_local_ledger(&self) {
-        std::fs::remove_file(self.work().join(".git").join("tsk-clone-id")).unwrap();
+        let home = common::ledger_home(&self.root.path().join("state"), &self.work());
+        common::stop_servers(&home, true);
+        let _ = std::fs::remove_dir_all(&home);
+        let _ = std::fs::remove_file(self.work().join(".git").join("tsk-ledger-home"));
     }
 
     /// The head of the work clone's documents worktree.
@@ -298,7 +303,7 @@ impl Fixture {
             assert!(out.status.success(), "{:?}: {}", args, stderr(&out));
         }
         // The ledger is a Dolt file remote carried by plain git: publish the directory.
-        let remote_dir = path.parent().unwrap().join("ledger-remote");
+        let remote_dir = path.parent().unwrap().join("ledger");
         git(&remote_dir, &["add", "-A"]);
         git(&remote_dir, &["commit", "--quiet", "-m", "Another repo"]);
         git(
@@ -311,6 +316,16 @@ impl Fixture {
             ],
         );
         self.forget_local_ledger();
+    }
+}
+
+/// Bring a seed clone to what its origin holds, when it holds a `main`.
+fn sync_to_origin(seed: &Path) {
+    if git_output(seed, &["fetch", "--quiet", "origin", "main"])
+        .status
+        .success()
+    {
+        git(seed, &["reset", "--quiet", "--hard", "FETCH_HEAD"]);
     }
 }
 
@@ -464,7 +479,8 @@ fn an_entry_with_ledger_nexus_holds_the_ledger_in_the_nexus() {
     let first = fx.tsk(&["ledger", "fetch"]);
     assert_success(&first);
     assert!(
-        stderr(&first).contains("the nexus's refs/heads/ledgers/work-api does not exist yet"),
+        stderr(&first)
+            .contains("the nexus's refs/heads/ledgers/work-api/ledger does not exist yet"),
         "{}",
         stderr(&first)
     );
@@ -501,21 +517,35 @@ fn an_entry_with_ledger_nexus_holds_the_ledger_in_the_nexus() {
 }
 
 #[test]
-fn the_documents_worktree_stays_a_linked_worktree_of_the_managed_clone() {
+fn the_documents_worktree_belongs_to_the_ledger_clone_and_the_code_repo_lists_none() {
     let fx = Fixture::new();
     fx.set_nexus_json(WORK_API_ENTRY);
     fx.attach();
 
     let path = fx.fetch_ok();
     let docs = path.parent().unwrap().join("docs");
-
-    let listing = git(&fx.work(), &["worktree", "list", "--porcelain", "-z"]);
     let canonical = std::fs::canonicalize(&docs).unwrap();
-    assert!(listing
-        .split('\0')
-        .filter_map(|f| f.strip_prefix("worktree "))
-        .any(|p| std::fs::canonicalize(p).ok() == Some(canonical.clone())));
-    assert!(path.starts_with(fx.root.path().join("state/tsk/repos")));
+    let lists = |dir: &Path| {
+        git(dir, &["worktree", "list", "--porcelain", "-z"])
+            .split('\0')
+            .filter_map(|f| f.strip_prefix("worktree ").map(str::to_string))
+            .any(|p| std::fs::canonicalize(p).ok() == Some(canonical.clone()))
+    };
+    assert!(!lists(&fx.work()));
+    assert!(lists(&path.parent().unwrap().join("git")));
+    // One home per repo, keyed by the nexus entry id.
+    assert_eq!(
+        path,
+        fx.root.path().join("state/tsk/ledgers/work-api/ledger-db")
+    );
+    // The code repo holds no ledger refs and no ledger objects.
+    assert_eq!(git(&fx.work(), &["for-each-ref", "refs/tsk-fetch"]), "");
+    assert_eq!(
+        std::fs::read_to_string(fx.work().join(".git/tsk-ledger-home"))
+            .unwrap()
+            .trim(),
+        "work-api"
+    );
 }
 
 #[test]
@@ -852,7 +882,7 @@ fn an_entry_local_to_another_machine_is_skipped() {
 
     let on_desktop = fx.tsk_as("desktop", &["ledger", "fetch"]);
     assert_success(&on_desktop);
-    assert!(stderr(&on_desktop).contains("refs/heads/ledgers/work-api does not exist yet"));
+    assert!(stderr(&on_desktop).contains("refs/heads/ledgers/work-api/ledger does not exist yet"));
 }
 
 #[test]
@@ -1053,11 +1083,11 @@ fn a_dolt_nexus_ledger_keeps_its_documents_on_the_id_docs_branch() {
     let pushed = fx.tsk(&["ledger", "push", "First commit"]);
     assert_success(&pushed);
 
-    // The ref is `ledgers/<id>-docs`, never `ledgers/<id>/docs`, which cannot exist
-    // beside the ledger ref `ledgers/<id>`.
+    // Both refs live under `ledgers/<id>/`, and the names of tsk 0.69.0 and earlier are absent.
     assert!(fx.ref_exists(&fx.nexus(), NEXUS_REF));
     assert!(fx.ref_exists(&fx.nexus(), NEXUS_DOCS_REF));
-    assert!(!fx.ref_exists(&fx.nexus(), "refs/heads/ledgers/work-api/docs"));
+    assert!(!fx.ref_exists(&fx.nexus(), "refs/heads/ledgers/work-api"));
+    assert!(!fx.ref_exists(&fx.nexus(), "refs/heads/ledgers/work-api-docs"));
     assert!(!fx.ref_exists(&fx.managed(), "refs/heads/tsk/docs"));
     assert_eq!(
         fx.file_on(&fx.nexus(), NEXUS_DOCS_REF, "missions/M-1.1c0de050.md")
@@ -1118,8 +1148,36 @@ fn move_ledger_copies_both_refs_and_points_the_entry_at_the_nexus() {
     assert_eq!(git_line(&fx.nexus(), &["rev-parse", NEXUS_DOCS_REF]), docs);
     let entry = &nexus_json(&fx)["territories"][0]["repos"][0];
     assert_eq!(entry["ledger"], "nexus");
-    assert_eq!(entry["ledger_refs"], "branches");
+    // The entry is written at the new ref layout: the mode, then the line that makes an older
+    // tsk stop and update itself.
+    let marker = entry["ledger_refs"].as_str().unwrap();
+    assert!(
+        marker.starts_with("branches-v2\nerror: unsupported ledger version 16 in "),
+        "{}",
+        marker
+    );
     assert_eq!(entry["prefix"], "WORK");
+
+    // The home of the ledger in the repo became the home of the ledger in the nexus, and the
+    // code repo holds no ledger worktree or ref.
+    let state = fx.root.path().join("state");
+    let home = state.join("tsk/ledgers/work-api");
+    assert!(home.join("ledger-db/.dolt").is_dir());
+    assert_eq!(
+        std::fs::read_to_string(fx.work().join(".git/tsk-ledger-home"))
+            .unwrap()
+            .trim(),
+        "work-api"
+    );
+    let old_homes: Vec<_> = std::fs::read_dir(state.join("tsk/ledgers"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with('_'))
+        .collect();
+    assert!(old_homes.is_empty(), "{:?}", old_homes);
+    assert_eq!(git(&fx.work(), &["worktree", "list"]).lines().count(), 1);
+    assert_eq!(git(&fx.work(), &["for-each-ref", "refs/tsk-fetch"]), "");
 
     // The same clone reads the moved ledger and publishes to the nexus.
     assert_eq!(

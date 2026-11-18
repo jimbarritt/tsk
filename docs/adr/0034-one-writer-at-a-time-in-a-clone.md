@@ -4,6 +4,8 @@ Date: 2026-11-15
 
 ## Status
 
+Amended by [ADR 0035](0035-ledger-state-is-in-one-home-per-repo-outside-the-code-repo.md): The lock is one per ledger home, so two clones of one repo on a machine take the same lock.
+
 Accepted. Built in 0.69.0 for M-TSK-LOCAL T-07. ADR 0020 (the push lock) and ADR 0022
 (numbers are renumbered at push) remain in force. This ADR extends the push lock of ADR
 0020 to every command that writes.

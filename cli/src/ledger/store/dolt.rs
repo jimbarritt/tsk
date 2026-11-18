@@ -18,9 +18,8 @@ use crate::ledger::dolt::{
 };
 use crate::ledger::fetch::{fetch_tip, ref_kind, FetchOutcome, RefKind};
 use crate::ledger::git::Git;
-use crate::ledger::location::{
-    docs_worktree_path, dolt_db_path, state_root_from_env, LedgerLocation, Repo,
-};
+use crate::ledger::home::{self, Home, Opened};
+use crate::ledger::location::{state_root_from_env, LedgerLocation, Repo};
 use crate::ledger::manifest::{self, ManifestInfo, DOLT_SUPPORTED_VERSIONS};
 use crate::ledger::push::{PushOutcome, PushResult, PushStatus, MAX_ATTEMPTS};
 use crate::ledger::status::{self, Change, ChangeKind, LedgerStatus, RemoteState, SideStatus};
@@ -72,6 +71,10 @@ pub struct DoltStore {
     /// The clone lock a command that writes holds from its first access to the store until
     /// the store is dropped (see [`crate::ledger::clone_lock`]).
     held: RefCell<Option<CloneLock>>,
+    /// The ledger home of this clone, once found (ADR 0035).
+    home: RefCell<Option<Home>>,
+    /// The home was resolved against the ledger location in this process.
+    located: Cell<bool>,
 }
 
 /// A write held back for the next commit: the statement, and a query whose first count is
@@ -180,9 +183,16 @@ impl DoltStore {
     pub fn open(dir: &Path) -> Result<DoltStore, String> {
         let repo = Repo::discover(dir)?;
         let state_root = state_root_from_env()?;
+        // The state of tsk 0.69.0 and earlier moves to its ledger home here, before any other
+        // command reads it (ADR 0035).
+        let opened = home::open(&repo, &state_root)?;
+        let found = match opened {
+            Opened::Home(found) => Some(found),
+            _ => None,
+        };
         // A failed background publish shows once, on the next command that opens the store.
-        if let Some(id) = repo.read_clone_id().ok().flatten() {
-            crate::ledger::background::warn_once(&dolt_db_path(&state_root, &id));
+        if let Some(found) = &found {
+            crate::ledger::background::warn_once(&found.db());
         }
         Ok(DoltStore {
             repo,
@@ -196,7 +206,44 @@ impl DoltStore {
             queued: RefCell::new(Vec::new()),
             docs_ready: Cell::new(false),
             held: RefCell::new(None),
+            home: RefCell::new(found.filter(|h| h.has_state())),
+            located: Cell::new(false),
         })
+    }
+
+    /// The ledger home of this clone for a read: found, never created. `None` when the clone
+    /// has no ledger state on this machine yet.
+    fn peek_home(&self) -> Option<Home> {
+        if let Some(found) = self.home.borrow().clone() {
+            return Some(found);
+        }
+        match home::open(&self.repo, &self.state_root) {
+            Ok(Opened::Home(found)) => {
+                if found.has_state() {
+                    *self.home.borrow_mut() = Some(found.clone());
+                }
+                Some(found)
+            }
+            _ => None,
+        }
+    }
+
+    /// The ledger home for `location`, created when absent, with its bare clone.
+    fn home_for(&self, location: &LedgerLocation) -> Result<Home, String> {
+        if let Some(found) = self.home.borrow().clone() {
+            if self.located.get() {
+                return Ok(found);
+            }
+        }
+        let found = home::for_location(&self.repo, &self.state_root, location)?;
+        *self.home.borrow_mut() = Some(found.clone());
+        self.located.set(true);
+        Ok(found)
+    }
+
+    /// The handle on the bare clone of the ledger home for `location`.
+    fn ledger_git(&self, location: &LedgerLocation) -> Result<Git, String> {
+        Ok(self.home_for(location)?.git())
     }
 
     /// Hold the clone lock of the store at `db` until this store is dropped.
@@ -208,10 +255,9 @@ impl DoltStore {
         Ok(())
     }
 
-    /// The record of the commits this clone last fetched, once the clone has an id.
+    /// The record of the commits this ledger home last fetched, once the clone has a home.
     fn tips(&self) -> Option<Tips> {
-        let id = self.repo.read_clone_id().ok().flatten()?;
-        dolt_db_path(&self.state_root, &id).parent().map(Tips::new)
+        self.peek_home().map(|found| Tips::new(found.root()))
     }
 
     /// What origin holds for the ledger ref and the documents ref, from one `git
@@ -230,8 +276,11 @@ impl DoltStore {
         let asked = from_tips.or_else(|| {
             // A clone with no record of a fetch has to fetch both refs. One fetch of both
             // does that, and names their commits, in place of a question and two fetches.
+            let Ok(git) = self.ledger_git(location) else {
+                return None;
+            };
             if self.has_no_record(location) {
-                match tips::fetch_heads(&self.repo.git, location) {
+                match tips::fetch_heads(&git, location) {
                     Ok(heads) => {
                         self.synced.borrow_mut().brought =
                             Some((heads.ledger.clone(), heads.docs.clone()));
@@ -243,7 +292,7 @@ impl DoltStore {
                     Err(tips::FetchFailure::RefMissing) => {}
                 }
             }
-            tips::remote_heads(&self.repo.git, location).ok()
+            tips::remote_heads(&git, location).ok()
         });
         self.synced.borrow_mut().heads = Some(asked.clone());
         self.synced.borrow_mut().trusted = trusted;
@@ -278,7 +327,7 @@ impl DoltStore {
         match self.take_brought_ledger() {
             Some(commit) => Ok(Some(commit)),
             None if self.absent_on_origin(|heads| &heads.ledger) => Ok(None),
-            None => fetch_tip(&self.repo.git, location),
+            None => fetch_tip(&self.ledger_git(location)?, location),
         }
     }
 
@@ -287,7 +336,7 @@ impl DoltStore {
         match self.take_brought_docs() {
             Some(commit) => Ok(Some(commit)),
             None if self.absent_on_origin(|heads| &heads.docs) => Ok(None),
-            None => fetch_tip(&self.repo.git, docs),
+            None => fetch_tip(&self.ledger_git(docs)?, docs),
         }
     }
 
@@ -414,7 +463,8 @@ impl DoltStore {
     fn fetch_file_remote(&self, db: &Dolt, location: &LedgerLocation) -> Result<(), String> {
         let tip = self.ledger_tip_fetched(location)?;
         if let Some(commit) = &tip {
-            if transport::of_commit(&self.repo.git, commit)? != Transport::FileRemote {
+            let owner = self.ledger_git(location)?;
+            if transport::of_commit(&owner, commit)? != Transport::FileRemote {
                 return Err(format!(
                     "error: {} on {} holds the git-remote layout, and this ledger store uses a file remote.\n       \
                      Move the store aside and run tsk ledger fetch again",
@@ -422,7 +472,7 @@ impl DoltStore {
                     location.label()
                 ));
             }
-            transport::sync_checkout(&self.repo, &transport::remote_dir_beside(db.dir()), commit)?;
+            transport::sync_checkout(&owner, &transport::remote_dir_beside(db.dir()), commit)?;
             db.run(["fetch", REMOTE])?;
         }
         self.note_data_fetched(location, tip.as_deref());
@@ -440,11 +490,12 @@ impl DoltStore {
         let Some(commit) = self.ledger_tip_fetched(location)? else {
             return Ok(false);
         };
-        if transport::of_commit(&self.repo.git, &commit)? != Transport::FileRemote {
+        let owner = self.ledger_git(location)?;
+        if transport::of_commit(&owner, &commit)? != Transport::FileRemote {
             return Ok(false);
         }
         let dir = transport::remote_dir_beside(db.dir());
-        transport::sync_checkout(&self.repo, &dir, &commit)?;
+        transport::sync_checkout(&owner, &dir, &commit)?;
         transport::point_store_at_file_remote(db, &dir, location.ref_name())?;
         db.run(["fetch", REMOTE])?;
         self.note_data_fetched(location, Some(&commit));
@@ -488,7 +539,9 @@ impl DoltStore {
                 (Some(head), Some(tips)) => {
                     let recorded = tips.get(docs.remote(), docs.ref_name());
                     if recorded.as_deref() == Some(head.as_str())
-                        && tips::commit_is_local(&self.repo.git, head)
+                        && self
+                            .ledger_git(location)
+                            .is_ok_and(|git| tips::commit_is_local(&git, head))
                     {
                         self.synced.borrow_mut().docs = Some(Some(head.clone()));
                         return Ok(Some(head.clone()));
@@ -541,11 +594,7 @@ impl DoltStore {
     }
 
     fn hint(&self) -> Option<PathBuf> {
-        self.repo
-            .read_clone_id()
-            .ok()
-            .flatten()
-            .map(|id| dolt_db_path(&self.state_root, &id))
+        self.peek_home().map(|found| found.db())
     }
 
     /// The database of an already materialised ledger.
@@ -556,13 +605,13 @@ impl DoltStore {
                 what
             )
         };
-        let clone_id = self.repo.read_clone_id()?.ok_or_else(|| {
+        let found = self.peek_home().ok_or_else(|| {
             missing(format!(
-                "this clone has no clone id yet ({} is absent or empty)",
+                "this clone has no ledger home yet ({} is absent or empty)",
                 self.repo.clone_id_file().display()
             ))
         })?;
-        let path = dolt_db_path(&self.state_root, &clone_id);
+        let path = found.db();
         if !is_database(&path) {
             return Err(missing(format!("{} does not exist", path.display())));
         }
@@ -990,11 +1039,7 @@ impl DoltStore {
 
     /// The worktree of the documents branch, when this clone has an id.
     fn docs_hint(&self) -> Option<PathBuf> {
-        self.repo
-            .read_clone_id()
-            .ok()
-            .flatten()
-            .map(|id| docs_worktree_path(&self.state_root, &id))
+        self.peek_home().map(|found| found.docs())
     }
 
     /// The documents of an already materialised ledger.
@@ -1014,13 +1059,13 @@ impl DoltStore {
                 what
             )
         };
-        let clone_id = self.repo.read_clone_id()?.ok_or_else(|| {
+        let found = self.peek_home().ok_or_else(|| {
             missing(format!(
-                "this clone has no clone id yet ({} is absent or empty)",
+                "this clone has no ledger home yet ({} is absent or empty)",
                 self.repo.clone_id_file().display()
             ))
         })?;
-        let root = docs_worktree_path(&self.state_root, &clone_id);
+        let root = found.docs();
         if !root.is_dir() {
             return Err(missing(format!("{} does not exist", root.display())));
         }
@@ -1089,8 +1134,7 @@ impl DoltStore {
         }
         let location = self.repo.location(&self.state_root)?;
         let tip = self.sync_docs_tip(&location)?;
-        let fetched =
-            docs::fetch_with_tip(&self.repo, &self.state_root, &location, keep_local, tip)?;
+        let fetched = docs::fetch_with_tip(&self.home_for(&location)?, &location, keep_local, tip)?;
         let dolt_unpublished = outcome.unpublished;
         if fetched.replaced && outcome.replaced_note.is_none() {
             outcome.replaced_note = Some(REPLACED_DOCUMENTS_NOTE.to_string());
@@ -1683,6 +1727,21 @@ fn pending_commits(db: &Dolt) -> Result<Vec<String>, String> {
     Ok(pending_from_rows(&db.rows(&pending_query())?))
 }
 
+/// The commits of the store that its remote branch lacks, for the home module.
+pub(crate) fn pending_commits_of(db: &Dolt) -> Result<Vec<String>, String> {
+    pending_commits(db)
+}
+
+/// [`is_creation_only`], for the home module.
+pub(crate) fn is_creation_only_commits(pending: &[String]) -> bool {
+    is_creation_only(pending)
+}
+
+/// [`holds_no_rows`], for the home module.
+pub(crate) fn holds_no_rows_in(db: &Dolt) -> Result<bool, String> {
+    holds_no_rows(db)
+}
+
 fn pending_from_rows(rows: &[serde_json::Value]) -> Vec<String> {
     rows.iter()
         .map(|row| {
@@ -1987,8 +2046,9 @@ impl DoltStore {
         self.read_ahead.set(keep_local);
         dolt::ensure_identity()?;
         let location = self.repo.location(&self.state_root)?;
-        let clone_id = self.repo.ensure_clone_id()?;
-        let path = dolt_db_path(&self.state_root, &clone_id);
+        let found = self.home_for(&location)?;
+        let owner = found.git();
+        let path = found.db();
         let url = self.expected_url(&path, &location)?;
         let remote_label = format!("{}'s {}", location.label(), location.ref_name());
         let present = is_database(&path);
@@ -2010,7 +2070,7 @@ impl DoltStore {
             && !self.has_no_record(&location)
             && self.file_checkout_present();
         if speculate {
-            let git = self.repo.git.clone();
+            let git = owner.clone();
             let asking = location.clone();
             let (asked, read) = std::thread::scope(|scope| {
                 let ask = scope.spawn(|| tips::remote_heads(&git, &asking).ok());
@@ -2032,7 +2092,7 @@ impl DoltStore {
         // be asked, the ledger ref is asked alone, which reports the failure as before.
         let ledger_tip = match self.heads(&location) {
             Some(heads) => heads.ledger,
-            None => remote_tip(&self.repo.git, &location)?,
+            None => remote_tip(&owner, &location)?,
         };
         if ledger_tip.is_none() {
             crate::ledger::refs::check_origin_has_no_other(&self.repo, &location)?;
@@ -2124,7 +2184,7 @@ impl DoltStore {
             match kind {
                 Transport::FileRemote => {
                     let dir = transport::remote_dir_beside(&path);
-                    transport::sync_checkout(&self.repo, &dir, &commit)?;
+                    transport::sync_checkout(&owner, &dir, &commit)?;
                     Dolt::new(parent).run(["clone", transport::file_url(&dir).as_str(), &name])?;
                     transport::write_ref_file(parent, location.ref_name())?;
                     self.note_data_fetched(&location, Some(&commit));
@@ -2191,6 +2251,217 @@ impl DoltStore {
             },
             version,
         ))
+    }
+}
+
+impl DoltStore {
+    /// A nexus entry that does not carry the marker of the new ref layout gets it at a publish
+    /// point, once the data ref is at the new name (ADR 0035). Best effort: a failure is a note
+    /// and the next publish tries again. A read-only command never gets here.
+    fn mark_entry_after_publish(&self) {
+        let Ok(location) = self.repo.location(&self.state_root) else {
+            return;
+        };
+        let Some(id) = location.repo_id() else {
+            return;
+        };
+        if location.marked()
+            || location.layout() != crate::ledger::location::RefLayout::V2
+            || location.docs_layout() != crate::ledger::location::RefLayout::V2
+        {
+            return;
+        }
+        if let Err(e) = crate::ledger::register::set_entry_marker(
+            &self.state_root,
+            location.remote(),
+            id,
+            location.refs(),
+        ) {
+            eprintln!(
+                "note: could not mark the nexus entry \"{}\" as moved to the new ref names; the next publish tries again: {}",
+                id,
+                e.lines().next().unwrap_or("").trim_start_matches("error: ")
+            );
+        }
+    }
+
+    fn commit_and_push_body(
+        &self,
+        message: &str,
+        notes: &mut dyn FnMut(&str),
+    ) -> Result<PushReport, String> {
+        dolt::ensure_identity()?;
+        // One push at a time for this clone: a background publish may be running.
+        let _push_lock = match self.path() {
+            Ok(path) => Some(crate::ledger::background::lock_for_push(&path)?),
+            Err(_) => None,
+        };
+        let location = self.repo.location(&self.state_root)?;
+        let db = self.db()?;
+        self.check_current(&db, &location)?;
+        let docs_path = self.docs_for_push()?.root;
+
+        // Stage everything, count the staged tables, list the document links and commit
+        // what is staged, in one process. When that fails (a ledger below the layout that
+        // has the link table, say), the steps run in two processes, and when that fails
+        // they run one by one. Each gives the same result or the same error.
+        //
+        // Writes a command held back (see `continuation_append_deferred`) go first in the
+        // same process. When the push would not fetch first, the reads that open its first
+        // attempt follow the commit, so the push does not start a process for them.
+        // With robot attribution on and no robot actor, the commit stops (T-19).
+        crate::attribution::ledger_identity()?;
+        self.forget_snapshot();
+        let queued = std::mem::take(&mut *self.queued.borrow_mut());
+        let writes: Vec<String> = queued.iter().map(|write| write.sql.clone()).collect();
+        let staged_query = "select count(*) as c from dolt_status where staged = 1";
+        let links_query = "select path from mission_documents";
+        let mut queries = vec![
+            "call dolt_add('-A')".to_string(),
+            staged_query.to_string(),
+            links_query.to_string(),
+            format!("call dolt_commit('--skip-empty', '-m', {})", lit(message)),
+        ];
+        let reads_ride = self.data_is_current(&location);
+        if reads_ride {
+            queries.extend(push_reads());
+        }
+        let all_in_one = db.rows_each_after(&writes, &queries);
+        let mut prefetched = None;
+        let (committed, links) = match all_in_one {
+            Ok(mut sets) => {
+                if reads_ride {
+                    prefetched = Some(sets.split_off(4));
+                }
+                (
+                    dolt::first_count(&sets[1]) > 0,
+                    Some(
+                        sets[2]
+                            .iter()
+                            .filter_map(|row| text(row, "path"))
+                            .collect::<Vec<_>>(),
+                    ),
+                )
+            }
+            Err(_) => {
+                // The batch stopped somewhere. The held back writes may have been made.
+                for write in &queued {
+                    if db.count(&write.applied_query)? == 0 {
+                        db.exec(&write.sql)?;
+                    }
+                }
+                let staged = match db
+                    .rows_each(&["call dolt_add('-A')".to_string(), staged_query.to_string()])
+                {
+                    Ok(sets) => dolt::first_count(&sets[1]),
+                    Err(_) => {
+                        db.run(["add", "-A"])?;
+                        db.count(staged_query)?
+                    }
+                };
+                let committed = staged > 0;
+                if committed {
+                    db.run(["commit", "-m", message])?;
+                }
+                (committed, None)
+            }
+        };
+
+        // The documents go first, then the Dolt data. A record must never name a document
+        // the remote lacks: a reader who finds the record can then always open the
+        // document. The reverse, a document the remote holds and no record names, is
+        // harmless. So when the documents push fails (rejected after the retries, or a
+        // rebase conflict), this stops here and the Dolt data is not pushed. Both sides
+        // keep their local commits, and the next tsk ledger push resumes. Each side
+        // pushes only when it has a change or an unpushed commit: a side that is already
+        // on the remote sends nothing.
+        let docs_outcome = {
+            // The documents hook sees every document changed since the last push, before
+            // they are committed. Both local commits stay when it fails.
+            // With no hook, the list of changed documents is not worked out: it costs git
+            // starts that a push without a hook does not need.
+            if let Some((hook, _)) = crate::ledger::doc_hook::resolve(
+                &self.repo,
+                crate::ledger::doc_hook::clone_state_dir_of(&self.repo).as_deref(),
+            )? {
+                let known = self.sync_docs_tip(&location)?;
+                let side = crate::ledger::status::worktree_side(&Git::new(&docs_path), &Ok(known))?;
+                let changed: Vec<String> = side
+                    .files
+                    .into_iter()
+                    .filter(|(letter, _)| *letter != 'D')
+                    .map(|(_, path)| path)
+                    .collect();
+                crate::ledger::doc_hook::run_hook(&hook, &docs_path, &changed)?;
+            }
+            let mut on_retry = |attempt: usize, status: &PushStatus| {
+                if !self.rejection_is_expected(attempt) {
+                    notes(&crate::ledger::retry_note(attempt, status))
+                }
+            };
+            // The tip the refresh of this command fetched, else the one the record of the
+            // last fetch names. The push carries it as its lease.
+            let known = self.sync_docs_tip(&location)?;
+            let outcome = docs::push(
+                &self.home_for(&location)?,
+                &location,
+                &docs_path,
+                message,
+                Some(known),
+                &mut on_retry,
+            )?;
+            self.note_docs_tip(&location, Some(outcome.commit.as_str()));
+            outcome
+        };
+        let docs_changed =
+            docs_outcome.committed || matches!(docs_outcome.result, PushResult::Pushed { .. });
+
+        // Every document a mission links must still exist. The documents are already
+        // pushed, so this stops before the Dolt data goes and keeps both local commits.
+        // The linked paths came with the commit, so when each of them exists the missions
+        // are not read. A path that is missing, or no list, sends the check through the
+        // missions, which names the mission and the first path.
+        let docs_tree = self.docs_tree()?;
+        let all_exist = links
+            .as_ref()
+            .is_some_and(|paths| paths.iter().all(|path| docs_tree.doc_path(path).is_file()));
+        if !all_exist {
+            let missions = self.missions_in(&db, &location)?;
+            let exists = |path: &str| docs_tree.doc_path(path).is_file();
+            if model::check_links(&missions, &exists, "").is_err() {
+                // A link that another clone pushed comes in with the merge of the Dolt
+                // data, and its document does not, so the documents worktree can predate
+                // it. Bring origin's documents in, keeping local commits, and check again.
+                // A path still missing after that is missing on origin too.
+                self.synced.borrow_mut().docs = None;
+                let tip = self.docs_tip_fetched(&location.docs())?;
+                self.note_docs_tip(&location, tip.as_deref());
+                docs::fetch_with_tip(&self.home_for(&location)?, &location, true, tip)?;
+                let docs_tree = self.docs_tree()?;
+                model::check_links(
+                    &missions,
+                    &|path| docs_tree.doc_path(path).is_file(),
+                    "The documents are pushed. The Dolt data stays committed locally and is not pushed yet",
+                )?;
+            }
+        }
+
+        let request = PushRequest {
+            committed,
+            docs_changed,
+            message,
+            prefetched: prefetched.as_deref(),
+        };
+        let mut report = self.push_data(&location, &db, request, notes)?;
+        if docs_changed {
+            report.committed = report.committed || docs_outcome.committed;
+            if report.already_on_remote {
+                // Only the documents changed: the commit the remote now holds is theirs.
+                report.head = docs_outcome.commit;
+                report.already_on_remote = false;
+            }
+        }
+        Ok(report)
     }
 }
 
@@ -2288,7 +2559,10 @@ impl LedgerStore for DoltStore {
         let tip = self
             .tips()
             .and_then(|tips| tips.get(docs_ref.remote(), docs_ref.ref_name()))
-            .filter(|tip| tips::commit_is_local(&self.repo.git, tip));
+            .filter(|tip| {
+                self.ledger_git(&location)
+                    .is_ok_and(|git| tips::commit_is_local(&git, tip))
+            });
         let fetched = tip
             .map(Some)
             .ok_or_else(|| "origin was not asked".to_string());
@@ -2343,13 +2617,13 @@ impl LedgerStore for DoltStore {
     }
 
     fn path(&self) -> Result<PathBuf, String> {
-        let clone_id = self.repo.read_clone_id()?.ok_or_else(|| {
-            format!(
+        match self.peek_home() {
+            Some(found) => Ok(found.db()),
+            None => Err(format!(
                 "error: this clone has no clone id yet ({} is absent or empty).\n       Run tsk ledger fetch, which mints it.",
                 self.repo.clone_id_file().display()
-            )
-        })?;
-        Ok(dolt_db_path(&self.state_root, &clone_id))
+            )),
+        }
     }
 
     fn exists_locally(&self) -> Result<bool, String> {
@@ -2361,176 +2635,8 @@ impl LedgerStore for DoltStore {
         message: &str,
         notes: &mut dyn FnMut(&str),
     ) -> Result<PushReport, String> {
-        dolt::ensure_identity()?;
-        // One push at a time for this clone: a background publish may be running.
-        let _push_lock = match self.path() {
-            Ok(path) => Some(crate::ledger::background::lock_for_push(&path)?),
-            Err(_) => None,
-        };
-        let location = self.repo.location(&self.state_root)?;
-        let db = self.db()?;
-        self.check_current(&db, &location)?;
-        let docs_path = self.docs_for_push()?.root;
-
-        // Stage everything, count the staged tables, list the document links and commit
-        // what is staged, in one process. When that fails (a ledger below the layout that
-        // has the link table, say), the steps run in two processes, and when that fails
-        // they run one by one. Each gives the same result or the same error.
-        //
-        // Writes a command held back (see `continuation_append_deferred`) go first in the
-        // same process. When the push would not fetch first, the reads that open its first
-        // attempt follow the commit, so the push does not start a process for them.
-        // With robot attribution on and no robot actor, the commit stops (T-19).
-        crate::attribution::ledger_identity()?;
-        self.forget_snapshot();
-        let queued = std::mem::take(&mut *self.queued.borrow_mut());
-        let writes: Vec<String> = queued.iter().map(|write| write.sql.clone()).collect();
-        let staged_query = "select count(*) as c from dolt_status where staged = 1";
-        let links_query = "select path from mission_documents";
-        let mut queries = vec![
-            "call dolt_add('-A')".to_string(),
-            staged_query.to_string(),
-            links_query.to_string(),
-            format!("call dolt_commit('--skip-empty', '-m', {})", lit(message)),
-        ];
-        let reads_ride = self.data_is_current(&location);
-        if reads_ride {
-            queries.extend(push_reads());
-        }
-        let all_in_one = db.rows_each_after(&writes, &queries);
-        let mut prefetched = None;
-        let (committed, links) = match all_in_one {
-            Ok(mut sets) => {
-                if reads_ride {
-                    prefetched = Some(sets.split_off(4));
-                }
-                (
-                    dolt::first_count(&sets[1]) > 0,
-                    Some(
-                        sets[2]
-                            .iter()
-                            .filter_map(|row| text(row, "path"))
-                            .collect::<Vec<_>>(),
-                    ),
-                )
-            }
-            Err(_) => {
-                // The batch stopped somewhere. The held back writes may have been made.
-                for write in &queued {
-                    if db.count(&write.applied_query)? == 0 {
-                        db.exec(&write.sql)?;
-                    }
-                }
-                let staged = match db
-                    .rows_each(&["call dolt_add('-A')".to_string(), staged_query.to_string()])
-                {
-                    Ok(sets) => dolt::first_count(&sets[1]),
-                    Err(_) => {
-                        db.run(["add", "-A"])?;
-                        db.count(staged_query)?
-                    }
-                };
-                let committed = staged > 0;
-                if committed {
-                    db.run(["commit", "-m", message])?;
-                }
-                (committed, None)
-            }
-        };
-
-        // The documents go first, then the Dolt data. A record must never name a document
-        // the remote lacks: a reader who finds the record can then always open the
-        // document. The reverse, a document the remote holds and no record names, is
-        // harmless. So when the documents push fails (rejected after the retries, or a
-        // rebase conflict), this stops here and the Dolt data is not pushed. Both sides
-        // keep their local commits, and the next tsk ledger push resumes. Each side
-        // pushes only when it has a change or an unpushed commit: a side that is already
-        // on the remote sends nothing.
-        let docs_outcome = {
-            // The documents hook sees every document changed since the last push, before
-            // they are committed. Both local commits stay when it fails.
-            // With no hook, the list of changed documents is not worked out: it costs git
-            // starts that a push without a hook does not need.
-            if let Some((hook, _)) =
-                crate::ledger::doc_hook::resolve(&self.repo, docs_path.parent())?
-            {
-                let known = self.sync_docs_tip(&location)?;
-                let side = crate::ledger::status::worktree_side(&Git::new(&docs_path), &Ok(known))?;
-                let changed: Vec<String> = side
-                    .files
-                    .into_iter()
-                    .filter(|(letter, _)| *letter != 'D')
-                    .map(|(_, path)| path)
-                    .collect();
-                crate::ledger::doc_hook::run_hook(&hook, &docs_path, &changed)?;
-            }
-            let mut on_retry = |attempt: usize, status: &PushStatus| {
-                if !self.rejection_is_expected(attempt) {
-                    notes(&crate::ledger::retry_note(attempt, status))
-                }
-            };
-            // The tip the refresh of this command fetched, else the one the record of the
-            // last fetch names. The push carries it as its lease.
-            let known = self.sync_docs_tip(&location)?;
-            let outcome = docs::push(
-                &self.repo,
-                &location,
-                &docs_path,
-                message,
-                Some(known),
-                &mut on_retry,
-            )?;
-            self.note_docs_tip(&location, Some(outcome.commit.as_str()));
-            outcome
-        };
-        let docs_changed =
-            docs_outcome.committed || matches!(docs_outcome.result, PushResult::Pushed { .. });
-
-        // Every document a mission links must still exist. The documents are already
-        // pushed, so this stops before the Dolt data goes and keeps both local commits.
-        // The linked paths came with the commit, so when each of them exists the missions
-        // are not read. A path that is missing, or no list, sends the check through the
-        // missions, which names the mission and the first path.
-        let docs_tree = self.docs_tree()?;
-        let all_exist = links
-            .as_ref()
-            .is_some_and(|paths| paths.iter().all(|path| docs_tree.doc_path(path).is_file()));
-        if !all_exist {
-            let missions = self.missions_in(&db, &location)?;
-            let exists = |path: &str| docs_tree.doc_path(path).is_file();
-            if model::check_links(&missions, &exists, "").is_err() {
-                // A link that another clone pushed comes in with the merge of the Dolt
-                // data, and its document does not, so the documents worktree can predate
-                // it. Bring origin's documents in, keeping local commits, and check again.
-                // A path still missing after that is missing on origin too.
-                self.synced.borrow_mut().docs = None;
-                let tip = self.docs_tip_fetched(&location.docs())?;
-                self.note_docs_tip(&location, tip.as_deref());
-                docs::fetch_with_tip(&self.repo, &self.state_root, &location, true, tip)?;
-                let docs_tree = self.docs_tree()?;
-                model::check_links(
-                    &missions,
-                    &|path| docs_tree.doc_path(path).is_file(),
-                    "The documents are pushed. The Dolt data stays committed locally and is not pushed yet",
-                )?;
-            }
-        }
-
-        let request = PushRequest {
-            committed,
-            docs_changed,
-            message,
-            prefetched: prefetched.as_deref(),
-        };
-        let mut report = self.push_data(&location, &db, request, notes)?;
-        if docs_changed {
-            report.committed = report.committed || docs_outcome.committed;
-            if report.already_on_remote {
-                // Only the documents changed: the commit the remote now holds is theirs.
-                report.head = docs_outcome.commit;
-                report.already_on_remote = false;
-            }
-        }
+        let report = self.commit_and_push_body(message, notes)?;
+        self.mark_entry_after_publish();
         Ok(report)
     }
 
@@ -3369,8 +3475,8 @@ impl DoltStore {
     }
 
     /// Make the database of a ledger origin does not hold yet. A file remote starts as a
-    /// directory holding the marker and the ignore file, a linked worktree of this
-    /// repository; the first push fills it and publishes it.
+    /// directory holding the marker and the ignore file, a linked worktree of the ledger
+    /// home's bare clone; the first push fills it and publishes it.
     fn create_new_database(&self, path: &Path, location: &LedgerLocation) -> Result<(), String> {
         match transport::for_new_ledger()? {
             Transport::GitRemote => {
@@ -3379,8 +3485,9 @@ impl DoltStore {
             }
             Transport::FileRemote => {
                 let dir = transport::remote_dir_beside(path);
-                let initial = transport::initial_commit(&self.repo.git)?;
-                transport::sync_checkout(&self.repo, &dir, &initial)?;
+                let owner = self.ledger_git(location)?;
+                let initial = transport::initial_commit(&owner)?;
+                transport::sync_checkout(&owner, &dir, &initial)?;
                 create_database(path, &transport::file_url(&dir), None, location.repo_id())?;
                 if let Some(parent) = path.parent() {
                     transport::write_ref_file(parent, location.ref_name())?;
@@ -3400,14 +3507,15 @@ impl DoltStore {
                 location.label()
             ));
         };
-        match ref_kind(&self.repo.git, &commit)? {
+        let owner = self.ledger_git(location)?;
+        match ref_kind(&owner, &commit)? {
             RefKind::Files => Err(format!(
                 "error: {} on {} holds a file ledger, not a Dolt ledger.\n       \
                  The files ledger backend was removed in 0.16.0. Use tsk 0.15.1 to convert it with tsk ledger migrate-to-dolt",
                 location.ref_name(),
                 location.label()
             )),
-            RefKind::Dolt => Ok((transport::of_commit(&self.repo.git, &commit)?, commit)),
+            RefKind::Dolt => Ok((transport::of_commit(&owner, &commit)?, commit)),
             RefKind::Unknown => Err(format!(
                 "error: {} on {} has no Dolt manifest and no .tsk-ledger.toml; it is not a tsk ledger",
                 location.ref_name(),
@@ -4242,6 +4350,16 @@ fn merge_renumbering(
 ///
 /// The tables are read, and `HEAD`, in one process. A merge with no `fixup` returns the
 /// commit `HEAD` is at.
+/// Merge `remote_ref` into the store as a push does, renumbering colliding task, question,
+/// decision and constraint numbers: the fold of a second copy of one ledger (ADR 0035).
+pub(crate) fn merge_renumbering_for_move(
+    db: &Dolt,
+    remote_ref: &str,
+    renumbered: &mut Vec<Renumbered>,
+) -> Result<(), String> {
+    merge_renumbering(db, remote_ref, renumbered).map(|_| ())
+}
+
 fn merge_remote(
     db: &Dolt,
     remote_ref: &str,

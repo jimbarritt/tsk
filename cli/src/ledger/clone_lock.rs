@@ -140,7 +140,14 @@ pub fn take(db: &Path) -> Result<CloneLock, String> {
     if INHERITED.load(Ordering::SeqCst) {
         return Ok(CloneLock { path: None });
     }
-    let path = lock_path(db);
+    take_file(&lock_path(db))
+}
+
+/// Take the lock on the file at `path`, waiting as [`take`] does. For a lock that is not the
+/// push lock of a store: the state-wide lock of the move of the ledger state (ADR 0035),
+/// and the push lock of the old store of a clone.
+pub fn take_file(path: &Path) -> Result<CloneLock, String> {
+    let path = path.to_path_buf();
     {
         let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = held.get_or_insert_with(HashMap::new).get_mut(&path) {
@@ -219,6 +226,35 @@ mod tests {
         assert!(!free_to_another_descriptor(&db));
         drop(inner);
         assert!(free_to_another_descriptor(&db));
+    }
+
+    #[test]
+    fn a_file_lock_is_shared_by_two_stores_that_name_the_same_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("migrate.lock");
+        let first = take_file(&file).unwrap();
+        let again = take_file(&file).unwrap();
+        let other = open(&file).unwrap();
+        assert!(!try_flock(&other));
+        drop(first);
+        assert!(!try_flock(&other));
+        drop(again);
+        assert!(try_flock(&other));
+    }
+
+    #[test]
+    fn two_clones_of_one_home_share_one_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("ledgers").join("work-api");
+        let a = home.join("ledger-db");
+        std::fs::create_dir_all(&a).unwrap();
+        // Another clone reaches the same store by another spelling of the path.
+        let b = home.join("..").join("work-api").join("ledger-db");
+        let lock = take(&a).unwrap();
+        let other = open(&lock_path(&b)).unwrap();
+        assert!(!try_flock(&other));
+        drop(lock);
+        assert!(try_flock(&other));
     }
 
     #[test]

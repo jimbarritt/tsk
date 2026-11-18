@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use super::git::Git;
-use super::location::{LedgerLocation, Repo};
+use super::location::{LedgerLocation, RefLayout, Repo};
 use super::refs;
 use crate::config;
 
@@ -248,9 +248,10 @@ pub fn no_entry_error(nexus_url: &str) -> String {
 
 /// True when this clone has a ledger store on disk.
 pub fn has_local_store(repo: &Repo, state_root: &Path) -> Result<bool, String> {
-    Ok(match repo.read_clone_id()? {
-        Some(id) => super::location::dolt_db_path(state_root, &id).exists(),
-        None => false,
+    Ok(match super::home::open(repo, state_root)? {
+        super::home::Opened::Home(found) => found.db().exists(),
+        super::home::Opened::Pending(_) => true,
+        super::home::Opened::None => false,
     })
 }
 
@@ -266,6 +267,8 @@ pub fn origin_holds_ledger(repo: &Repo) -> Option<bool> {
 pub struct Placement {
     pub base: LedgerLocation,
     pub entry_refs: Option<refs::EntrySetting>,
+    /// The nexus entry carries the marker of the new ref layout (ADR 0035).
+    pub entry_marked: bool,
 }
 
 pub fn place(
@@ -276,6 +279,7 @@ pub fn place(
     let in_repo = || Placement {
         base: LedgerLocation::in_repo(),
         entry_refs: None,
+        entry_marked: false,
     };
     let nexus_url = match config_file {
         Some(file) => config::read_nexus_url(file)?,
@@ -311,6 +315,11 @@ pub fn place(
             .ledger_refs
             .as_ref()
             .map(|value| (entry.id.clone(), value.clone())),
+        entry_marked: entry
+            .ledger_refs
+            .as_deref()
+            .and_then(refs::EntryRefs::parse)
+            .is_some_and(|found| found.layout == RefLayout::V2),
     })
 }
 
@@ -371,9 +380,61 @@ pub fn resolve(
     config_file: Option<&Path>,
 ) -> Result<LedgerLocation, String> {
     let (placement, choice) = choose(repo, state_root, config_file)?;
-    let location = placement.base.with_refs(choice.refs, choice.source);
+    let mut location = placement.base.with_refs(choice.refs, choice.source);
+    if location.repo_id().is_some() {
+        location = location.with_marked(placement.entry_marked);
+        let layouts = layouts_for(repo, state_root, &location)?;
+        location = location
+            .with_layout(layouts.data)
+            .with_docs_layout(layouts.docs);
+        refs::sync_store_layout(repo, state_root, &location)?;
+    }
     refs::check_store(repo, state_root, &location)?;
     Ok(location)
+}
+
+/// The ref names a nexus ledger uses in this process (ADR 0035). A marked entry is at the new
+/// names, and so is a store that was made for them. Else the move runs: it reads the remote,
+/// and moves what it finds.
+fn layouts_for(
+    repo: &Repo,
+    state_root: &Path,
+    location: &LedgerLocation,
+) -> Result<super::remote_move::Layouts, String> {
+    use super::remote_move::{self, Layouts};
+    if location.marked() && !remote_move::full_check_requested() {
+        return Ok(Layouts::NEW);
+    }
+    let recorded = refs::store_ref(repo, state_root).and_then(|name| refs::layout_of_ref(&name));
+    if recorded == Some(RefLayout::V2)
+        && !location.marked()
+        && !remote_move::pending(repo, state_root, location)
+    {
+        return Ok(Layouts::NEW);
+    }
+    remote_move::run(repo, state_root, location, recorded)
+}
+
+/// The location for a command that shows it and moves nothing: the refs of the mode in force,
+/// at the layout the entry or the local store says.
+pub fn display_location(
+    repo: &Repo,
+    state_root: &Path,
+    placement: &Placement,
+    choice: &refs::RefsChoice,
+) -> LedgerLocation {
+    let location = placement.base.with_refs(choice.refs, choice.source);
+    if location.repo_id().is_none() {
+        return location;
+    }
+    let layout = if placement.entry_marked {
+        RefLayout::V2
+    } else {
+        refs::store_ref(repo, state_root)
+            .and_then(|name| refs::layout_of_ref(&name))
+            .unwrap_or(RefLayout::V2)
+    };
+    location.with_layout(layout)
 }
 
 #[cfg(test)]

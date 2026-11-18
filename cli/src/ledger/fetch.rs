@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::git::{failure_message, split_nul, Git};
-use super::location::{LedgerLocation, Repo};
+use super::location::LedgerLocation;
 use super::manifest::MANIFEST_FILE;
 
 pub struct FetchOutcome {
@@ -69,16 +69,17 @@ pub fn ref_kind(git: &Git, commit: &str) -> Result<RefKind, String> {
     })
 }
 
-pub(crate) fn add_worktree(repo: &Repo, path: &Path, commit: &str) -> Result<(), String> {
-    if worktree_registered(&repo.git, path)? {
-        repo.git.run(["worktree", "prune"])?;
+/// Add a detached worktree at `path` to the bare clone `owner`.
+pub(crate) fn add_worktree(owner: &Git, path: &Path, commit: &str) -> Result<(), String> {
+    if worktree_registered(owner, path)? {
+        owner.run(["worktree", "prune"])?;
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("error: could not create {}: {}", parent.display(), e))?;
     }
     let path_arg = path.to_string_lossy().into_owned();
-    repo.git.run([
+    owner.run([
         "worktree",
         "add",
         "--detach",
@@ -95,13 +96,13 @@ pub(crate) fn add_worktree(repo: &Repo, path: &Path, commit: &str) -> Result<(),
 /// The second value is true when the worktree held only its creation commit and was reset
 /// to `commit`: such a worktree has no document to lose.
 pub(crate) fn refresh_worktree(
-    repo: &Repo,
+    owner_git_dir: &Path,
     path: &Path,
     commit: &str,
     keep_local: bool,
 ) -> Result<(Vec<String>, bool), String> {
     let wt = Git::new(path);
-    ensure_worktree_of_repo(&wt, &repo.common_dir)?;
+    ensure_worktree_of(&wt, owner_git_dir)?;
 
     let status = wt.run(["status", "--porcelain=v2", "-z"])?;
     if !status.is_empty() {
@@ -134,40 +135,41 @@ fn is_creation_only(pending: &[String]) -> bool {
     matches!(pending, [only] if only.split_once(' ').map(|(_, message)| message) == Some(DOCS_CREATION_MESSAGE))
 }
 
-/// The worktrees this process has found to belong to a clone, as (worktree, git common
-/// directory). A command checks the same worktree more than once.
+/// The worktrees this process has found to belong to a ledger clone, as (worktree, git
+/// directory of the clone). A command checks the same worktree more than once.
 static CHECKED: std::sync::Mutex<Vec<(PathBuf, PathBuf)>> = std::sync::Mutex::new(Vec::new());
 
-pub fn ensure_worktree_of_repo(wt: &Git, common_dir: &Path) -> Result<(), String> {
+/// Check that the directory `wt` is a worktree of the bare clone at `owner_git_dir`.
+pub fn ensure_worktree_of(wt: &Git, owner_git_dir: &Path) -> Result<(), String> {
     let known = |found: &Vec<(PathBuf, PathBuf)>| {
         found
             .iter()
-            .any(|(dir, common)| dir == wt.dir() && common == common_dir)
+            .any(|(dir, common)| dir == wt.dir() && common == owner_git_dir)
     };
     if CHECKED.lock().is_ok_and(|found| known(&found)) {
         return Ok(());
     }
-    check_worktree_of_repo(wt, common_dir)?;
+    check_worktree_of(wt, owner_git_dir)?;
     if let Ok(mut found) = CHECKED.lock() {
-        found.push((wt.dir().to_path_buf(), common_dir.to_path_buf()));
+        found.push((wt.dir().to_path_buf(), owner_git_dir.to_path_buf()));
     }
     Ok(())
 }
 
-fn check_worktree_of_repo(wt: &Git, common_dir: &Path) -> Result<(), String> {
+fn check_worktree_of(wt: &Git, owner_git_dir: &Path) -> Result<(), String> {
     let wt_common = wt
         .run_line(["rev-parse", "--path-format=absolute", "--git-common-dir"])
         .ok()
         .map(PathBuf::from);
     let matches = match wt_common {
-        Some(found) => canonical(&found) == canonical(common_dir),
+        Some(found) => canonical(&found) == canonical(owner_git_dir),
         None => false,
     };
     if !matches {
         return Err(format!(
-            "error: {} exists but is not a worktree of this clone ({}); move it aside and re-run",
+            "error: {} exists but is not a worktree of the ledger clone {}; move it aside and re-run",
             wt.dir().display(),
-            common_dir.display()
+            owner_git_dir.display()
         ));
     }
     Ok(())
@@ -218,10 +220,13 @@ mod tests {
     #[test]
     fn worktree_paths_reads_porcelain_z_listing() {
         let listing = "worktree /repo\0HEAD abc\0branch refs/heads/main\0\0\
-                       worktree /state/tsk/repos/x/ledger\0HEAD def\0detached\0prunable gitdir file points to non-existent location\0\0";
+                       worktree /state/tsk/ledgers/x/ledger\0HEAD def\0detached\0prunable gitdir file points to non-existent location\0\0";
         assert_eq!(
             worktree_paths(listing),
-            vec!["/repo".to_string(), "/state/tsk/repos/x/ledger".to_string()]
+            vec![
+                "/repo".to_string(),
+                "/state/tsk/ledgers/x/ledger".to_string()
+            ]
         );
     }
 
