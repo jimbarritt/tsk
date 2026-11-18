@@ -1,9 +1,9 @@
-# How sessions, robots and threads start and move
+# How sessions, robots and threads start and transfer
 
 Status: design, 2026-11-14. The diagrams of session start, of moving a thread and of
 thread states show built behaviour (tsk 0.57.0 to 0.63.0, ADR 0030 and ADR 0032). The
 diagram of `tsk harness new` is a design by Jim. The `tsk harness new` command
-does not exist yet, and nothing here says when it will.
+does not exist yet, and this page gives no date for it.
 
 This page draws the flows in one place. The steps in words are in
 [session-start.md](../user-guide/session-start.md). The rules are in
@@ -15,7 +15,7 @@ This page draws the flows in one place. The steps in words are in
 - [The terms](#the-terms)
 - [A cloud session starts](#a-cloud-session-starts)
 - [A terminal session starts](#a-terminal-session-starts)
-- [A thread moves between harness instances](#a-thread-moves-between-harness-instances)
+- [A thread transfers between harness instances](#a-thread-transfers-between-harness-instances)
 - [The proposed tsk harness new command](#the-proposed-tsk-harness-new-command)
 - [The states of a thread](#the-states-of-a-thread)
 - [Open questions for tsk harness new](#open-questions-for-tsk-harness-new)
@@ -70,7 +70,7 @@ the `session_...` ID from the `Session title:` line that the command prints.
 ## A terminal session starts
 
 A terminal needs no `add_repo` and no `list_sessions`. The nexus is attached to the machine
-once, and `git` on the machine fetches it. The robots in use come from this machine's
+once, and `git` on the machine fetches it. The robots in use are read from this machine's
 liveness files and its tmux panes.
 
 ```mermaid
@@ -101,12 +101,12 @@ flowchart TD
 
 A terminal session sets no title.
 
-## A thread moves between harness instances
+## A thread transfers between harness instances
 
-A thread moves from a cloud session to a terminal, or the other way, through a pause. The
+A thread transfers from a cloud session to a terminal, or the other way, through a pause. The
 pause makes the thread paused, and any robot can resume a paused thread. If the old session
-ended with no pause, the thread is still held by a session that no longer runs. The resume
-refuses, and the person confirms a take-over.
+ended with no pause, a session that no longer runs is still the holder. The resume
+fails, and the person confirms a take-over.
 
 ```mermaid
 flowchart TD
@@ -170,12 +170,12 @@ apply:
    and no thread.
 4. A detached HEAD. The agent names a branch later.
 
-The person types a number, presses Enter for the first suggestion, or types a branch name.
-`tsk` checks a typed name with `git check-ref-format --branch` and refuses a branch that
-another worktree has checked out. A branch that exists and is free is checked out. A new name
+The person types a number, presses Return for the first suggestion, or types a branch name.
+`tsk` checks a typed name with `git check-ref-format --branch` and rejects a branch
+checked out in another worktree. A branch that exists and is free is checked out. A new name
 is made from the default branch of origin. `--branch <name>` and `--detach` answer the
 question, and the two flags exclude each other. With no terminal and no flag, the first
-suggestion is used. The first prompt tells the agent the branch, and the repo's rule: rebase
+suggestion is used. The first prompt states the branch and the repo's rule: rebase
 on origin's main and push to main, or push the branch and open a pull request.
 
 The tmux session takes the mission code as its name, as tsk names other tmux sessions (see
@@ -185,7 +185,7 @@ robot of the third branch registers itself when `/tsk:construct-robot` runs.
 
 ## The states of a thread
 
-A thread is paused or held. Both states are read from the ledger, so a cloud session and a
+A thread is paused or has a holder. The ledger records both states, so a cloud session and a
 terminal session read the same answer.
 
 ```mermaid
@@ -197,16 +197,16 @@ flowchart LR
     T --> H
 ```
 
-A thread is held when a start or a resume follows its latest pause. A stale holder keeps the
-thread held until a pause, or a take-over, changes it.
+A thread has a holder when a start or a resume follows its latest pause. A stale holder
+remains the holder until a pause or a take-over changes it.
 
 ## Decisions on tsk harness new
 
-Jim answered the open questions on 2026-11-14. The ledger holds them as decisions of
+Jim answered the open questions on 2026-11-14. The ledger records them as decisions of
 M-TSK-ENV, tasks T-30 and T-31, and question Q-05.
 
-1. **A robot is busy while it holds a thread**, not while it has an open session. A thread
-   is held when a start or a resume came after its latest pause. The ledger gives the same
+1. **A robot is busy while it is the holder of a thread**, not while it has an open session. A thread
+   has a holder when a start or a resume follows its latest pause. The ledger gives the same
    answer in every place, so a robot that pauses in the cloud is free to resume elsewhere
    while the cloud session stays open.
 2. **The location of code worktrees is open (Q-05).** It is a configurable default for every
@@ -215,7 +215,7 @@ M-TSK-ENV, tasks T-30 and T-31, and question Q-05.
    keeps its own branch instructions. Whether work merges to main directly or through pull
    requests is a choice of each repo: trunk based, or a protected main.
 4. **A harness is a code worktree, a tmux session and a `claude` process together.** One
-   worktree can hold several branches and pull requests over time, so the worktree belongs
+   worktree can have several branches and pull requests over time, so the worktree belongs
    to the tmux session and the harness instance, not to one branch. The commands:
 
 | Command | What it does |
@@ -223,7 +223,7 @@ M-TSK-ENV, tasks T-30 and T-31, and question Q-05.
 | `tsk harness new` | asks the questions above, creates the worktree and the tmux session, starts `claude` |
 | `tsk harness list` | lists the harnesses, and which ones sleep |
 | `tsk harness sleep` | pauses the thread, stops `claude` and the tmux session, keeps the worktree |
-| `tsk harness wake` | starts the tmux session and `claude` again in the worktree, resuming the thread |
+| `tsk harness wake` | starts the tmux session and `claude` again in the worktree. It resumes the recorded `claude` session (`claude --resume <id>`) when its transcript exists, else starts a new one (`claude --session-id <id>`), and records the ID. The first prompt resumes the thread |
 | `tsk harness delete` | stops `claude`, removes the worktree and kills the tmux session |
 
 Sleep and wake give durable state: a set of harnesses can sleep, the machine can restart,

@@ -10376,20 +10376,24 @@ fn a_layout_11_ledger_upgrades_the_same_way_on_two_clones_and_merges() {
     assert_eq!(uid_on(&a), uid_on(&b));
 }
 
-/// A new session of an instance continues from the latest pause a session of that instance
-/// wrote: it is recorded with the same actors (ADR 0030, decision 6). The session start
-/// context prints the bindings, and `tsk session actor` lists the actors.
-fn supervised_key(dir: &std::path::Path) -> String {
-    let output = crate::common::cmd("git")
-        .current_dir(dir)
-        .args(["config", "--worktree", "--get", "tsk.supervised"])
-        .output()
-        .unwrap();
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
+fn commit_message_after_hook(fx: &Fixture, dir: &std::path::Path, session: Option<&str>) -> String {
+    let file = fx.root.path().join("COMMIT_MSG");
+    std::fs::write(&file, "Add a thing\n").unwrap();
+    let file_arg = file.display().to_string();
+    let mut command = fx.command(dir, &["actor", "commit-msg", &file_arg]);
+    command
+        .env("TSK_ATTRIBUTION_IDENTITY", "robot")
+        .env("TSK_ATTRIBUTION_CO_AUTHOR", "Jim <jim@example.test>");
+    match session {
+        Some(urn) => command.env("TSK_SESSION", urn),
+        None => command.env_remove("TSK_SESSION"),
+    };
+    assert_success(&command.output().unwrap());
+    std::fs::read_to_string(&file).unwrap()
 }
 
 #[test]
-fn joining_a_human_marks_the_session_supervised_and_session_start_clears_it() {
+fn the_commit_msg_hook_adds_the_co_author_only_after_a_human_joined_the_session() {
     if !dolt_installed() {
         eprintln!("note: dolt is not installed; skipping");
         return;
@@ -10397,6 +10401,7 @@ fn joining_a_human_marks_the_session_supervised_and_session_start_clears_it() {
     let fx = Fixture::fetched();
     let a = fx.a();
     fx.session_context(&a, "s1", "claude");
+    let urn = "urn:tsk:session:claude-cli:s1";
     assert_success(&fx.tsk(&a, &["actor", "register", "Robot One", "--kind", "robot"]));
     assert_success(&fx.tsk(&a, &["actor", "register", "Jim", "--kind", "human"]));
     let uid_of = |name: &str| {
@@ -10409,16 +10414,28 @@ fn joining_a_human_marks_the_session_supervised_and_session_start_clears_it() {
         .unwrap()
         .to_string()
     };
-    let (jim, robot) = (uid_of("Jim"), uid_of("Robot One"));
-    assert_eq!(supervised_key(&a), "");
+    let robot = uid_of("Robot One");
     assert_success(&fx.tsk(&a, &["actor", "join", &robot, "--primary"]));
-    assert_eq!(supervised_key(&a), "");
-    assert_success(&fx.tsk(&a, &["actor", "join", &jim]));
-    assert_eq!(supervised_key(&a), "true");
-    fx.session_context(&a, "s2", "claude");
-    assert_eq!(supervised_key(&a), "");
+
+    let supervised = commit_message_after_hook(&fx, &a, Some(urn));
+    assert_eq!(
+        supervised,
+        format!(
+            "Add a thing\n\nAgent-Session: {}\nCo-authored-by: Jim <jim@example.test>\n",
+            urn
+        )
+    );
+    let other = commit_message_after_hook(&fx, &a, Some("urn:tsk:session:claude-cli:s9"));
+    assert_eq!(
+        other,
+        format!("Add a thing\n\nAgent-Session: urn:tsk:session:claude-cli:s9\n")
+    );
+    assert_eq!(commit_message_after_hook(&fx, &a, None), "Add a thing\n");
 }
 
+/// A new session of an instance continues from the latest pause a session of that instance
+/// wrote: it is recorded with the same actors (ADR 0030, decision 6). The session start
+/// context prints the bindings, and `tsk session actor` lists the actors.
 #[test]
 fn a_new_session_takes_the_actors_of_the_pause_its_instance_wrote() {
     if !dolt_installed() {

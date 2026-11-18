@@ -30,9 +30,9 @@ pub const MISSION_NAME_MAX: usize = 24;
 
 /// One line of the chooser: the state, the short mission name, the actor and the last
 /// component of the pane's working directory, in columns. tmux prints the session name
-/// before the format, so the format starts with spaces that make the name 18 characters
+/// before the format, so the format starts with spaces that make the name 24 characters
 /// wide; the mission name is padded to 24 and the actor to 32. Needs tmux 3.2 or later.
-pub const CHOOSER_FORMAT: &str = "#{s/^#{session_name}//:#{p18:session_name}}#{?#{==:#{@tsk_state},waiting},● ,#{?#{==:#{@tsk_state},working},◐ ,#{?#{==:#{@tsk_state},error},✗ ,  }}}#{p24:#{@tsk_mission_name}}  #{p32:#{@tsk_actor}}  #{b:pane_current_path}";
+pub const CHOOSER_FORMAT: &str = "#{s/^#{session_name}//:#{p24:session_name}}#{?#{==:#{@tsk_state},waiting},● ,#{?#{==:#{@tsk_state},working},◐ ,#{?#{==:#{@tsk_state},error},✗ ,  }}}#{p24:#{@tsk_mission_name}}  #{p32:#{@tsk_actor}}  #{b:pane_current_path}";
 
 #[derive(Subcommand)]
 pub enum TmuxCommands {
@@ -576,6 +576,12 @@ mod tests {
         assert!(conf.contains("set -g @tsk_rename_session on"));
         assert!(conf.contains("'#{e|<:#{status-left-length},30}'"));
         assert!(!CHOOSER_FORMAT.contains('\''));
+    }
+
+    #[test]
+    fn the_chooser_format_pads_a_session_name_of_nineteen_characters() {
+        assert!(CHOOSER_FORMAT.starts_with("#{s/^#{session_name}//:#{p24:session_name}}"));
+        assert!("M-JBP-APP-ANTHROPIC".len() < 24);
     }
 
     #[test]

@@ -29,14 +29,14 @@ curl -sSfL https://raw.githubusercontent.com/jimbarritt/tsk/main/ops/cloud/setup
 With the option, the script writes the user config with `--user`. It adds no Claude Code
 permission rules. It also writes `~/.claude/AGENTS.md`, imported from `~/.claude/CLAUDE.md`:
 the platform's Stop hook names an unpushed robot commit as Unverified and prints commands
-that reset the author to Claude, and the file tells a session to ignore them and push the
+that reset the author to Claude, and the file directs a session to ignore them and push the
 commit in the same turn. An environment without the option stays off, and a clone
 elsewhere stays off. This repo's cloud environment does this. The setup script runs when a
 container is built, so a change takes effect in the next new container.
 A session with no permission rules confirmed robot signing works unaided (T-15, 2026-11-08).
 
 The variables `TSK_ATTRIBUTION_IDENTITY` and `TSK_ATTRIBUTION_EMAIL` outrank both config
-files, for a case that needs an override. A session that was running when they were set
+files, for a case that needs an override. A session that started before they were set
 picks them up at its next start, or at once with `tsk actor git-identity`.
 
 To turn it on for everyone who clones a repo, run the command without `--user` at the
@@ -45,7 +45,7 @@ nobody can turn it off for themselves in that repo. `tsk config attribution` pri
 in force and where each value came from.
 
 A robot commit is signed and shows Verified only after steps 1 to 5 are done, and a session
-reads the key from the environment variable `TSK_ROBOT_SIGNING_KEY`. Without the key, `tsk`
+reads the signing key from the environment variable `TSK_ROBOT_SIGNING_KEY`. Without the signing key, `tsk`
 prints a warning and commits keep the default author. It needs `tsk` 0.37.0 or later.
 
 ## What a robot commit looks like
@@ -57,8 +57,8 @@ prints a warning and commits keep the default author. It needs `tsk` 0.37.0 or l
 | Signature | An SSH signature made with one shared robot signing key. |
 | Badge | Verified, because the committer email and the signing key belong to the same GitHub account. |
 
-All robots share one email, one GitHub account and one key. The name in the commit tells
-you which robot made it. GitHub shows the shared account's avatar and username on every
+All robots share one email, one GitHub account and one key. The name in the commit shows
+which robot made it. GitHub shows the shared account's avatar and username on every
 robot commit, and the robot name in the commit details.
 
 The robot account must have "Keep my email addresses private" turned on in Settings, then
@@ -94,7 +94,7 @@ the link.
 5. Check that Emails lists the address as Verified.
 
 GitHub marks a commit Verified only when its committer email is a verified email of the
-account that holds the signing key.
+account that has the signing key.
 
 ## 3. Generate the signing key
 
@@ -116,7 +116,7 @@ The passphrase is empty because a session cannot type one. Use this key for noth
 1. Sign in as the robot account.
 2. Open Settings, then SSH and GPG keys, then New SSH key.
 3. Set Key type to **Signing Key**. Do not choose Authentication Key.
-4. Paste the output of `cat ~/tsk-robot-signing-key.pub` into the Key field.
+4. Paste the output of `cat ~/tsk-robot-signing-key.pub` into the field labelled Key.
 5. Give it a title, for example `tsk robots`.
 6. Select Add SSH key.
 
@@ -129,35 +129,38 @@ signatures.
 2. Open the cloud environment menu in the session's title bar, then Edit.
 3. Add an **environment variable** named `TSK_ROBOT_SIGNING_KEY`. Do not use Network secrets
    (API credentials): the network proxy adds a network secret to requests for one host, and
-   a session cannot read it as a variable.
+   a session cannot read it through a variable.
 4. Print the private key with `cat ~/tsk-robot-signing-key`.
 5. Copy the whole output, including the `-----BEGIN OPENSSH PRIVATE KEY-----` and
    `-----END OPENSSH PRIVATE KEY-----` lines, into the value.
 6. Save the environment.
-7. Delete the key files from your machine:
+7. Delete both signing key files from your machine:
 
    ```bash
    rm ~/tsk-robot-signing-key ~/tsk-robot-signing-key.pub
    ```
 
-Do not paste the key into a chat. A session started after you save the environment reads
+Do not paste the private key into a chat. A session started after you save the environment reads
 the variable. A session that was already running does not.
 
 The environment stores variable values in plain text, and every person who can edit the
-environment can read them. Every process in a session can read the variable. Revoke the key on GitHub (Settings, SSH
+environment can read them. Every process in a session can read the variable. Revoke the signing key on GitHub (Settings, SSH
 and GPG keys, Delete) if you suspect a leak. A revoked key stops new commits from showing
 Verified. I did not check what GitHub shows for commits signed before the revocation.
 
 ## 6. What a robot session does
 
 The feature is optional. It runs only when `[attribution] identity = "robot"` is set (see
-"Choose the setting" below). With `identity = "default"`, or with no setting, tsk writes no
-git config and the cloud environment's identity stays.
+"Choose the setting" below). With `identity = "default"`, or with no setting, tsk exports no
+identity and the cloud environment's identity stays.
 
-When a robot registers (`/tsk:construct-robot` or `tsk actor register`) and the identity is
-`robot`, tsk writes these keys to the repo's local git config. `tsk thread session-start`
-writes them again when a cloud session starts, because a new container has no local git
-config. `tsk actor git-identity` writes them on request.
+When the identity is `robot`, `tsk thread session-start` writes these settings as `export`
+lines to the file named by `CLAUDE_ENV_FILE`. The lines set `GIT_AUTHOR_*` and
+`GIT_COMMITTER_*`, and `GIT_CONFIG_COUNT` with a `KEY_n` and `VALUE_n` pair for each signing
+setting. It replaces its own lines on every source. A robot that registers
+(`/tsk:construct-robot` or `tsk actor register`) after the session start gets the identity
+at the next source. `tsk actor git-identity` prints the lines and writes nothing. tsk
+writes no robot setting to a git config file.
 
 | Key | Value |
 |---|---|
@@ -169,8 +172,11 @@ config. `tsk actor git-identity` writes them on request.
 | `gpg.ssh.allowedSignersFile` | A file that tsk writes with the robot email and the public key of `TSK_ROBOT_SIGNING_KEY`, outside the repo. `git log --format=%G?` prints `G` for a robot commit when it exists. |
 | `commit.gpgsign` | `true` |
 
-tsk writes these settings to the worktree's own config file, `config.worktree`, and sets `extensions.worktreeConfig` in the repo config. Each worktree of one clone keeps its own robot name, email and key. The worktree config takes precedence over the cloud environment's global config, which
-names Claude and Anthropic's key. tsk never prints the key. The command exits 1 and names
+The exported variables take precedence over the cloud environment's global config, which
+names Claude and Anthropic's key. A git command a person runs in their own terminal does not
+see them. tsk stores the robot name for its own ledger commits in the file `tsk-robot-name`
+in the worktree git directory. Session start removes a robot set-up that an older tsk wrote
+to a worktree config. tsk never prints the private key. The command exits 1 and names
 the problem when no actor is registered or `TSK_ROBOT_SIGNING_KEY` is unset. It accepts the
 key with real line breaks, or with `\n` in place of them. `tsk actor register` and the session
 start do not fail on this: they print a warning, and commits keep the default author.
@@ -199,20 +205,20 @@ email = "352782120+jmdb-robots@users.noreply.github.com"
 - `tsk config attribution` prints the values and where each came from.
   `tsk config attribution robot --email <address>` writes them to `.tsk/config.toml`, and
   with `--user` to the user config.
-- The default identity leaves the `Co-Authored-By: Claude` and `Claude-Session` trailers
+- The default identity keeps the `Co-Authored-By: Claude` and `Claude-Session` trailers
   in place.
 - `tsk thread session-start`, which the `SessionStart` hook runs, does the set-up before
-  the first turn of a session (T-15). With `identity = "robot"` it writes the key file, the
+  the first turn of a session (T-15). With `identity = "robot"` it writes the signing key file, the
   allowed signers file, the signing settings and the `commit-msg` hook, and prints
   `Attribution: robot` in the session context. No tool call of the session reads
   `TSK_ROBOT_SIGNING_KEY`. `tsk actor register` then writes `user.name` only.
 - The `commit-msg` hook runs `tsk actor commit-msg`. It removes the `Claude-Session` and
   `Co-Authored-By: Claude` trailers and writes `Agent-Session: <session URN>` (ADR 0029).
-  It exits 0 when `tsk` is missing or older than 0.48.0, so a commit never fails because
+  It exits 0 when `tsk` is not installed or older than 0.48.0, so a commit never fails because
   of it. tsk does not replace a `commit-msg` hook that it did not write.
-- With `identity = "default"`, or with the key removed from the settings, the next session
+- With `identity = "default"`, or with the attribution keys removed from the settings, the next session
   start removes what an earlier robot session wrote: the signing settings, `user.name`,
-  the hook and the key files.
+  the hook and the signing key files.
 
 ## Add a co-author trailer
 
@@ -226,7 +232,7 @@ person as a co-author of the commit.
 co_author = "Jane Doe <1+jane@users.noreply.github.com>"
 ```
 
-- The value has the form `Name <email>`. tsk refuses an empty value and a value with no
+- The value has the form `Name <email>`. tsk rejects an empty value and a value with no
   `<` and `>`. There is no built-in value.
 - Precedence is the same as for `email`: the variable `TSK_ATTRIBUTION_CO_AUTHOR`, then
   the repo config, then the user config.
@@ -235,20 +241,20 @@ co_author = "Jane Doe <1+jane@users.noreply.github.com>"
   `tsk config attribution` prints it and its source.
 - Pass `--co-author "<Name <email>>"` to `ops/cloud/setup-environment.sh`, with
   `--use-robot-attribution`, to set it for a cloud environment.
-- `tsk actor join <uid>` with a human actor sets `tsk.supervised` in the worktree git
-  config. `tsk thread session-start` removes it, so a later autonomous session does not
-  inherit it. Joining a robot actor does not set it.
-- With `identity = "robot"`, the setting present and `tsk.supervised` set, the `commit-msg`
-  hook writes `Co-authored-by: Jane Doe <1+jane@users.noreply.github.com>` after the
+- The `commit-msg` hook finds the session from `TSK_SESSION` and queries the ledger for whether a
+  human joined it. `tsk actor join` runs after the session start, so the ledger is the
+  source. Joining a robot actor does not make a session supervised.
+- With `identity = "robot"`, the setting present and a human joined the session, the
+  `commit-msg` hook writes `Co-authored-by: Jane Doe <1+jane@users.noreply.github.com>` after the
   `Agent-Session` trailer. It writes the line once and keeps the other trailers. Without
   the setting, or in an autonomous session, the hook adds no such line.
 
 ## Ledger commits
 
-With `identity = "robot"`, every commit that `tsk` makes in the ledger has the robot as author and committer (0.56.0). This covers the git commits on the ledger data ref and the documents ref, and the Dolt commits in the ledger store.
+With `identity = "robot"`, every commit that `tsk` makes in the ledger has the robot as author and committer (0.56.0). This covers the git commits on the ledger data ref and the documents ref. It also covers the Dolt commits in the ledger store.
 
-- A git commit on the ledger refs carries the robot name, the robot email and the SSH signature, so GitHub shows it as Verified.
-- A Dolt commit carries the robot name and email. Dolt has no SSH signing.
+- A git commit on the ledger refs has the robot name, the robot email and the SSH signature. GitHub shows it as Verified.
+- A Dolt commit has the robot name and email. Dolt has no SSH signing.
 - `tsk` reads the identity from the git config of the code worktree, where the session start and `tsk actor register` wrote it. It sets the same identity through `GIT_AUTHOR_*`, `GIT_COMMITTER_*` and `DOLT_AUTHOR_*`, `DOLT_COMMITTER_*`, so a value that the platform sets does not replace it.
 - Until the session has a registered robot actor, a ledger commit stops with an error that names `tsk actor register <name> --kind robot`. No commit uses a fallback name. The records stay in the local ledger store and the next commit publishes them.
 - With `identity = "default"`, ledger commits are as before.
@@ -278,7 +284,7 @@ Remove the check commit before you push it, with `git reset --hard HEAD~1`.
 
 If the badge reads Unverified, check these in order:
 
-1. The signing key is registered as a **Signing Key** on the same account that holds
+1. The signing key is registered as a **Signing Key** on the same account that has
    `352782120+jmdb-robots@users.noreply.github.com`.
 2. The email is Verified in Settings, then Emails.
 3. `git log -1 --format=%G?` prints `G` in the session.
@@ -305,27 +311,27 @@ tsk config attribution --signing-key "agent:ssh-ed25519 AAAA..."
 tsk config attribution --signing-program <path of the signing program>
 ```
 
-tsk rejects a `signing_key` value that does not start with `agent:` and hold `ssh-`, a key
+tsk rejects a `signing_key` value that does not start with `agent:` and contain `ssh-`, a key
 type and a base64 key. On macOS with 1Password, set `signing_program` to the path of the
 `op-ssh-sign` helper that 1Password installs.
 
 When `identity` is `robot` and `signing_key` is set, `tsk thread session-start` does not
 read `TSK_ROBOT_SIGNING_KEY` and writes no key file. It writes `gpg.format = ssh`,
-`gpg.ssh.program`, `user.signingkey = key::<public key>`, the signers file, `user.email` and
-`commit.gpgsign` to the worktree config. When both `signing_key` and `TSK_ROBOT_SIGNING_KEY`
-exist, `signing_key` wins. The next session start after a change of mode removes the key
-file of the other mode.
+`gpg.ssh.program`, `user.signingkey = key::<public key>`, `user.email` and
+`commit.gpgsign` as exported variables. When both `signing_key` and `TSK_ROBOT_SIGNING_KEY`
+exist, `signing_key` wins. The next session start after a change of mode removes the signing
+key file of the other mode.
 
 Git then runs `ssh-keygen -Y sign`, or the program set, with the public key from
 `user.signingkey`. The agent signs with the matching private key.
 
 - The 1Password SSH agent offers only keys from the vaults that its `agent.toml` lists. The
   default is the personal vault. A key in another vault must be added to `agent.toml`.
-- 1Password asks for approval when a key is used. An unattended session blocks until a
+- 1Password requires approval when a key is used. An unattended session blocks until a
   person approves.
 - Upload the public key to the robot's GitHub account as a Signing key (step 4).
 
-## Rotate the key
+## Rotate the signing key
 
 1. Repeat steps 3 and 4 with a new key.
 2. Replace the value of `TSK_ROBOT_SIGNING_KEY` (step 5).
@@ -337,7 +343,7 @@ old key after you delete it.
 ## Install ssh-keygen in the cloud environment
 
 Git calls `ssh-keygen` to sign a commit. The cloud image does not include it. Add this line
-to the setup script of the environment that holds `TSK_ROBOT_SIGNING_KEY`:
+to the setup script of the environment that has `TSK_ROBOT_SIGNING_KEY`:
 
 ```bash
 command -v ssh-keygen >/dev/null || { apt-get update -qq && apt-get install -y openssh-client; }
@@ -345,6 +351,6 @@ command -v ssh-keygen >/dev/null || { apt-get update -qq && apt-get install -y o
 
 A fresh container has no package lists, so `apt-get install` alone fails with `has no installation candidate`. The `apt-get update` fixes that. A check in a new session confirms the signature with `git log -1 --format='%an <%ae>%n%G?'`.
 
-To see the trailers as well, run `git log -1 --format='%an <%ae> %G?%n%(trailers:only,unfold)'`. A robot commit carries the `Agent-Session` trailer.
+To see the trailers as well, run `git log -1 --format='%an <%ae> %G?%n%(trailers:only,unfold)'`. A robot commit has the `Agent-Session` trailer.
 
 The platform Stop hook names an unpushed robot commit as Unverified. `~/.claude/AGENTS.md` tells a session to ignore its advice and push.

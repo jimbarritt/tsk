@@ -2086,10 +2086,114 @@ fn session_start_writes_the_robot_signing_set_up_when_the_fetch_fails() {
         "{}",
         context
     );
-    let email = git(&fx.work(), &["config", "--worktree", "user.email"]);
-    assert_eq!(email.trim(), "robots@example.test");
-    let signing = git(&fx.work(), &["config", "--worktree", "commit.gpgsign"]);
-    assert_eq!(signing.trim(), "true");
+    let config = git(&fx.work(), &["config", "--list", "--local"]);
+    assert!(!config.contains("robots@example.test"), "{}", config);
+    assert!(!config.contains("gpgsign"), "{}", config);
+    assert!(!fx.work().join(".git/config.worktree").exists());
+    let mut signers = Vec::new();
+    files_named(&fx.state(), "robot-allowed-signers", &mut signers);
+    assert_eq!(signers.len(), 1);
+}
+
+fn worktree_config(fx: &Fixture, name: &str) -> String {
+    let output = git_output(&fx.work(), &["config", "--worktree", "--get", name]);
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+fn write_worktree_config(fx: &Fixture, pairs: &[(&str, &str)]) {
+    git(
+        &fx.work(),
+        &["config", "--local", "extensions.worktreeConfig", "true"],
+    );
+    for (name, value) in pairs {
+        git(&fx.work(), &["config", "--worktree", name, value]);
+    }
+}
+
+fn start_with_identity(fx: &Fixture, identity: Option<&str>, private: Option<&str>) -> Output {
+    let mut command = fx.command(&["thread", "session-start"], None);
+    command
+        .env_remove("CLAUDE_ENV_FILE")
+        .env_remove("TSK_ATTRIBUTION_IDENTITY")
+        .env_remove("TSK_ROBOT_SIGNING_KEY");
+    if let Some(identity) = identity {
+        command
+            .env("TSK_ATTRIBUTION_IDENTITY", identity)
+            .env("TSK_ATTRIBUTION_EMAIL", "robots@example.test");
+    }
+    if let Some(private) = private {
+        command.env("TSK_ROBOT_SIGNING_KEY", private);
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to run tsk");
+    child.stdin.take().unwrap().write_all(b"{}").unwrap();
+    child.wait_with_output().unwrap()
+}
+
+const OLD_ROBOT_KEYS: [(&str, &str); 9] = [
+    ("user.name", "Old Robot"),
+    ("user.email", "old@example.test"),
+    ("user.signingkey", "/old/key"),
+    ("gpg.format", "ssh"),
+    ("gpg.ssh.program", "ssh-keygen"),
+    ("gpg.ssh.allowedSignersFile", "/old/signers"),
+    ("commit.gpgsign", "true"),
+    ("tsk.attribution", "robot"),
+    ("tsk.supervised", "true"),
+];
+
+#[test]
+fn session_start_removes_a_robot_set_up_that_an_older_tsk_wrote_to_the_worktree_config() {
+    let fx = Fixture::new();
+    write_worktree_config(&fx, &OLD_ROBOT_KEYS);
+
+    assert_exit(&start_with_identity(&fx, None, None), 0);
+
+    for (name, _) in OLD_ROBOT_KEYS {
+        assert_eq!(worktree_config(&fx, name), "", "{}", name);
+    }
+}
+
+#[test]
+fn session_start_removes_an_old_robot_set_up_under_the_robot_identity_too() {
+    let fx = Fixture::new();
+    let key = fx.root.path().join("robot-key");
+    let generated = crate::common::cmd("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(&key)
+        .output()
+        .expect("failed to run ssh-keygen");
+    assert!(generated.status.success(), "{}", stderr(&generated));
+    let private = std::fs::read_to_string(&key).unwrap();
+    write_worktree_config(&fx, &OLD_ROBOT_KEYS);
+
+    assert_exit(&start_with_identity(&fx, Some("robot"), Some(&private)), 0);
+
+    for (name, _) in OLD_ROBOT_KEYS {
+        assert_eq!(worktree_config(&fx, name), "", "{}", name);
+    }
+}
+
+#[test]
+fn session_start_leaves_the_worktree_config_of_a_person_alone() {
+    let fx = Fixture::new();
+    let own = [
+        ("user.name", "Jane Doe"),
+        ("user.email", "jane@example.test"),
+        ("commit.gpgsign", "true"),
+        ("user.signingkey", "/home/jane/key"),
+    ];
+    write_worktree_config(&fx, &own);
+
+    assert_exit(&start_with_identity(&fx, None, None), 0);
+
+    for (name, value) in own {
+        assert_eq!(worktree_config(&fx, name), value, "{}", name);
+    }
 }
 
 fn files_named(dir: &Path, name: &str, found: &mut Vec<PathBuf>) {
@@ -2148,14 +2252,6 @@ fn session_start_signs_through_an_agent_and_switches_modes_without_stale_files()
         child.stdin.take().unwrap().write_all(b"{}").unwrap();
         child.wait_with_output().unwrap()
     };
-    let config = |name: &str| -> String {
-        let output = crate::common::cmd("git")
-            .current_dir(fx.work())
-            .args(["config", "--worktree", "--get", name])
-            .output()
-            .unwrap();
-        String::from_utf8_lossy(&output.stdout).trim().to_string()
-    };
     let key_files = || {
         let mut found = Vec::new();
         files_named(&fx.state(), "robot-signing-key", &mut found);
@@ -2183,13 +2279,16 @@ fn session_start_signs_through_an_agent_and_switches_modes_without_stale_files()
         "{}",
         session_context(&output)
     );
-    assert_eq!(config("gpg.format"), "ssh");
-    assert_eq!(config("gpg.ssh.program"), "/p/op-ssh-sign");
-    assert_eq!(config("user.signingkey"), format!("key::{}", public));
-    assert_eq!(config("commit.gpgsign"), "true");
-    assert_eq!(config("user.email"), "1+robot@users.noreply.github.com");
     assert!(key_files().is_empty());
-    let signers = std::fs::read_to_string(config("gpg.ssh.allowedSignersFile")).unwrap();
+    assert_eq!(signer_files().len(), 1);
+    assert_eq!(
+        git(&fx.work(), &["config", "--list", "--local"])
+            .matches("signingkey")
+            .count(),
+        0
+    );
+    assert!(key_files().is_empty());
+    let signers = std::fs::read_to_string(&signer_files()[0]).unwrap();
     assert_eq!(
         signers,
         format!("1+robot@users.noreply.github.com {}\n", public)
@@ -2201,28 +2300,15 @@ fn session_start_signs_through_an_agent_and_switches_modes_without_stale_files()
         ("TSK_ROBOT_SIGNING_KEY", private.as_str()),
     ];
     assert_exit(&start(&key_mode), 0);
-    assert_eq!(config("gpg.ssh.program"), "ssh-keygen");
     assert_eq!(key_files().len(), 1);
-    assert_eq!(
-        config("user.signingkey"),
-        key_files()[0].display().to_string()
-    );
 
     assert_exit(&start(&both), 0);
     assert!(key_files().is_empty());
-    assert_eq!(config("user.signingkey"), format!("key::{}", public));
+    assert_eq!(signer_files().len(), 1);
 
     assert_exit(&start(&[]), 0);
     assert!(key_files().is_empty());
     assert!(signer_files().is_empty());
-    for name in [
-        "user.signingkey",
-        "gpg.ssh.program",
-        "gpg.format",
-        "tsk.attribution",
-    ] {
-        assert_eq!(config(name), "", "{}", name);
-    }
 }
 
 #[test]
@@ -2272,15 +2358,14 @@ fn ledger_commits_are_the_robots_and_stop_until_a_robot_actor_is_registered() {
     assert_success(&robot(&["ledger", "push", "Publish as the robot"]));
 
     // The commit on the data ref: robot name and email, and a valid signature.
-    let signers = git(
-        &fx.work(),
-        &["config", "--worktree", "gpg.ssh.allowedSignersFile"],
-    );
+    let mut signer_files = Vec::new();
+    files_named(&fx.state(), "robot-allowed-signers", &mut signer_files);
+    let signers = signer_files[0].display().to_string();
     let log = git(
         &fx.origin(),
         &[
             "-c",
-            &format!("gpg.ssh.allowedSignersFile={}", signers.trim()),
+            &format!("gpg.ssh.allowedSignersFile={}", signers),
             "log",
             "-1",
             "--format=%an <%ae>|%cn <%ce>|%G?",
@@ -2291,6 +2376,56 @@ fn ledger_commits_are_the_robots_and_stop_until_a_robot_actor_is_registered() {
         log.trim(),
         "Credit Where It's Due <robots@example.test>|Credit Where It's Due <robots@example.test>|G"
     );
+    let env_file = fx.root.path().join("claude-env");
+    std::fs::write(&env_file, "export OTHER_HOOK='kept'\n").unwrap();
+    let start_with_env = |identity: &str| -> Output {
+        let mut command = fx.command(&["thread", "session-start"], Some("cse_robot"));
+        let mut child = command
+            .env("TSK_ATTRIBUTION_IDENTITY", identity)
+            .env("TSK_ATTRIBUTION_EMAIL", "robots@example.test")
+            .env("TSK_ROBOT_SIGNING_KEY", &private)
+            .env("CLAUDE_ENV_FILE", &env_file)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to run tsk");
+        child.stdin.take().unwrap().write_all(b"{}").unwrap();
+        child.wait_with_output().unwrap()
+    };
+    assert_success(&start_with_env("robot"));
+    assert_success(&start_with_env("robot"));
+    let exported = std::fs::read_to_string(&env_file).unwrap();
+    assert!(
+        exported.starts_with("export OTHER_HOOK='kept'\n"),
+        "{}",
+        exported
+    );
+    for expected in [
+        "export GIT_AUTHOR_NAME='Credit Where It'\\''s Due'\n",
+        "export GIT_COMMITTER_EMAIL='robots@example.test'\n",
+        "export GIT_CONFIG_COUNT='4'\n",
+        "export GIT_CONFIG_KEY_0='commit.gpgsign'\n",
+        "export GIT_CONFIG_VALUE_2='ssh-keygen'\n",
+        "export TSK_SESSION='urn:tsk:session:claude-cloud:cse_robot'\n",
+    ] {
+        assert_eq!(
+            exported.matches(expected).count(),
+            1,
+            "{}\n{}",
+            expected,
+            exported
+        );
+    }
+    assert_eq!(exported.matches("export GIT_AUTHOR_NAME=").count(), 1);
+    let config = git(&fx.work(), &["config", "--list", "--local"]);
+    assert!(!config.contains("robots@example.test"), "{}", config);
+    assert!(!config.contains("Credit Where"), "{}", config);
+    assert_success(&start_with_env("default"));
+    let after = std::fs::read_to_string(&env_file).unwrap();
+    assert!(after.starts_with("export OTHER_HOOK='kept'\n"), "{}", after);
+    assert!(!after.contains("GIT_"), "{}", after);
+    assert!(!after.contains("TSK_SESSION"), "{}", after);
     // The Dolt commit: robot name and email.
     let rows = fx.rows_in(
         &fx.work(),
