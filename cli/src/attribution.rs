@@ -1,8 +1,9 @@
-//! Robot commit attribution: the `[attribution]` settings, and the git identity that
-//! `tsk actor git-identity` writes to the git config of the current worktree.
+//! Robot commit attribution: the `[attribution]` settings, and the git identity that the
+//! session start exports to the session environment. tsk writes no robot setting to a git
+//! config file.
 //!
-//! `identity` is `default` or `robot`, `default` when unset. `default` writes no git config.
-//! `robot` writes the registered actor's name, the `email` setting, and the SSH signing
+//! `identity` is `default` or `robot`, `default` when unset. `default` exports nothing.
+//! `robot` exports the registered actor's name, the `email` setting, and the SSH signing
 //! settings. `email` has no built-in value. The key comes from `TSK_ROBOT_SIGNING_KEY`, or from
 //! an SSH agent when `signing_key` is set.
 
@@ -627,30 +628,15 @@ pub enum Signing {
 
 const SUPERVISED_KEY: &str = "tsk.supervised";
 
-pub fn set_supervised(git: &crate::ledger::git::Git) -> Result<(), String> {
-    git.run(["config", "--local", "extensions.worktreeConfig", "true"])?;
-    git.run(["config", "--worktree", SUPERVISED_KEY, "true"])?;
-    Ok(())
-}
-
 pub fn clear_supervised(git: &crate::ledger::git::Git) {
     let _ = git.output(["config", "--worktree", "--unset-all", SUPERVISED_KEY]);
-}
-
-pub fn is_supervised(git: &crate::ledger::git::Git) -> bool {
-    git.output(["config", "--worktree", "--get", SUPERVISED_KEY])
-        .map(|(_, output)| {
-            output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true"
-        })
-        .unwrap_or(false)
 }
 
 /// The first line of the commit-msg hook that tsk writes. tsk replaces or removes a hook
 /// only when it holds this line.
 const HOOK_MARKER: &str = "# tsk: robot attribution commit-msg hook";
 
-/// The keys `signing_settings` writes, and `user.name`, which `write_name` writes.
-const ROBOT_KEYS: [&str; 8] = [
+const ROBOT_KEYS: [&str; 9] = [
     "user.name",
     "user.email",
     "gpg.format",
@@ -659,7 +645,12 @@ const ROBOT_KEYS: [&str; 8] = [
     "gpg.ssh.allowedSignersFile",
     "commit.gpgsign",
     "tsk.attribution",
+    "tsk.supervised",
 ];
+
+const ROBOT_NAME_FILE: &str = "tsk-robot-name";
+
+pub const SESSION_VAR: &str = "TSK_SESSION";
 
 fn current_settings(session: &Session) -> Result<Settings, String> {
     let repo_file = refs::repo_config_path(&session.repo);
@@ -667,25 +658,23 @@ fn current_settings(session: &Session) -> Result<Settings, String> {
     settings(repo_file.as_deref(), user_file.as_deref())
 }
 
-/// The session start step of robot attribution (T-15). With `identity = "robot"`: write the
-/// key file and the allowed signers file from `TSK_ROBOT_SIGNING_KEY`, the signing settings
-/// in the worktree's git config, and the commit-msg hook. With any other identity: remove
-/// what an earlier robot session wrote. Needs no registered actor.
+fn missing_email() -> String {
+    format!(
+        "error: [attribution] identity is robot and no email is set: run tsk config attribution robot --email <address>, or set {}",
+        EMAIL_ENV
+    )
+}
+
 pub fn set_up_signing(session: &Session) -> Result<Signing, String> {
-    clear_supervised(&session.repo.git);
+    let cleaned = remove_leftover_config(session)?;
     let settings = current_settings(session)?;
     if settings.identity != Identity::Robot {
-        return remove_signing(session);
+        return remove_signing(session, cleaned);
     }
-    let email = settings.email.ok_or_else(|| {
-        format!(
-            "error: [attribution] identity is robot and no email is set: run tsk config attribution robot --email <address>, or set {}",
-            EMAIL_ENV
-        )
-    })?;
+    let email = settings.email.ok_or_else(missing_email)?;
     let key_file = key_file_path(session)?;
     let signers_file = key_file.with_file_name(SIGNERS_FILE_NAME);
-    let config = match settings.signing_key {
+    match settings.signing_key {
         Some(signing_key) => {
             let public = agent_public_key(&signing_key).to_string();
             if key_file.exists() {
@@ -694,10 +683,6 @@ pub fn set_up_signing(session: &Session) -> Result<Signing, String> {
                 })?;
             }
             write_key_file(&signers_file, &signers_line(&email, &public))?;
-            let program = settings
-                .signing_program
-                .unwrap_or_else(|| DEFAULT_SIGNING_PROGRAM.to_string());
-            agent_signing_settings(&email, &public, &program, &signers_file)
         }
         None => {
             let key = std::env::var(KEY_ENV)
@@ -710,42 +695,39 @@ pub fn set_up_signing(session: &Session) -> Result<Signing, String> {
                 &signers_file,
                 &signers_line(&email, &public_key(&key_file)?),
             )?;
-            signing_settings(&email, &key_file, &signers_file)
         }
-    };
-    // Worktrees of one clone share `.git/config`. With `extensions.worktreeConfig`, each
-    // worktree keeps its own settings in `config.worktree`, so two robots on two worktrees
-    // keep their own name, email and key.
-    let git = &session.repo.git;
-    git.run(["config", "--local", "extensions.worktreeConfig", "true"])?;
-    for (config_key, value) in config {
-        git.run(["config", "--worktree", config_key, value.as_str()])?;
     }
-    // A marker for `remove_signing`: this worktree's signing settings were written by tsk.
-    git.run(["config", "--worktree", "tsk.attribution", "robot"])?;
     let hook = install_hook(session)?;
     Ok(Signing::Written { email, hook })
 }
 
-/// Remove the robot set-up of an earlier session: the settings `set_up_signing` and
-/// `write_name` wrote, the commit-msg hook tsk wrote, and the key files.
-fn remove_signing(session: &Session) -> Result<Signing, String> {
+fn remove_leftover_config(session: &Session) -> Result<bool, String> {
     let git = &session.repo.git;
-    let mut removed = false;
+    clear_supervised(git);
     let (_, marker) = git.output(["config", "--worktree", "--get", "tsk.attribution"])?;
-    if marker.status.success() {
-        for config_key in ROBOT_KEYS {
-            // Exit 5 means the key is not set, which is the state wanted.
-            let _ = git.output(["config", "--worktree", "--unset-all", config_key])?;
-        }
-        removed = true;
+    if !marker.status.success() || String::from_utf8_lossy(&marker.stdout).trim() != "robot" {
+        return Ok(false);
     }
+    for config_key in ROBOT_KEYS {
+        let _ = git.output(["config", "--worktree", "--unset-all", config_key])?;
+    }
+    Ok(true)
+}
+
+fn remove_signing(session: &Session, cleaned: bool) -> Result<Signing, String> {
+    let mut removed = cleaned;
     if let Some(hook) = hook_path(session)? {
         if is_tsk_hook(&hook) {
             std::fs::remove_file(&hook)
                 .map_err(|e| format!("error: could not remove {}: {}", hook.display(), e))?;
             removed = true;
         }
+    }
+    let name_file = robot_name_path(session);
+    if name_file.exists() {
+        std::fs::remove_file(&name_file)
+            .map_err(|e| format!("error: could not remove {}: {}", name_file.display(), e))?;
+        removed = true;
     }
     if let Ok(key_file) = key_file_path(session) {
         for file in [key_file.with_file_name(SIGNERS_FILE_NAME), key_file] {
@@ -761,6 +743,10 @@ fn remove_signing(session: &Session) -> Result<Signing, String> {
     } else {
         Signing::Off
     })
+}
+
+fn robot_name_path(session: &Session) -> PathBuf {
+    session.git_dir.join(ROBOT_NAME_FILE)
 }
 
 /// The path of the commit-msg hook of this worktree, or `None` when git names no hooks
@@ -830,9 +816,7 @@ fn install_hook(session: &Session) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Write `user.name` of the registered robot, when the identity is `robot` and the actor is a
-/// robot. Does nothing for the `default` identity and for a human actor.
-pub fn write_name(session: &Session) -> Result<Applied, String> {
+pub fn remember_robot_name(session: &Session) -> Result<Applied, String> {
     let settings = current_settings(session)?;
     if settings.identity != Identity::Robot {
         return Ok(Applied::Unchanged);
@@ -844,11 +828,167 @@ pub fn write_name(session: &Session) -> Result<Applied, String> {
         return Ok(Applied::Unchanged);
     }
     check_git_name(&name)?;
-    let git = &session.repo.git;
-    git.run(["config", "--local", "extensions.worktreeConfig", "true"])?;
-    git.run(["config", "--worktree", "user.name", name.as_str()])?;
+    let file = robot_name_path(session);
+    std::fs::write(&file, format!("{}\n", name))
+        .map_err(|e| format!("error: could not write {}: {}", file.display(), e))?;
     let email = settings.email.unwrap_or_default();
     Ok(Applied::Written { name, email })
+}
+
+fn robot_variables(
+    name: &str,
+    email: &str,
+    config: &[(&'static str, String)],
+    session_urn: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut variables = vec![
+        ("GIT_AUTHOR_NAME".to_string(), name.to_string()),
+        ("GIT_AUTHOR_EMAIL".to_string(), email.to_string()),
+        ("GIT_COMMITTER_NAME".to_string(), name.to_string()),
+        ("GIT_COMMITTER_EMAIL".to_string(), email.to_string()),
+    ];
+    let pairs: Vec<(&str, &str)> = [
+        "commit.gpgsign",
+        "gpg.format",
+        "gpg.ssh.program",
+        "user.signingkey",
+    ]
+    .iter()
+    .filter_map(|key| {
+        config
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(name, value)| (*name, value.as_str()))
+    })
+    .collect();
+    variables.push(("GIT_CONFIG_COUNT".to_string(), pairs.len().to_string()));
+    for (index, (key, value)) in pairs.iter().enumerate() {
+        variables.push((format!("GIT_CONFIG_KEY_{}", index), key.to_string()));
+        variables.push((format!("GIT_CONFIG_VALUE_{}", index), value.to_string()));
+    }
+    if let Some(urn) = session_urn {
+        variables.push((SESSION_VAR.to_string(), urn.to_string()));
+    }
+    variables
+}
+
+pub fn session_variables(
+    session: &Session,
+    session_urn: Option<&str>,
+) -> Result<Option<Vec<(String, String)>>, String> {
+    let settings = current_settings(session)?;
+    if settings.identity != Identity::Robot {
+        return Ok(None);
+    }
+    let Some(Current { name, kind, .. }) = actor::current(session)? else {
+        return Ok(None);
+    };
+    if kind != Some(ActorKind::Robot) {
+        return Ok(None);
+    }
+    check_git_name(&name)?;
+    let email = settings.email.clone().ok_or_else(missing_email)?;
+    let key_file = key_file_path(session)?;
+    let signers_file = key_file.with_file_name(SIGNERS_FILE_NAME);
+    let config = match &settings.signing_key {
+        Some(signing_key) => {
+            let program = settings
+                .signing_program
+                .clone()
+                .unwrap_or_else(|| DEFAULT_SIGNING_PROGRAM.to_string());
+            agent_signing_settings(
+                &email,
+                agent_public_key(signing_key),
+                &program,
+                &signers_file,
+            )
+        }
+        None => signing_settings(&email, &key_file, &signers_file),
+    };
+    Ok(Some(robot_variables(&name, &email, &config, session_urn)))
+}
+
+pub fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+pub fn export_lines(variables: &[(String, String)]) -> Vec<String> {
+    variables
+        .iter()
+        .map(|(name, value)| format!("export {}={}", name, shell_quote(value)))
+        .collect()
+}
+
+const MANAGED_VARIABLES: [&str; 6] = [
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "GIT_CONFIG_COUNT",
+    SESSION_VAR,
+];
+
+fn is_managed_variable(name: &str) -> bool {
+    let indexed = |prefix: &str| {
+        name.strip_prefix(prefix)
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+    };
+    MANAGED_VARIABLES.contains(&name) || indexed("GIT_CONFIG_KEY_") || indexed("GIT_CONFIG_VALUE_")
+}
+
+fn is_managed_line(line: &str) -> bool {
+    let Some(rest) = line.trim_start().strip_prefix("export ") else {
+        return false;
+    };
+    let name = rest.trim_start().split('=').next().unwrap_or("").trim();
+    is_managed_variable(name)
+}
+
+pub fn edit_env_file(existing: &str, variables: &[(String, String)]) -> String {
+    let mut lines: Vec<String> = existing
+        .lines()
+        .filter(|line| !is_managed_line(line))
+        .map(str::to_string)
+        .collect();
+    lines.extend(export_lines(variables));
+    if lines.is_empty() {
+        return String::new();
+    }
+    format!("{}\n", lines.join("\n"))
+}
+
+pub fn update_env_file(file: &Path, variables: &[(String, String)]) -> Result<(), String> {
+    let existing = match std::fs::read_to_string(file) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("could not read {}: {}", file.display(), e)),
+    };
+    let edited = edit_env_file(&existing, variables);
+    if edited == existing {
+        return Ok(());
+    }
+    std::fs::write(file, edited).map_err(|e| format!("could not write {}: {}", file.display(), e))
+}
+
+pub fn update_session_env(
+    session: &Session,
+    session_urn: Option<&str>,
+    robot: bool,
+) -> Result<(), String> {
+    let Some(file) =
+        std::env::var_os(crate::thread::session_start::ENV_FILE_VAR).filter(|v| !v.is_empty())
+    else {
+        return Ok(());
+    };
+    let variables = if robot {
+        session_variables(session, session_urn)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    update_env_file(Path::new(&file), &variables)
 }
 
 /// The robot identity of a ledger commit (T-19): the name, the email and the signing key.
@@ -907,9 +1047,10 @@ impl RobotIdentity {
 
 /// The identity of a ledger commit, from the code worktree of the current directory.
 /// `Ok(None)` for the `default` identity, and outside a repository: commits are as before.
-/// With `robot`, the identity is the one `set_up_signing` and `write_name` wrote to the
-/// worktree's git config. `Err` while the session has no robot actor or no signing set-up:
-/// a commit stops (M-TSK-ATTRIB, T-19). Resolved once per process.
+/// With `robot`, the identity is built from the settings, the key files that the session start
+/// wrote and the robot name that the registration recorded. `Err` while the session has no
+/// robot actor or no signing set-up: a commit stops (M-TSK-ATTRIB, T-19). Resolved once per
+/// process.
 pub fn ledger_identity() -> Result<Option<RobotIdentity>, String> {
     static IDENTITY: std::sync::OnceLock<Result<Option<RobotIdentity>, String>> =
         std::sync::OnceLock::new();
@@ -929,46 +1070,54 @@ fn resolve_ledger_identity() -> Result<Option<RobotIdentity>, String> {
     if settings.identity != Identity::Robot {
         return Ok(None);
     }
-    read_robot_identity(&repo).map(Some)
+    let key_file = key_file_for(&repo)?;
+    let name = std::fs::read_to_string(repo.git_dir.join(ROBOT_NAME_FILE))
+        .ok()
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty());
+    robot_identity_from(name, &settings, &key_file).map(Some)
 }
 
-fn read_robot_identity(repo: &crate::ledger::location::Repo) -> Result<RobotIdentity, String> {
-    let read = |key: &str| -> Option<String> {
-        let (_, output) = repo
-            .git
-            .output(["config", "--worktree", "--get", key])
-            .ok()?;
-        let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        (output.status.success() && !value.is_empty()).then_some(value)
+fn robot_identity_from(
+    name: Option<String>,
+    settings: &Settings,
+    key_file: &Path,
+) -> Result<RobotIdentity, String> {
+    let signers_file = key_file.with_file_name(SIGNERS_FILE_NAME);
+    let (signing_key, program) = match &settings.signing_key {
+        Some(signing_key) => (
+            format!("key::{}", agent_public_key(signing_key).trim()),
+            settings
+                .signing_program
+                .clone()
+                .unwrap_or_else(|| DEFAULT_SIGNING_PROGRAM.to_string()),
+        ),
+        None => (
+            key_file.display().to_string(),
+            DEFAULT_SIGNING_PROGRAM.to_string(),
+        ),
     };
-    if read("tsk.attribution").as_deref() != Some("robot") {
+    let written = signers_file.exists() && (settings.signing_key.is_some() || key_file.exists());
+    if !written {
         return Err(
             "error: [attribution] identity is robot and the signing set-up is not written: run tsk thread session-start before a ledger write"
                 .to_string(),
         );
     }
-    let Some(name) = read("user.name") else {
+    let Some(name) = name else {
         return Err(
             "error: [attribution] identity is robot and no robot actor is registered, so a ledger commit has no author: run tsk actor register <name> --kind robot"
                 .to_string(),
         );
     };
-    let (Some(email), Some(key_file), Some(signers_file)) = (
-        read("user.email"),
-        read("user.signingkey"),
-        read("gpg.ssh.allowedSignersFile"),
-    ) else {
-        return Err(
-            "error: the robot signing settings of this worktree are incomplete: run tsk thread session-start"
-                .to_string(),
-        );
+    let Some(email) = settings.email.clone() else {
+        return Err(missing_email());
     };
-    let program = read("gpg.ssh.program").unwrap_or_else(|| DEFAULT_SIGNING_PROGRAM.to_string());
     Ok(RobotIdentity {
         name,
         email,
-        key_file,
-        signers_file,
+        key_file: signing_key,
+        signers_file: signers_file.display().to_string(),
         program,
     })
 }
@@ -992,23 +1141,20 @@ fn git_for(
     }
 }
 
-/// Whether this worktree holds the signing settings that `set_up_signing` writes.
+/// Whether the session start wrote the signing files of this clone.
 pub fn signing_is_set_up(session: &Session) -> bool {
-    session
-        .repo
-        .git
-        .output(["config", "--worktree", "--get", "tsk.attribution"])
-        .map(|(_, output)| output.status.success())
+    key_file_path(session)
+        .map(|key_file| key_file.with_file_name(SIGNERS_FILE_NAME).exists())
         .unwrap_or(false)
 }
 
-/// Write the whole git identity: the signing set-up, then `user.name`. Does nothing for the
-/// `default` identity, and writes no `user.name` for a human actor.
+/// The signing set-up, then the robot name for ledger commits. Does nothing for the
+/// `default` identity, and records no name for a human actor.
 pub fn apply(session: &Session) -> Result<Applied, String> {
     if let Signing::Off | Signing::Removed = set_up_signing(session)? {
         return Ok(Applied::Unchanged);
     }
-    write_name(session)
+    remember_robot_name(session)
 }
 
 /// The commit message with the harness's session trailers replaced: `Claude-Session`,
@@ -1030,11 +1176,57 @@ pub fn strip_session_trailers(message: &str) -> String {
     out
 }
 
-/// `tsk actor commit-msg <file>`: the commit-msg hook. With `identity = "robot"` and a known
-/// session URN, it writes `Agent-Session: <session URN>` (ADR 0029) in place of the
-/// harness's session trailers. It opens no ledger store, and exits 0 whatever happens, so a
-/// commit never fails because of it.
+pub fn session_from_env() -> Option<String> {
+    std::env::var(SESSION_VAR)
+        .ok()
+        .filter(|urn| urn.starts_with(crate::sessions::URN_PREFIX))
+}
+
+pub fn human_joined(
+    rows: &[crate::ledger::store::SessionActorRow],
+    actors: &[crate::ledger::store::ActorRow],
+    session: &str,
+) -> bool {
+    rows.iter().filter(|row| row.session == session).any(|row| {
+        actors.iter().any(|actor| {
+            actor.uid.as_deref() == Some(row.actor_uid.as_str()) && actor.kind == ActorKind::Human
+        })
+    })
+}
+
+fn human_joined_in(cwd: &Path, session: &str) -> Result<bool, String> {
+    let store = crate::ledger::store::open(cwd)?;
+    if !store.exists_locally()? {
+        return Ok(false);
+    }
+    let rows = store.session_actors_list()?;
+    if !rows.iter().any(|row| row.session == session) {
+        return Ok(false);
+    }
+    Ok(human_joined(&rows, &store.actors_list()?, session))
+}
+
+const LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn a_human_joined(cwd: &Path, session: &str) -> bool {
+    let cwd = cwd.to_path_buf();
+    let session = session.to_string();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(human_joined_in(&cwd, &session).unwrap_or(false));
+    });
+    receiver.recv_timeout(LOOKUP_TIMEOUT).unwrap_or(false)
+}
+
+/// `tsk actor commit-msg <file>`: the commit-msg hook. With `identity = "robot"` and the
+/// session URN in `TSK_SESSION`, it writes `Agent-Session: <session URN>` (ADR 0029) in place
+/// of the harness's session trailers, and adds `Co-authored-by: <co_author>` when a human
+/// joined the session. With `TSK_SESSION` unset it changes nothing. It exits 0 whatever
+/// happens, so a commit never fails because of it.
 pub fn run_commit_msg(file: &Path) -> Result<i32, String> {
+    let Some(urn) = session_from_env() else {
+        return Ok(0);
+    };
     let Ok(cwd) = std::env::current_dir() else {
         return Ok(0);
     };
@@ -1049,12 +1241,6 @@ pub fn run_commit_msg(file: &Path) -> Result<i32, String> {
     if settings.identity != Identity::Robot {
         return Ok(0);
     }
-    let cloud = std::env::var(crate::thread::session::CLOUD_SESSION_VAR)
-        .ok()
-        .filter(|v| !v.is_empty());
-    let Some(urn) = crate::thread::session::session_urn_of(cloud.as_deref(), &repo.git_dir) else {
-        return Ok(0);
-    };
     let Ok(message) = std::fs::read_to_string(file) else {
         return Ok(0);
     };
@@ -1065,7 +1251,7 @@ pub fn run_commit_msg(file: &Path) -> Result<i32, String> {
     let co_author = settings
         .co_author
         .as_deref()
-        .filter(|_| is_supervised(&repo.git));
+        .filter(|_| a_human_joined(&cwd, &urn));
     for args in trailer_commands(&file_arg, &urn, co_author) {
         let _ = repo.git.run(args.iter().map(String::as_str));
     }
@@ -1095,8 +1281,12 @@ fn trailer_commands(file: &str, urn: &str, co_author: Option<&str>) -> Vec<Vec<S
 }
 
 fn key_file_path(session: &Session) -> Result<PathBuf, String> {
+    key_file_for(&session.repo)
+}
+
+fn key_file_for(repo: &crate::ledger::location::Repo) -> Result<PathBuf, String> {
     let state_root = crate::ledger::location::state_root_from_env()?;
-    let clone_id = session.repo.ensure_clone_id()?;
+    let clone_id = repo.ensure_clone_id()?;
     Ok(state_root.join("repos").join(clone_id).join(KEY_FILE_NAME))
 }
 
@@ -1128,12 +1318,18 @@ fn write_key_file(file: &Path, key: &str) -> Result<(), String> {
         .map_err(|e| format!("error: could not write {}: {}", file.display(), e))
 }
 
-/// `tsk actor git-identity`.
+/// `tsk actor git-identity`: print the `export` lines that the session start writes to the
+/// file named by `CLAUDE_ENV_FILE`. It writes nothing.
 pub fn run_git_identity() -> Result<i32, String> {
     let session = Session::discover()?;
-    match apply(&session)? {
-        Applied::Unchanged => println!("git identity unchanged: [attribution] identity is not robot, or the actor is not a robot"),
-        Applied::Written { name, email } => println!("git identity: {} <{}>, signed", name, email),
+    let urn = session.session_urn();
+    match session_variables(&session, urn.as_deref())? {
+        None => println!("git identity unchanged: [attribution] identity is not robot, or the actor is not a robot"),
+        Some(variables) => {
+            for line in export_lines(&variables) {
+                println!("{}", line);
+            }
+        }
     }
     Ok(0)
 }
@@ -1463,33 +1659,163 @@ mod tests {
         assert!(out.contains("Agent-Session: urn:tsk:session:claude-cli:s1"));
     }
 
-    fn scratch_repo() -> (tempfile::TempDir, crate::ledger::git::Git) {
+    fn actor_row(name: &str, kind: ActorKind, uid: &str) -> crate::ledger::store::ActorRow {
+        crate::ledger::store::ActorRow {
+            name: name.to_string(),
+            kind,
+            registered_at: "2026-01-01T00:00:00Z".to_string(),
+            uid: Some(uid.to_string()),
+        }
+    }
+
+    fn joined(session: &str, uid: &str) -> crate::ledger::store::SessionActorRow {
+        crate::ledger::store::SessionActorRow {
+            session: session.to_string(),
+            actor_uid: uid.to_string(),
+            role: crate::ledger::store::ActorRole::Supporting,
+            joined_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn a_session_is_supervised_when_a_human_actor_joined_that_session() {
+        let actors = [
+            actor_row("Robot", ActorKind::Robot, "r1"),
+            actor_row("Jane", ActorKind::Human, "h1"),
+        ];
+        let session = "urn:tsk:session:claude-cli:s1";
+        let other = "urn:tsk:session:claude-cli:s2";
+        assert!(!human_joined(&[joined(session, "r1")], &actors, session));
+        assert!(human_joined(
+            &[joined(session, "r1"), joined(session, "h1")],
+            &actors,
+            session
+        ));
+        assert!(!human_joined(&[joined(other, "h1")], &actors, session));
+        assert!(!human_joined(&[], &actors, session));
+    }
+
+    fn variables() -> Vec<(String, String)> {
+        let config = signing_settings("r@example.com", Path::new("/k"), Path::new("/s"));
+        robot_variables(
+            "Credit Where It's Due",
+            "r@example.com",
+            &config,
+            Some("urn:tsk:session:claude-cli:s1"),
+        )
+    }
+
+    #[test]
+    fn the_robot_variables_name_the_author_the_signing_config_and_the_session() {
+        let lines = export_lines(&variables());
+        assert_eq!(
+            lines,
+            vec![
+                "export GIT_AUTHOR_NAME='Credit Where It'\\''s Due'",
+                "export GIT_AUTHOR_EMAIL='r@example.com'",
+                "export GIT_COMMITTER_NAME='Credit Where It'\\''s Due'",
+                "export GIT_COMMITTER_EMAIL='r@example.com'",
+                "export GIT_CONFIG_COUNT='4'",
+                "export GIT_CONFIG_KEY_0='commit.gpgsign'",
+                "export GIT_CONFIG_VALUE_0='true'",
+                "export GIT_CONFIG_KEY_1='gpg.format'",
+                "export GIT_CONFIG_VALUE_1='ssh'",
+                "export GIT_CONFIG_KEY_2='gpg.ssh.program'",
+                "export GIT_CONFIG_VALUE_2='ssh-keygen'",
+                "export GIT_CONFIG_KEY_3='user.signingkey'",
+                "export GIT_CONFIG_VALUE_3='/k'",
+                "export TSK_SESSION='urn:tsk:session:claude-cli:s1'",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_value_with_an_apostrophe_is_quoted_so_a_shell_reads_it_back() {
+        let quoted = shell_quote("Credit Where It's Due");
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("printf %s {}", quoted))
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "Credit Where It's Due"
+        );
+    }
+
+    #[test]
+    fn the_env_file_keeps_foreign_lines_and_replaces_its_own() {
+        let existing = "export TSK_LEDGER_WT=\"/l\"\nexport GIT_AUTHOR_NAME='old'\nexport GIT_CONFIG_COUNT='1'\nexport GIT_CONFIG_KEY_7='x'\nexport OTHER='keep'\nexport TSK_SESSION='old'\n";
+        let edited = edit_env_file(existing, &variables());
+        assert!(edited.starts_with("export TSK_LEDGER_WT=\"/l\"\nexport OTHER='keep'\n"));
+        assert_eq!(edited.matches("GIT_AUTHOR_NAME").count(), 1);
+        assert_eq!(edited.matches("GIT_CONFIG_COUNT").count(), 1);
+        assert_eq!(edited.matches("GIT_CONFIG_KEY_7").count(), 0);
+        assert_eq!(edited.matches("TSK_SESSION").count(), 1);
+        assert!(!edited.contains("'old'"));
+    }
+
+    #[test]
+    fn repeated_sources_leave_one_copy_of_each_line() {
+        let mut text = "export OTHER='keep'\n".to_string();
+        for _ in 0..3 {
+            text = edit_env_file(&text, &variables());
+        }
+        assert_eq!(text, edit_env_file("export OTHER='keep'\n", &variables()));
+        assert_eq!(text.matches("export GIT_AUTHOR_NAME=").count(), 1);
+    }
+
+    #[test]
+    fn no_robot_removes_the_lines_and_keeps_the_others() {
+        let text = edit_env_file("export OTHER='keep'\n", &variables());
+        assert_eq!(edit_env_file(&text, &[]), "export OTHER='keep'\n");
+        assert_eq!(edit_env_file("", &[]), "");
+    }
+
+    #[test]
+    fn the_env_file_is_created_only_for_a_robot_and_rewritten_in_place() {
         let dir = tempfile::tempdir().unwrap();
-        let git = crate::ledger::git::Git::new(dir.path());
-        git.run(["init", "-q"]).unwrap();
-        (dir, git)
+        let file = dir.path().join("env");
+        update_env_file(&file, &[]).unwrap();
+        assert!(!file.exists());
+        update_env_file(&file, &variables()).unwrap();
+        let first = std::fs::read_to_string(&file).unwrap();
+        update_env_file(&file, &variables()).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), first);
+        update_env_file(&file, &[]).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "");
     }
 
     #[test]
-    fn a_session_is_supervised_only_after_the_key_is_set_and_before_it_is_cleared() {
-        let (_dir, git) = scratch_repo();
-        assert!(!is_supervised(&git));
-        set_supervised(&git).unwrap();
-        assert!(is_supervised(&git));
-        set_supervised(&git).unwrap();
-        clear_supervised(&git);
-        assert!(!is_supervised(&git));
-        clear_supervised(&git);
-        assert!(!is_supervised(&git));
-    }
-
-    #[test]
-    fn a_co_author_reaches_the_hook_only_in_a_supervised_session() {
-        let (_dir, git) = scratch_repo();
-        let chosen = |git: &crate::ledger::git::Git| is_supervised(git).then_some(JANE);
-        assert_eq!(chosen(&git), None);
-        set_supervised(&git).unwrap();
-        assert_eq!(chosen(&git), Some(JANE));
+    fn the_exported_config_reaches_git_as_command_line_settings_and_not_as_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        git_in(dir.path(), &["init", "-q", "-b", "main"]);
+        let mut command = std::process::Command::new("git");
+        command
+            .current_dir(dir.path())
+            .args(["config", "--list", "--show-origin"]);
+        for (name, value) in variables() {
+            command.env(name, value);
+        }
+        let output = command.output().unwrap();
+        let listing = String::from_utf8_lossy(&output.stdout).to_string();
+        for expected in [
+            "command line:\tcommit.gpgsign=true",
+            "command line:\tgpg.format=ssh",
+            "command line:\tgpg.ssh.program=ssh-keygen",
+            "command line:\tuser.signingkey=/k",
+        ] {
+            assert!(
+                listing.lines().any(|l| l == expected),
+                "{}\n{}",
+                expected,
+                listing
+            );
+        }
+        let config = std::fs::read_to_string(dir.path().join(".git/config")).unwrap();
+        assert!(!config.contains("/k"), "{}", config);
+        assert!(!config.contains("gpgsign"), "{}", config);
+        assert!(!dir.path().join(".git/config.worktree").exists());
     }
 
     #[test]
@@ -1806,40 +2132,49 @@ mod tests {
         (program, log)
     }
 
-    fn code_worktree_with_signing(dir: &Path, program: &Path, key: &str) {
-        git_in(dir, &["init", "-q", "-b", "main"]);
-        git_in(
-            dir,
-            &["config", "--local", "extensions.worktreeConfig", "true"],
-        );
-        for (name, value) in [
-            ("user.name", "Robot"),
-            ("user.email", "robot@example.test"),
-            ("gpg.format", "ssh"),
-            ("gpg.ssh.program", program.to_str().unwrap()),
-            ("user.signingkey", key),
-            ("gpg.ssh.allowedSignersFile", "/signers"),
-            ("commit.gpgsign", "true"),
-            ("tsk.attribution", "robot"),
-        ] {
-            git_in(dir, &["config", "--worktree", name, value]);
+    fn settings_with(signing_key: Option<&str>, program: Option<&str>) -> Settings {
+        Settings {
+            identity: Identity::Robot,
+            identity_source: Source::Env,
+            email: Some("robot@example.test".to_string()),
+            email_source: Some(Source::Env),
+            co_author: None,
+            co_author_source: None,
+            signing_key: signing_key.map(str::to_string),
+            signing_key_source: signing_key.map(|_| Source::Env),
+            signing_program: program.map(str::to_string),
+            signing_program_source: program.map(|_| Source::Env),
         }
     }
 
-    fn ledger_commit_signs_with_the_worktree_program(key: &str) {
+    fn written_set_up(dir: &Path, key_file: bool) -> PathBuf {
+        let key = dir.join(KEY_FILE_NAME);
+        if key_file {
+            std::fs::write(&key, "k").unwrap();
+        }
+        std::fs::write(dir.join(SIGNERS_FILE_NAME), "s").unwrap();
+        key
+    }
+
+    #[test]
+    fn a_ledger_commit_signs_with_the_program_of_the_settings_in_agent_mode() {
         let code = tempfile::tempdir().unwrap();
         let ledger = tempfile::tempdir().unwrap();
         let tools = tempfile::tempdir().unwrap();
         let (program, log) = fake_program(tools.path());
-        code_worktree_with_signing(code.path(), &program, key);
+        let public = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPUBLIC";
+        let key = written_set_up(code.path(), false);
         git_in(ledger.path(), &["init", "-q", "-b", "main"]);
         std::fs::write(ledger.path().join("a"), "a").unwrap();
         git_in(ledger.path(), &["add", "-A"]);
 
-        let repo = crate::ledger::location::Repo::discover(code.path()).unwrap();
-        let identity = read_robot_identity(&repo).unwrap();
+        let settings = settings_with(
+            Some(&format!("agent:{}", public)),
+            Some(program.to_str().unwrap()),
+        );
+        let identity = robot_identity_from(Some("Robot".to_string()), &settings, &key).unwrap();
         assert_eq!(identity.program, program.to_str().unwrap());
-        assert_eq!(identity.key_file, key);
+        assert_eq!(identity.key_file, format!("key::{}", public));
 
         let wt = crate::ledger::git::Git::new(ledger.path());
         let (git, mut args) = git_for(&wt, Some(identity));
@@ -1850,17 +2185,26 @@ mod tests {
     }
 
     #[test]
-    fn a_ledger_commit_signs_with_the_program_of_the_code_worktree_in_key_file_mode() {
-        let key = tempfile::tempdir().unwrap();
-        let file = key.path().join("key");
-        std::fs::write(&file, "k").unwrap();
-        ledger_commit_signs_with_the_worktree_program(file.to_str().unwrap());
+    fn the_ledger_identity_in_key_file_mode_names_the_key_file_and_ssh_keygen() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = written_set_up(dir.path(), true);
+        let identity =
+            robot_identity_from(Some("Robot".to_string()), &settings_with(None, None), &key)
+                .unwrap();
+        assert_eq!(identity.program, "ssh-keygen");
+        assert_eq!(identity.key_file, key.display().to_string());
+        assert_eq!(identity.email, "robot@example.test");
     }
 
     #[test]
-    fn a_ledger_commit_signs_with_the_program_of_the_code_worktree_in_agent_mode() {
-        ledger_commit_signs_with_the_worktree_program(
-            "key::ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPUBLIC",
-        );
+    fn the_ledger_identity_needs_the_set_up_and_a_robot_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = dir.path().join(KEY_FILE_NAME);
+        let settings = settings_with(None, None);
+        let err = robot_identity_from(Some("Robot".to_string()), &settings, &key).unwrap_err();
+        assert!(err.contains("signing set-up is not written"), "{}", err);
+        written_set_up(dir.path(), true);
+        let err = robot_identity_from(None, &settings, &key).unwrap_err();
+        assert!(err.contains("no robot actor is registered"), "{}", err);
     }
 }

@@ -1,6 +1,6 @@
 ---
 name: construct-robot
-description: Construct a new robot. The robot chooses a name of its own in the style of the Culture ships of Iain M. Banks, registers it as a tsk actor, and sets its session title to the name. Invoke explicitly as /tsk:construct-robot, or when asked to name this session or to construct a robot.
+description: Construct a new robot. The robot is given a name in the style of the Culture ships of Iain M. Banks, registered as a tsk actor, and set as its session title. Invoke explicitly as /tsk:construct-robot, or when asked to name this session or to construct a robot.
 ---
 
 Backs the `/tsk:construct-robot` command. Construction is the creation of a new robot,
@@ -18,10 +18,10 @@ stores it.
    many words, go to step 3. Otherwise, when one or more robots are listed, use the
    AskUserQuestion tool: offer up to three robots and "Construct a new robot". List the
    `free` robots first, then a robot whose state starts with `busy`, marked in its label
-   (`<name> (busy)`). A robot is busy while it holds a thread. A robot works in many
+   (`<name> (busy)`). A robot is busy while it has a thread. A robot works in many
    sessions at once (ADR 0032), so picking a busy robot is allowed. The session then
    takes a new thread or no thread, because a thread has one open session. For a listed
-   robot, run `tsk actor register "<name>" --kind robot`, set the title as step 6 says,
+   robot, run `tsk actor register "<name>" --kind robot`, set the title as step 6 describes,
    and stop. For a new robot, go on. A name in the list identifies its actor: registering
    a name that is already in the list joins that actor, so a new robot needs a name that
    is not in the list.
@@ -43,10 +43,10 @@ stores it.
    stderr and stop.
 
    When `[attribution] identity` is `robot` (`tsk config attribution` prints it), the
-   command also writes the robot's git identity to the repo's local git config, so commits
-   name the robot as author and are signed. A `warning: the registration stands, and the
-   git identity is not set` line means it could not: tell me what it says, and carry on.
-   `tsk actor git-identity` runs the step again, for example after the key
+   command records the robot name. The next session-start source exports the git identity,
+   so commits name the robot as author and are signed. A `warning: the registration stands, and the
+   git identity is not set` line means it could not: tell me what it says, and continue.
+   `tsk actor git-identity` runs the step again, for example after
    `TSK_ROBOT_SIGNING_KEY` is set. With the default identity nothing is written.
 
 5. **Publish the registration.** A name is a claim, as a task is:
@@ -63,11 +63,11 @@ stores it.
      Then call `set_session_title` with that ID and the title.
    - In a terminal, no tool sets the title. Ask me to run `/rename <title>`.
 
-7. **Tell me the name** and, in one sentence, what it says about you.
+7. **Tell me the name** and, in one sentence, what it expresses about you.
 
 ## The style
 
-A Culture Mind chooses its own name. The name usually expresses something about the
+A Culture Mind names itself. The name usually expresses something about the
 Mind's attitude, character or aims. The names range from funny to cryptic. A warship's
 name can be dark.
 

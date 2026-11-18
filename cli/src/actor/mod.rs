@@ -47,7 +47,7 @@ pub enum ActorCommands {
         name: String,
     },
     #[command(
-        about = "Add an actor, by uid, to the current session as a supporting actor, or as its primary actor with --primary (the earlier primary becomes supporting). --session names another session by its URN. Refuses an unknown uid. A human who supervises a robot's session joins it this way, and a human joining the current session sets tsk.supervised in the worktree git config, which tsk thread session-start removes. A local write"
+        about = "Add an actor, by uid, to the current session as a supporting actor, or as its primary actor with --primary (the earlier primary becomes supporting). --session names another session by its URN. Refuses an unknown uid. A human who supervises a robot's session joins it this way. The commit-msg hook then adds the co-author trailer to the robot's commits. A local write"
     )]
     Join {
         #[arg(
@@ -69,13 +69,13 @@ pub enum ActorCommands {
     Name,
     #[command(
         name = "git-identity",
-        about = "Write the registered robot's git identity to the repo's local git config, when [attribution] identity is robot: user.name, user.email, gpg.format, user.signingkey and commit.gpgsign. The key comes from TSK_ROBOT_SIGNING_KEY. With the default identity, or a human actor, nothing is written. tsk actor register runs it after a registration"
+        about = "Print the export lines that tsk thread session-start writes for the registered robot. They set the git author, the committer, the signing settings and TSK_SESSION. Nothing is written to a file or to git config. With the default identity, or a human actor, it prints one line saying so"
     )]
     GitIdentity,
     #[command(
         name = "commit-msg",
         hide = true,
-        about = "The commit-msg hook that tsk thread session-start writes when [attribution] identity is robot: replace the Claude-Session and Co-Authored-By: Claude trailers of the message in <FILE> with Agent-Session: <session URN>. When [attribution] co_author is set and the session is supervised (tsk.supervised in the worktree git config), add Co-authored-by: <co_author> after it, once. Exit 0 whatever happens"
+        about = "The commit-msg hook that tsk thread session-start writes when [attribution] identity is robot: replace the Claude-Session and Co-Authored-By: Claude trailers of the message in <FILE> with Agent-Session: <session URN>. When [attribution] co_author is set and a human joined the session (tsk actor join), add Co-authored-by: <co_author> after it, once. The session is the URN in the variable TSK_SESSION, which the session start exports. With it unset the hook changes nothing. Exit 0 whatever happens"
     )]
     CommitMsg {
         #[arg(help = "The commit message file git passes to the hook")]
@@ -600,10 +600,8 @@ fn finish_registration(session: &Session, no_urn: bool, instance_kind: BindingKi
     if no_urn && instance_kind == BindingKind::Worktree {
         eprintln!("note: this session has no recorded URN (the session start did not run), so the actor is recorded on the harness instance only");
     }
-    // The session start writes the signing set-up, so the registration writes only
-    // user.name. A session whose start did not run gets the whole set-up here.
     let identity = if crate::attribution::signing_is_set_up(session) {
-        crate::attribution::write_name(session)
+        crate::attribution::remember_robot_name(session)
     } else {
         crate::attribution::apply(session)
     };
@@ -692,16 +690,6 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
                 role,
                 &utc_now(),
             )?;
-            if actor.kind == ActorKind::Human
-                && session.session_urn().as_deref() == Some(urn.as_str())
-            {
-                if let Err(error) = crate::attribution::set_supervised(&session.repo.git) {
-                    eprintln!(
-                        "warning: the join stands, and the session is not marked supervised: {}",
-                        error.trim_start_matches("error: ")
-                    );
-                }
-            }
             eprintln!("{}", NOT_PUBLISHED_NOTE);
             println!(
                 "{} ({}) joined {} as {}",

@@ -159,13 +159,13 @@ tsk actor list [--porcelain|--json]                list the actors: name, kind, 
 tsk actor remove <name>                                               remove an actor: its record, name history, instance rows and session links; threads and pause entries stay; a local write
 tsk harness new [--thread ID | --robot NAME | --new-robot] [--mission ID | --new-mission] [--branch NAME | --detach]  make a harness: a code worktree under the worktree root, a tmux session named after the mission, and claude with a first prompt; asks when flags are missing, the branch name last (suggestions, or a detached HEAD)
 tsk harness list [--porcelain|--json]                                 list this clone's harnesses: name, robot, mission, thread, awake or asleep, directory
-tsk harness path|sleep|wake|delete <name>                             print the directory; pause the thread and stop the session; start it again; remove the worktree (refuses unpushed work without --force)
+tsk harness path|sleep|wake|delete <name>                             print the directory; pause the thread and stop the session; start it again, resuming the recorded claude session when its transcript exists; remove the worktree (refuses unpushed work without --force)
 tsk config worktrees-root [<path>]                                    the worktree root: GIT_WORKTREES_ROOT, else [worktrees] root, else unset
 tsk install zshrc                                                     add the shell function that makes tsk harness cd <name> change directory
 tsk session actor [--session <urn>]                                   list the actors of this session: role, name, kind, uid
 tsk ledger id                                                         print the ledger's URN, urn:tsk:ledger:<ledger-id>
                                                                       (tsk mission list <id> --json prints a urn for the mission and for each task, decision and question)
-tsk actor git-identity                                                write the registered robot's git identity to the repo's local git config when [attribution] identity is robot; needs TSK_ROBOT_SIGNING_KEY
+tsk actor git-identity                                                print the export lines of the registered robot's git identity, and write nothing, when [attribution] identity is robot; needs TSK_ROBOT_SIGNING_KEY
 tsk config attribution [default|robot] [--email <address>]            print the [attribution] settings and where each came from, or write them to .tsk/config.toml
 tsk session find <urn|id>                                             print the harness instance and the actor of a recorded session; exit 1 when none matches
 tsk session list [--porcelain|--json]                                 list the recorded sessions: session URN, instance URN, actor, start time
@@ -371,7 +371,7 @@ and never pushes. Records go out at:
 1. thread start: the claim and the binding,
 2. thread pause: the hand-off,
 3. the end of the session: the SessionEnd hook, and the Stop hook, which publishes in the
-   background after a turn when the store has unpushed changes. It gives no prompt to
+   background after a turn when the store contains unpushed changes. It gives no prompt to
    push. A failed background publish shows as `warning: the last background publish
    failed ...` on the next `tsk` command: run `tsk ledger push`,
 4. when asked: `tsk ledger push "<message>"`.
@@ -455,17 +455,17 @@ to stderr.
 | Command | Stdout on success | Other exits |
 |---|---|---|
 | `thread start` | `started:<thread-id>` | `resume-required:<thread-id>` and exit status 2 when a binding exists |
-| `thread pause` | `paused:<thread-id>`, then `code: clean` or `code: dirty (N files)`, `code pushed: yes` or `no`, `ledger: pushed` or `ledger: N changes not pushed` | exit 1 when the managed repo's `HEAD` is not on any branch on origin, or when a thread with no mission gets a task ID |
+| `thread pause` | `paused:<thread-id>`, then `code: clean` or `code: dirty (N files)`, `code pushed: yes` or `no`, `ledger: pushed` or `ledger: N changes not pushed` | exit 1 when the managed repo's `HEAD` is not on any branch on origin. Exit 1 also when a thread with no mission gets a task ID |
 | `thread set mission` | `mission-set:<thread-id>:<mission-id>`, or `mission-cleared:<thread-id>` with `--none` | exit 1 for an unknown mission or thread, or with no thread ID and no binding |
-| `thread resume` | `{"thread_id":"...","latest":{...},"warning":"...","mission":{"id","name"}|null,"task":{"id","description"}|null}` | exit 1, nothing on stdout, when another session has the thread open (ADR 0032): ask me, then run again with `--take-over` only if I confirm that the holder no longer runs |
+| `thread resume` | `{"thread_id":"...","latest":{...},"warning":"...","mission":{"id","name"}|null,"task":{"id","description"}|null}` | exit 1, nothing on stdout, when another session has the thread open (ADR 0032). Ask me, then run again with `--take-over` only if I confirm that the holder no longer runs |
 | `thread detach` | `detached:<thread-id>` | exit 1, nothing on stdout, with no binding |
 | `thread stop` | `stopped:<thread-id>` | exit 1 with no binding and no thread ID given |
 | `thread skip` | `skipped` | |
-| `thread list` | one compact JSON object per line: `id`, `mission_id` (null for a thread with no mission), `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp`, `actors` (each `{"actor", "kind", "name"}`), `state` (`paused` or `held`) and `holder` (null when paused, else `{"instance", "robot", "since"}`) | |
+| `thread list` | one compact JSON object per line: `id`, `mission_id` (null for a thread with no mission), `mission_link` (empty for a mission with a record), `latest_whats_next`, `latest_timestamp`. The object also has `actors` (each `{"actor", "kind", "name"}`), `state` (`paused` or `held`) and `holder` (null when paused, else `{"instance", "robot", "since"}`) | |
 | `thread binding` | `cloud:<thread-id>` or `worktree:<thread-id>`, then `actor: <name> (<kind>)` on a second line when registered | exit 1, nothing on stdout, with no binding |
-| `actor register` | `registered <name> (<kind>)` for a new name; `<name> (<kind>) is now this session's actor` or `... this worktree's actor` for a name already registered with that kind | exit 1 with `<name> is registered as a <kind>` for the other kind, or for a name that is empty, over 200 characters or starts with `/` |
+| `actor register` | `registered <name> (<kind>)` for a new name. For a name already registered with that kind: `<name> (<kind>) is now this session's actor` or `... this worktree's actor` | exit 1 with `<name> is registered as a <kind>` for the other kind. Exit 1 also for a name that is empty, over 200 characters or starts with `/` |
 | `actor name` | the actor name, or `no actor registered` | |
-| `actor list` | one actor per line: name, kind, state, uid, instances (comma-separated keys, or `-`); tab-separated with `--porcelain`; the records with their `instances` with `--json` | |
+| `actor list` | one actor per line: name, kind, state, uid, instances (comma-separated keys, or `-`). With `--porcelain`, tab-separated. With `--json`, the records with their `instances` | |
 | `thread prune-bindings` | `removed <actor> <thread-id>` per binding, then `<n> bindings removed`; with `--dry-run`, `would remove <actor> <thread-id>` lines and `<n> bindings would be removed`, and nothing changes | |
 | `thread guard` | nothing when bound, after `thread skip`, or when the ledger has no missions; `{"decision":"block","reason":"..."}` otherwise, asking for a thread. With unpushed changes it also starts `tsk ledger push --background` and prints nothing | |
 

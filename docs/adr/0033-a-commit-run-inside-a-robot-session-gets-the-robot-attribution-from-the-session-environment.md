@@ -47,7 +47,8 @@ Checks run on 2026-11-15:
    `CLAUDE_ENV_FILE`.** It writes `export` lines for `GIT_AUTHOR_NAME`,
    `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL`. It writes
    `GIT_CONFIG_COUNT` with a `GIT_CONFIG_KEY_n` and `GIT_CONFIG_VALUE_n` pair for each of
-   `commit.gpgsign`, `gpg.format`, `gpg.ssh.program` and `user.signingkey`.
+   `commit.gpgsign`, `gpg.format`, `gpg.ssh.program` and `user.signingkey`. It also writes
+   `TSK_SESSION`, the URN of the session.
 
 3. **The hook replaces its own lines on every source.** The sources are startup, resume,
    clear, compact and fork.
@@ -84,9 +85,11 @@ The agent never signs with a person's key.
 
 ## Consequences
 
-- The commit-msg hook reads the supervised state from the session environment, in a
-  variable such as `TSK_SUPERVISED` that the SessionStart hook exports, because no worktree
-  config marker records it.
+- The commit-msg hook reads `TSK_SESSION` from the session environment and looks up in
+  the ledger whether a person joined that session. `tsk actor join` runs after the session starts, so
+  the SessionStart hook cannot record the answer.
+- A file `tsk-robot-name` in the worktree git directory stores the robot name for tsk's own
+  ledger commits. It is not a git config file.
 - Every run of the SessionStart hook rewrites its lines in the file named by
   `CLAUDE_ENV_FILE`.
 - `tsk config attribution` keeps its settings.

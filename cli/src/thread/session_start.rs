@@ -585,13 +585,12 @@ fn context_after_fetch(
     }
     if let Some(actor) = crate::actor::current(session).ok().flatten() {
         push_part(&mut thread_text, &actor_context(&actor.label()));
-        // A new container has no repo-local git identity: write the name again.
         if let Ok(crate::attribution::Signing::Written { .. }) = signing {
-            if let Err(error) = crate::attribution::write_name(session) {
+            if let Err(error) = crate::attribution::remember_robot_name(session) {
                 push_part(
                     &mut thread_text,
                     &format!(
-                        "WARNING: the git name of the robot is not set, so commits keep the default author name: {}",
+                        "WARNING: the robot name is not recorded, so a ledger commit has no author: {}",
                         error.trim_start_matches("error: ")
                     ),
                 );
@@ -812,9 +811,11 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
         .ok()
         .map(crate::attribution::set_up_signing);
     let mut context = session
+        .as_ref()
+        .map_err(|e| e.clone())
         .and_then(|session| {
             let signing = signing.as_ref().ok_or("error: no session")?;
-            context_after_fetch(&session, signing, |session| {
+            context_after_fetch(session, signing, |session| {
                 // Record the session beside its harness instance (ADR 0029), after the
                 // refresh and before the reads, and give it the actors of the session it
                 // continues (ADR 0030). A failure here never fails the hook: the session
@@ -850,6 +851,19 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
             }
             context
         });
+    if let Ok(session) = &session {
+        let urn = crate::sessions::current_urn(
+            format,
+            session.cloud_session.as_deref(),
+            hook_session_id.as_deref(),
+        )
+        .or_else(|| session.session_urn());
+        let robot = matches!(
+            signing,
+            Some(Ok(crate::attribution::Signing::Written { .. }))
+        );
+        let _ = crate::attribution::update_session_env(session, urn.as_deref(), robot);
+    }
     if !cloud_install {
         if let Some(notice) = session_notice() {
             context.push(' ');

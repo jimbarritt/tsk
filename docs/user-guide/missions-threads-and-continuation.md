@@ -116,6 +116,7 @@ The `tsk` binary provides these. Use them rather than running git against
 | `tsk thread binding` | Prints the current binding, if any, and the actor this session or worktree is registered as | None beyond a fetch |
 | `tsk thread title` | Prints the session title: `<mission ID>: <actor name>`, `NO-MISSION: <actor name>`, or the mission ID alone. Exit 1 with neither | None. It reads the ledger store as it is and never fetches |
 | `tsk actor register <name> --kind human\|robot` | Registers this session or worktree as an actor; needs no thread | Local store only (0.26.0) |
+| `tsk actor attach <name>` | Attaches this session or worktree to an existing robot and creates no actor. Exits 1 for an unknown name | Local store only (0.71.0) |
 | `tsk actor name` | Prints the actor this session or worktree is registered as | None |
 | `tsk actor list` | Lists the actors with their kind, state (`free`, or `busy (holds <thread id> <mission>)` while the robot has a thread), missions, and the sessions and worktrees registered as each | None (state 0.63.0) |
 | `tsk thread next [--open <id>,...]` | Prints `bound:<thread-id>` for a bound session, else the robot question. `--open` takes the cloud sessions that are not archived | None. Never fetches (0.58.0) |
@@ -155,7 +156,7 @@ this is where we are at: <summary of the handover note>
 then asks whether to continue. When the session start context already shows the thread and
 its latest entry, the agent writes that summary at once and runs no command until you
 confirm. Take-over is additive: a different actor can bind to a
-thread someone else has worked. That prints a warning naming the other actors and
+thread that someone else worked. That prints a warning naming the other actors and
 proceeds, rather than failing.
 
 ## What happens at session start

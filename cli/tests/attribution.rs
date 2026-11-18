@@ -22,8 +22,11 @@ fn commit_msg(dir: &Path, home: &Path, message: &str, extra: &[(&str, &str)]) ->
         .arg(&file)
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join("config"))
+        .env("XDG_STATE_HOME", home.join("state"))
+        .env("TSK_HOME", home.join(".tsk"))
         .env("TSK_AUTO_UPDATE", "never")
         .env("CLAUDE_CODE_REMOTE_SESSION_ID", "s1")
+        .env("TSK_SESSION", "urn:tsk:session:claude-cli:s1")
         .env_remove("TSK_ATTRIBUTION_CO_AUTHOR")
         .env_remove("TSK_ATTRIBUTION_IDENTITY");
     for (key, value) in extra {
@@ -43,28 +46,49 @@ fn repo() -> Option<(tempfile::TempDir, tempfile::TempDir)> {
     Some((dir, tempfile::tempdir().unwrap()))
 }
 
-fn supervise(dir: &Path) {
-    git(dir, &["config", "extensions.worktreeConfig", "true"]);
-    git(dir, &["config", "--worktree", "tsk.supervised", "true"]);
-}
-
 #[test]
-fn the_commit_msg_hook_adds_the_co_author_once_for_a_robot_in_a_supervised_session() {
+fn the_commit_msg_hook_writes_the_session_trailer_from_the_session_variable() {
     let Some((dir, home)) = repo() else {
         return;
     };
-    supervise(dir.path());
-    let robot = [
-        ("TSK_ATTRIBUTION_IDENTITY", "robot"),
-        ("TSK_ATTRIBUTION_CO_AUTHOR", JANE),
-    ];
-    let out = commit_msg(dir.path(), home.path(), "Add a thing\n", &robot);
-    assert!(out.contains("Agent-Session: urn:tsk:session:"), "{out}");
-    let session = out.find("Agent-Session:").unwrap();
-    let co_author = out.find(&format!("Co-authored-by: {JANE}")).unwrap();
-    assert!(session < co_author, "{out}");
-    let again = commit_msg(dir.path(), home.path(), &out, &robot);
-    assert_eq!(again.matches("Co-authored-by").count(), 1, "{again}");
+    let out = commit_msg(
+        dir.path(),
+        home.path(),
+        "Add a thing\n\nClaude-Session: https://claude.ai/code/session_1\n",
+        &[("TSK_ATTRIBUTION_IDENTITY", "robot")],
+    );
+    assert!(
+        out.starts_with("Add a thing\n\nAgent-Session: urn:tsk:session:claude-cli:s1\n"),
+        "{out}"
+    );
+    assert!(!out.contains("Claude-Session"), "{out}");
+}
+
+#[test]
+fn the_commit_msg_hook_changes_nothing_without_the_session_variable() {
+    let Some((dir, home)) = repo() else {
+        return;
+    };
+    let message = "Add a thing\n\nClaude-Session: https://claude.ai/code/session_1\n";
+    let file = dir.path().join("MSG");
+    std::fs::write(&file, message).unwrap();
+    let status = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
+        .current_dir(dir.path())
+        .args(["actor", "commit-msg"])
+        .arg(&file)
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("XDG_STATE_HOME", home.path().join("state"))
+        .env("TSK_HOME", home.path().join(".tsk"))
+        .env("TSK_AUTO_UPDATE", "never")
+        .env("CLAUDE_CODE_REMOTE_SESSION_ID", "s1")
+        .env("TSK_ATTRIBUTION_IDENTITY", "robot")
+        .env("TSK_ATTRIBUTION_CO_AUTHOR", JANE)
+        .env_remove("TSK_SESSION")
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), message);
 }
 
 #[test]
@@ -86,7 +110,6 @@ fn the_commit_msg_hook_adds_no_co_author_when_none_is_set() {
     let Some((dir, home)) = repo() else {
         return;
     };
-    supervise(dir.path());
     let out = commit_msg(
         dir.path(),
         home.path(),
