@@ -499,7 +499,7 @@ pub fn branch_step(branch: Option<&str>, push: Option<PushWorkflow>) -> String {
 }
 
 fn register_step(robot: &str) -> String {
-    format!("Run tsk actor register \"{}\" --kind robot.", robot)
+    format!("Run tsk actor attach \"{}\".", robot)
 }
 
 /// The first prompt of `claude` in a new harness: a list of plain steps. The new session
@@ -1130,18 +1130,9 @@ fn save_push(lookup: Option<&push::NexusEntry>, workflow: PushWorkflow, state_ro
     }
 }
 
-/// The push workflow of the new harness: the `--push` flag, else the nexus entry, else
-/// `.tsk/config.toml`, else the answer of a person on a terminal. `None` when nothing holds
-/// it and nobody can answer.
-fn choose_push(ctx: &Ctx, args: &NewArgs) -> Result<Option<PushWorkflow>, String> {
-    if let Some(workflow) = args.push {
-        println!(
-            "push workflow: {}, from {}",
-            workflow.as_str(),
-            PushSource::Flag.label()
-        );
-        return Ok(Some(workflow));
-    }
+type StoredPush = (Option<push::NexusEntry>, Option<(PushWorkflow, PushSource)>);
+
+fn stored_push(ctx: &Ctx) -> Result<StoredPush, String> {
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
     let config_file = crate::config::config_file_from_env();
@@ -1159,7 +1150,24 @@ fn choose_push(ctx: &Ctx, args: &NewArgs) -> Result<Option<PushWorkflow>, String
     };
     let config_value =
         crate::config::read_harness_workflow(&ctx.main_worktree.join(".tsk").join("config.toml"))?;
-    if let Some((workflow, source)) = push::stored(lookup.as_ref(), config_value.as_deref())? {
+    let stored = push::stored(lookup.as_ref(), config_value.as_deref())?;
+    Ok((lookup, stored))
+}
+
+/// The push workflow of the new harness: the `--push` flag, else the nexus entry, else
+/// `.tsk/config.toml`, else the answer of a person on a terminal. `None` when nothing holds
+/// it and nobody can answer.
+fn choose_push(ctx: &Ctx, args: &NewArgs) -> Result<Option<PushWorkflow>, String> {
+    if let Some(workflow) = args.push {
+        println!(
+            "push workflow: {}, from {}",
+            workflow.as_str(),
+            PushSource::Flag.label()
+        );
+        return Ok(Some(workflow));
+    }
+    let (lookup, stored) = stored_push(ctx)?;
+    if let Some((workflow, source)) = stored {
         println!(
             "push workflow: {}, from {}",
             workflow.as_str(),
@@ -1564,6 +1572,16 @@ fn sleep(name: &str) -> Result<i32, String> {
     Ok(0)
 }
 
+pub fn wake_push(
+    state: Option<&str>,
+    stored: impl FnOnce() -> Option<(PushWorkflow, PushSource)>,
+) -> Option<PushWorkflow> {
+    match state.and_then(PushWorkflow::parse) {
+        Some(workflow) => Some(workflow),
+        None => stored().map(|(workflow, _)| workflow),
+    }
+}
+
 fn wake(name: &str, no_claude: bool, no_attach: bool) -> Result<i32, String> {
     let ctx = Ctx::discover(false)?;
     let mut harness = ctx.find(name)?;
@@ -1586,11 +1604,17 @@ fn wake(name: &str, no_claude: bool, no_attach: bool) -> Result<i32, String> {
                 state::transcript_exists(&harness.worktree, id)
             })
         });
+        let push = wake_push(harness.push.as_deref(), || {
+            stored_push(&ctx).ok().and_then(|(_, stored)| stored)
+        });
+        if harness.push.is_none() {
+            harness.push = push.map(|workflow| workflow.as_str().to_string());
+        }
         let prompt = wake_prompt(
             harness.robot.as_deref(),
             harness.thread_id.as_deref(),
             branch,
-            harness.push.as_deref().and_then(PushWorkflow::parse),
+            push,
             matches!(start, Some(ClaudeStart::Resume(_))),
         );
         ctx.save(&harness)?;
@@ -1730,6 +1754,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn wake_push_prefers_the_state_then_the_stored_workflow() {
+        let stored = || Some((PushWorkflow::Main, PushSource::ConfigFile));
+        assert_eq!(
+            wake_push(Some("pull-request"), stored),
+            Some(PushWorkflow::PullRequest)
+        );
+        assert_eq!(wake_push(None, stored), Some(PushWorkflow::Main));
+        assert_eq!(wake_push(None, || None), None);
+        assert_eq!(
+            wake_push(Some("sideways"), stored),
+            Some(PushWorkflow::Main)
+        );
+    }
+
+    #[test]
     fn the_session_is_named_after_the_mission_code_or_else_the_harness() {
         assert_eq!(
             session_name(Some("M-TSK-ENV"), "otter", |_| false),
@@ -1763,7 +1802,10 @@ mod tests {
                 None,
                 main
             ),
-            format!("Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread t1. {}", detached)
+            format!(
+                "Run tsk actor attach \"Marvin\". Then run /tsk:resume-thread t1. {}",
+                detached
+            )
         );
         assert_eq!(
             first_prompt(
@@ -1773,7 +1815,10 @@ mod tests {
                 Some("m-a/otter"),
                 Some(PushWorkflow::PullRequest)
             ),
-            format!("Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-A. {}", branch_step(Some("m-a/otter"), Some(PushWorkflow::PullRequest)))
+            format!(
+                "Run tsk actor attach \"Marvin\". Then run /tsk:start-thread M-A. {}",
+                branch_step(Some("m-a/otter"), Some(PushWorkflow::PullRequest))
+            )
         );
         assert!(
             first_prompt(None, Some(&robot), Some(&MissionChoice::New), None, None)
@@ -1814,7 +1859,7 @@ mod tests {
                 false
             ),
             format!(
-                "Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread t1. {}",
+                "Run tsk actor attach \"Marvin\". Then run /tsk:resume-thread t1. {}",
                 step
             )
         );

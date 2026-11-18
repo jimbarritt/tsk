@@ -121,10 +121,10 @@ stands, and prompts you to continue or not.
 To keep the robot of the cloud session, choose that robot in the question round. Or run:
 
 ```bash
-tsk actor register "<robot name>" --kind robot
+tsk actor attach "<robot name>"
 ```
 
-A name already registered joins that actor. A name registered with the other kind fails
+The command attaches an existing robot and creates none. A name that no robot has fails
 with exit 1.
 
 ## 5. What happens to the cloud session

@@ -39,6 +39,14 @@ pub enum ActorCommands {
         kind: String,
     },
     #[command(
+        about = "Attach this session or worktree to an existing robot, by name. Creates no actor, and exits with status 1 when no robot has the name. Prints attached existing robot <name> (uid <uid>)",
+        long_about = "Attach this session or worktree to a robot that is already registered, by name. The robot becomes the primary actor of this session and the actor of this worktree. The command creates no actor: it exits with status 1 when no robot has the name, or when the name belongs to a human. Run tsk actor list to see the registered actors. Needs no thread binding. The change is a local write: it goes out with the next push (thread start, pause or stop, or tsk ledger push)"
+    )]
+    Attach {
+        #[arg(help = "The name of an existing robot, as tsk actor list prints it")]
+        name: String,
+    },
+    #[command(
         about = "Add an actor, by uid, to the current session as a supporting actor, or as its primary actor with --primary (the earlier primary becomes supporting). --session names another session by its URN. Refuses an unknown uid. A human who supervises a robot's session joins it this way, and a human joining the current session sets tsk.supervised in the worktree git config, which tsk thread session-start removes. A local write"
     )]
     Join {
@@ -344,6 +352,47 @@ pub fn register(
     Ok((outcome, uid))
 }
 
+pub fn find_robot(actors: Vec<ActorRow>, name: &str) -> Result<ActorRow, String> {
+    actors
+        .into_iter()
+        .find(|actor| actor.name == name && actor.kind == ActorKind::Robot)
+        .ok_or_else(|| {
+            format!(
+                "error: no robot is named {}: run tsk actor list to see the registered actors",
+                name
+            )
+        })
+}
+
+pub fn attach(
+    store: &dyn LedgerStore,
+    instance: &str,
+    instance_kind: BindingKind,
+    session_urn: Option<&str>,
+    name: &str,
+    now: &str,
+) -> Result<Option<String>, String> {
+    find_robot(store.actors_list()?, name)?;
+    let (_, uid) = register(
+        store,
+        instance,
+        instance_kind,
+        session_urn,
+        name,
+        ActorKind::Robot,
+        now,
+    )?;
+    Ok(uid)
+}
+
+pub fn render_attached(name: &str, uid: Option<&str>) -> String {
+    format!(
+        "attached existing robot {} (uid {})",
+        name,
+        uid.unwrap_or("-")
+    )
+}
+
 /// The line `tsk actor register` prints.
 pub fn render_registered(
     outcome: &Registered,
@@ -542,6 +591,30 @@ pub fn display_lines(actors: &[JsonActor]) -> Vec<String> {
         .collect()
 }
 
+fn finish_registration(session: &Session, no_urn: bool, instance_kind: BindingKind) {
+    if let Some(line) = crate::thread::title_line(session) {
+        println!("{}", line);
+    }
+    // The tmux pane shows the robot: update it now, not at the next thread command.
+    crate::tmux::sync_if_in_tmux(session);
+    if no_urn && instance_kind == BindingKind::Worktree {
+        eprintln!("note: this session has no recorded URN (the session start did not run), so the actor is recorded on the harness instance only");
+    }
+    // The session start writes the signing set-up, so the registration writes only
+    // user.name. A session whose start did not run gets the whole set-up here.
+    let identity = if crate::attribution::signing_is_set_up(session) {
+        crate::attribution::write_name(session)
+    } else {
+        crate::attribution::apply(session)
+    };
+    if let Err(error) = identity {
+        eprintln!(
+            "warning: the registration stands, and the git identity is not set: {}",
+            error.trim_start_matches("error: ")
+        );
+    }
+}
+
 pub fn run(action: ActorCommands) -> Result<i32, String> {
     match action {
         ActorCommands::Register { name, kind } => {
@@ -568,27 +641,25 @@ pub fn run(action: ActorCommands) -> Result<i32, String> {
             if let Some(uid) = uid {
                 println!("{}", actor_urn(&uid));
             }
-            if let Some(line) = crate::thread::title_line(&session) {
-                println!("{}", line);
-            }
-            // The tmux pane shows the robot: update it now, not at the next thread command.
-            crate::tmux::sync_if_in_tmux(&session);
-            if urn.is_none() && instance_kind == BindingKind::Worktree {
-                eprintln!("note: this session has no recorded URN (the session start did not run), so the actor is recorded on the harness instance only");
-            }
-            // The session start writes the signing set-up, so the registration writes only
-            // user.name. A session whose start did not run gets the whole set-up here.
-            let identity = if crate::attribution::signing_is_set_up(&session) {
-                crate::attribution::write_name(&session)
-            } else {
-                crate::attribution::apply(&session)
-            };
-            if let Err(error) = identity {
-                eprintln!(
-                    "warning: the registration stands, and the git identity is not set: {}",
-                    error.trim_start_matches("error: ")
-                );
-            }
+            finish_registration(&session, urn.is_none(), instance_kind);
+            Ok(0)
+        }
+        ActorCommands::Attach { name } => {
+            check_name(&name)?;
+            let session = Session::discover()?;
+            let (instance, instance_kind) = session.actor_key()?.ok_or_else(no_clone_id)?;
+            let urn = session.session_urn();
+            let uid = attach(
+                session.store.as_ref(),
+                &instance,
+                instance_kind,
+                urn.as_deref(),
+                &name,
+                &utc_now(),
+            )?;
+            eprintln!("{}", NOT_PUBLISHED_NOTE);
+            println!("{}", render_attached(&name, uid.as_deref()));
+            finish_registration(&session, urn.is_none(), instance_kind);
             Ok(0)
         }
         ActorCommands::Join {
@@ -762,6 +833,40 @@ mod tests {
                 BindingKind::Worktree
             ),
             "alice (robot) is now this worktree's actor"
+        );
+    }
+
+    #[test]
+    fn attach_finds_an_existing_robot_by_name() {
+        let found = find_robot(
+            vec![
+                actor("alice", ActorKind::Human),
+                actor("Marvin", ActorKind::Robot),
+            ],
+            "Marvin",
+        )
+        .unwrap();
+        assert_eq!(found.name, "Marvin");
+    }
+
+    #[test]
+    fn attach_to_an_unknown_name_names_the_name_and_actor_list() {
+        let error = find_robot(vec![actor("Marvin", ActorKind::Robot)], "Eddie").unwrap_err();
+        assert!(error.contains("Eddie"), "{}", error);
+        assert!(error.contains("tsk actor list"), "{}", error);
+    }
+
+    #[test]
+    fn attach_to_a_human_name_is_refused() {
+        let error = find_robot(vec![actor("alice", ActorKind::Human)], "alice").unwrap_err();
+        assert!(error.contains("no robot is named alice"), "{}", error);
+    }
+
+    #[test]
+    fn attach_prints_one_line_with_the_uid() {
+        assert_eq!(
+            render_attached("Marvin", Some("u-1")),
+            "attached existing robot Marvin (uid u-1)"
         );
     }
 

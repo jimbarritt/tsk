@@ -484,7 +484,7 @@ fn new_starts_claude_with_a_first_prompt_and_names_the_session_after_the_harness
     let keys: Vec<&String> = log.iter().filter(|l| l.starts_with("send-keys")).collect();
     assert_eq!(keys.len(), 2, "{:?}", log);
     assert!(keys[0].contains("-l claude --session-id "), "{}", keys[0]);
-    assert!(keys[0].contains(" 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:start-thread M-TEST-01. This worktree is on branch m-test-01/fox. Ask me whether to push to main or to open a pull request before you push."), "{}", keys[0]);
+    assert!(keys[0].contains(" 'Run tsk actor attach \"Marvin\". Then run /tsk:start-thread M-TEST-01. This worktree is on branch m-test-01/fox. Ask me whether to push to main or to open a pull request before you push."), "{}", keys[0]);
     assert!(keys[1].ends_with("Enter"), "{}", keys[1]);
 
     // A new mission gives no code, so the session has the harness name.
@@ -947,7 +947,7 @@ fn sleep_pauses_a_held_thread_and_stops_the_session_and_wake_resumes_it() {
         .unwrap();
     assert!(
         wake_keys.contains(&format!(
-            " 'Run tsk actor register \"Marvin\" --kind robot. Then run /tsk:resume-thread {}. This worktree is on branch ",
+            " 'Run tsk actor attach \"Marvin\". Then run /tsk:resume-thread {}. This worktree is on branch ",
             thread
         )),
         "{}",
@@ -1038,6 +1038,93 @@ fn wake_resumes_the_latest_ledger_session_of_the_worktree_when_its_transcript_ex
     );
     assert!(!lines[0].contains("--session-id"), "{}", lines[0]);
     assert!(fx.state("fox").get("session_id").is_none());
+}
+
+fn drop_state_push(fx: &Fixture, name: &str) {
+    let mut state = fx.state(name);
+    state.as_object_mut().unwrap().remove("push");
+    std::fs::write(
+        fx.state_file(name),
+        serde_json::to_string_pretty(&state).unwrap(),
+    )
+    .unwrap();
+}
+
+fn write_repo_workflow(fx: &Fixture, workflow: &str) {
+    std::fs::create_dir_all(fx.work().join(".tsk")).unwrap();
+    std::fs::write(
+        fx.work().join(".tsk").join("config.toml"),
+        format!("[harness]\nworkflow = \"{}\"\n", workflow),
+    )
+    .unwrap();
+}
+
+#[test]
+fn wake_takes_the_repo_workflow_when_the_state_has_no_push_and_records_it() {
+    if !common::dolt_installed() {
+        eprintln!("skipped: dolt is not installed");
+        return;
+    }
+    let fx = Fixture::new();
+    let fox = fx.new_harness("fox", "M-TEST-01");
+    start_thread(&fx, &fox);
+    write_repo_workflow(&fx, "main");
+    drop_state_push(&fx, "fox");
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
+    assert!(
+        lines[0].contains("This repo works on main: before you push"),
+        "{:?}",
+        lines
+    );
+    assert!(!lines[0].contains("Ask me whether to push"), "{:?}", lines);
+    assert_eq!(fx.state("fox")["push"], "main");
+}
+
+#[test]
+fn wake_keeps_the_push_workflow_of_the_state() {
+    if !common::dolt_installed() {
+        eprintln!("skipped: dolt is not installed");
+        return;
+    }
+    let fx = Fixture::new();
+    let fox = fx.new_harness("fox", "M-TEST-01");
+    start_thread(&fx, &fox);
+    let mut state = fx.state("fox");
+    state["push"] = serde_json::json!("pull-request");
+    std::fs::write(
+        fx.state_file("fox"),
+        serde_json::to_string_pretty(&state).unwrap(),
+    )
+    .unwrap();
+    write_repo_workflow(&fx, "main");
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
+    assert!(lines[0].contains(PR_SENTENCE), "{:?}", lines);
+    assert_eq!(fx.state("fox")["push"], "pull-request");
+}
+
+#[test]
+fn wake_with_no_workflow_anywhere_asks_the_agent_to_ask() {
+    if !common::dolt_installed() {
+        eprintln!("skipped: dolt is not installed");
+        return;
+    }
+    let fx = Fixture::new();
+    let fox = fx.new_harness("fox", "M-TEST-01");
+    start_thread(&fx, &fox);
+    drop_state_push(&fx, "fox");
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
+    assert!(
+        lines[0].contains("Ask me whether to push to main or to open a pull request"),
+        "{:?}",
+        lines
+    );
+    assert!(fx.state("fox")["push"].is_null());
 }
 
 #[test]

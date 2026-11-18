@@ -10086,6 +10086,47 @@ fn a_mission_prefix_namespaces_new_ids_and_a_number_marks_a_part() {
     assert_eq!(fx2.ok(&d, &["mission", "prefix"]), "AAA\n");
 }
 
+#[test]
+fn actor_attach_joins_an_existing_robot_and_creates_none() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let a = fx.a();
+    let b = fx.b();
+    fx.ok(&b, &["ledger", "fetch"]);
+    let registered = fx.ok(&a, &["actor", "register", "Marvin", "--kind", "robot"]);
+    let uid = registered
+        .lines()
+        .find_map(|line| line.strip_prefix("urn:tsk:actor:"))
+        .unwrap()
+        .to_string();
+    fx.ok(&a, &["ledger", "push", "Register Marvin"]);
+    fx.ok(&b, &["ledger", "fetch"]);
+    let before = fx.ok(&b, &["actor", "list", "--porcelain"]);
+
+    let attached = fx.tsk(&b, &["actor", "attach", "Marvin"]);
+    assert_success(&attached);
+    assert_eq!(
+        stdout(&attached),
+        format!("attached existing robot Marvin (uid {})\n", uid)
+    );
+    let after = fx.ok(&b, &["actor", "list", "--porcelain"]);
+    assert_eq!(after.lines().count(), before.lines().count());
+    assert!(after.contains(&uid), "{}", after);
+    assert_eq!(fx.ok(&b, &["actor", "name"]), "Marvin\n");
+
+    let unknown = fx.tsk(&b, &["actor", "attach", "Eddie"]);
+    assert_exit(&unknown, 1);
+    assert!(stderr(&unknown).contains("Eddie"));
+    assert!(stderr(&unknown).contains("tsk actor list"));
+    assert_eq!(
+        fx.ok(&b, &["actor", "list", "--porcelain"]).lines().count(),
+        before.lines().count()
+    );
+}
+
 /// A session start records the session beside its harness instance, and `tsk session find`
 /// reads it back by the URN or by the id alone (ADR 0029).
 #[test]
