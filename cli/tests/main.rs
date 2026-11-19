@@ -27,4 +27,5 @@ mod nexus_cmd;
 mod self_update;
 mod shell;
 mod thread;
+mod tmux;
 mod transport;

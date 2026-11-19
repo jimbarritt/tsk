@@ -161,7 +161,7 @@ impl Fixture {
     fn claude_lines(&self) -> Vec<String> {
         self.tmux_lines()
             .into_iter()
-            .filter(|l| l.starts_with("send-keys") && l.contains("-l claude"))
+            .filter(|l| l.starts_with("send-keys") && l.contains("-l TSK_UNATTENDED=1 claude"))
             .collect()
     }
 
@@ -483,7 +483,11 @@ fn new_starts_claude_with_a_first_prompt_and_names_the_session_after_the_harness
     let log = fx.tmux_lines();
     let keys: Vec<&String> = log.iter().filter(|l| l.starts_with("send-keys")).collect();
     assert_eq!(keys.len(), 2, "{:?}", log);
-    assert!(keys[0].contains("-l claude --session-id "), "{}", keys[0]);
+    assert!(
+        keys[0].contains("-l TSK_UNATTENDED=1 claude --session-id "),
+        "{}",
+        keys[0]
+    );
     assert!(keys[0].contains(" 'Run tsk actor attach \"Marvin\". Then run /tsk:start-thread M-TEST-01. This worktree is on branch m-test-01/fox. Ask me whether to push to main or to open a pull request before you push."), "{}", keys[0]);
     assert!(keys[1].ends_with("Enter"), "{}", keys[1]);
 
@@ -943,7 +947,7 @@ fn sleep_pauses_a_held_thread_and_stops_the_session_and_wake_resumes_it() {
     let log = fx.tmux_lines();
     let wake_keys = log
         .iter()
-        .rfind(|l| l.starts_with("send-keys") && l.contains("-l claude"))
+        .rfind(|l| l.starts_with("send-keys") && l.contains("-l TSK_UNATTENDED=1 claude"))
         .unwrap();
     assert!(
         wake_keys.contains(&format!(
@@ -1004,7 +1008,8 @@ fn new_starts_claude_with_a_session_id_and_no_state_field() {
     let lines = fx.claude_lines();
     assert_eq!(lines.len(), 1, "{:?}", lines);
     assert!(
-        lines[0].contains("-l claude --session-id ") && lines[0].contains("'Run tsk actor"),
+        lines[0].contains("-l TSK_UNATTENDED=1 claude --session-id ")
+            && lines[0].contains("'Run tsk actor"),
         "{:?}",
         lines
     );
@@ -1032,7 +1037,7 @@ fn wake_resumes_the_latest_ledger_session_of_the_worktree_when_its_transcript_ex
     let lines = fx.claude_lines();
     assert_eq!(lines.len(), 1, "{:?}", lines);
     assert!(
-        lines[0].contains(&format!("-l claude --resume {}", latest)),
+        lines[0].contains(&format!("-l TSK_UNATTENDED=1 claude --resume {}", latest)),
         "{:?}",
         lines
     );
@@ -1128,7 +1133,7 @@ fn wake_with_no_workflow_anywhere_asks_the_agent_to_ask() {
 }
 
 #[test]
-fn wake_prompt_confirms_the_thread_only_when_claude_resumes() {
+fn wake_starts_claude_unattended_and_leaves_the_confirmation_to_the_hook() {
     if !common::dolt_installed() {
         eprintln!("skipped: dolt is not installed");
         return;
@@ -1139,7 +1144,11 @@ fn wake_prompt_confirms_the_thread_only_when_claude_resumes() {
     assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
     assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
     let lines = fx.claude_lines();
-    assert!(lines[0].contains("-l claude --session-id "), "{:?}", lines);
+    assert!(
+        lines[0].contains("-l TSK_UNATTENDED=1 claude --session-id "),
+        "{:?}",
+        lines
+    );
     assert!(
         lines[0].contains(&format!("/tsk:resume-thread {}.", thread)),
         "{:?}",
@@ -1158,20 +1167,17 @@ fn wake_prompt_confirms_the_thread_only_when_claude_resumes() {
     assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
     let lines = fx.claude_lines();
     assert!(
-        lines[1].contains(&format!("-l claude --resume {}", id)),
+        lines[1].contains(&format!("-l TSK_UNATTENDED=1 claude --resume {}", id)),
         "{:?}",
         lines
     );
     assert!(
-        lines[1].contains(&format!(
-            "/tsk:resume-thread {}. The person has confirmed this thread.",
-            thread
-        )),
+        lines[1].contains(&format!("/tsk:resume-thread {}.", thread)),
         "{:?}",
         lines
     );
     assert!(
-        lines[1].contains("resumed with --resume and holds no thread yet"),
+        !lines[1].contains("has confirmed this thread"),
         "{:?}",
         lines
     );
@@ -1196,7 +1202,11 @@ fn wake_ignores_an_earlier_session_when_the_latest_has_no_transcript() {
     assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
     let lines = fx.claude_lines();
     assert_eq!(lines.len(), 1, "{:?}", lines);
-    assert!(lines[0].contains("-l claude --session-id "), "{:?}", lines);
+    assert!(
+        lines[0].contains("-l TSK_UNATTENDED=1 claude --session-id "),
+        "{:?}",
+        lines
+    );
     assert!(!lines[0].contains("--resume"), "{}", lines[0]);
     assert!(!lines[0].contains(earlier), "{}", lines[0]);
 }
@@ -1223,7 +1233,7 @@ fn wake_finds_the_session_of_a_worktree_whose_admin_directory_has_another_name()
     assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
     let lines = fx.claude_lines();
     assert!(
-        lines[0].contains(&format!("-l claude --resume {}", id)),
+        lines[0].contains(&format!("-l TSK_UNATTENDED=1 claude --resume {}", id)),
         "{:?}",
         lines
     );
@@ -1237,7 +1247,11 @@ fn wake_with_no_ledger_session_for_the_worktree_starts_fresh() {
     assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
     let lines = fx.claude_lines();
     assert_eq!(lines.len(), 1, "{:?}", lines);
-    assert!(lines[0].contains("-l claude --session-id "), "{:?}", lines);
+    assert!(
+        lines[0].contains("-l TSK_UNATTENDED=1 claude --session-id "),
+        "{:?}",
+        lines
+    );
     assert!(!lines[0].contains("--resume"), "{}", lines[0]);
 }
 
@@ -1471,7 +1485,7 @@ fn new_fox(fx: &Fixture, extra: &[&str]) -> Output {
 fn claude_keys(fx: &Fixture) -> String {
     fx.tmux_lines()
         .into_iter()
-        .find(|l| l.starts_with("send-keys") && l.contains("-l claude"))
+        .find(|l| l.starts_with("send-keys") && l.contains("-l TSK_UNATTENDED=1 claude"))
         .unwrap_or_default()
         .replace("'\\''", "'")
 }

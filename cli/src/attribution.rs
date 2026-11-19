@@ -1052,6 +1052,9 @@ impl RobotIdentity {
 /// robot actor or no signing set-up: a commit stops (M-TSK-ATTRIB, T-19). Resolved once per
 /// process.
 pub fn ledger_identity() -> Result<Option<RobotIdentity>, String> {
+    if LOOKING_UP_ROBOT.load(std::sync::atomic::Ordering::SeqCst) {
+        return Ok(None);
+    }
     static IDENTITY: std::sync::OnceLock<Result<Option<RobotIdentity>, String>> =
         std::sync::OnceLock::new();
     IDENTITY.get_or_init(resolve_ledger_identity).clone()
@@ -1071,11 +1074,92 @@ fn resolve_ledger_identity() -> Result<Option<RobotIdentity>, String> {
         return Ok(None);
     }
     let key_file = key_file_for(&repo)?;
-    let name = std::fs::read_to_string(repo.git_dir.join(ROBOT_NAME_FILE))
+    let session = session_from_env().or_else(|| {
+        crate::thread::session::session_urn_of(
+            std::env::var(crate::thread::session::CLOUD_SESSION_VAR)
+                .ok()
+                .filter(|v| !v.is_empty())
+                .as_deref(),
+            &repo.git_dir,
+        )
+    });
+    let name = robot_name_of(&repo.git_dir, &repo.git, session.as_deref(), |urn| {
+        robot_of_session_within_timeout(&cwd, urn)
+    });
+    robot_identity_from(name, &settings, &key_file).map(Some)
+}
+
+fn read_robot_name(git_dir: &Path) -> Option<String> {
+    std::fs::read_to_string(git_dir.join(ROBOT_NAME_FILE))
         .ok()
         .map(|text| text.trim().to_string())
-        .filter(|text| !text.is_empty());
-    robot_identity_from(name, &settings, &key_file).map(Some)
+        .filter(|text| !text.is_empty())
+}
+
+fn robot_name_of(
+    git_dir: &Path,
+    git: &crate::ledger::git::Git,
+    session: Option<&str>,
+    lookup: impl FnOnce(&str) -> Option<String>,
+) -> Option<String> {
+    if let Some(name) = read_robot_name(git_dir) {
+        return Some(name);
+    }
+    if let Some(name) = session
+        .and_then(lookup)
+        .filter(|name| check_git_name(name).is_ok())
+    {
+        let _ = std::fs::write(git_dir.join(ROBOT_NAME_FILE), format!("{}\n", name));
+        return Some(name);
+    }
+    legacy_robot_name(git)
+}
+
+fn legacy_robot_name(git: &crate::ledger::git::Git) -> Option<String> {
+    let marker = git
+        .run_line(["config", "--worktree", "--get", "tsk.attribution"])
+        .ok()?;
+    if marker.trim() != "robot" {
+        return None;
+    }
+    let name = git
+        .run_line(["config", "--worktree", "--get", "user.name"])
+        .ok()?;
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+fn robot_of_session(cwd: &Path, session: &str) -> Option<String> {
+    let store = crate::ledger::store::open(cwd).ok()?;
+    if !store.exists_locally().ok()? {
+        return None;
+    }
+    actor::actors_of_session(store.as_ref(), session)
+        .ok()?
+        .into_iter()
+        .find(|(role, actor)| {
+            *role == crate::ledger::store::ActorRole::Primary && actor.kind == ActorKind::Robot
+        })
+        .map(|(_, actor)| actor.name)
+}
+
+static LOOKING_UP_ROBOT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn robot_of_session_within_timeout(cwd: &Path, session: &str) -> Option<String> {
+    LOOKING_UP_ROBOT.store(true, std::sync::atomic::Ordering::SeqCst);
+    let found = robot_lookup_thread(cwd, session);
+    LOOKING_UP_ROBOT.store(false, std::sync::atomic::Ordering::SeqCst);
+    found
+}
+
+fn robot_lookup_thread(cwd: &Path, session: &str) -> Option<String> {
+    let cwd = cwd.to_path_buf();
+    let session = session.to_string();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(robot_of_session(&cwd, &session));
+    });
+    receiver.recv_timeout(LOOKUP_TIMEOUT).ok().flatten()
 }
 
 fn robot_identity_from(
@@ -1106,7 +1190,7 @@ fn robot_identity_from(
     }
     let Some(name) = name else {
         return Err(
-            "error: [attribution] identity is robot and no robot actor is registered, so a ledger commit has no author: run tsk actor register <name> --kind robot"
+            "error: [attribution] identity is robot and no robot actor is registered, so a ledger commit has no author: run tsk actor attach <name> for a robot that exists (tsk actor list shows them), or tsk actor register <name> --kind robot for a new one"
                 .to_string(),
         );
     };
@@ -2206,5 +2290,59 @@ mod tests {
         written_set_up(dir.path(), true);
         let err = robot_identity_from(None, &settings, &key).unwrap_err();
         assert!(err.contains("no robot actor is registered"), "{}", err);
+    }
+
+    fn fresh_repo(dir: &Path) -> crate::ledger::git::Git {
+        let git = crate::ledger::git::Git::new(dir);
+        git.run(["init", "-q"]).unwrap();
+        git
+    }
+
+    #[test]
+    fn a_missing_name_file_resolves_from_the_session_actor_and_writes_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = fresh_repo(dir.path());
+        let git_dir = dir.path().join(".git");
+        let name = robot_name_of(&git_dir, &git, Some("urn:tsk:session:x"), |urn| {
+            assert_eq!(urn, "urn:tsk:session:x");
+            Some("Gurnard".to_string())
+        });
+        assert_eq!(name.as_deref(), Some("Gurnard"));
+        assert_eq!(read_robot_name(&git_dir).as_deref(), Some("Gurnard"));
+    }
+
+    #[test]
+    fn a_missing_name_file_and_no_actor_gives_no_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = fresh_repo(dir.path());
+        let git_dir = dir.path().join(".git");
+        assert_eq!(robot_name_of(&git_dir, &git, Some("urn:x"), |_| None), None);
+        assert_eq!(robot_name_of(&git_dir, &git, None, |_| None), None);
+        assert!(read_robot_name(&git_dir).is_none());
+    }
+
+    #[test]
+    fn a_present_name_file_is_used_without_a_lookup() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = fresh_repo(dir.path());
+        let git_dir = dir.path().join(".git");
+        std::fs::write(git_dir.join(ROBOT_NAME_FILE), "Present\n").unwrap();
+        let name = robot_name_of(&git_dir, &git, Some("urn:x"), |_| {
+            panic!("the lookup must not run")
+        });
+        assert_eq!(name.as_deref(), Some("Present"));
+    }
+
+    #[test]
+    fn an_older_robot_set_up_in_the_worktree_config_names_the_robot() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = fresh_repo(dir.path());
+        let git_dir = dir.path().join(".git");
+        git.run(["config", "--worktree", "user.name", "Older"])
+            .unwrap();
+        git.run(["config", "--worktree", "tsk.attribution", "robot"])
+            .unwrap();
+        let name = robot_name_of(&git_dir, &git, None, |_| None);
+        assert_eq!(name.as_deref(), Some("Older"));
     }
 }

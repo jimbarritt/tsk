@@ -750,15 +750,33 @@ pub fn held_error(id: &str, holder: &Holder) -> String {
 /// `None` when the thread is paused, when this instance holds it, or when the ledger cannot
 /// say.
 pub fn other_holder(session: &Session, id: &str) -> Option<Holder> {
+    match hold_here(session, id)? {
+        HoldHere::Other(holder) => Some(holder),
+        _ => None,
+    }
+}
+
+/// Who holds a thread, from the point of view of this session or worktree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HoldHere {
+    Paused,
+    Mine,
+    Other(Holder),
+}
+
+/// Whether a thread is paused, held by this harness instance or held by another. `None` when
+/// the ledger cannot say.
+pub fn hold_here(session: &Session, id: &str) -> Option<HoldHere> {
     let store = session.store.as_ref();
     let entries = entries_of(store, id).ok()?;
     let writers = Writers::load(store).ok()?;
     let bindings = store.bindings_list().ok()?;
     let this_instance = session.actor_key().ok()??.0;
-    match thread_state_of(id, &entries, &bindings, &writers) {
-        ThreadState::Held(holder) if holder.instance != this_instance => Some(holder),
-        _ => None,
-    }
+    Some(match thread_state_of(id, &entries, &bindings, &writers) {
+        ThreadState::Held(holder) if holder.instance != this_instance => HoldHere::Other(holder),
+        ThreadState::Held(_) => HoldHere::Mine,
+        ThreadState::Paused => HoldHere::Paused,
+    })
 }
 
 /// What a session that is bound to a thread, which another session holds, is told: not to

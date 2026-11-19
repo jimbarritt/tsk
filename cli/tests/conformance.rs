@@ -513,9 +513,21 @@ impl Fixture {
 
     /// The context `tsk thread session-start` prints. Each call needs its own session ID.
     fn session_context(&self, dir: &Path, session: &str, format: &str) -> String {
+        self.session_context_with(dir, session, format, &[])
+    }
+
+    fn session_context_with(
+        &self,
+        dir: &Path,
+        session: &str,
+        format: &str,
+        vars: &[(&str, &str)],
+    ) -> String {
         let mut child = self
             .command(dir, &["thread", "session-start", "--format", format])
             .env_remove("CLAUDE_ENV_FILE")
+            .env_remove("TSK_UNATTENDED")
+            .envs(vars.iter().copied())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -3402,6 +3414,29 @@ mod cases {
             own
         );
         assert!(!own.contains("WARNING"), "{}", own);
+        assert!(!own.contains("now. The person confirmed it"), "{}", own);
+
+        // A start by `tsk harness wake` is unattended: it runs the resume, with no wait.
+        let unattended =
+            fx.session_context_with(&a, "s-le-2u", "claude", &[("TSK_UNATTENDED", "1")]);
+        assert!(
+            unattended.contains(&format!(
+                "Run /tsk:resume-thread {} now. The person confirmed it by starting this harness.",
+                id
+            )),
+            "{}",
+            unattended
+        );
+        assert!(
+            !unattended.contains("run no command until the person confirms"),
+            "{}",
+            unattended
+        );
+        assert!(
+            unattended.contains("What's next: Write the tests."),
+            "{}",
+            unattended
+        );
 
         // An entry by another actor adds a warning that names it.
         fx.ok(&b, &["thread", "resume", &id]);

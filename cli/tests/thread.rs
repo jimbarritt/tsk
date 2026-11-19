@@ -1949,6 +1949,109 @@ fn session_start_names_an_existing_binding_and_the_resume_command() {
     assert!(!context.contains("No thread binding was found"));
 }
 
+fn session_start_of(fx: &Fixture, session: &str, source: &str, unattended: bool) -> String {
+    let mut command = fx.command(&["thread", "session-start"], None);
+    command
+        .env_remove("CLAUDE_CODE_REMOTE")
+        .env_remove("CLAUDE_ENV_FILE");
+    command.env_remove("TSK_UNATTENDED");
+    if unattended {
+        command.env("TSK_UNATTENDED", "1");
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to run tsk");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            format!(
+                "{{\"session_id\":\"{}\",\"source\":\"{}\"}}",
+                session, source
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_success(&output);
+    session_context(&output)
+}
+
+#[test]
+fn a_resumed_session_whose_thread_is_paused_gets_the_paused_text() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    assert_success(&fx.tsk(&["thread", "pause", "--bound", "T-01", "hand over"]));
+    session_start_of(&fx, "sess-paused", "startup", false);
+
+    let context = session_start_of(&fx, "sess-paused", "resume", false);
+
+    assert!(
+        context.contains(&format!("Run /tsk:resume-thread {} next.", id)),
+        "{}",
+        context
+    );
+    assert!(
+        !context.contains("Do not run /tsk:resume-thread"),
+        "{}",
+        context
+    );
+}
+
+#[test]
+fn a_resumed_session_whose_thread_this_instance_holds_is_told_not_to_resume() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    session_start_of(&fx, "sess-held", "startup", false);
+
+    let context = session_start_of(&fx, "sess-held", "resume", false);
+
+    assert!(
+        context.contains(&format!("This session is bound to thread {}", id)),
+        "{}",
+        context
+    );
+    assert!(
+        context.contains("Do not run /tsk:resume-thread."),
+        "{}",
+        context
+    );
+}
+
+#[test]
+fn an_unattended_start_of_a_paused_thread_runs_the_resume_at_once() {
+    let fx = Fixture::new();
+    let id = fx.start();
+    assert_success(&fx.tsk(&["thread", "pause", "--bound", "T-01", "hand over"]));
+
+    let unattended = session_start_of(&fx, "sess-unattended", "startup", true);
+    let attended = session_start_of(&fx, "sess-attended", "startup", false);
+
+    assert!(
+        unattended.contains(&format!(
+            "Run /tsk:resume-thread {} now. The person confirmed it by starting this harness.",
+            id
+        )),
+        "{}",
+        unattended
+    );
+    assert!(!unattended.contains("next."), "{}", unattended);
+    assert!(
+        attended.contains(&format!("Run /tsk:resume-thread {} next.", id)),
+        "{}",
+        attended
+    );
+    assert!(
+        !attended.contains("now. The person confirmed"),
+        "{}",
+        attended
+    );
+}
+
 #[test]
 fn session_start_names_a_cloud_binding() {
     let fx = Fixture::new();
