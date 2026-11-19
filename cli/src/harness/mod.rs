@@ -367,10 +367,12 @@ pub enum ClaudeStart {
     Resume(String),
 }
 
+pub const UNATTENDED_VAR: &str = "TSK_UNATTENDED";
+
 pub fn claude_command(start: &ClaudeStart, prompt: &str) -> String {
     let mut command = match start {
-        ClaudeStart::Fresh(id) => format!("claude --session-id {}", id),
-        ClaudeStart::Resume(id) => format!("claude --resume {}", id),
+        ClaudeStart::Fresh(id) => format!("{}=1 claude --session-id {}", UNATTENDED_VAR, id),
+        ClaudeStart::Resume(id) => format!("{}=1 claude --resume {}", UNATTENDED_VAR, id),
     };
     if !prompt.is_empty() {
         command.push(' ');
@@ -538,14 +540,11 @@ pub fn first_prompt(
 /// The first prompt of `tsk harness wake`: register the robot when it is known, resume the
 /// thread, then state the branch and the push workflow of the harness. Empty when the
 /// harness has no thread to resume.
-const RESUMED_STEP: &str = " The person has confirmed this thread. Run it even if the session start context says not to run /tsk:resume-thread or to wait for the person to confirm, because this session was resumed with --resume and holds no thread yet.";
-
 pub fn wake_prompt(
     robot: Option<&str>,
     thread: Option<&str>,
     branch: Option<&str>,
     push: Option<PushWorkflow>,
-    resumed: bool,
 ) -> String {
     let resume = match (robot, thread) {
         (_, None) => return String::new(),
@@ -556,8 +555,7 @@ pub fn wake_prompt(
         ),
         (None, Some(thread)) => format!("Run /tsk:resume-thread {}.", thread),
     };
-    let confirmed = if resumed { RESUMED_STEP } else { "" };
-    format!("{}{} {}", resume, confirmed, branch_step(branch, push))
+    format!("{} {}", resume, branch_step(branch, push))
 }
 
 // ---------------------------------------------------------------------------
@@ -1615,7 +1613,6 @@ fn wake(name: &str, no_claude: bool, no_attach: bool) -> Result<i32, String> {
             harness.thread_id.as_deref(),
             branch,
             push,
-            matches!(start, Some(ClaudeStart::Resume(_))),
         );
         ctx.save(&harness)?;
         let command = start.as_ref().map(|start| claude_command(start, &prompt));
@@ -1855,8 +1852,7 @@ mod tests {
                 Some("Marvin"),
                 Some("t1"),
                 Some("otter"),
-                Some(PushWorkflow::Main),
-                false
+                Some(PushWorkflow::Main)
             ),
             format!(
                 "Run tsk actor attach \"Marvin\". Then run /tsk:resume-thread t1. {}",
@@ -1864,32 +1860,10 @@ mod tests {
             )
         );
         assert_eq!(
-            wake_prompt(
-                None,
-                Some("t1"),
-                Some("otter"),
-                Some(PushWorkflow::Main),
-                false
-            ),
+            wake_prompt(None, Some("t1"), Some("otter"), Some(PushWorkflow::Main)),
             format!("Run /tsk:resume-thread t1. {}", step)
         );
-        assert_eq!(
-            wake_prompt(Some("Marvin"), None, Some("otter"), None, true),
-            ""
-        );
-    }
-
-    #[test]
-    fn only_a_resumed_wake_prompt_carries_the_confirmation() {
-        let resumed = wake_prompt(None, Some("t1"), Some("otter"), None, true);
-        let fresh = wake_prompt(None, Some("t1"), Some("otter"), None, false);
-        assert!(
-            resumed.starts_with("Run /tsk:resume-thread t1. The person has confirmed this thread.")
-        );
-        assert!(resumed.contains("resumed with --resume and holds no thread yet"));
-        assert!(!fresh.contains("has confirmed this thread"));
-        assert!(fresh.starts_with("Run /tsk:resume-thread t1."));
-        assert_eq!(resumed.replace(RESUMED_STEP, ""), fresh);
+        assert_eq!(wake_prompt(Some("Marvin"), None, Some("otter"), None), "");
     }
 
     #[test]
@@ -2049,11 +2023,17 @@ mod tests {
     fn the_claude_command_names_the_session_and_quotes_the_prompt() {
         let fresh = ClaudeStart::Fresh("u1".to_string());
         let resume = ClaudeStart::Resume("u1".to_string());
-        assert_eq!(claude_command(&fresh, ""), "claude --session-id u1");
-        assert_eq!(claude_command(&resume, ""), "claude --resume u1");
+        assert_eq!(
+            claude_command(&fresh, ""),
+            "TSK_UNATTENDED=1 claude --session-id u1"
+        );
+        assert_eq!(
+            claude_command(&resume, ""),
+            "TSK_UNATTENDED=1 claude --resume u1"
+        );
         assert_eq!(
             claude_command(&resume, "it's"),
-            "claude --resume u1 'it'\\''s'"
+            "TSK_UNATTENDED=1 claude --resume u1 'it'\\''s'"
         );
     }
 

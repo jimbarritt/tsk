@@ -62,11 +62,11 @@ pub enum TmuxCommands {
         chooser_key: Option<String>,
     },
     #[command(
-        about = "Set the tsk options on this tmux pane ($TMUX_PANE): @tsk_actor, @tsk_mission and @tsk_mission_name, and name the tmux session after the mission code when @tsk_rename_session is on. Reads the ledger store as it is and never fetches. Does nothing outside tmux"
+        about = "Set the tsk options on this tmux pane ($TMUX_PANE): @tsk_actor, @tsk_mission and @tsk_mission_name, and name the tmux session after the mission code when @tsk_rename_session is on. With no bound thread it removes the four tsk options from the pane instead, and leaves the options of other panes. Reads the ledger store as it is and never fetches. Does nothing outside tmux"
     )]
     Sync,
     #[command(
-        about = "Set the agent state of this tmux pane ($TMUX_PANE) in @tsk_state, which the session chooser shows. The plugin's hooks run it. Does nothing outside tmux, and never reads the ledger"
+        about = "Set the agent state of this tmux pane ($TMUX_PANE) in @tsk_state, which the session chooser shows. State none removes the four tsk options from the pane, then sets the session values from another pane that has them, or removes them. The plugin's hooks run it. Does nothing outside tmux, and never reads the ledger"
     )]
     State {
         #[arg(value_enum)]
@@ -107,7 +107,7 @@ pub enum AgentState {
     Working,
     /// The session ended with an error.
     Error,
-    /// No agent runs in the pane: the option is removed.
+    /// No agent runs in the pane: the four tsk options are removed from the pane.
     None,
 }
 
@@ -151,7 +151,11 @@ pub fn run(action: TmuxCommands) -> Result<i32, String> {
         },
         TmuxCommands::State { state } => {
             if let Some(pane) = current_pane() {
-                set_option(&pane, "@tsk_state", state.value());
+                let tmux = Tmux::from_env();
+                match state.value() {
+                    Some(value) => tmux.set_option(&pane, "@tsk_state", Some(value)),
+                    None => tmux.clear_pane(&pane),
+                }
             }
             Ok(0)
         }
@@ -187,13 +191,98 @@ pub struct PaneValues {
     pub mission_name: Option<String>,
 }
 
+const PANE_OPTIONS: [&str; 4] = [
+    "@tsk_actor",
+    "@tsk_mission",
+    "@tsk_mission_name",
+    "@tsk_state",
+];
+
 fn sync_pane(session: &Session, pane: &str) {
     let values = crate::thread::pane_values(session);
-    set_option(pane, "@tsk_actor", values.actor.as_deref());
-    set_option(pane, "@tsk_mission", values.mission.as_deref());
-    set_option(pane, "@tsk_mission_name", values.mission_name.as_deref());
+    let tmux = Tmux::from_env();
+    tmux.apply_values(pane, &values);
     if let Some(code) = values.mission.as_deref() {
         rename_session(pane, code);
+    }
+}
+
+pub struct Tmux {
+    bin: String,
+}
+
+impl Tmux {
+    pub fn from_env() -> Tmux {
+        Tmux { bin: tmux_bin() }
+    }
+
+    fn run(&self, args: &[&str]) -> Option<String> {
+        let output = Command::new(&self.bin).args(args).output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        Some(
+            String::from_utf8_lossy(&output.stdout)
+                .trim_end()
+                .to_string(),
+        )
+    }
+
+    fn apply_values(&self, pane: &str, values: &PaneValues) {
+        if values.mission.is_none() {
+            self.clear_pane(pane);
+            return;
+        }
+        self.set_option(pane, "@tsk_actor", values.actor.as_deref());
+        self.set_option(pane, "@tsk_mission", values.mission.as_deref());
+        self.set_option(pane, "@tsk_mission_name", values.mission_name.as_deref());
+    }
+
+    fn set_option(&self, pane: &str, name: &str, value: Option<&str>) {
+        let _ = match value {
+            Some(value) => self.run(&["set-option", "-p", "-t", pane, name, value]),
+            None => self.run(&["set-option", "-p", "-u", "-t", pane, name]),
+        };
+        if let Some(session) = self.run(&["display-message", "-p", "-t", pane, "#{session_id}"]) {
+            let _ = match value {
+                Some(value) => self.run(&["set-option", "-t", &session, name, value]),
+                None => self.run(&["set-option", "-u", "-t", &session, name]),
+            };
+        }
+    }
+
+    fn clear_pane(&self, pane: &str) {
+        for name in PANE_OPTIONS {
+            let _ = self.run(&["set-option", "-p", "-u", "-t", pane, name]);
+        }
+        self.recompute_session(pane);
+    }
+
+    fn recompute_session(&self, pane: &str) {
+        let Some(session) = self.run(&["display-message", "-p", "-t", pane, "#{session_id}"])
+        else {
+            return;
+        };
+        let panes = self
+            .run(&["list-panes", "-s", "-t", &session, "-F", "#{pane_id}"])
+            .unwrap_or_default();
+        let source = panes.lines().map(str::trim).find(|id| {
+            self.pane_option(id, "@tsk_mission")
+                .is_some_and(|value| !value.is_empty())
+        });
+        for name in PANE_OPTIONS {
+            let value = source
+                .and_then(|id| self.pane_option(id, name))
+                .filter(|value| !value.is_empty());
+            let _ = match value {
+                Some(value) => self.run(&["set-option", "-t", &session, name, &value]),
+                None => self.run(&["set-option", "-u", "-t", &session, name]),
+            };
+        }
+    }
+
+    fn pane_option(&self, pane: &str, name: &str) -> Option<String> {
+        self.run(&["show-options", "-pqv", "-t", pane, name])
     }
 }
 
@@ -203,32 +292,7 @@ pub fn tmux_bin() -> String {
 }
 
 fn tmux(args: &[&str]) -> Option<String> {
-    let output = Command::new(tmux_bin()).args(args).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    Some(
-        String::from_utf8_lossy(&output.stdout)
-            .trim_end()
-            .to_string(),
-    )
-}
-
-/// Set a pane option, or remove it with `None`.
-/// Set an option on the pane and on the pane's session. The session chooser reads the
-/// session's active pane, and a user option missing there falls back to the window and then
-/// the session: a shell opened beside the agent then still shows the agent's values.
-fn set_option(pane: &str, name: &str, value: Option<&str>) {
-    let _ = match value {
-        Some(value) => tmux(&["set-option", "-p", "-t", pane, name, value]),
-        None => tmux(&["set-option", "-p", "-u", "-t", pane, name]),
-    };
-    if let Some(session) = tmux(&["display-message", "-p", "-t", pane, "#{session_id}"]) {
-        let _ = match value {
-            Some(value) => tmux(&["set-option", "-t", &session, name, value]),
-            None => tmux(&["set-option", "-u", "-t", &session, name]),
-        };
-    }
+    Tmux::from_env().run(args)
 }
 
 /// Name the tmux session of the pane after the mission code, when the global option
@@ -598,5 +662,172 @@ mod tests {
             xdg.join("tmux").join("tmux.conf")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    struct Private {
+        _dir: tempfile::TempDir,
+        tmux: Tmux,
+        socket: String,
+    }
+
+    impl Drop for Private {
+        fn drop(&mut self) {
+            let _ = self.tmux.run(&["kill-server"]);
+        }
+    }
+
+    fn private_server() -> Option<Private> {
+        Command::new("tmux").arg("-V").output().ok()?;
+        let dir = tempfile::tempdir().unwrap();
+        let socket = format!(
+            "tsk-test-{}-{}",
+            std::process::id(),
+            dir.path().file_name().unwrap().to_string_lossy()
+        );
+        let script = dir.path().join("tmux.sh");
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\nexec tmux -L {} -f /dev/null \"$@\"\n", socket),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
+        let tmux = Tmux {
+            bin: script.display().to_string(),
+        };
+        tmux.run(&[
+            "new-session",
+            "-d",
+            "-s",
+            "one",
+            "-x",
+            "80",
+            "-y",
+            "24",
+            "sleep 300",
+        ])?;
+        Some(Private {
+            _dir: dir,
+            tmux,
+            socket,
+        })
+    }
+
+    fn panes(private: &Private) -> Vec<String> {
+        private
+            .tmux
+            .run(&["list-panes", "-s", "-t", "one", "-F", "#{pane_id}"])
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn values(mission: &str, actor: &str) -> PaneValues {
+        PaneValues {
+            actor: Some(actor.to_string()),
+            mission: Some(mission.to_string()),
+            mission_name: Some(format!("{} name", mission)),
+        }
+    }
+
+    fn session_value(private: &Private, name: &str) -> String {
+        private
+            .tmux
+            .run(&["show-options", "-qv", "-t", "one", name])
+            .unwrap_or_default()
+    }
+
+    fn pane_value(private: &Private, pane: &str, name: &str) -> String {
+        private.tmux.pane_option(pane, name).unwrap_or_default()
+    }
+
+    #[test]
+    fn clearing_the_only_pane_with_data_clears_the_pane_and_the_session() {
+        let Some(private) = private_server() else {
+            return;
+        };
+        let pane = panes(&private).remove(0);
+        private.tmux.apply_values(&pane, &values("M-ONE", "otter"));
+        private
+            .tmux
+            .set_option(&pane, "@tsk_state", Some("working"));
+        assert_eq!(session_value(&private, "@tsk_mission"), "M-ONE");
+        private.tmux.clear_pane(&pane);
+        for name in PANE_OPTIONS {
+            assert_eq!(
+                pane_value(&private, &pane, name),
+                "",
+                "{} on the pane",
+                name
+            );
+            assert_eq!(session_value(&private, name), "", "{} on the session", name);
+        }
+    }
+
+    #[test]
+    fn clearing_one_of_two_panes_keeps_the_other_panes_values_at_session_level() {
+        let Some(private) = private_server() else {
+            return;
+        };
+        let first = panes(&private).remove(0);
+        private
+            .tmux
+            .run(&["split-window", "-d", "-t", &first, "sleep 300"])
+            .unwrap();
+        let second = panes(&private).into_iter().find(|id| *id != first).unwrap();
+        private.tmux.apply_values(&first, &values("M-ONE", "otter"));
+        private
+            .tmux
+            .apply_values(&second, &values("M-TWO", "heron"));
+        private
+            .tmux
+            .set_option(&second, "@tsk_state", Some("waiting"));
+        assert_eq!(session_value(&private, "@tsk_mission"), "M-TWO");
+        private.tmux.clear_pane(&second);
+        assert_eq!(session_value(&private, "@tsk_mission"), "M-ONE");
+        assert_eq!(session_value(&private, "@tsk_actor"), "otter");
+        assert_eq!(session_value(&private, "@tsk_mission_name"), "M-ONE name");
+        assert_eq!(session_value(&private, "@tsk_state"), "");
+        assert_eq!(pane_value(&private, &first, "@tsk_mission"), "M-ONE");
+        assert_eq!(pane_value(&private, &second, "@tsk_mission"), "");
+        private
+            .tmux
+            .apply_values(&second, &values("M-TWO", "heron"));
+        private.tmux.clear_pane(&first);
+        assert_eq!(session_value(&private, "@tsk_mission"), "M-TWO");
+        assert_eq!(pane_value(&private, &second, "@tsk_actor"), "heron");
+    }
+
+    #[test]
+    fn a_sync_with_no_thread_clears_a_stale_pane() {
+        let Some(private) = private_server() else {
+            return;
+        };
+        let pane = panes(&private).remove(0);
+        private.tmux.apply_values(&pane, &values("M-ONE", "otter"));
+        private.tmux.apply_values(&pane, &PaneValues::default());
+        for name in PANE_OPTIONS {
+            assert_eq!(pane_value(&private, &pane, name), "", "{}", name);
+            assert_eq!(session_value(&private, name), "", "{}", name);
+        }
+        assert!(private.socket.starts_with("tsk-test-"));
+    }
+
+    #[test]
+    fn a_sync_with_no_thread_leaves_another_panes_data() {
+        let Some(private) = private_server() else {
+            return;
+        };
+        let first = panes(&private).remove(0);
+        private
+            .tmux
+            .run(&["split-window", "-d", "-t", &first, "sleep 300"])
+            .unwrap();
+        let second = panes(&private).into_iter().find(|id| *id != first).unwrap();
+        private.tmux.apply_values(&first, &values("M-ONE", "otter"));
+        private.tmux.apply_values(&second, &PaneValues::default());
+        assert_eq!(pane_value(&private, &first, "@tsk_mission"), "M-ONE");
+        assert_eq!(session_value(&private, "@tsk_mission"), "M-ONE");
     }
 }

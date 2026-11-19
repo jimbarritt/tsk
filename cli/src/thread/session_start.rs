@@ -110,6 +110,12 @@ pub fn has_earlier_claim(dir: &Path, input: &HookInput) -> bool {
     })
 }
 
+/// The environment variable that `tsk harness wake` and `tsk harness new` set on the `claude`
+/// command line, which tells the session start that the person confirmed the thread.
+pub fn unattended_start() -> bool {
+    std::env::var_os(crate::harness::UNATTENDED_VAR).is_some_and(|value| !value.is_empty())
+}
+
 /// Set by `run` when this session ID started before, from another source.
 static LATER_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -308,14 +314,21 @@ pub fn title_context(cloud_session: Option<&str>, title: Option<&str>) -> Option
 
 /// What the session start says about the thread: the binding to resume, or the prompt
 /// that asks which mission to work.
-pub fn thread_message(binding: Option<&str>, unbound_prompt: &str) -> String {
+pub fn thread_message(binding: Option<&str>, unbound_prompt: &str, unattended: bool) -> String {
     match binding {
         Some(binding) => {
             let thread_id = binding.split_once(':').map(|(_, id)| id).unwrap_or(binding);
-            format!(
-                "An existing thread binding was found: {}. Run /tsk:resume-thread {} next.",
-                binding, thread_id
-            )
+            if unattended {
+                format!(
+                    "An existing thread binding was found: {}. Run /tsk:resume-thread {} now. The person confirmed it by starting this harness.",
+                    binding, thread_id
+                )
+            } else {
+                format!(
+                    "An existing thread binding was found: {}. Run /tsk:resume-thread {} next.",
+                    binding, thread_id
+                )
+            }
         }
         None => unbound_prompt.to_string(),
     }
@@ -371,7 +384,12 @@ pub fn mission_context(mission: &Mission) -> String {
 /// What the session start says about the latest continuation entry of a bound thread that
 /// has a mission: the task and its description, what is next, who wrote it and when, and a
 /// warning when another actor wrote it. The agent writes the resume summary from it.
-pub fn latest_entry_context(entry: &Entry, facts: &Facts, warning: &str) -> String {
+pub fn latest_entry_context(
+    entry: &Entry,
+    facts: &Facts,
+    warning: &str,
+    unattended: bool,
+) -> String {
     let task = match (
         &facts.task,
         entry.task_id.as_deref().filter(|t| !t.is_empty()),
@@ -401,9 +419,13 @@ pub fn latest_entry_context(entry: &Entry, facts: &Facts, warning: &str) -> Stri
         text.push(' ');
         text.push_str(&note);
     }
-    text.push_str(
-        " Write the resume summary from this and run no command until the person confirms the thread.",
-    );
+    if unattended {
+        text.push_str(" Write the resume summary from this.");
+    } else {
+        text.push_str(
+            " Write the resume summary from this and run no command until the person confirms the thread.",
+        );
+    }
     text
 }
 
@@ -501,6 +523,10 @@ fn context_after_fetch(
 
     // With mission records the context points to `tsk mission list`, or carries the bound
     // mission. A ledger with no missions has nothing to point to.
+    let hold = binding
+        .as_ref()
+        .and_then(|binding| super::ops::hold_here(session, binding.thread_id()));
+    let unattended_resume = unattended_start() && hold == Some(super::ops::HoldHere::Paused);
     let mut read_hint = if missions.is_empty() {
         String::new()
     } else {
@@ -528,7 +554,7 @@ fn context_after_fetch(
                             .unwrap_or_default();
                         push_part(
                             &mut read_hint,
-                            &latest_entry_context(&last.entry, &facts, &warning),
+                            &latest_entry_context(&last.entry, &facts, &warning, unattended_resume),
                         );
                     }
                 }
@@ -556,12 +582,16 @@ fn context_after_fetch(
         .flatten()
         .map(|actor| actor.name);
     let title = session_title(title_actor.as_deref(), title_mission.as_deref());
-    let mut thread_text =
-        thread_message(binding.as_ref().map(|b| b.to_string()).as_deref(), &prompt);
+    let mut thread_text = thread_message(
+        binding.as_ref().map(|b| b.to_string()).as_deref(),
+        &prompt,
+        unattended_resume,
+    );
     // A thread that another session holds is not resumed: the person decides (ADR 0032).
-    let other_holder = binding
-        .as_ref()
-        .and_then(|b| super::ops::other_holder(session, b.thread_id()).map(|h| (b, h)));
+    let other_holder = binding.as_ref().and_then(|b| match &hold {
+        Some(super::ops::HoldHere::Other(holder)) => Some((b, holder.clone())),
+        _ => None,
+    });
     if let Some((binding, holder)) = &other_holder {
         thread_text = format!(
             "An existing thread binding was found: {}. {}",
@@ -613,7 +643,8 @@ fn context_after_fetch(
             push_part(&mut thread_text, &note);
         }
     }
-    if LATER_START.load(std::sync::atomic::Ordering::SeqCst) {
+    let paused = hold == Some(super::ops::HoldHere::Paused);
+    if LATER_START.load(std::sync::atomic::Ordering::SeqCst) && !paused {
         if let Some(binding) = &binding {
             let mut context = match &other_holder {
                 Some((_, holder)) => format!(
@@ -1004,11 +1035,15 @@ mod tests {
     #[test]
     fn thread_message_names_the_binding_and_the_resume_command() {
         assert_eq!(
-            thread_message(Some("worktree:1234abcd"), UNBOUND_PROMPT),
+            thread_message(Some("worktree:1234abcd"), UNBOUND_PROMPT, false),
             "An existing thread binding was found: worktree:1234abcd. Run /tsk:resume-thread 1234abcd next."
         );
-        assert_eq!(thread_message(None, UNBOUND_PROMPT), UNBOUND_PROMPT);
-        assert_eq!(thread_message(None, "Pick."), "Pick.");
+        assert_eq!(
+            thread_message(Some("worktree:1234abcd"), UNBOUND_PROMPT, true),
+            "An existing thread binding was found: worktree:1234abcd. Run /tsk:resume-thread 1234abcd now. The person confirmed it by starting this harness."
+        );
+        assert_eq!(thread_message(None, UNBOUND_PROMPT, false), UNBOUND_PROMPT);
+        assert_eq!(thread_message(None, "Pick.", true), "Pick.");
     }
 
     #[test]
