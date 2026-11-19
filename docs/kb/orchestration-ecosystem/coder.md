@@ -79,7 +79,9 @@ Prices were read on 2026-11-19. Hetzner prices are in euros, without VAT. Hardwa
 | Oracle Always Free | Ampere A1, 2 OCPUs and 12 GB RAM in total, 200 GB block storage | £0 | Home region only, "out of host capacity" errors, and reclamation of an idle instance. |
 | Raspberry Pi 5 | 4 GB or 8 GB RAM | £105.60 or £168.00 | The price excludes power supply, case and storage. VAT status and stock are unconfirmed. |
 | Refurbished mini PC | 16 GB RAM, 256 GB disk | about £250 to £320 | Read from search snippets only. Stock and price are unconfirmed. |
+| Dell Optiplex 3050 USFF, renewed | Intel Core i5-7500T, 16 GB RAM, 512 GB SSD | £134, once | Price and specification are from Jim's screenshot of the Amazon UK listing on 2026-11-19. Windows 11 Pro is installed. Stock and return window are unchecked. |
 
+- **Fixed and ongoing cost**: hardware is a fixed cost, paid once. A rented server is an ongoing cost, paid every month until the server is deleted. Hardware adds a small running cost for electricity, which was not measured.
 - **Hetzner billing**: Hetzner bills a server until it is deleted, even when the server is off. EU locations include 20 TB of traffic.
 - **Oracle reclamation**: Oracle reclaims an A1 instance when CPU, network and memory use stay under 20 per cent for 7 days. Long-lived agents that stay mostly idle can meet that condition.
 - **Home hardware**: the home network, uptime and inbound access were not checked against any source.
