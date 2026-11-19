@@ -1342,15 +1342,18 @@ Sources:
 
 ## Coder: a platform that hosts agents, not a system that tracks the work
 
-Research: [coder.md](coder.md). Captured 2026-11-19 from a summary that Jim pasted. The sources
-the summary cites were not read. Open source (AGPL v3.0), with a Premium licence.
+Research: [coder.md](coder.md). Captured 2026-11-19 from a summary that Jim pasted, then
+checked the same day against Coder's documentation, two Coder blog posts and its repository.
+The core is open source (AGPL v3.0). A Premium licence covers support and AI governance.
 
 Coder is a self-hosted platform for running AI coding agents and cloud development
 environments on infrastructure that a team controls. A workspace is defined in
 Terraform, connects through a WireGuard tunnel and shuts down when idle. Its own agent,
 Coder Agents, runs its loop in the control plane, and a workspace has no LLM API keys.
 Third-party agents such as Claude Code and Codex also run in workspaces. Three features
-announced in December 2025 add governance:
+announced in December 2025 add governance. Coder's blog states that AI Bridge and Agent
+Boundaries need the Premium AI Governance Add-On, and that Coder renamed them AI Gateway
+and Agent Firewall in April 2026:
 
 - **Coder Tasks**: an execution engine for long-lived, low-interaction jobs, with an API
   and notifications.
@@ -1368,7 +1371,7 @@ Dust, not among the systems assessed. Two items intersect tsk:
   It was not tested.
 
 Position: no change to the three-part verdict below. The open items are in coder.md under
-"Not checked".
+"Not checked". The same file has hosting costs for one person.
 
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
