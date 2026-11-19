@@ -13,7 +13,8 @@ assessed, compared with tmux. OpenSpec was added on 2026-10-06 as a related
 system, not a system assessed. It is the first read that models parts of Product and Delta,
 and it models no Navigation or Scale. LangChain's post "From tasks to goals" was added on
 2026-11-17 as a statement of principles, not a system assessed. Dust was added on 2026-11-17
-as a related platform, not a system assessed.
+as a related platform, not a system assessed. Coder was added on 2026-11-19 as a related platform,
+not a system assessed.
 
 ## Status
 
@@ -1339,6 +1340,36 @@ Sources:
 - [Dust blog: Claude Code agents: Everything teams need to know before choosing](https://dust.tt/blog/claude-code-agents),
   Davis Christenhuis, 27 March 2026
 
+## Coder: a platform that hosts agents, not a system that tracks the work
+
+Research: [coder.md](coder.md). Captured 2026-11-19 from a summary that Jim pasted. The sources
+the summary cites were not read. Open source (AGPL v3.0), with a Premium licence.
+
+Coder is a self-hosted platform for running AI coding agents and cloud development
+environments on infrastructure that a team controls. A workspace is defined in
+Terraform, connects through a WireGuard tunnel and shuts down when idle. Its own agent,
+Coder Agents, runs its loop in the control plane, and a workspace has no LLM API keys.
+Third-party agents such as Claude Code and Codex also run in workspaces. Three features
+announced in December 2025 add governance:
+
+- **Coder Tasks**: an execution engine for long-lived, low-interaction jobs, with an API
+  and notifications.
+- **AI Bridge**: central access, authentication and observability for all model
+  providers, with prompt logs and token consumption in one place.
+- **Agent Boundaries**: allow lists for network destinations, tools and internal systems.
+
+It occupies the layer where an agent runs and the policy around it. The summary describes no
+mission, objective, decision or continuation record, so it is listed beside Herdr and
+Dust, not among the systems assessed. Two items intersect tsk:
+
+- **Task**: a Coder Task is a job to run. A tsk task is a ledger record of work to do.
+- **Substrate**: Coder is a candidate place to run tsk, like the platforms in
+  [hosted-agent-platforms-as-tsk-substrates.md](hosted-agent-platforms-as-tsk-substrates.md).
+  It was not tested.
+
+Position: no change to the three-part verdict below. The open items are in coder.md under
+"Not checked".
+
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
 Sources: Yegge's essay
@@ -1498,6 +1529,8 @@ collision above).
   Dify, n8n, Dust and StackAI tested as places to run tsk, cited in the Dust section above.
 - [langchain-from-tasks-to-goals.md](langchain-from-tasks-to-goals.md): the full reference
   for the From tasks to goals section above, with each principle mapped to tsk's terms.
+- [coder.md](coder.md): the full reference for the Coder section above, with a comparison
+  against tsk and a list of what was not checked.
 - [copilot-dynamic-workflows.md](copilot-dynamic-workflows.md): the full reference for the
   Copilot dynamic workflows section above, with a comparison against Claude Code's feature
   of the same name and against tsk.
