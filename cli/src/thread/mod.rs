@@ -330,6 +330,7 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
 
     if let ThreadCommands::Next { .. } = action {
         let session = Session::discover()?;
+        let _ = crate::sessions::ensure_recorded_in_cloud(&session);
         println!("{}", next_text(&session)?);
         return Ok(0);
     }

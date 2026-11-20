@@ -1087,8 +1087,46 @@ fn wake_takes_the_repo_workflow_when_the_state_has_no_push_and_records_it() {
     assert_eq!(fx.state("fox")["push"], "main");
 }
 
+fn attach_nexus_with_entry(fx: &Fixture, extra: &str) {
+    let root = fx.root.path();
+    git(
+        root,
+        &["init", "--quiet", "--bare", "-b", "main", "nexus.git"],
+    );
+    git(root, &["init", "--quiet", "-b", "main", "nexus-seed"]);
+    let seed = root.join("nexus-seed");
+    std::fs::write(
+        seed.join("nexus.json"),
+        format!(
+            r#"{{"version":1,"territories":[{{"id":"t","name":"T","repos":[{{"id":"work","url":"https://example.test/acme/work"{}}}]}}]}}"#,
+            extra
+        ),
+    )
+    .unwrap();
+    git(&seed, &["add", "-A"]);
+    git(&seed, &["commit", "--quiet", "-m", "nexus.json"]);
+    let nexus = root.join("nexus.git");
+    git(
+        &seed,
+        &[
+            "push",
+            "--quiet",
+            nexus.to_str().unwrap(),
+            "HEAD:refs/heads/main",
+        ],
+    );
+    let config = fx.home().join("config").join("tsk");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(
+        config.join("config.toml"),
+        format!("[nexus]\nurl = \"{}\"\n", nexus.display()),
+    )
+    .unwrap();
+    std::fs::write(fx.work().join(".git").join("tsk-repo-id"), "work\n").unwrap();
+}
+
 #[test]
-fn wake_keeps_the_push_workflow_of_the_state() {
+fn wake_follows_the_repo_workflow_over_the_state() {
     if !common::dolt_installed() {
         eprintln!("skipped: dolt is not installed");
         return;
@@ -1107,8 +1145,60 @@ fn wake_keeps_the_push_workflow_of_the_state() {
     assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
     assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
     let lines = fx.claude_lines();
+    assert!(
+        lines[0].contains("This repo works on main: before you push"),
+        "{:?}",
+        lines
+    );
+    assert_eq!(fx.state("fox")["push"], "main");
+}
+
+#[test]
+fn wake_keeps_the_push_workflow_of_the_state_when_no_setting_has_one() {
+    if !common::dolt_installed() {
+        eprintln!("skipped: dolt is not installed");
+        return;
+    }
+    let fx = Fixture::new();
+    let fox = fx.new_harness("fox", "M-TEST-01");
+    start_thread(&fx, &fox);
+    let mut state = fx.state("fox");
+    state["push"] = serde_json::json!("pull-request");
+    std::fs::write(
+        fx.state_file("fox"),
+        serde_json::to_string_pretty(&state).unwrap(),
+    )
+    .unwrap();
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
     assert!(lines[0].contains(PR_SENTENCE), "{:?}", lines);
     assert_eq!(fx.state("fox")["push"], "pull-request");
+}
+
+#[test]
+fn wake_follows_a_workflow_set_in_the_nexus_after_a_harness_made_with_push_pr() {
+    if !common::dolt_installed() {
+        eprintln!("skipped: dolt is not installed");
+        return;
+    }
+    let fx = Fixture::new();
+    attach_nexus_with_entry(&fx, "");
+    let output = new_fox(&fx, &["--push", "pr", "--no-claude"]);
+    assert_success(&output);
+    assert_eq!(fx.state("fox")["push"], "pull-request");
+    assert_success(&fx.tsk(&["nexus", "set-repo", "work", "--workflow", "main"]));
+    let fox = fx.trees().join("work").join("fox");
+    start_thread(&fx, &fox);
+    assert_success(&fx.tsk(&["harness", "sleep", "fox"]));
+    assert_success(&fx.tsk(&["harness", "wake", "fox", "--no-attach"]));
+    let lines = fx.claude_lines();
+    assert!(
+        lines[0].contains("This repo works on main: before you push"),
+        "{:?}",
+        lines
+    );
+    assert_eq!(fx.state("fox")["push"], "main");
 }
 
 #[test]
@@ -1606,38 +1696,7 @@ fn new_uses_the_workflow_in_the_config_file_asks_nothing_and_the_flag_overrides_
 #[test]
 fn new_reads_the_workflow_of_the_nexus_entry_before_the_config_file() {
     let fx = Fixture::new();
-    let root = fx.root.path();
-    git(
-        root,
-        &["init", "--quiet", "--bare", "-b", "main", "nexus.git"],
-    );
-    git(root, &["init", "--quiet", "-b", "main", "nexus-seed"]);
-    let seed = root.join("nexus-seed");
-    std::fs::write(
-        seed.join("nexus.json"),
-        r#"{"version":1,"territories":[{"id":"t","name":"T","repos":[{"id":"work","url":"https://example.test/acme/work","workflow":"main"}]}]}"#,
-    )
-    .unwrap();
-    git(&seed, &["add", "-A"]);
-    git(&seed, &["commit", "--quiet", "-m", "nexus.json"]);
-    let nexus = root.join("nexus.git");
-    git(
-        &seed,
-        &[
-            "push",
-            "--quiet",
-            nexus.to_str().unwrap(),
-            "HEAD:refs/heads/main",
-        ],
-    );
-    let config = fx.home().join("config").join("tsk");
-    std::fs::create_dir_all(&config).unwrap();
-    std::fs::write(
-        config.join("config.toml"),
-        format!("[nexus]\nurl = \"{}\"\n", nexus.display()),
-    )
-    .unwrap();
-    std::fs::write(fx.work().join(".git").join("tsk-repo-id"), "work\n").unwrap();
+    attach_nexus_with_entry(&fx, r#","workflow":"main""#);
     std::fs::create_dir_all(fx.work().join(".tsk")).unwrap();
     std::fs::write(
         fx.work().join(".tsk").join("config.toml"),

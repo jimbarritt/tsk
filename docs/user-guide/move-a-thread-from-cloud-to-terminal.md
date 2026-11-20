@@ -51,7 +51,7 @@ Run `tsk harness new` in the clone. It makes a code worktree, a tmux session and
 `claude` process with a first prompt. On a terminal it puts these questions in turn:
 
 1. Pick up a paused thread? On yes, it lists the paused threads and you pick one.
-2. If not, attach an existing robot? On yes, it lists the robots, free ones first.
+2. If not, do you want to use an existing robot (recommended)? On yes, it lists the robots, free ones first. With no robot registered it makes a new robot and puts no question.
 3. Which mission? It lists the missions that are not done, and you pick one or a new
    mission.
 4. Which branch? It lists suggestions, then you type a number, send an empty answer for the first,
@@ -73,7 +73,8 @@ questions. `--branch <NAME>` works on that branch. A new name is made from the d
 branch of origin. `--detach` detaches HEAD at the default branch of origin, and the agent
 names a branch later. `--no-claude` and `--no-attach` skip the `claude` start and the
 tmux attach. `--name <WORD>` names the harness. `--push main|pr` answers the push
-question, overrides a stored workflow and is not saved.
+question and is not saved. The first prompt uses it. `tsk harness wake` uses it only when
+neither the nexus entry nor `.tsk/config.toml` sets a workflow.
 
 The push workflow is `main` or `pull-request`. `tsk harness new` reads it from the `workflow`
 field of the repo's entry in the attached nexus, then from `workflow` under `[harness]` in
@@ -85,7 +86,7 @@ already open, run `tsk nexus set-repo <repo id> --workflow main|pull-request`. W
 terminal, no flag and no stored value, the first prompt instructs the agent to ask you before
 it pushes.
 
-tsk fails on a branch that another worktree has checked out. The worktree is
+tsk fails on a branch that another worktree checks out. The worktree is
 `<root>/<repo name>/<harness name>`. `tsk harness list` shows each harness of the clone.
 
 The first prompt of `claude` registers the robot, then resumes the thread. A thread in the `held` state

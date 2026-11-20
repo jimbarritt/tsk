@@ -284,6 +284,13 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
         LedgerCommands::Fetch => {
             let outcome = report_refresh(store.refresh_for_fetch()?);
             ensure_scratch(&outcome.path)?;
+            if !outcome.unpublished {
+                if let Ok(session) = crate::thread::session::Session::discover() {
+                    if let Err(e) = crate::sessions::ensure_recorded_in_cloud(&session) {
+                        eprintln!("warning: the session is not recorded: {}", e);
+                    }
+                }
+            }
             println!("{}", outcome.path.display());
             Ok(())
         }

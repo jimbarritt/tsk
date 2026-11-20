@@ -25,6 +25,13 @@ const fn seeded(branch: &'static str) -> Seed {
     }
 }
 
+const EMPTY: Seed = Seed {
+    branch: "main",
+    clones: &["work", "work2"],
+    refs: Some("branches"),
+    steps: &[],
+};
+
 const MAIN: Seed = seeded("main");
 const TRUNK: Seed = seeded("trunk");
 
@@ -55,6 +62,12 @@ impl Fixture {
     /// default branch is built once per test process (see `common::templates`), then
     /// copied for each test. The copy is a real filesystem copy, so no test writes into the
     /// template and no test sees the change of another.
+    fn without_ledger() -> Fixture {
+        Fixture {
+            root: templates::instance(&EMPTY),
+        }
+    }
+
     fn with_default_branch(branch: &str) -> Fixture {
         let seed = match branch {
             "main" => &MAIN,
@@ -242,6 +255,29 @@ impl Fixture {
                     &["ledger", "push", &format!("Seed thread {}", id)],
                     None,
                 )
+                .output()
+                .unwrap(),
+        );
+    }
+
+    fn seed_continuation_line(&self, id: &str, seq: u32, line: &str) {
+        let other = self.other();
+        assert_success(
+            &self
+                .command_in(&other, &["ledger", "fetch"], None)
+                .output()
+                .unwrap(),
+        );
+        self.exec_in(
+            &other,
+            &format!(
+                "insert into continuation_entries (thread_id, seq, entry) values ('{}', {}, '{}');",
+                id, seq, line
+            ),
+        );
+        assert_success(
+            &self
+                .command_in(&other, &["ledger", "push", "Corrupt a thread"], None)
                 .output()
                 .unwrap(),
         );
@@ -3343,4 +3379,191 @@ fn session_start_of_a_bound_session_names_the_other_holder_and_does_not_say_to_r
         "{}",
         context
     );
+}
+
+fn cloud_session_start(fx: &Fixture, session: &str) -> String {
+    let mut command = fx.command(&["thread", "session-start"], Some(session));
+    command.env_remove("CLAUDE_ENV_FILE");
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to run tsk");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("{{\"session_id\":\"{}\"}}", session).as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_success(&output);
+    session_context(&output)
+}
+
+fn paused_by_alice(fx: &Fixture) -> String {
+    cloud_session_start(fx, "cse_alice");
+    assert_success(&fx.tsk_cloud(
+        "cse_alice",
+        &["actor", "register", "alice", "--kind", "robot"],
+    ));
+    let started = fx.tsk_cloud("cse_alice", &["thread", "start", "M-TEST-01"]);
+    assert_success(&started);
+    let id = stdout(&started)
+        .trim_end()
+        .strip_prefix("started:")
+        .unwrap()
+        .to_string();
+    assert_success(&fx.tsk_cloud(
+        "cse_alice",
+        &["thread", "pause", "--bound", "T-01", "hand over"],
+    ));
+    id
+}
+
+#[test]
+fn session_start_makes_the_robot_of_the_bound_thread_the_session_actor() {
+    let fx = Fixture::new();
+    let id = paused_by_alice(&fx);
+    assert_success(&fx.tsk_cloud("cse_new", &["thread", "resume", &id]));
+
+    let context = cloud_session_start(&fx, "cse_new");
+
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_new", &["actor", "name"])),
+        "alice\n"
+    );
+    assert!(!context.contains("has no robot"), "{}", context);
+}
+
+#[test]
+fn session_start_keeps_the_held_note_and_no_actor_for_a_thread_another_instance_holds() {
+    let fx = Fixture::new();
+    let id = paused_by_alice(&fx);
+    assert_success(&fx.tsk_cloud("cse_new", &["thread", "resume", &id]));
+    assert_success(&fx.tsk_cloud("cse_other", &["thread", "resume", &id, "--take-over"]));
+
+    cloud_session_start(&fx, "cse_new");
+
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_new", &["actor", "name"])),
+        "no actor registered\n"
+    );
+}
+
+#[test]
+fn session_start_gives_no_actor_when_the_thread_never_had_a_robot() {
+    let fx = Fixture::new();
+    assert_success(&fx.tsk_cloud("cse_bob", &["actor", "register", "bob", "--kind", "robot"]));
+    let id = fx.start();
+    assert_success(&fx.tsk_cloud("cse_new", &["thread", "resume", &id, "--take-over"]));
+
+    let context = cloud_session_start(&fx, "cse_new");
+
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_new", &["actor", "name"])),
+        "no actor registered\n"
+    );
+    assert!(context.contains("has no robot"), "{}", context);
+}
+
+#[test]
+fn session_start_leaves_a_session_that_has_an_actor_unchanged() {
+    let fx = Fixture::new();
+    let id = paused_by_alice(&fx);
+    assert_success(&fx.tsk_cloud("cse_new", &["thread", "resume", &id]));
+    assert_success(&fx.tsk_cloud(
+        "cse_new",
+        &["actor", "register", "carol", "--kind", "robot"],
+    ));
+
+    cloud_session_start(&fx, "cse_new");
+
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_new", &["actor", "name"])),
+        "carol\n"
+    );
+}
+
+#[test]
+fn ledger_fetch_in_a_cloud_session_that_could_not_record_at_start_gives_it_the_thread_robot() {
+    let fx = Fixture::new();
+    let id = paused_by_alice(&fx);
+    assert_success(&fx.tsk_cloud("cse_late", &["thread", "resume", &id]));
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_late", &["actor", "name"])),
+        "no actor registered\n"
+    );
+    assert_success(&fx.tsk_cloud("cse_late", &["ledger", "push", "Publish the binding"]));
+
+    assert_success(&fx.tsk_cloud("cse_late", &["ledger", "fetch"]));
+
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_late", &["actor", "name"])),
+        "alice\n"
+    );
+    let sessions = stdout(&fx.tsk_cloud("cse_late", &["session", "list"]));
+    assert!(
+        sessions.contains("urn:tsk:session:claude-cloud:cse_late"),
+        "{}",
+        sessions
+    );
+}
+
+#[test]
+fn thread_next_in_a_cloud_session_without_a_row_records_the_session_and_its_actor() {
+    let fx = Fixture::new();
+    let id = paused_by_alice(&fx);
+    assert_success(&fx.tsk_cloud("cse_late", &["thread", "resume", &id]));
+
+    assert_success(&fx.tsk_cloud("cse_late", &["thread", "next"]));
+
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_late", &["actor", "name"])),
+        "alice\n"
+    );
+}
+
+#[test]
+fn session_start_gives_no_actor_when_the_ledger_cannot_say_who_holds_the_thread() {
+    let fx = Fixture::new();
+    let id = paused_by_alice(&fx);
+    assert_success(&fx.tsk_cloud("cse_new", &["thread", "resume", &id]));
+    assert_success(&fx.tsk_cloud("cse_new", &["ledger", "push", "Publish the binding"]));
+    fx.seed_continuation_line(&id, 99, "not a continuation entry");
+
+    cloud_session_start(&fx, "cse_new");
+
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_new", &["actor", "name"])),
+        "no actor registered\n"
+    );
+}
+
+#[test]
+fn session_start_gives_no_actor_when_the_robot_of_the_thread_holds_another_thread() {
+    let fx = Fixture::new();
+    let id = paused_by_alice(&fx);
+    assert_success(&fx.tsk_cloud("cse_alice", &["thread", "detach"]));
+    assert_success(&fx.tsk_cloud("cse_alice", &["thread", "start", "M-TEST-01"]));
+    assert_success(&fx.tsk_cloud("cse_alice", &["ledger", "push", "Alice holds a thread"]));
+    assert_success(&fx.tsk_cloud("cse_new", &["thread", "resume", &id]));
+
+    cloud_session_start(&fx, "cse_new");
+
+    assert_eq!(
+        stdout(&fx.tsk_cloud("cse_new", &["actor", "name"])),
+        "no actor registered\n"
+    );
+}
+
+#[test]
+fn ledger_fetch_that_creates_a_new_ledger_records_no_session() {
+    let fx = Fixture::without_ledger();
+
+    let output = fx.tsk_cloud("cse_fresh", &["ledger", "fetch"]);
+
+    assert_success(&output);
+    let sessions = stdout(&fx.tsk_cloud("cse_fresh", &["session", "list"]));
+    assert!(!sessions.contains("cse_fresh"), "{}", sessions);
 }

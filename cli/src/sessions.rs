@@ -124,6 +124,39 @@ pub fn record(
     }
 }
 
+pub fn ensure_recorded(
+    session: &Session,
+    format: HookFormat,
+    hook_session_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(urn) = record(session, format, hook_session_id)? else {
+        return Ok(None);
+    };
+    continue_actors(session, &urn)?;
+    crate::thread::session_start::default_actor_from_thread(session, &urn)?;
+    Ok(Some(urn))
+}
+
+pub fn ensure_recorded_in_cloud(session: &Session) -> Result<Option<String>, String> {
+    let Some(cloud) = session.cloud_session.as_deref() else {
+        return Ok(None);
+    };
+    let suffix = format!(":{}", cloud);
+    let store = session.store.as_ref();
+    let recorded = store
+        .sessions_list()?
+        .into_iter()
+        .find(|row| row.instance == cloud && row.session.ends_with(&suffix));
+    match recorded {
+        Some(row) => {
+            continue_actors(session, &row.session)?;
+            crate::thread::session_start::default_actor_from_thread(session, &row.session)?;
+            Ok(Some(row.session))
+        }
+        None => ensure_recorded(session, HookFormat::Claude, None),
+    }
+}
+
 /// One session as `tsk session list --json` prints it.
 #[derive(Debug, PartialEq, Serialize)]
 pub struct JsonSession {
