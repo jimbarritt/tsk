@@ -86,8 +86,11 @@ pub fn push_worktree(
                 // erased commit, so a clone that still holds it never rebases.
                 match super::erase::stale(&wt, remote_tip)? {
                     super::erase::Stale::No => {}
-                    super::erase::Stale::ResetSafe { erased } => {
-                        eprintln!("{}", super::erase::replaced_note(location.label(), &erased));
+                    super::erase::Stale::ResetSafe { erased, command } => {
+                        eprintln!(
+                            "{}",
+                            super::erase::replaced_note(location.label(), &erased, &command)
+                        );
                         wt.run(["reset", "--hard", "--quiet", remote_tip.as_str()])?;
                         return Ok(PushOutcome {
                             location,
@@ -97,11 +100,16 @@ pub fn push_worktree(
                             result: PushResult::AlreadyOnRemote,
                         });
                     }
-                    super::erase::Stale::Blocked { erased, local } => {
+                    super::erase::Stale::Blocked {
+                        erased,
+                        local,
+                        command,
+                    } => {
                         return Err(super::erase::blocked_message(
                             location.label(),
                             &erased,
                             local,
+                            &command,
                             &path,
                         ));
                     }

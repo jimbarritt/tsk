@@ -1407,3 +1407,344 @@ fn erase_file_removes_every_version_of_one_file_and_keeps_the_rest() {
     let marker = fx.origin_file(DOCS_REF, ".tsk-erased").unwrap();
     assert!(marker.contains(&secret), "{}", marker);
 }
+
+// --- emails ---
+
+const LEDGER_REF: &str = "refs/heads/tsk/ledger";
+const NOREPLY: &str = "1+robot@users.noreply.github.com";
+
+fn work_git_dir(fx: &Fixture) -> PathBuf {
+    common::ledger_home(&fx.state(), &fx.work()).join("git")
+}
+
+fn origin_emails(fx: &Fixture, reference: &str) -> Vec<String> {
+    git(&fx.origin(), &["log", "--format=%ae %ce", reference])
+        .lines()
+        .flat_map(|line| {
+            line.split_whitespace()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn origin_tree(fx: &Fixture, reference: &str) -> String {
+    git_line(
+        &fx.origin(),
+        &["rev-parse", &format!("{}^{{tree}}", reference)],
+    )
+}
+
+fn rewrite_args<'a>(to: &'a str, rest: &[&'a str]) -> Vec<&'a str> {
+    let mut args = vec!["ledger", "rewrite-emails", "--to", to];
+    args.extend_from_slice(rest);
+    args
+}
+
+#[test]
+fn emails_lists_the_addresses_of_both_refs_with_their_counts() {
+    let fx = Fixture::with_ledger();
+    fx.fetch_docs();
+
+    let porcelain = fx.tsk(&["ledger", "emails", "--porcelain"]);
+    let plain = fx.tsk(&["ledger", "emails"]);
+
+    assert_success(&porcelain);
+    let lines: Vec<String> = stdout(&porcelain).lines().map(str::to_string).collect();
+    for reference in [LEDGER_REF, DOCS_REF] {
+        let line = lines
+            .iter()
+            .find(|line| line.starts_with(&format!("{}\ttest@example.com\t", reference)))
+            .unwrap_or_else(|| panic!("no line for {}: {:?}", reference, lines));
+        let fields: Vec<&str> = line.split('\t').collect();
+        assert_eq!(fields.len(), 4, "{}", line);
+        assert!(fields[2].parse::<usize>().unwrap() >= 1, "{}", line);
+        assert_eq!(fields[2], fields[3], "{}", line);
+    }
+    assert_success(&plain);
+    let out = stdout(&plain);
+    assert!(
+        out.contains("documents refs/heads/tsk/docs (tip "),
+        "{}",
+        out
+    );
+    assert!(
+        out.contains("ledger data refs/heads/tsk/ledger (tip "),
+        "{}",
+        out
+    );
+    assert!(out.contains("test@example.com  authored "), "{}", out);
+}
+
+#[test]
+fn rewrite_emails_without_yes_prints_the_plan_and_changes_nothing() {
+    let fx = Fixture::with_ledger();
+    fx.fetch_docs();
+    let (ledger_before, docs_before) = (fx.origin_ref_sha(LEDGER_REF), fx.origin_docs_sha());
+
+    let output = fx.tsk(&rewrite_args(NOREPLY, &[]));
+
+    assert!(!output.status.success());
+    let out = stdout(&output);
+    assert!(out.contains("replaces test@example.com"), "{}", out);
+    assert!(out.contains("rewrites "), "{}", out);
+    assert!(
+        stderr(&output).contains("Rerun with --yes"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fx.origin_ref_sha(LEDGER_REF), ledger_before);
+    assert_eq!(fx.origin_docs_sha(), docs_before);
+    let refs = git(&work_git_dir(&fx), &["for-each-ref", "refs/tsk-rewrite/"]);
+    assert_eq!(refs.trim(), "", "a ref was written without --yes");
+}
+
+#[test]
+fn rewrite_emails_with_yes_writes_local_refs_only_and_prints_the_push() {
+    let fx = Fixture::with_ledger();
+    fx.fetch_docs();
+    let (ledger_before, docs_before) = (fx.origin_ref_sha(LEDGER_REF), fx.origin_docs_sha());
+
+    let output = fx.tsk(&rewrite_args(NOREPLY, &["--yes"]));
+
+    assert_success(&output);
+    let out = stdout(&output);
+    assert!(out.contains("nothing is pushed"), "{}", out);
+    assert!(
+        out.contains("git push --atomic --force-with-lease="),
+        "{}",
+        out
+    );
+    assert!(out.contains("tsk ledger push-rewritten --yes"), "{}", out);
+    assert!(out.contains("clones on this machine"), "{}", out);
+    assert_eq!(fx.origin_ref_sha(LEDGER_REF), ledger_before);
+    assert_eq!(fx.origin_docs_sha(), docs_before);
+    let bare = work_git_dir(&fx);
+    assert_eq!(
+        git_line(&bare, &["rev-parse", "refs/tsk-rewrite/ledger-old"]),
+        ledger_before
+    );
+    assert_eq!(
+        git_line(&bare, &["rev-parse", "refs/tsk-rewrite/docs-old"]),
+        docs_before
+    );
+    for reference in ["refs/tsk-rewrite/ledger", "refs/tsk-rewrite/docs"] {
+        let emails = git(&bare, &["log", "--format=%ae %ce", reference]);
+        assert!(
+            emails.split_whitespace().all(|email| email == NOREPLY),
+            "{}: {}",
+            reference,
+            emails
+        );
+    }
+    let marker = git(&bare, &["show", "refs/tsk-rewrite/docs:.tsk-erased"]);
+    assert!(marker.contains(&docs_before), "{}", marker);
+    assert!(marker.contains("rewrite-emails"), "{}", marker);
+}
+
+#[test]
+fn push_rewritten_force_pushes_the_rewrite_and_the_clone_keeps_working() {
+    let fx = Fixture::with_ledger();
+    let secret = push_secret_history(&fx);
+    let old_ledger = fx.origin_ref_sha(LEDGER_REF);
+    let old_data_tree = origin_tree(&fx, LEDGER_REF);
+    assert_success(&fx.tsk(&rewrite_args(NOREPLY, &["--yes"])));
+
+    let refused = fx.tsk(&["ledger", "push-rewritten"]);
+    assert!(!refused.status.success());
+    assert!(
+        stderr(&refused).contains("Rerun with --yes"),
+        "{}",
+        stderr(&refused)
+    );
+    assert!(
+        stdout(&refused).contains("--force-with-lease="),
+        "{}",
+        stdout(&refused)
+    );
+    assert_eq!(fx.origin_ref_sha(LEDGER_REF), old_ledger);
+
+    let output = fx.tsk(&["ledger", "push-rewritten", "--yes"]);
+
+    assert_success(&output);
+    assert_ne!(fx.origin_ref_sha(LEDGER_REF), old_ledger);
+    assert_eq!(origin_tree(&fx, LEDGER_REF), old_data_tree);
+    for reference in [LEDGER_REF, DOCS_REF] {
+        assert!(
+            origin_emails(&fx, reference)
+                .iter()
+                .all(|email| email == NOREPLY),
+            "{}: {:?}",
+            reference,
+            origin_emails(&fx, reference)
+        );
+    }
+    assert!(!git_output(
+        &fx.origin(),
+        &["cat-file", "-e", &format!("{}^{{commit}}", secret)]
+    )
+    .status
+    .success());
+    assert!(!git_output(
+        &fx.origin(),
+        &["cat-file", "-e", &format!("{}^{{commit}}", old_ledger)]
+    )
+    .status
+    .success());
+    assert_eq!(
+        fx.origin_file(DOCS_REF, "keep.6eed0001.md").unwrap(),
+        "keep\n"
+    );
+    let marker = fx.origin_file(DOCS_REF, ".tsk-erased").unwrap();
+    assert!(marker.contains("rewrite-emails"), "{}", marker);
+    let refs = git(&work_git_dir(&fx), &["for-each-ref", "refs/tsk-rewrite/"]);
+    assert_eq!(refs.trim(), "");
+    assert_eq!(
+        head(&common::ledger_home(&fx.state(), &fx.work()).join("docs")),
+        fx.origin_docs_sha()
+    );
+
+    let listed = stdout(&fx.tsk(&["ledger", "emails", "--porcelain"]));
+    assert!(!listed.contains("test@example.com"), "{}", listed);
+    assert!(listed.contains(NOREPLY), "{}", listed);
+    let docs = fx.fetch_docs();
+    write(&docs.join("after.7a000001.md"), "after\n");
+    assert_success(&fx.push("Add a document after the rewrite"));
+    assert_eq!(
+        fx.origin_file(DOCS_REF, "after.7a000001.md").unwrap(),
+        "after\n"
+    );
+    assert_success(&fx.tsk(&["mission", "list"]));
+}
+
+#[test]
+fn a_clone_that_holds_the_old_commits_takes_the_rewritten_history_at_its_next_fetch() {
+    let fx = Fixture::with_ledger();
+    push_secret_history(&fx);
+    assert_success(&fx.tsk_in(&publisher(&fx), &["ledger", "fetch"]));
+    let old_tip = fx.origin_docs_sha();
+    assert!(is_ancestor(&publisher_docs(&fx), &old_tip, "HEAD"));
+    assert_success(&fx.tsk(&rewrite_args(NOREPLY, &["--yes"])));
+    assert_success(&fx.tsk(&["ledger", "push-rewritten", "--yes"]));
+
+    let output = fx.tsk_in(&publisher(&fx), &["ledger", "fetch"]);
+
+    assert_success(&output);
+    assert!(
+        stderr(&output).contains("rewritten by tsk ledger rewrite-emails"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(head(&publisher_docs(&fx)), fx.origin_docs_sha());
+}
+
+#[test]
+fn a_clone_with_local_work_on_the_old_history_does_not_push_the_old_emails_back() {
+    let fx = Fixture::with_ledger();
+    push_secret_history(&fx);
+    assert_success(&fx.tsk_in(&publisher(&fx), &["ledger", "fetch"]));
+    write(&publisher_docs(&fx).join("late.1a7e0001.md"), "late\n");
+    assert_success(&fx.tsk(&rewrite_args(NOREPLY, &["--yes"])));
+    assert_success(&fx.tsk(&["ledger", "push-rewritten", "--yes"]));
+    let rewritten_tip = fx.origin_docs_sha();
+
+    let output = fx.tsk_in(&publisher(&fx), &["ledger", "push", "Late document"]);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("rewritten by tsk ledger rewrite-emails"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fx.origin_docs_sha(), rewritten_tip);
+}
+
+#[test]
+fn push_rewritten_leaves_origin_alone_when_it_moved_after_the_rewrite() {
+    let fx = Fixture::with_ledger();
+    fx.fetch_docs();
+    let ledger_before = fx.origin_ref_sha(LEDGER_REF);
+    assert_success(&fx.tsk(&rewrite_args(NOREPLY, &["--yes"])));
+    let moved = fx.add_docs_commit("late.1a7e0002.md", "late\n");
+
+    let output = fx.tsk(&["ledger", "push-rewritten", "--yes"]);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("Nothing changed on"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fx.origin_docs_sha(), moved);
+    assert_eq!(fx.origin_ref_sha(LEDGER_REF), ledger_before);
+    let refs = git(&work_git_dir(&fx), &["for-each-ref", "refs/tsk-rewrite/"]);
+    assert!(refs.contains("refs/tsk-rewrite/docs"), "{}", refs);
+}
+
+#[test]
+fn rewrite_emails_with_a_from_address_that_no_commit_has_rewrites_nothing() {
+    let fx = Fixture::with_ledger();
+    fx.fetch_docs();
+
+    let output = fx.tsk(&rewrite_args(
+        NOREPLY,
+        &["--from", "nobody@example.com", "--yes"],
+    ));
+
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("nothing to rewrite"),
+        "{}",
+        stdout(&output)
+    );
+    let refs = git(&work_git_dir(&fx), &["for-each-ref", "refs/tsk-rewrite/"]);
+    assert_eq!(refs.trim(), "");
+}
+
+#[test]
+fn rewrite_emails_refuses_an_address_that_is_not_a_noreply_address() {
+    let fx = Fixture::with_ledger();
+    fx.fetch_docs();
+
+    let output = fx.tsk(&rewrite_args("me@example.com", &["--yes"]));
+
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("is not a noreply address"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn rewrite_emails_refuses_while_document_changes_are_not_pushed() {
+    let fx = Fixture::with_ledger();
+    let docs = fx.fetch_docs();
+    write(&docs.join("draft.1d000001.md"), "draft\n");
+
+    let output = fx.tsk(&rewrite_args(NOREPLY, &["--yes"]));
+
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("document changes that are not pushed"),
+        "{}",
+        stderr(&output)
+    );
+    let refs = git(&work_git_dir(&fx), &["for-each-ref", "refs/tsk-rewrite/"]);
+    assert_eq!(refs.trim(), "");
+}
+
+#[test]
+fn push_rewritten_without_a_rewrite_says_to_run_rewrite_emails_first() {
+    let fx = Fixture::with_ledger();
+    fx.fetch_docs();
+
+    let output = fx.tsk(&["ledger", "push-rewritten", "--yes"]);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("no rewrite is waiting"),
+        "{}",
+        stderr(&output)
+    );
+}

@@ -5,6 +5,7 @@ pub mod doc_hook;
 pub mod doc_id;
 pub mod docs;
 pub mod dolt;
+pub mod emails;
 pub mod erase;
 pub mod fetch;
 pub mod git;
@@ -190,6 +191,53 @@ pub enum LedgerCommands {
         #[arg(
             long,
             help = "Rewrite and force-push now. Without it nothing changes and the plan is printed"
+        )]
+        yes: bool,
+    },
+    #[command(
+        about = "List the author and committer emails in the history of the ledger data ref and the documents ref of origin, with the number of commits of each. Fetches both refs. With --porcelain: ref, email, authored, committed, tab-separated",
+        long_about = "List the author and committer emails in the git history of the two refs of the ledger on origin: the ledger data ref and the documents ref. Each email has the number of commits it authored and the number it committed. The command fetches both refs and changes nothing else.\n\nThe emails of the Dolt commits inside the data are not listed: they are in the table files, not in git.\n\nWith --porcelain each line is: ref, email, authored, committed, separated by tabs. tsk ledger rewrite-emails replaces them."
+    )]
+    Emails {
+        #[arg(
+            long,
+            help = "One tab-separated line per ref and email: ref, email, authored, committed"
+        )]
+        porcelain: bool,
+    },
+    #[command(
+        name = "rewrite-emails",
+        about = "Rewrite the author and committer emails in the history of the ledger data ref and the documents ref to a noreply address, re-sign each rewritten commit with the robot key, and leave the result in the local ledger clone. Pushes nothing: tsk ledger push-rewritten does. Without --yes it prints the plan and exits 1",
+        long_about = "Rewrite the author and committer emails in the git history of the ledger data ref and the documents ref to the noreply address given by --to. Names, dates, messages and trees stay. Every commit that changes, and every commit after it, gets a new id.\n\nWithout --from every email that is not a noreply address is replaced. With --from only the addresses named are replaced, whatever their case. Each rewritten commit is signed with the robot key when [attribution] identity is robot, and unsigned with a note otherwise. The documents ref gets the marker file .tsk-erased, so a clone that holds the old history replaces its copy at its next fetch or push, or stops when it holds local documents.\n\nThis command rewrites local refs of the ledger clone (refs/tsk-rewrite/) only. It prints the clones on this machine that hold the old commits, the old and new tip of each ref and the exact git push. tsk ledger push-rewritten --yes then force-pushes with a lease on each old tip. An agent stops and asks before that push.\n\nThe emails of the Dolt commits inside the data and the Co-authored-by lines of messages stay as they are. Without --yes the command prints the plan, creates no commit and exits 1."
+    )]
+    RewriteEmails {
+        #[arg(
+            long,
+            value_name = "ADDRESS",
+            help = "The noreply address that replaces the emails, for example 12345+name@users.noreply.github.com"
+        )]
+        to: String,
+        #[arg(
+            long,
+            value_name = "EMAIL",
+            help = "Replace only this email, whatever its case; repeat for several. Without it every email that is not a noreply address is replaced"
+        )]
+        from: Vec<String>,
+        #[arg(
+            long,
+            help = "Rewrite the local refs now. Without it nothing changes and the plan is printed"
+        )]
+        yes: bool,
+    },
+    #[command(
+        name = "push-rewritten",
+        about = "Force-push the refs that tsk ledger rewrite-emails wrote, each with a lease on the tip it replaces, then prune the old commits; without --yes it prints the push and exits 1",
+        long_about = "Force-push the data ref and the documents ref that tsk ledger rewrite-emails wrote, in one atomic git push, each with --force-with-lease on the tip it replaced. When origin moved since the rewrite, git refuses, nothing changes on origin, and the rewrite stays local: fetch, then run tsk ledger rewrite-emails again.\n\nAfter the push the documents worktree and the ledger directory move to the new history, the old commits are pruned from the ledger clone, and from origin too when origin is a directory on this machine. The documents worktree must be clean and at the tip the rewrite started from.\n\nWithout --yes the command prints the git push and exits 1. An agent runs it only after the person agrees."
+    )]
+    PushRewritten {
+        #[arg(
+            long,
+            help = "Force-push now. Without it nothing changes and the push is printed"
         )]
         yes: bool,
     },
@@ -473,6 +521,41 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
                 Ok(())
             } else {
                 Err("error: this would rewrite the documents history above and force-push it. Rerun with --yes to erase.".to_string())
+            }
+        }
+        LedgerCommands::Emails { porcelain } => {
+            let refs = store.emails()?;
+            let lines = if porcelain {
+                emails::porcelain_lines(&refs)
+            } else {
+                emails::listing_lines(&refs)
+            };
+            for line in lines {
+                println!("{}", line);
+            }
+            Ok(())
+        }
+        LedgerCommands::RewriteEmails { to, from, yes } => {
+            let selection = emails::Selection::new(&to, &from)?;
+            let (lines, done) = store.rewrite_emails(&selection, yes)?;
+            for line in lines {
+                println!("{}", line);
+            }
+            if done {
+                Ok(())
+            } else {
+                Err("error: this would rewrite the ledger history above in the local ledger clone. Rerun with --yes to rewrite. Nothing is pushed until tsk ledger push-rewritten --yes.".to_string())
+            }
+        }
+        LedgerCommands::PushRewritten { yes } => {
+            let (lines, done) = store.push_rewritten(yes)?;
+            for line in lines {
+                println!("{}", line);
+            }
+            if done {
+                Ok(())
+            } else {
+                Err("error: this would force-push the rewritten history above. Rerun with --yes to push.".to_string())
             }
         }
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),

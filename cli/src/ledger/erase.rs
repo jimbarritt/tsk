@@ -19,7 +19,9 @@ use super::location::LedgerLocation;
 pub const MARKER: &str = ".tsk-erased";
 
 const MARKER_HEADER: &str =
-    "# Commits erased from the documents history by tsk ledger erase: the erased commit, the documents tip before the erase, the time.\n";
+    "# Commits removed from the documents history by tsk ledger erase or tsk ledger rewrite-emails: the old commit, the documents tip before the rewrite, the time, the command.\n";
+
+pub const ERASE_COMMAND: &str = "erase";
 
 /// What `tsk ledger erase` removes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +89,7 @@ impl Plan {
     }
 }
 
-fn short(commit: &str) -> &str {
+pub(super) fn short(commit: &str) -> &str {
     &commit[..commit.len().min(12)]
 }
 
@@ -315,14 +317,13 @@ fn copy_commit(git: &Git, old: &str, tree: &str, parents: &[String]) -> Result<S
         .map(|id| id.trim().to_string())
 }
 
-/// The commit on top of `base` that adds a line for this erase to the marker.
-fn marker_commit(
+pub(super) fn marker_text(
     git: &Git,
-    index: &TempIndex,
     base: &str,
     erased: &str,
     old_tip: &str,
-) -> Result<String, String> {
+    command: &str,
+) -> String {
     let existing = git
         .run(["show", &format!("{}:{}", base, MARKER)])
         .unwrap_or_default();
@@ -335,7 +336,19 @@ fn marker_commit(
         text.push('\n');
     }
     let now = crate::thread::clock::utc_now();
-    text.push_str(&format!("{} {} {}\n", erased, old_tip, now));
+    text.push_str(&format!("{} {} {} {}\n", erased, old_tip, now, command));
+    text
+}
+
+/// The commit on top of `base` that adds a line for this erase to the marker.
+fn marker_commit(
+    git: &Git,
+    index: &TempIndex,
+    base: &str,
+    erased: &str,
+    old_tip: &str,
+) -> Result<String, String> {
+    let text = marker_text(git, base, erased, old_tip, ERASE_COMMAND);
     let tree = index.with_file(base, MARKER, &text)?;
     let (git, mut args) = crate::attribution::ledger_git(git)?;
     args.extend(
@@ -354,13 +367,13 @@ fn marker_commit(
 
 /// A git index file of its own, so the rewrite needs no working tree and touches no index
 /// of a worktree.
-struct TempIndex {
+pub(super) struct TempIndex {
     git: Git,
     path: PathBuf,
 }
 
 impl TempIndex {
-    fn new(git: &Git) -> Result<TempIndex, String> {
+    pub(super) fn new(git: &Git) -> Result<TempIndex, String> {
         let dir = std::env::temp_dir();
         let path = dir.join(format!(
             "tsk-erase-index-{}-{}",
@@ -405,7 +418,7 @@ impl TempIndex {
     }
 
     /// The tree of `commit` with `path` set to `body`.
-    fn with_file(&self, commit: &str, path: &str, body: &str) -> Result<String, String> {
+    pub(super) fn with_file(&self, commit: &str, path: &str, body: &str) -> Result<String, String> {
         self.git.run(["read-tree", commit])?;
         let blob = self.git.run_stdin(["hash-object", "-w", "--stdin"], body)?;
         let info = format!("100644,{},{}", blob.trim(), path);
@@ -422,7 +435,7 @@ impl Drop for TempIndex {
     }
 }
 
-fn is_ancestor(git: &Git, ancestor: &str, descendant: &str) -> Result<bool, String> {
+pub(super) fn is_ancestor(git: &Git, ancestor: &str, descendant: &str) -> Result<bool, String> {
     let (args, output) = git.output(["merge-base", "--is-ancestor", ancestor, descendant])?;
     match output.status.code() {
         Some(0) => Ok(true),
@@ -438,9 +451,13 @@ pub enum Stale {
     No,
     /// `HEAD` contains an erased commit, and the worktree holds no local commit or change:
     /// the clone can take the new tip with nothing lost.
-    ResetSafe { erased: String },
+    ResetSafe { erased: String, command: String },
     /// `HEAD` contains an erased commit, and the worktree holds local work.
-    Blocked { erased: String, local: usize },
+    Blocked {
+        erased: String,
+        local: usize,
+        command: String,
+    },
 }
 
 /// Check the worktree `wt` against the marker on `remote_tip`.
@@ -451,19 +468,19 @@ pub fn stale(wt: &Git, remote_tip: &str) -> Result<Stale, String> {
     let Ok(text) = wt.run(["show", &format!("{}:{}", remote_tip, MARKER)]) else {
         return Ok(Stale::No);
     };
-    let records = parse_marker(&text);
+    let records = parse_records(&text);
     let present = |id: &str| {
         wt.output(["cat-file", "-e", &format!("{}^{{commit}}", id)])
             .is_ok_and(|(_, o)| o.status.success())
     };
     let mut erased = None;
-    for (commit, _) in &records {
-        if present(commit) && is_ancestor(wt, commit, "HEAD")? {
-            erased = Some(commit.clone());
+    for record in &records {
+        if present(&record.commit) && is_ancestor(wt, &record.commit, "HEAD")? {
+            erased = Some((record.commit.clone(), record.command.clone()));
             break;
         }
     }
-    let Some(erased) = erased else {
+    let Some((erased, command)) = erased else {
         return Ok(Stale::No);
     };
     let mut args = vec![
@@ -475,13 +492,17 @@ pub fn stale(wt: &Git, remote_tip: &str) -> Result<Stale, String> {
     ];
     let old_tips: Vec<String> = records
         .iter()
-        .map(|(_, tip)| tip.clone())
+        .map(|record| record.tip.clone())
         .filter(|tip| present(tip))
         .collect();
     if old_tips.is_empty() {
         // The clone never fetched a tip the erase replaced, so its own commits cannot be
         // told from the erased history.
-        return Ok(Stale::Blocked { erased, local: 1 });
+        return Ok(Stale::Blocked {
+            erased,
+            local: 1,
+            command,
+        });
     }
     args.extend(old_tips);
     let mut local: usize = wt.run_line(args)?.parse().unwrap_or(1);
@@ -489,28 +510,60 @@ pub fn stale(wt: &Git, remote_tip: &str) -> Result<Stale, String> {
         local += 1;
     }
     if local == 0 {
-        Ok(Stale::ResetSafe { erased })
+        Ok(Stale::ResetSafe { erased, command })
     } else {
-        Ok(Stale::Blocked { erased, local })
+        Ok(Stale::Blocked {
+            erased,
+            local,
+            command,
+        })
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkerRecord {
+    pub commit: String,
+    pub tip: String,
+    pub command: String,
+}
+
 /// The records of a marker: (erased commit, documents tip before the erase).
-pub fn parse_marker(text: &str) -> Vec<(String, String)> {
+pub fn parse_records(text: &str) -> Vec<MarkerRecord> {
     text.lines()
         .filter(|line| !line.starts_with('#'))
         .filter_map(|line| {
             let mut parts = line.split_whitespace();
-            match (parts.next(), parts.next()) {
-                (Some(commit), Some(tip)) => Some((commit.to_string(), tip.to_string())),
-                _ => None,
-            }
+            let (commit, tip) = (parts.next()?, parts.next()?);
+            let command = parts.nth(1).unwrap_or(ERASE_COMMAND);
+            Some(MarkerRecord {
+                commit: commit.to_string(),
+                tip: tip.to_string(),
+                command: command.to_string(),
+            })
         })
         .collect()
 }
 
 /// The error for a clone that holds an erased commit and local work.
-pub fn blocked_message(label: &str, erased: &str, local: usize, path: &Path) -> String {
+pub fn blocked_message(
+    label: &str,
+    erased: &str,
+    local: usize,
+    command: &str,
+    path: &Path,
+) -> String {
+    if command == super::emails::COMMAND {
+        return format!(
+            "error: the history on {} was rewritten by tsk ledger {}, and this clone still holds the old commit {},\n       \
+             with {} local change(s) on top in {}. tsk does not push or merge them: that would publish the old email addresses again.\n       \
+             Save the documents you changed (tsk ledger status lists them), run tsk ledger discard --yes, then write them again with tsk ledger doc put",
+            label,
+            command,
+            short(erased),
+            local,
+            path.display()
+        );
+    }
     format!(
         "error: the documents history on {} was rewritten by tsk ledger erase, and this clone still holds the erased commit {},\n       \
          with {} local change(s) on top in {}. tsk does not push or merge them: that would publish the erased commit again.\n       \
@@ -523,10 +576,11 @@ pub fn blocked_message(label: &str, erased: &str, local: usize, path: &Path) -> 
 }
 
 /// The note for a clone whose copy was replaced by the rewritten history.
-pub fn replaced_note(label: &str, erased: &str) -> String {
+pub fn replaced_note(label: &str, erased: &str, command: &str) -> String {
     format!(
-        "note: the documents history on {} was rewritten by tsk ledger erase (commit {} removed); this clone's copy is replaced by the new history",
+        "note: the documents history on {} was rewritten by tsk ledger {} (commit {} replaced); this clone's copy is replaced by the new history",
         label,
+        command,
         short(erased)
     )
 }
@@ -564,15 +618,17 @@ mod tests {
     #[test]
     fn a_marker_is_read_without_its_comment_lines() {
         let text = format!(
-            "{}abc def 2026-11-20T10:00:00Z\n\nghi jkl 2026-11-20T11:00:00Z\n",
+            "{}abc def 2026-11-20T10:00:00Z\n\nghi jkl 2026-11-20T11:00:00Z rewrite-emails\n",
             MARKER_HEADER
         );
+        let records = parse_records(&text);
+        let pairs: Vec<(&str, &str, &str)> = records
+            .iter()
+            .map(|r| (r.commit.as_str(), r.tip.as_str(), r.command.as_str()))
+            .collect();
         assert_eq!(
-            parse_marker(&text),
-            vec![
-                ("abc".to_string(), "def".to_string()),
-                ("ghi".to_string(), "jkl".to_string())
-            ]
+            pairs,
+            vec![("abc", "def", "erase"), ("ghi", "jkl", "rewrite-emails")]
         );
     }
 

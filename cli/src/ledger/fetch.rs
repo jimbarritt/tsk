@@ -108,16 +108,24 @@ pub(crate) fn refresh_worktree(
     // never keep one that does, because a later push would publish the erased commit again.
     match super::erase::stale(&wt, commit)? {
         super::erase::Stale::No => {}
-        super::erase::Stale::ResetSafe { erased } => {
-            eprintln!("{}", super::erase::replaced_note("the remote", &erased));
+        super::erase::Stale::ResetSafe { erased, command } => {
+            eprintln!(
+                "{}",
+                super::erase::replaced_note("the remote", &erased, &command)
+            );
             wt.run(["reset", "--hard", "--quiet", commit])?;
             return Ok((Vec::new(), false));
         }
-        super::erase::Stale::Blocked { erased, local } => {
+        super::erase::Stale::Blocked {
+            erased,
+            local,
+            command,
+        } => {
             return Err(super::erase::blocked_message(
                 "the remote",
                 &erased,
                 local,
+                &command,
                 path,
             ));
         }

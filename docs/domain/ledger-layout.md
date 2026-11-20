@@ -667,7 +667,8 @@ the commit ids, and `tsk ledger doc log <ref>` the commits of one file.
   remote on a server, such as GitHub, can keep an unreachable commit readable by its id until
   it prunes it.
 - The rewritten branch has a file `.tsk-erased` at its root, with one line per erase: the
-  erased commit, the documents tip before the erase, and the time. It names commits only.
+  erased commit, the documents tip before the erase, the time, and the command (`erase` or
+  `rewrite-emails`). A line of an older tsk has no command. It names commits only.
   `tsk ledger doc list` does not list it.
 - A fetch or a push in a clone whose documents `HEAD` contains an erased commit replaces the
   copy with the new tip when the clone has no local document commit or change, and prints a
@@ -678,6 +679,58 @@ the commit ids, and `tsk ledger doc log <ref>` the commits of one file.
   Update every clone before an erase.
 - A record that links a removed document keeps the link. The command names the id of each
   removed document.
+
+### Rewriting the commit emails
+
+`tsk ledger emails` lists the author and committer emails in the git history of the ledger data
+ref and the documents ref on origin. It fetches both refs. Each email has the number of commits
+it authored and committed. `--porcelain` prints one tab-separated line per ref and email: ref,
+email, authored, committed.
+
+`tsk ledger rewrite-emails --to <noreply address> [--from <email>...] [--yes]` replaces the
+emails in both histories. A second command, `tsk ledger push-rewritten [--yes]`, pushes the
+result. The two steps are separate so that an agent stops and requests the person's approval before the force
+push.
+
+- `--to` must be a noreply address, such as `12345+name@users.noreply.github.com`.
+- Without `--from` every email that is not a noreply address is replaced. With `--from` only
+  the named addresses are replaced, whatever their case. `--from` repeats.
+- A commit that has a replaced email gets a new id, and so does every commit after it.
+  Names, dates, messages and trees stay. A signature of the old commit is lost.
+- With `[attribution] identity = robot` each rewritten commit is signed with the robot key
+  (`tsk signing check` shows whether the SSH agent has it). With another identity the
+  commits are unsigned and the command prints a note.
+- Without `--yes` the command prints the following for each ref: the emails it replaces and
+  keeps, and the count of commits it rewrites. It exits 1. It creates no commit and requests
+  no signature.
+- With `--yes` the command writes the rewritten history to the local refs
+  `refs/tsk-rewrite/ledger` and `refs/tsk-rewrite/docs` of the ledger clone. The clone is the
+  `git` directory of the ledger home. The tips they replace go to `refs/tsk-rewrite/ledger-old`
+  and `refs/tsk-rewrite/docs-old`. The command pushes nothing.
+- The command prints the old and new tip of each ref. It also prints the clones on this machine
+  that share the ledger home. It lists the other ledger homes on this machine that contain the old
+  commits. It prints the exact `git push`. A second run replaces a waiting rewrite.
+- `tsk ledger push-rewritten --yes` runs one `git push --atomic` of both refs. Each ref has
+  `--force-with-lease=<ref>:<old tip>`.
+- A ref that moved on origin since the rewrite fails the lease, and git rejects the whole
+  push. Nothing changes on origin, and the rewrite stays local. Fetch, then rewrite again.
+  Without `--yes` the command prints the push and exits 1.
+- After the push the documents worktree and the `ledger` directory switch to the new tips, the
+  record of the last fetch of the data is cleared, and the reflogs expire. The ledger clone
+  runs `git gc --prune=now`, and so does a remote that is a directory on this machine. A
+  remote on a server can keep the old commits readable by their ids until it prunes them.
+- The documents worktree must be clean and at the tip the rewrite started from.
+- The documents ref gets the marker `.tsk-erased` of `tsk ledger erase`, with the command name
+  `rewrite-emails` as the fourth field of the new line. The line names the oldest rewritten
+  commit and the tip before the rewrite. A fetch or a push in a clone whose documents `HEAD`
+  contains that commit follows the rules of an erase: the copy is replaced when it contains no
+  local work, and the command exits with an error when it does.
+- The data ref needs no marker. Its checkout is reset to the fetched tip at every fetch, and
+  the trees do not change.
+- A tsk without the marker check rebases local documents onto the new tip and can publish the
+  old emails again. Update every clone before the push.
+- The emails of the Dolt commits inside the data and the `Co-authored-by` lines of messages
+  stay as they are.
 
 ### Manifest version
 

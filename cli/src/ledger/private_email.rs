@@ -2,7 +2,7 @@ use std::process::Output;
 
 use super::git::Git;
 
-const NOREPLY: &str = "@users.noreply.github.com";
+pub(super) const NOREPLY: &str = "@users.noreply.github.com";
 const LISTED: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

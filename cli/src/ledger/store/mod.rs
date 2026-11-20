@@ -254,6 +254,24 @@ pub trait LedgerStore {
         Err("error: tsk ledger erase needs a Dolt ledger".to_string())
     }
 
+    fn emails(&self) -> Result<Vec<crate::ledger::emails::RefEmails>, String> {
+        Err("error: tsk ledger emails needs a Dolt ledger".to_string())
+    }
+
+    fn rewrite_emails(
+        &self,
+        selection: &crate::ledger::emails::Selection,
+        yes: bool,
+    ) -> Result<(Vec<String>, bool), String> {
+        let _ = (selection, yes);
+        Err("error: tsk ledger rewrite-emails needs a Dolt ledger".to_string())
+    }
+
+    fn push_rewritten(&self, yes: bool) -> Result<(Vec<String>, bool), String> {
+        let _ = yes;
+        Err("error: tsk ledger push-rewritten needs a Dolt ledger".to_string())
+    }
+
     /// The commits of the local documents branch, newest first, one line each: the short
     /// id, the date, the author and the subject, tab-separated. With a path, only the
     /// commits that changed that file. Reads the local copy and fetches nothing.

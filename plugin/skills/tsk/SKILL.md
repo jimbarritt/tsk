@@ -15,7 +15,7 @@ repository. The ref contains a Dolt file remote (a
 directory of table files) transferred by `tsk` with plain `git fetch` and `git push`; a ledger
 made before 0.21.0 converts once with `tsk ledger migrate-transport`. A new ledger uses a custom ref,
 `refs/tsk/ledger`. A repo used from Claude Code cloud sessions uses the branch
-`refs/heads/tsk/ledger`, because a push to a custom ref fails at the cloud proxy (see Ledger
+`refs/heads/tsk/ledger` (see Ledger
 refs below). For a repo that cannot contain a ledger ref, the ledger is
 `refs/tsk/ledgers/<repo-id>` (or `refs/heads/ledgers/<repo-id>`) in the nexus repo (see
 Nexus ledgers below). The `ledger`, `thread` and `events` commands run in the `tsk` binary alone, with no
@@ -147,6 +147,9 @@ tsk ledger not-used [--forget]           record that this repo works without tsk
 tsk thread next                          print bound:<thread-id> for a bound session, else the robot-first question the Stop hook asks; run it on the first turn once the ledger is fetched. It lists the free robots first, then the busy ones: a robot is busy while it holds a thread, read from the ledger alone (ADR 0032). --open is accepted and ignored
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed, except this session's thread binding and robot; without --yes it only prints what it would drop and exits 1
 tsk ledger erase <commit>|--file <ref> [--yes]  remove a documents commit and every file it added or changed, or with --file every version of one file, from the whole documents history, and force-push it; without --yes it only prints what it would do and exits 1. Find the commit with tsk ledger doc log. Run it only when the person asks for it
+tsk ledger emails [--porcelain]               list the author and committer emails in the history of the ledger data ref and the documents ref on origin, with the commit counts; fetches both refs
+tsk ledger rewrite-emails --to <noreply address> [--from <email>...] [--yes]  rewrite those emails to a noreply address, re-sign each rewritten commit with the robot key, and keep the result in local refs of the ledger clone; pushes nothing; without --yes it only prints the plan and exits 1. Run it only when the person asks for it
+tsk ledger push-rewritten [--yes]            force-push the rewrite, one atomic push with a lease on each old tip; without --yes it only prints the push and exits 1. An agent stops and asks the person before running it with --yes
 
 tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push (the claim)
 tsk thread pause <thread-id> <task-id> <whats-next>                   append a continuation state entry, push, print the verification lines
@@ -247,8 +250,8 @@ fix that one, then push again. Do not set `TSK_SKIP_DOC_CHECK=1` to get past the
 The first `tsk` write that needs a newer layout upgrades the ledger to it (layout 14 from
 0.41.0), and an older binary then stops with `unsupported ledger version`. Run `tsk self-update` to bring it up to date.
 From 0.18.0, a `tsk` that meets a newer layout prints a warning on stderr, updates itself
-and runs your command again, so the command can take a minute. The hook commands never do
-this. `TSK_AUTO_UPDATE=never` switches it off. A binary from before 0.18.0 cannot: run
+and runs your command again, so the command can take a minute. The hook commands never update
+themselves, and `TSK_AUTO_UPDATE=never` switches the self-update off. A binary from before 0.18.0 cannot: run
 `tsk self-update` yourself. A tsk newer than the ledger upgrades it on its first write,
 never on a read.
 
@@ -268,8 +271,8 @@ deleted, or `schema changed`; a write that upgraded the schema prints one
 `data<TAB>upgrade<TAB>schema upgraded to version N` line instead of the `manifest` and
 schema-only table lines) or per changed file (`A`, `M` or `D`), then
 `data<TAB>remote<TAB>...` and `docs<TAB>remote<TAB>...`, which say `up to date`, `ahead N`,
-`behind N`, `diverged ahead N behind N`, `unknown` or `unpublished`. The default form may
-change; the porcelain form is stable.
+`behind N`, `diverged ahead N behind N`, `unknown` or `unpublished`. The default output may
+change; the porcelain output is stable.
 
 To undo work that is not pushed, such as a trial mission, run `tsk ledger discard`. It
 prints what it would drop (the `Local` block, or the porcelain lines with `--porcelain`) and exits 1. Run `tsk ledger discard --yes` to drop every local
@@ -324,8 +327,7 @@ renumbers nothing prints the commit hash alone. No flag turns renumbering off.
 
 ### Missions
 
-A mission is data. Create and change it only with `tsk mission` commands, and never edit a
-mission row or file by any other route. A mission is done when its status is set to `done`.
+A mission is data. Create and change it only with `tsk mission` commands. A mission is done when its status is set to `done`.
 tsk does not check its objectives or tasks. Every command changes the local store
 only. `tsk ledger push` publishes.
 
@@ -366,7 +368,7 @@ the new ID, and continuation entries written before keep the ID they were writte
 Status is `todo`, `in-progress` or `done`. An administrative mission stays `in-progress`.
 Blocked is derived: a mission is blocked while any mission it names in `block` is not
 `done`. `list` prints `id`, `status`, `blocked-by`, `parent` and `name` in columns aligned
-with spaces. Add `--porcelain` to print them tab-separated, the stable form for a script.
+with spaces. Add `--porcelain` to print them tab-separated, the stable output for a script.
 `list <id> --json` prints the full record. A linked path must be a document on `tsk/docs`,
 written with `tsk ledger doc put`.
 
@@ -379,7 +381,7 @@ and `mission set out-of-scope` fail. In `list <id> --json` both are arrays of
 
 ### When records are published
 
-Write freely, publish at four points. A record write (`tsk mission`, `tsk task`,
+Write freely. A record write (`tsk mission`, `tsk task`,
 `tsk decision`, `tsk question`, `tsk ledger doc put`) changes the local ledger store only
 and never pushes. Records are published at:
 

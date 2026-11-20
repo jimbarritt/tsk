@@ -1042,6 +1042,31 @@ impl DoltStore {
         self.peek_home().map(|found| found.docs())
     }
 
+    fn check_docs_worktree(
+        &self,
+        tip: &str,
+        docs: &LedgerLocation,
+        command: &str,
+    ) -> Result<(), String> {
+        let wt = Git::new(&self.docs_tree()?.root);
+        if !wt.run(["status", "--porcelain"])?.trim().is_empty() {
+            return Err(format!(
+                "error: {} holds document changes that are not pushed. Push them with tsk ledger push, or drop them with tsk ledger discard, then run tsk ledger {} again",
+                wt.dir().display(),
+                command
+            ));
+        }
+        let head = wt.run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
+        if head != tip {
+            return Err(format!(
+                "error: the documents worktree is not at the tip the rewrite started from ({}) on {}. Run tsk ledger push or tsk ledger fetch so they match, then run tsk ledger rewrite-emails again",
+                &tip[..tip.len().min(12)],
+                docs.ref_name()
+            ));
+        }
+        Ok(())
+    }
+
     /// The documents of an already materialised ledger.
     fn docs_tree(&self) -> Result<DocTree, String> {
         let missing = |what: String| {
@@ -2770,6 +2795,308 @@ impl LedgerStore for DoltStore {
         }
         lines.push(
             "note: a clone that has not fetched since keeps the old history, and so does a backup. A clone on this tsk or later replaces its copy at its next fetch or push; an older tsk can push the erased commit back, so update every clone".to_string(),
+        );
+        Ok((lines, true))
+    }
+
+    fn emails(&self) -> Result<Vec<crate::ledger::emails::RefEmails>, String> {
+        use crate::ledger::emails;
+        let location = self.repo.location(&self.state_root)?;
+        let git = self.ledger_git(&location)?;
+        let docs = location.docs();
+        let mut found = Vec::new();
+        for (label, target) in [("ledger data", &location), ("documents", &docs)] {
+            if let Some(tip) = fetch_tip(&git, target)? {
+                let counts = emails::scan(&git, &tip)?;
+                found.push(emails::RefEmails {
+                    label,
+                    ref_name: target.ref_name().to_string(),
+                    tip,
+                    counts,
+                });
+            }
+        }
+        if found.is_empty() {
+            return Err(format!(
+                "error: {} holds neither the ledger ref nor the documents ref, so there are no emails to list",
+                location.label()
+            ));
+        }
+        Ok(found)
+    }
+
+    fn rewrite_emails(
+        &self,
+        selection: &crate::ledger::emails::Selection,
+        yes: bool,
+    ) -> Result<(Vec<String>, bool), String> {
+        use crate::ledger::emails;
+        use crate::ledger::erase::short;
+        let _lock = match self.hint() {
+            Some(db) => Some(clone_lock::take(&db)?),
+            None => None,
+        };
+        self.forget_checked();
+        self.forget_snapshot();
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        self.check_current(&db, &location)?;
+        let home = self.home_for(&location)?;
+        let docs = location.docs();
+        let git = home.git();
+        let data_tip = self.ledger_tip_fetched(&location)?;
+        let docs_tip = self.sync_docs_tip(&location)?;
+        let identity = crate::attribution::ledger_identity()?;
+        let signer = identity.as_ref().map(emails::Signer::from_identity);
+
+        let mut lines = Vec::new();
+        let mut planned = Vec::new();
+        for (label, target, tip, is_docs) in [
+            ("ledger data", &location, data_tip, false),
+            ("documents", &docs, docs_tip, true),
+        ] {
+            let Some(tip) = tip else { continue };
+            lines.push(format!(
+                "replace emails in {} {} on {} with {}",
+                label,
+                target.ref_name(),
+                location.label(),
+                selection.to()
+            ));
+            for count in emails::scan(&git, &tip)? {
+                let verb = if selection.selects(&count.email) {
+                    "replaces"
+                } else {
+                    "keeps"
+                };
+                lines.push(format!(
+                    "  {} {} (authored {}, committed {})",
+                    verb, count.email, count.authored, count.committed
+                ));
+            }
+            match emails::rewrite(&git, &tip, selection, signer.as_ref(), true)? {
+                Some(plan) => {
+                    lines.push(format!(
+                        "  rewrites {} of {} commit(s); the tip {} gets a new id",
+                        plan.rewritten,
+                        plan.total,
+                        short(&tip)
+                    ));
+                    planned.push((label, is_docs, tip));
+                }
+                None => lines.push("  no commit has an email to replace".to_string()),
+            }
+        }
+        if planned.is_empty() {
+            lines.push("nothing to rewrite".to_string());
+            return Ok((lines, true));
+        }
+        match &signer {
+            Some(signer) => lines.push(format!(
+                "each rewritten commit is signed with the robot key of {}",
+                signer.name
+            )),
+            None => lines.push(
+                "note: [attribution] identity is not robot, so the rewritten commits are not signed"
+                    .to_string(),
+            ),
+        }
+        if !yes {
+            lines.push("nothing is changed and nothing is pushed".to_string());
+            return Ok((lines, false));
+        }
+        if let Some((_, _, tip)) = planned.iter().find(|(_, is_docs, _)| *is_docs) {
+            self.check_docs_worktree(tip, &docs, "rewrite-emails")?;
+        }
+
+        let mut results = Vec::new();
+        for (label, is_docs, tip) in &planned {
+            let mut done = emails::rewrite(&git, tip, selection, signer.as_ref(), false)?
+                .ok_or_else(|| "error: the rewrite found nothing to change".to_string())?;
+            if *is_docs {
+                done.new_tip = emails::add_marker(
+                    &git,
+                    &done.new_tip,
+                    &done.first_changed,
+                    tip,
+                    selection,
+                    signer.as_ref(),
+                )?;
+            }
+            results.push((*label, *is_docs, tip.clone(), done));
+        }
+        emails::clear_pending(&git);
+        for (_, is_docs, tip, done) in &results {
+            emails::store_pending(&git, *is_docs, tip, &done.new_tip)?;
+        }
+
+        let pending = emails::read_pending(&git, &location);
+        lines.push(String::new());
+        for (label, _, _, done) in &results {
+            lines.push(format!(
+                "rewrote {} of {} commit(s) of the {} in the ledger clone {}",
+                done.rewritten,
+                done.total,
+                label,
+                home.git_dir().display()
+            ));
+        }
+        lines.extend(emails::pending_lines(&pending, location.label()));
+        lines.push(
+            "nothing is pushed: origin and every other clone still hold the old commits"
+                .to_string(),
+        );
+        let mut ids: Vec<String> = home::Marker::read(&home)
+            .map(|marker| marker.migrated)
+            .unwrap_or_default();
+        if let Ok(own) = std::fs::read_to_string(self.repo.clone_id_file()) {
+            let own = own.trim().to_string();
+            if !own.is_empty() && !ids.contains(&own) {
+                ids.insert(0, own);
+            }
+        }
+        lines.push(format!(
+            "clones on this machine that share the ledger home {}: {}",
+            home.root().display(),
+            if ids.is_empty() {
+                "none known".to_string()
+            } else {
+                ids.join(", ")
+            }
+        ));
+        let old_tips: Vec<String> = pending.iter().map(|p| p.old_tip.clone()).collect();
+        for other in emails::other_homes_holding(
+            &self.state_root.join(home::LEDGERS_DIR),
+            home.root(),
+            &old_tips,
+        ) {
+            lines.push(format!(
+                "another ledger home on this machine holds the old commits: {}",
+                other.display()
+            ));
+        }
+        lines.push(
+            "note: update tsk in every clone before the push. An older tsk rebases its local documents onto the new tip and can publish the old emails again".to_string(),
+        );
+        lines.push(format!(
+            "the push runs: {}",
+            emails::push_command_text(location.label(), &pending)
+        ));
+        lines.push(
+            "next: tsk ledger push-rewritten --yes. An agent stops and asks the person before it"
+                .to_string(),
+        );
+        Ok((lines, true))
+    }
+
+    fn push_rewritten(&self, yes: bool) -> Result<(Vec<String>, bool), String> {
+        use crate::ledger::emails;
+        use crate::ledger::erase;
+        let _lock = match self.hint() {
+            Some(db) => Some(clone_lock::take(&db)?),
+            None => None,
+        };
+        self.forget_checked();
+        self.forget_snapshot();
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        self.check_current(&db, &location)?;
+        let home = self.home_for(&location)?;
+        let docs = location.docs();
+        let git = home.git();
+        let pending = emails::read_pending(&git, &location);
+        if pending.is_empty() {
+            return Err(
+                "error: no rewrite is waiting in the ledger clone. Run tsk ledger rewrite-emails --to <noreply address> --yes first"
+                    .to_string(),
+            );
+        }
+        let docs_entry = pending.iter().find(|entry| entry.label == "documents");
+        if let Some(entry) = docs_entry {
+            self.check_docs_worktree(&entry.old_tip, &docs, "push-rewritten")?;
+        }
+        let mut lines = vec![format!(
+            "force-push the rewritten history of the ledger on {}, each ref with a lease on the tip it replaces",
+            location.label()
+        )];
+        lines.extend(emails::pending_lines(&pending, location.label()));
+        lines.push(format!(
+            "git: {}",
+            emails::push_command_text(location.label(), &pending)
+        ));
+        if !yes {
+            return Ok((lines, false));
+        }
+
+        let (args, output) = git.output(emails::push_args(location.remote(), &pending))?;
+        if !output.status.success() {
+            return Err(format!(
+                "{}\n       Nothing changed on {}. The rewrite stays in the ledger clone. When origin moved, run tsk ledger fetch, then tsk ledger rewrite-emails again",
+                crate::ledger::git::failure_message(&args, &output),
+                location.label()
+            ));
+        }
+
+        for name in [tips::FETCHED_LEDGER_REF, tips::FETCHED_DOCS_REF] {
+            let _ = git.run(["update-ref", "-d", name]);
+        }
+        emails::clear_pending(&git);
+        if let Some(entry) = docs_entry {
+            let wt = Git::new(&self.docs_tree()?.root);
+            wt.run(["reset", "--hard", "--quiet", entry.new_tip.as_str()])?;
+            self.note_docs_tip(&location, Some(entry.new_tip.as_str()));
+        }
+        if let Some(entry) = pending.iter().find(|entry| entry.label == "ledger data") {
+            if let Some(tips) = self.tips() {
+                tips.set(location.remote(), location.ref_name(), None);
+            }
+            self.synced.borrow_mut().data = false;
+            if home.ledger_dir().exists() {
+                transport::sync_checkout(&git, &home.ledger_dir(), &entry.new_tip)?;
+            }
+        }
+        for entry in &pending {
+            lines.push(format!(
+                "pushed {} {} on {}: now at {}",
+                entry.label,
+                entry.ref_name,
+                location.label(),
+                erase::short(&entry.new_tip)
+            ));
+        }
+        if let Err(e) = erase::prune(&home.git_dir()) {
+            lines.push(format!(
+                "note: could not prune the old objects of {}: {}",
+                home.git_dir().display(),
+                e
+            ));
+        } else if pending
+            .iter()
+            .any(|entry| erase::still_present(&home.git_dir(), &entry.old_tip))
+        {
+            lines.push(format!(
+                "note: an old tip is still an object in {}: another ref of the ledger clone reaches it",
+                home.git_dir().display()
+            ));
+        }
+        let remote_url = self
+            .repo
+            .git
+            .run_line(["remote", "get-url", location.remote()])
+            .unwrap_or_else(|_| location.remote().to_string());
+        if let Some(dir) = erase::local_remote_dir(&remote_url) {
+            match erase::prune(&dir) {
+                Ok(()) => lines.push(format!("pruned the old commits from {}", dir.display())),
+                Err(e) => lines.push(format!("note: could not prune {}: {}", dir.display(), e)),
+            }
+        } else {
+            lines.push(format!(
+                "note: {} may keep the old commits readable by their ids until it prunes them. On GitHub, ask GitHub Support to remove cached views",
+                location.label()
+            ));
+        }
+        lines.push(
+            "note: a clone that has not fetched since keeps the old history, and so does a backup. A clone replaces its copy at its next fetch or push".to_string(),
         );
         Ok((lines, true))
     }
