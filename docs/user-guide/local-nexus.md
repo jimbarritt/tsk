@@ -2,8 +2,8 @@
 
 Use this page to run tsk on a machine that keeps every ledger on a local disk.
 
-The set-up differs from a nexus on GitHub in one way: the nexus repo is a bare git repo in
-a folder on the machine, and tsk takes its `file://` address, not an `https://` URL.
+The set-up differs from a nexus on GitHub in one way. The nexus repo is a bare git repo in
+a folder, and tsk takes its `file://` address, not an `https://` URL.
 Git clones from a `file://` address and pushes to it the same way as with a server, so every
 tsk command then works as normal.
 
@@ -195,7 +195,8 @@ tsk nexus set-repo <repo-id> --workflow main
    `tsk ledger not-used --forget` removes the record. To initialise, the agent runs the
    `/tsk:init-ledger` skill, which prompts you for the place to keep the ledger, the
    prefix and the push workflow. Choose the local nexus.
-3. To import old plan files, ask the agent to read `tsk guide import` and follow it. By the
+3. To import old plan files, run `/tsk:migrate-plan` or ask the agent to read `tsk guide import`
+   and follow it. By the
    guide's rules, the agent shows you how it maps the plan to missions and tasks before it
    writes a record. The import does not change the plan files.
 4. From the next session on, start each piece of work with `tsk harness new`.
