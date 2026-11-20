@@ -1,6 +1,6 @@
 # Agents in tmux: the session chooser and the sidebar
 
-`tsk tmux install` sets up tmux to show each agent's state, mission and robot in the session chooser (`prefix s`), and in a sidebar that stays open beside your work (`prefix B`). It also names each tmux session after the mission code of its thread. It needs tsk 0.45.0 or later for the sidebar, and the tsk plugin 0.3.44 or later.
+`tsk tmux install` sets up tmux to show each agent's state, mission and robot in the session chooser (`prefix s`). It also adds a sidebar that stays open beside your work (`prefix B`). Each tmux session takes the mission code of its thread as its name. It needs tsk 0.45.0 or later for the sidebar, and the tsk plugin 0.3.44 or later.
 
 ## Quick start
 
@@ -26,7 +26,7 @@ tsk tmux install            # writes the settings and adds one line to your tmux
 tsk tmux install --print    # prints the settings and changes no file
 ```
 
-The chooser is on `prefix s` and the sidebar on `prefix B` (shift and b). tsk leaves `prefix b` alone, because many tmux configs use it to hide the status bar. A tmux binding replaces any earlier binding of the same key, so choose keys your own config does not use:
+The chooser is on `prefix s` and the sidebar on `prefix B` (shift and b). tsk does not bind `prefix b`, because many tmux configs use it to hide the status bar. A tmux binding replaces any earlier binding of the same key, so choose keys your own config does not use:
 
 ```bash
 tsk tmux install --sidebar-key B --chooser-key S
@@ -62,7 +62,7 @@ Run `tsk tmux install` again after a tsk update that changes the settings. tsk 0
 
 The padding lines up the robot and the directory on every line (tsk 0.63.0). It needs tmux 3.2 or later. A config written by an earlier `tsk tmux install` has the format without columns: run `tsk tmux install` again. A session with no agent shows its directory alone, in the same column.
 
-A robot that a tmux pane shows while the pane runs `claude` is taken: the robot question of a new session on this machine does not offer it. See [session-start.md](session-start.md#a-terminal-session).
+A robot that a tmux pane shows while the pane runs `claude` is taken. The robot question of a new session on this machine does not offer it. See [session-start.md](session-start.md#a-terminal-session).
 
 ## The sidebar
 
@@ -81,16 +81,16 @@ A robot that a tmux pane shows while the pane runs `claude` is taken: the robot 
 ```
 
 - `▸` marks the session you are in. The state glyphs are the same as in the chooser.
-- In the sidebar, `j` and `k` (or the arrow keys) select the next and the previous session, `Enter` switches to the selected session, a digit from `1` to `9` switches to that session, and `q` closes the sidebar.
-- `prefix B` opens the sidebar when it is closed, gives it the focus when it is open, and closes it when it has the focus.
-- While it is open, the sidebar follows you. Two tmux hooks, `client-session-changed` and `session-window-changed`, run `join-pane`, which puts the same pane into each session and window you switch to, and the focus stays on your work. The list program keeps running, so its selection stays.
+- In the sidebar, `j` and `k` (or the arrow keys) select the next and the previous session. `Enter` switches to the selected session. A digit from `1` to `9` switches to that session, and `q` closes the sidebar.
+- `prefix B` opens the sidebar when it is closed and gives it the focus when it is open. `prefix B` closes the sidebar when it has the focus.
+- While it is open, the sidebar follows you. Two tmux hooks, `client-session-changed` and `session-window-changed`, run `join-pane`, which puts the same pane into each session and window you switch to. The focus stays on your work. The list program keeps running, so its selection stays.
 - The list refreshes every second.
 - The width is 32 columns. Put `set -g @tsk_sidebar_width 40` in your tmux config, before the `source-file` line, to change it.
 
 ## When the options change
 
 - `tsk thread start`, `resume`, `set mission`, `detach` and `stop`, and the session start, run `tsk tmux sync` on the pane. Run `tsk tmux sync` by hand after any other change, such as `tsk actor register`.
-- The hooks set the state: a prompt or a tool call sets `working`; a finished turn or a notification, such as a permission prompt, sets `waiting`; the end of the session removes it.
+- The hooks set the state. A prompt or a tool call sets `working`. A finished turn or a notification, such as a permission prompt, sets `waiting`. The end of the session removes the state.
 - Outside tmux, `tsk tmux sync` and `tsk tmux state` do nothing.
 
 ## Session names
@@ -102,7 +102,7 @@ A robot that a tmux pane shows while the pane runs `claude` is taken: the robot 
 - One sidebar serves the tmux server. With two clients attached to different sessions, the sidebar is in the session of the client that switched last.
 - The sidebar and the hooks run `tsk` from the `PATH` of the tmux server. A server started before `tsk` was on `PATH` needs a restart.
 - The options are per pane. The session line of the chooser shows the active pane of the session's active window.
-- The plugin sets no Copilot hook for a permission prompt, so a Copilot pane shows `◐` while it waits for a permission answer.
+- A Copilot pane shows `●` for a permission prompt, set by the `permissionRequest` hook, and shows `◐` again when the tool finishes (`postToolUse`). After a denied permission, the pane shows `●` until the next prompt or tool call.
 - After a crash that ends the agent without a `SessionEnd` event, the pane keeps the last state. `tsk tmux state none` removes it.
 
 ## Remove

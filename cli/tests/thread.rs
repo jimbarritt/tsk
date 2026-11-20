@@ -1612,6 +1612,45 @@ fn guard_blocks_when_unbound_and_passes_when_bound() {
 }
 
 #[test]
+fn guard_for_copilot_blocks_once_and_honours_stop_hook_active() {
+    let fx = Fixture::new();
+    let first = fx.tsk_stdin(
+        &["thread", "guard", "--format", "copilot"],
+        "{\"session_id\":\"x\"}",
+    );
+    assert_success(&first);
+    assert_eq!(json(&stdout(&first))["decision"], "block");
+
+    for input in [
+        "{\"session_id\":\"x\",\"stop_hook_active\":true}",
+        "{\"sessionId\":\"x\",\"stopHookActive\":true}",
+    ] {
+        let again = fx.tsk_stdin(&["thread", "guard", "--format", "copilot"], input);
+        assert_success(&again);
+        assert_eq!(stdout(&again), "", "{}", input);
+    }
+
+    let inactive = fx.tsk_stdin(
+        &["thread", "guard", "--format", "copilot"],
+        "{\"stop_hook_active\":false}",
+    );
+    assert_eq!(json(&stdout(&inactive))["decision"], "block");
+}
+
+#[test]
+fn guard_for_claude_blocks_whatever_stop_hook_active_says() {
+    let fx = Fixture::new();
+    for input in [
+        "{\"session_id\":\"x\",\"stop_hook_active\":true}",
+        "{\"session_id\":\"x\",\"stop_hook_active\":false}",
+    ] {
+        let out = fx.tsk_stdin(&["thread", "guard"], input);
+        assert_success(&out);
+        assert_eq!(json(&stdout(&out))["decision"], "block", "{}", input);
+    }
+}
+
+#[test]
 fn guard_does_not_ask_the_agent_to_push_unpublished_work() {
     // The Stop hook publishes in the background (ADR 0020); this fixture switches that off.
     let fx = Fixture::new();

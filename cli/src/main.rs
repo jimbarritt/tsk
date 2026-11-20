@@ -239,9 +239,10 @@ fn is_hook_command(cli: &Cli) -> bool {
     matches!(
         cli.command,
         Some(Commands::Thread {
-            action: thread::ThreadCommands::SessionStart { .. } | thread::ThreadCommands::Guard
+            action: thread::ThreadCommands::SessionStart { .. }
+                | thread::ThreadCommands::Guard { .. }
         }) | Some(Commands::Ledger {
-            action: ledger::LedgerCommands::Guard
+            action: ledger::LedgerCommands::Guard { .. }
                 | ledger::LedgerCommands::BackgroundPushRun { .. }
                 | ledger::LedgerCommands::Push {
                     background: true,
@@ -276,7 +277,7 @@ fn is_read_only_command(cli: &Cli) -> bool {
         }) | Some(Commands::Question {
             action: QuestionCommands::List { .. }
         }) | Some(Commands::Thread {
-            action: T::List | T::Title | T::Guard
+            action: T::List | T::Title | T::Guard { .. }
         }) | Some(Commands::Actor {
             action: actor::ActorCommands::Name | actor::ActorCommands::List { .. }
         }) | Some(Commands::Session {
@@ -285,7 +286,7 @@ fn is_read_only_command(cli: &Cli) -> bool {
             action: L::Path
                 | L::Id
                 | L::Status { .. }
-                | L::Guard
+                | L::Guard { .. }
                 | L::Server { .. }
                 | L::Push {
                     background: true,

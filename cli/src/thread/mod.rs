@@ -126,9 +126,17 @@ pub enum ThreadCommands {
     )]
     Title,
     #[command(
-        about = "Stop hook check: when this session or worktree is unbound, has not skipped a thread and the ledger holds missions, print a block decision as JSON that asks for a thread. Otherwise, when the ledger store holds changes that are not pushed (no network), start a background publish (tsk ledger push --background; TSK_BACKGROUND_PUBLISH=off switches it off) and print nothing. Exit 0 whatever happens. Reads stdin; never fetches"
+        about = "Stop hook check: when this session or worktree is unbound, has not skipped a thread and the ledger holds missions, print a block decision as JSON that asks for a thread. Otherwise, when the ledger store holds changes that are not pushed (no network), start a background publish (tsk ledger push --background; TSK_BACKGROUND_PUBLISH=off switches it off) and print nothing. With --format copilot, a hook input with stop_hook_active true prints no block, so an unbound session is blocked once. Exit 0 whatever happens. Reads stdin; never fetches"
     )]
-    Guard,
+    Guard {
+        #[arg(
+            long,
+            value_enum,
+            default_value = "claude",
+            help = "Hook format: claude (stop_hook_active is ignored) or copilot (stop_hook_active true prints no block)"
+        )]
+        format: session_start::HookFormat,
+    },
     #[command(
         about = "Print what this session does next about threads, from the local ledger store with no fetch: bound:<thread-id> and a line naming the thread and its mission when it is bound; otherwise the question the Stop hook asks, robot first: the registered robots and their threads, then the missions. Run it on the first turn, once the ledger is fetched, so the robot is chosen before other work. Exit 0; exit 1 when there is no ledger store"
     )]
@@ -208,7 +216,15 @@ pub fn block_decision(reason: &str) -> String {
 /// has not skipped a thread and the ledger holds missions. Otherwise, when the ledger
 /// store holds changes that are not pushed, it starts a background publish and prints
 /// nothing (ADR 0020). It reads the local store and never fetches. It never fails.
-fn guard() -> Option<String> {
+fn guard(suppress_block: bool) -> Option<String> {
+    let blocked = guard_reason();
+    if suppress_block {
+        return None;
+    }
+    blocked
+}
+
+fn guard_reason() -> Option<String> {
     let Ok(session) = Session::discover() else {
         return Some(UNBOUND_PROMPT.to_string());
     };
@@ -224,6 +240,17 @@ fn guard() -> Option<String> {
         );
     }
     None
+}
+
+fn stop_hook_active(input: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(input)
+        .ok()
+        .and_then(|v| {
+            v.get("stop_hook_active")
+                .or_else(|| v.get("stopHookActive"))
+                .and_then(|a| a.as_bool())
+        })
+        .unwrap_or(false)
 }
 
 /// The reason to block because nothing binds this session or worktree to a thread.
@@ -311,7 +338,7 @@ fn next_text(session: &Session) -> Result<String, String> {
 }
 
 pub fn run(action: ThreadCommands) -> Result<i32, String> {
-    if let ThreadCommands::Guard = action {
+    if let ThreadCommands::Guard { format } = action {
         let mut input = String::new();
         let _ = std::io::stdin().read_to_string(&mut input);
         if !session_start::is_remote() {
@@ -322,7 +349,8 @@ pub fn run(action: ThreadCommands) -> Result<i32, String> {
                 crate::live::active(&root, &id);
             }
         }
-        if let Some(reason) = guard() {
+        let suppress = format == session_start::HookFormat::Copilot && stop_hook_active(&input);
+        if let Some(reason) = guard(suppress) {
             println!("{}", block_decision(&reason));
         }
         return Ok(0);
@@ -562,7 +590,7 @@ fn run_with(session: &Session, action: ThreadCommands) -> Result<i32, String> {
             }
             None => Ok(1),
         },
-        ThreadCommands::Guard
+        ThreadCommands::Guard { .. }
         | ThreadCommands::Next { .. }
         | ThreadCommands::SessionStart { .. } => Ok(0),
     }

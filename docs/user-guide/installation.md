@@ -54,7 +54,7 @@ dolt config --global --add user.email tsk@localhost
 ```
 Every ledger needs `dolt`. The files backend, which did not, was removed in 0.16.0.
 
-From 0.29.0 `tsk` starts a local `dolt sql-server` for each ledger store on first use and sends the store's SQL to it, which makes a command about ten times faster than one `dolt sql` process per command. If the server cannot start, the command runs without it and prints one `note:` line. `tsk config ledger-server` prints whether the server is used, and `tsk config ledger-server off` (or `TSK_DOLT_SERVER=off`) switches it off. A `tsk` older than 0.23.0 on the same clone fails a write with `database is read only` while the server runs: update it with `tsk self-update`, or run `tsk ledger server stop`.
+From 0.29.0 `tsk` starts a local `dolt sql-server` for each ledger store on first use and sends the store's SQL to it. A command runs about ten times faster than with one `dolt sql` process per command. If the server cannot start, the command runs without it and prints one `note:` line. `tsk config ledger-server` prints whether the server is used, and `tsk config ledger-server off` (or `TSK_DOLT_SERVER=off`) switches it off. A `tsk` older than 0.23.0 on the same clone fails a write with `database is read only` while the server runs: update it with `tsk self-update`, or run `tsk ledger server stop`.
 
 Once the Rust toolchain is installed, verify with:
 ```bash
@@ -170,14 +170,20 @@ Copilot runs the plugin's hooks from `plugin/hooks.json`:
 
 - `sessionStart` installs `dolt` and `tsk` when needed and prints the ledger context, as
   the Claude Code hook does.
-- `agentStop` blocks the end of a turn when the session has no thread binding.
+- `agentStop` blocks the end of a turn when the session has no thread binding, and once
+  only: a hook input with `stop_hook_active` true gets no second block.
+- `preToolUse` runs the ledger guard (ADR 0028). It denies a tool call that edits a file in
+  the ledger store, or runs `git` or `dolt` against the ledger store, its refs or its
+  branches.
+- `permissionRequest` sets the tmux pane state to waiting.
 
-Copilot loads plugins and hooks only in a folder you have trusted. Outside a Claude
+Copilot loads plugins and hooks only in a trusted folder. Outside a Claude
 cloud session, a thread binds to the code worktree through a row of the ledger's
 `bindings` table.
 
 The Copilot hooks are untested in a live Copilot session. The install, the skills and
-the hook commands are tested on their own.
+the hook commands are tested on their own. The ledger guard and the stop guard now run in
+Copilot.
 
 ## Upgrading
 
@@ -223,7 +229,7 @@ up to a day late. `tsk self-update` always queries the network.
 
 ### Automatic update for a newer ledger
 
-A ledger that a newer tsk has upgraded stops an older tsk with `unsupported ledger version
+A ledger upgraded by a newer tsk stops an older tsk with `unsupported ledger version
 N`. From 0.18.0, tsk handles that itself. It prints `warning: this ledger is at layout N
 and this tsk (X) supports up to M. Updating tsk now.` to stderr, runs the update above,
 and runs the same command again with the updated binary. The command keeps its stdin and

@@ -64,9 +64,17 @@ pub enum LedgerCommands {
         background: bool,
     },
     #[command(
-        about = "The PreToolUse hook check of ADR 0028: reads the hook input on stdin and prints a deny decision for a tool call that edits a file in the ledger store, or runs git or dolt against the ledger store, its refs or its branches. Prints nothing otherwise and always exits 0. TSK_LEDGER_GUARD=off in the environment of the hook switches it off"
+        about = "The PreToolUse hook check of ADR 0028: reads the hook input on stdin and prints a deny decision for a tool call that edits a file in the ledger store, or runs git or dolt against the ledger store, its refs or its branches. Prints nothing otherwise and always exits 0. Accepts the Claude input (tool_name, tool_input) and the Copilot input (toolName, toolArgs as an object or a JSON string), and prints the decision in the --format shape (claude by default, or copilot: a top-level permissionDecision and permissionDecisionReason). TSK_LEDGER_GUARD=off in the environment of the hook switches it off"
     )]
-    Guard,
+    Guard {
+        #[arg(
+            long,
+            value_enum,
+            default_value = "claude",
+            help = "Hook output format: claude (hookSpecificOutput JSON) or copilot (top-level permissionDecision JSON)"
+        )]
+        format: crate::thread::session_start::HookFormat,
+    },
     #[command(
         name = "background-push-run",
         hide = true,
@@ -229,8 +237,8 @@ pub enum DocCommands {
 }
 
 pub fn run(action: LedgerCommands) -> Result<(), String> {
-    if let LedgerCommands::Guard = action {
-        return guard::run();
+    if let LedgerCommands::Guard { format } = action {
+        return guard::run(format);
     }
     crate::config::refuse_files_backend_from_env()?;
     let cwd = std::env::current_dir()
@@ -369,7 +377,7 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
         LedgerCommands::MigrateDocs { .. }
         | LedgerCommands::Init { .. }
         | LedgerCommands::MigrateTransport
-        | LedgerCommands::Guard
+        | LedgerCommands::Guard { .. }
         | LedgerCommands::BackgroundPushRun { .. }
         | LedgerCommands::Server { .. } => {
             unreachable!("handled before the store opens")
