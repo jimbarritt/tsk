@@ -293,7 +293,7 @@ fn is_read_only_command(cli: &Cli) -> bool {
                     ..
                 }
                 | L::Doc {
-                    action: D::Path { .. } | D::Get { .. } | D::List { .. }
+                    action: D::Path { .. } | D::Get { .. } | D::List { .. } | D::Log { .. }
                 }
         }) | Some(Commands::Tmux { .. })
             | Some(Commands::Harness {

@@ -21,6 +21,15 @@ pub const MARKER: &str = ".tsk-erased";
 const MARKER_HEADER: &str =
     "# Commits erased from the documents history by tsk ledger erase: the erased commit, the documents tip before the erase, the time.\n";
 
+/// What `tsk ledger erase` removes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Target {
+    /// A commit, and every file it added or changed.
+    Commit(String),
+    /// One file, every version of it.
+    File(String),
+}
+
 /// A file the erased commit added or changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Purged {
@@ -34,8 +43,11 @@ pub struct Purged {
 /// objects in the ledger clone only; no ref names them until the push.
 #[derive(Debug, Clone)]
 pub struct Plan {
+    /// The commit the marker names: the erased commit, or for a file the first commit that
+    /// added it. A clone whose history contains it holds the old history.
     pub commit: String,
-    pub subject: String,
+    /// What the plan erases, for the first line of its description.
+    pub label: String,
     pub old_tip: String,
     pub new_tip: String,
     pub purged: Vec<Purged>,
@@ -48,17 +60,16 @@ pub struct Plan {
 impl Plan {
     pub fn lines(&self, location: &LedgerLocation) -> Vec<String> {
         let mut lines = vec![format!(
-            "erase {} \"{}\" from the documents history of {} ({})",
-            short(&self.commit),
-            self.subject,
+            "erase {} from the documents history of {} ({})",
+            self.label,
             location.label(),
             location.ref_name()
         )];
         for purged in &self.purged {
             let note = if purged.existed_before {
-                "changed by the commit: the whole file leaves the history"
+                "changed by the commit: every version of the file is removed"
             } else {
-                "added by the commit"
+                "every version"
             };
             lines.push(format!(
                 "  removes from every commit: {} ({})",
@@ -80,9 +91,40 @@ fn short(commit: &str) -> &str {
     &commit[..commit.len().min(12)]
 }
 
-/// Work out the rewrite of the history that ends at `tip` without `target` and without the
-/// files `target` added or changed. `git` is the ledger clone, where the new objects go.
-pub fn plan(git: &Git, tip: &str, target: &str) -> Result<Plan, String> {
+/// Work out the rewrite of the history that ends at `tip` without `target`. `git` is the
+/// ledger clone, where the new objects go.
+pub fn plan(git: &Git, tip: &str, target: &Target) -> Result<Plan, String> {
+    match target {
+        Target::Commit(commit) => plan_commit(git, tip, commit),
+        Target::File(path) => plan_file(git, tip, path),
+    }
+}
+
+/// Every version of one file, from the whole history.
+fn plan_file(git: &Git, tip: &str, path: &str) -> Result<Plan, String> {
+    let touching = git.run(["rev-list", tip, "--", path])?;
+    let Some(first) = touching.lines().last().map(str::to_string) else {
+        return Err(format!(
+            "error: no commit of the documents branch has the file {}. tsk ledger doc log lists the commits, and tsk ledger doc list the files",
+            path
+        ));
+    };
+    let purged = vec![Purged {
+        path: path.to_string(),
+        existed_before: false,
+    }];
+    rewrite(
+        git,
+        tip,
+        None,
+        first,
+        format!("every version of {}", path),
+        purged,
+    )
+}
+
+/// A commit and every file it added or changed.
+fn plan_commit(git: &Git, tip: &str, target: &str) -> Result<Plan, String> {
     let commit = git
         .run_line(["rev-parse", "--verify", "--quiet", &format!("{}^{{commit}}", target)])
         .map_err(|_| {
@@ -113,7 +155,20 @@ pub fn plan(git: &Git, tip: &str, target: &str) -> Result<Plan, String> {
             short(&commit)
         ));
     }
+    let label = format!("{} \"{}\"", short(&commit), subject);
+    rewrite(git, tip, Some(commit.clone()), commit, label, purged)
+}
 
+/// Rewrite the history that ends at `tip`: drop `drop`, and remove the purged files from
+/// every commit. `marker` is the commit the marker line names.
+fn rewrite(
+    git: &Git,
+    tip: &str,
+    drop: Option<String>,
+    marker: String,
+    label: String,
+    purged: Vec<Purged>,
+) -> Result<Plan, String> {
     let index = TempIndex::new(git)?;
     let paths: Vec<&str> = purged.iter().map(|p| p.path.as_str()).collect();
     let listing = git.run(["rev-list", "--topo-order", "--reverse", "--parents", tip])?;
@@ -132,7 +187,7 @@ pub fn plan(git: &Git, tip: &str, target: &str) -> Result<Plan, String> {
                 new_parents.push(mapped);
             }
         }
-        if id == commit {
+        if drop.as_deref() == Some(id.as_str()) {
             map.insert(id, new_parents[0].clone());
             dropped += 1;
             continue;
@@ -162,10 +217,10 @@ pub fn plan(git: &Git, tip: &str, target: &str) -> Result<Plan, String> {
         .get(tip)
         .cloned()
         .ok_or_else(|| format!("error: the rewrite did not reach the tip {}", short(tip)))?;
-    let new_tip = marker_commit(git, &index, &rewritten_tip, &commit, tip)?;
+    let new_tip = marker_commit(git, &index, &rewritten_tip, &marker, tip)?;
     Ok(Plan {
-        commit,
-        subject,
+        commit: marker,
+        label,
         old_tip: tip.to_string(),
         new_tip,
         purged,
@@ -290,7 +345,7 @@ fn marker_commit(
             "-p",
             base,
             "-m",
-            &format!("Erase {} from the documents history", short(erased)),
+            "Rewrite the documents history with tsk ledger erase",
         ]
         .map(String::from),
     );

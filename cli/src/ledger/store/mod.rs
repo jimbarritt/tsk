@@ -245,9 +245,21 @@ pub trait LedgerStore {
     /// the whole documents history (`tsk ledger erase`). Without `yes` it works out the
     /// rewrite and returns its description with `false`, and pushes nothing. With `yes` it
     /// force-pushes the rewritten branch and returns what it did with `true`.
-    fn erase(&self, commit: &str, yes: bool) -> Result<(Vec<String>, bool), String> {
-        let _ = (commit, yes);
+    fn erase(
+        &self,
+        target: &crate::ledger::erase::Target,
+        yes: bool,
+    ) -> Result<(Vec<String>, bool), String> {
+        let _ = (target, yes);
         Err("error: tsk ledger erase needs a Dolt ledger".to_string())
+    }
+
+    /// The commits of the local documents branch, newest first, one line each: the short
+    /// id, the date, the author and the subject, tab-separated. With a path, only the
+    /// commits that changed that file. Reads the local copy and fetches nothing.
+    fn doc_log(&self, path: Option<&str>) -> Result<Vec<String>, String> {
+        let _ = path;
+        Err("error: tsk ledger doc log needs a Dolt ledger".to_string())
     }
 
     /// Where the local store lives. Has no side effects. Fails when the store has no

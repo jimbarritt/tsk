@@ -317,7 +317,7 @@ the id names the file in the same directory that has the name with an id, so a s
 missions/x/report.md` rewrites `missions/x/report.<id>.md`. The two seed files of a new
 branch, `README.md` and `index.md` with their seed text, have no id.
 
-Six commands read and write the documents:
+Seven commands read and write the documents:
 
 | Command | Effect |
 |---|---|
@@ -327,6 +327,7 @@ Six commands read and write the documents:
 | `tsk ledger doc rm <ref>` | Removes the document. Writes the documents worktree only. |
 | `tsk ledger doc mv <ref> <path>` | Renames the file, keeps the id, and updates `path` in `mission_documents` for every mission that links the id. |
 | `tsk ledger doc path <ref>` | Prints the absolute path of the document's file, for opening it in another tool. Exits 1 with `error: no such document: <ref>` when it is absent. |
+| `tsk ledger doc log [<ref>]` | Prints the commits of the local documents branch, newest first: the short id, the date, the author and the subject, tab-separated. With `<ref>`, only the commits that changed that file. Fetches nothing. |
 
 `tsk mission link <mission> <ref> --role <role>` links by the id the reference names.
 `tsk mission list <id> --json` prints `path`, `id`, `urn` and `role` for each linked document.
@@ -643,6 +644,11 @@ Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::di
 `tsk ledger erase <commit>` removes a commit of the documents branch from the whole documents
 history, and every file the commit added or changed, then force-pushes the rewritten branch. It
 covers the documents only, not the Dolt data.
+
+`tsk ledger erase --file <ref>` removes every version of one file from the whole documents
+history instead, with the same push and checks. `<ref>` is a document path, with or without its
+id. A file that is no longer on the branch is named by its full path. `tsk ledger doc log` lists
+the commit ids, and `tsk ledger doc log <ref>` the commits of one file.
 
 - Every file the commit added or changed is removed from every commit of the branch, its
   earlier and later versions included. A file the commit changed is removed from the history
