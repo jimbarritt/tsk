@@ -377,6 +377,28 @@ delay in milliseconds.
 New commits use the new key. I did not check what GitHub shows for commits signed with the
 old key after you delete it.
 
+## Replace the emails in the ledger history
+
+A ledger commit made before robot attribution has the email of the person. GitHub rejects
+a push that publishes a private email address (GH007). Two commands find and replace those
+emails in the ledger history. They cover the git history of the data ref and the documents
+ref, not the Dolt commits inside the data.
+
+1. `tsk ledger emails` lists each email with the number of commits it authored and committed.
+2. `tsk ledger rewrite-emails --to <noreply address>` prints the plan and exits 1. Add `--from
+   <email>` to replace named addresses only, and repeat it for several.
+3. `tsk ledger rewrite-emails --to <noreply address> --yes` writes the rewritten history to
+   local refs of the ledger clone. It signs each rewritten commit with the robot key when the
+   identity is `robot`, so run `tsk signing check` first. It pushes nothing. It prints the
+   old and new tip of each ref. It prints the clones on this machine that contain the old
+   commits. It prints the exact `git push`.
+4. `tsk ledger push-rewritten --yes` force-pushes both refs in one atomic push, each with a
+   lease on the old tip. When origin is ahead of the old tip, the push fails and changes nothing.
+
+Update tsk in every clone before step 4. An agent stops after step 3 until the person approves
+step 4. The old commits stay readable by their ids on a server such as GitHub until it prunes
+them.
+
 ## Install ssh-keygen in the cloud environment
 
 Git calls `ssh-keygen` to sign a commit. The cloud image does not include it. Add this line
