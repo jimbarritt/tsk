@@ -1351,9 +1351,7 @@ environments on infrastructure that a team controls. A workspace is defined in
 Terraform, connects through a WireGuard tunnel and shuts down when idle. Its own agent,
 Coder Agents, runs its loop in the control plane, and a workspace has no LLM API keys.
 Third-party agents such as Claude Code and Codex also run in workspaces. Three features
-announced in December 2025 add governance. Coder's blog states that AI Bridge and Agent
-Boundaries need the Premium AI Governance Add-On, and that Coder renamed them AI Gateway
-and Agent Firewall in April 2026:
+announced in December 2025 add governance:
 
 - **Coder Tasks**: an execution engine for long-lived, low-interaction jobs, with an API
   and notifications.
@@ -1361,7 +1359,10 @@ and Agent Firewall in April 2026:
   providers, with prompt logs and token consumption in one place.
 - **Agent Boundaries**: allow lists for network destinations, tools and internal systems.
 
-It occupies the layer where an agent runs and the policy around it. The summary describes no
+Coder's blog states that AI Bridge and Agent Boundaries need the Premium AI Governance
+Add-On, and that Coder renamed them AI Gateway and Agent Firewall in April 2026.
+
+Coder occupies the layer where an agent runs and the policy around it. The summary describes no
 mission, objective, decision or continuation record, so it is listed beside Herdr and
 Dust, not among the systems assessed. Two items intersect tsk:
 
