@@ -486,6 +486,58 @@ fn export_to_env_file(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("could not write {}: {}", Path::new(&file).display(), e))
 }
 
+pub(crate) fn default_actor_from_thread(
+    session: &Session,
+    urn: &str,
+) -> Result<Option<String>, String> {
+    use super::ops::HoldHere;
+
+    if crate::actor::current(session)?.is_some() {
+        return Ok(None);
+    }
+    let Some(binding) = resolve(session)? else {
+        return Ok(None);
+    };
+    let thread_id = binding.thread_id();
+    if !matches!(
+        super::ops::hold_here(session, thread_id),
+        Some(HoldHere::Paused | HoldHere::Mine)
+    ) {
+        return Ok(None);
+    }
+    let Some((instance, kind)) = session.actor_key()? else {
+        return Ok(None);
+    };
+    let store = session.store.as_ref();
+    let rows = super::ops::list_rows(store)?;
+    let Some(row) = rows.iter().find(|row| row.id == thread_id) else {
+        return Ok(None);
+    };
+    let writers = super::writers::Writers::load(store)?;
+    let Some(name) = crate::harness::thread_robot(store, &writers, row)? else {
+        return Ok(None);
+    };
+    let busy_elsewhere = super::binding::robots(store)?.iter().any(|robot| {
+        robot.name == name
+            && robot
+                .holds
+                .as_ref()
+                .is_some_and(|holds| holds.thread != thread_id)
+    });
+    if busy_elsewhere {
+        return Ok(None);
+    }
+    crate::actor::attach(
+        store,
+        &instance,
+        kind,
+        Some(urn),
+        &name,
+        &super::clock::utc_now(),
+    )?;
+    Ok(Some(name))
+}
+
 /// The context of a session start, after the refresh. `after_refresh` runs between the
 /// refresh and the reads that build the context: the session record and its actors, so the
 /// context describes this session (ADR 0030).
@@ -851,11 +903,8 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
                 // refresh and before the reads, and give it the actors of the session it
                 // continues (ADR 0030). A failure here never fails the hook: the session
                 // still works, and has no row.
-                if let Ok(Some(urn)) =
-                    crate::sessions::record(session, format, hook_session_id.as_deref())
-                {
-                    let _ = crate::sessions::continue_actors(session, &urn);
-                }
+                let _ =
+                    crate::sessions::ensure_recorded(session, format, hook_session_id.as_deref());
                 // A bound thread from an earlier session names its mission and robot on
                 // the tmux pane at once, and the new agent waits for input.
                 crate::tmux::sync_if_in_tmux(session);

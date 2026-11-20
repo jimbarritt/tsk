@@ -5,20 +5,10 @@ thread states show built behaviour (tsk 0.57.0 to 0.63.0, ADR 0030 and ADR 0032)
 diagram of `tsk harness new` is a design by Jim. The `tsk harness new` command
 does not exist yet, and this page gives no date for it.
 
-This page draws the flows in one place. The steps in words are in
+The steps in words are in
 [session-start.md](../user-guide/session-start.md). The rules are in
 [ADR 0032](../adr/0032-a-thread-has-one-open-session-and-a-robot-works-in-many.md) and
 [ADR 0030](../adr/0030-an-actor-belongs-to-a-session-and-an-instance-is-the-continuity-key.md).
-
-## Contents
-
-- [The terms](#the-terms)
-- [A cloud session starts](#a-cloud-session-starts)
-- [A terminal session starts](#a-terminal-session-starts)
-- [A thread transfers between harness instances](#a-thread-transfers-between-harness-instances)
-- [The proposed tsk harness new command](#the-proposed-tsk-harness-new-command)
-- [The states of a thread](#the-states-of-a-thread)
-- [Open questions for tsk harness new](#open-questions-for-tsk-harness-new)
 
 ## The terms
 
@@ -133,9 +123,8 @@ a terminal, `list_sessions` in the cloud. tsk never archives a session for the p
 
 ## The proposed tsk harness new command
 
-This is a design by Jim, 2026-11-14. The command does not exist. It runs in a terminal and
-asks questions. Every branch ends in the same three steps: a code worktree, a tmux session,
-and `claude` with a first prompt.
+The command runs in a terminal and prints questions for the person to answer. Every path through the questions ends in
+the same three steps: a code worktree, a tmux session, and `claude` with a first prompt.
 
 ```mermaid
 flowchart TD
@@ -143,7 +132,7 @@ flowchart TD
     B -->|yes| C["List paused threads: mission ID, robot name, thread ID"]
     C --> D[Person picks one]
     D --> E[Result: mission, robot and thread]
-    B -->|no| F{"Attach an existing robot instance? (y/n)"}
+    B -->|no| F{"Do you want to use an existing robot (recommended)? (y/n)"}
     F -->|yes| G["List robots, as tsk actor list --robots"]
     G --> H[Person picks a robot]
     H --> I[Person picks a mission or a new mission]
@@ -179,9 +168,9 @@ suggestion is used. The first prompt states the branch and the repo's rule: reba
 on origin's main and push to main, or push the branch and open a pull request.
 
 The tmux session takes the mission code as its name, as tsk names other tmux sessions (see
-[tmux.md](../user-guide/tmux.md)). The first prompt differs by branch. The first branch
-resumes the chosen thread. The other two start a new thread on the chosen mission. The new
-robot of the third branch registers itself when `/tsk:construct-robot` runs.
+[tmux.md](../user-guide/tmux.md)). The first prompt differs by answer. A paused thread is
+resumed. An existing robot or a new robot starts a new thread on the chosen mission. A new
+robot registers itself when `/tsk:construct-robot` runs.
 
 ## The states of a thread
 
@@ -202,21 +191,19 @@ remains the holder until a pause or a take-over changes it.
 
 ## Decisions on tsk harness new
 
-Jim answered the open questions on 2026-11-14. The ledger records them as decisions of
-M-TSK-ENV, tasks T-30 and T-31, and question Q-05.
+The ledger records these as decisions of M-TSK-ENV, tasks T-30 and T-31, and question Q-05.
 
-1. **A robot is busy while it is the holder of a thread**, not while it has an open session. A thread
-   has a holder when a start or a resume follows its latest pause. The ledger gives the same
-   answer in every place, so a robot that pauses in the cloud is free to resume elsewhere
+1. **A robot is busy while it is the holder of a thread**, not while it has an open session. The ledger
+   gives the same answer in every place, so a robot that pauses in the cloud is free to resume elsewhere
    while the cloud session stays open.
 2. **The location of code worktrees is open (Q-05).** It is a configurable default for every
    worktree on the machine, under each repo's name.
 3. **A branch per worktree applies only in a terminal on a shared machine.** A cloud harness
-   keeps its own branch instructions. Whether work merges to main directly or through pull
+   keeps its branch instructions. Whether work merges to main directly or through pull
    requests is a choice of each repo: trunk based, or a protected main.
 4. **A harness is a code worktree, a tmux session and a `claude` process together.** One
-   worktree can have several branches and pull requests over time, so the worktree belongs
-   to the tmux session and the harness instance, not to one branch. The commands:
+   worktree can have several branches and pull requests over time, so the worktree stays
+   with the tmux session and the harness instance across branches. The commands:
 
 | Command | What it does |
 |---|---|
@@ -228,4 +215,4 @@ M-TSK-ENV, tasks T-30 and T-31, and question Q-05.
 
 Sleep and wake give durable state: a set of harnesses can sleep, the machine can restart,
 and the harnesses wake again. Removal in GitHub Copilot CLI is open: its agent cannot change
-its own working directory.
+its working directory.

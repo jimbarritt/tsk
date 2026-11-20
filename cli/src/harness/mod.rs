@@ -41,7 +41,7 @@ const NO_ROOT: &str = "error: no worktrees root is set. Set the environment vari
 pub enum HarnessCommands {
     #[command(
         about = "Make a harness: a code worktree on a branch you name, or a detached HEAD, a tmux session in it, and claude with a first prompt",
-        long_about = "Make a harness: a code worktree on a branch you name, or a detached HEAD, a tmux session in it, and claude with a first prompt.\n\nOn a terminal the command asks up to five things in turn. Pick up a paused thread? If so, it lists the paused threads and you pick one. If not, attach an existing robot? If so, it lists the robots, free ones first. Then it lists the missions that are not done, and you pick one or a new mission. Then it asks the branch name. Last it asks whether to push to main or open pull requests. A flag answers its question, so a script can run the command.\n\nThe branch question lists suggestions, in this order and only those that apply: the ticket of the current task of the thread, the mission code and the harness name, the harness name, and a detached HEAD. Type a number, press Enter for the first suggestion, or type a branch name. tsk checks the name with git check-ref-format and refuses a branch that another worktree has checked out. A branch that exists is checked out. A new name is made from the default branch of origin. --branch <name> and --detach answer the question. With no terminal and no flag, the first suggestion is used.\n\nThe push workflow is main or pull-request. tsk reads it from the repo's entry in the attached nexus, then from [harness] workflow in .tsk/config.toml. The question \"Push to main or open pull requests?\" appears only when neither holds a value. It has no default. The answer is saved to the nexus entry. When it cannot be saved, the command prints a warning and continues. tsk nexus set-repo <repo id> --workflow main|pull-request sets it in a session that is already open. --push main|pr answers the question, overrides a stored value and is not saved. With no terminal, no flag and no stored value, the first prompt tells the agent to ask you before it pushes. The first prompt states the workflow, and tsk harness wake repeats it.\n\nThe worktree is <root>/<repo name>/<harness name>. Git refuses one branch in two worktrees, so a detached HEAD at the default branch of origin leaves the agent to name the branch later. The root is GIT_WORKTREES_ROOT, else [worktrees] root in the user config (tsk config worktrees-root). The name is a random word that no harness of this clone has had. Ignored env files (.env, .env.local, .env.*.local) are copied from the main worktree.\n\nThe tmux session has the mission code as its name, else the harness name. claude starts in it with a first prompt that registers the robot, then resumes or starts the thread. tsk makes no robot and no mission itself: the new claude session does that. With no flag, the command then attaches to the session, or switches to it inside tmux."
+        long_about = "Make a harness: a code worktree on a branch you name, or a detached HEAD, a tmux session in it, and claude with a first prompt.\n\nOn a terminal the command asks up to five things in turn. Pick up a paused thread? If so, it lists the paused threads and you pick one. If not, do you want to use an existing robot (recommended)? If so, it lists the robots, free ones first. With no robot registered it makes a new robot and does not ask. Then it lists the missions that are not done, and you pick one or a new mission. Then it asks the branch name. Last it asks whether to push to main or open pull requests. A flag answers its question, so a script can run the command.\n\nThe branch question lists suggestions, in this order and only those that apply: the ticket of the current task of the thread, the mission code and the harness name, the harness name, and a detached HEAD. Type a number, press Enter for the first suggestion, or type a branch name. tsk checks the name with git check-ref-format and refuses a branch that another worktree has checked out. A branch that exists is checked out. A new name is made from the default branch of origin. --branch <name> and --detach answer the question. With no terminal and no flag, the first suggestion is used.\n\nThe push workflow is main or pull-request. tsk reads it from the repo's entry in the attached nexus, then from [harness] workflow in .tsk/config.toml. The question \"Push to main or open pull requests?\" appears only when neither holds a value. It has no default. The answer is saved to the nexus entry. When it cannot be saved, the command prints a warning and continues. tsk nexus set-repo <repo id> --workflow main|pull-request sets it in a session that is already open. --push main|pr answers the question and is not saved. The first prompt uses it. tsk harness wake uses it only when neither the nexus entry nor .tsk/config.toml sets a workflow. With no terminal, no flag and no stored value, the first prompt tells the agent to ask you before it pushes. The first prompt states the workflow, and tsk harness wake repeats it.\n\nThe worktree is <root>/<repo name>/<harness name>. Git refuses one branch in two worktrees, so a detached HEAD at the default branch of origin leaves the agent to name the branch later. The root is GIT_WORKTREES_ROOT, else [worktrees] root in the user config (tsk config worktrees-root). The name is a random word that no harness of this clone has had. Ignored env files (.env, .env.local, .env.*.local) are copied from the main worktree.\n\nThe tmux session has the mission code as its name, else the harness name. claude starts in it with a first prompt that registers the robot, then resumes or starts the thread. tsk makes no robot and no mission itself: the new claude session does that. With no flag, the command then attaches to the session, or switches to it inside tmux."
     )]
     New(NewArgs),
     #[command(
@@ -158,7 +158,7 @@ pub struct NewArgs {
         long,
         value_name = "WORKFLOW",
         value_parser = push::parse_flag,
-        help = "Push to main (main) or open pull requests (pr). Skips the push question and overrides a stored value. Not saved"
+        help = "Push to main (main) or open pull requests (pr). Skips the push question and is not saved. The first prompt uses it, and wake uses it only when neither the nexus entry nor .tsk/config.toml sets a workflow"
     )]
     push: Option<PushWorkflow>,
     #[arg(long, help = "Do not start claude in the session")]
@@ -629,7 +629,7 @@ struct PausedThread {
 }
 
 /// The robot of a thread: the actor that wrote its latest entry, else the last robot bound.
-fn thread_robot(
+pub(crate) fn thread_robot(
     store: &dyn LedgerStore,
     writers: &crate::thread::writers::Writers,
     row: &ops::ListRow,
@@ -887,12 +887,12 @@ fn select(ctx: &Ctx, args: &NewArgs) -> Result<Selection, String> {
 }
 
 fn ask_robot(store: &dyn LedgerStore) -> Result<RobotChoice, String> {
-    if !ask_yes_no("Attach an existing robot? (y/n)")? {
-        return Ok(RobotChoice::New);
-    }
     let mut robots = binding::robot_states(store)?;
     if robots.is_empty() {
         println!("There are no robots yet. A new robot is made.");
+        return Ok(RobotChoice::New);
+    }
+    if !ask_yes_no("Do you want to use an existing robot (recommended)? (y/n)")? {
         return Ok(RobotChoice::New);
     }
     // Free robots first, busy ones after, each group in the order given.
@@ -1574,9 +1574,9 @@ pub fn wake_push(
     state: Option<&str>,
     stored: impl FnOnce() -> Option<(PushWorkflow, PushSource)>,
 ) -> Option<PushWorkflow> {
-    match state.and_then(PushWorkflow::parse) {
-        Some(workflow) => Some(workflow),
-        None => stored().map(|(workflow, _)| workflow),
+    match stored() {
+        Some((workflow, _)) => Some(workflow),
+        None => state.and_then(PushWorkflow::parse),
     }
 }
 
@@ -1605,8 +1605,8 @@ fn wake(name: &str, no_claude: bool, no_attach: bool) -> Result<i32, String> {
         let push = wake_push(harness.push.as_deref(), || {
             stored_push(&ctx).ok().and_then(|(_, stored)| stored)
         });
-        if harness.push.is_none() {
-            harness.push = push.map(|workflow| workflow.as_str().to_string());
+        if let Some(workflow) = push {
+            harness.push = Some(workflow.as_str().to_string());
         }
         let prompt = wake_prompt(
             harness.robot.as_deref(),
@@ -1751,18 +1751,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn wake_push_prefers_the_state_then_the_stored_workflow() {
+    fn wake_push_prefers_the_stored_workflow_then_the_state() {
         let stored = || Some((PushWorkflow::Main, PushSource::ConfigFile));
         assert_eq!(
             wake_push(Some("pull-request"), stored),
+            Some(PushWorkflow::Main)
+        );
+        assert_eq!(
+            wake_push(Some("pull-request"), || None),
             Some(PushWorkflow::PullRequest)
         );
         assert_eq!(wake_push(None, stored), Some(PushWorkflow::Main));
         assert_eq!(wake_push(None, || None), None);
-        assert_eq!(
-            wake_push(Some("sideways"), stored),
-            Some(PushWorkflow::Main)
+        assert_eq!(wake_push(Some("sideways"), || None), None);
+    }
+
+    #[test]
+    fn wake_prompt_follows_the_stored_workflow_over_the_harness_record() {
+        let stored = || Some((PushWorkflow::Main, PushSource::ConfigFile));
+        let from_record = wake_prompt(
+            None,
+            Some("t1"),
+            Some("b"),
+            wake_push(Some("pull-request"), stored),
         );
+        let from_none = wake_prompt(None, Some("t1"), Some("b"), wake_push(None, stored));
+        assert_eq!(from_record, from_none);
+        assert!(!from_record.contains("pull requests"));
     }
 
     #[test]

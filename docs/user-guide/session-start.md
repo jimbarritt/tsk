@@ -8,6 +8,11 @@ tsk 0.57.0 to 0.63.0.
 The steps below are the steps the agent runs. Your part is to answer one question round:
 which robot this session is, and what to work on.
 
+The first question is "Do you want to use an existing robot (recommended)?". The existing
+robots are the choices, free robots first, and "Construct a new robot" is the other choice.
+A bound thread whose latest pause names a robot gives the session that robot at session
+start, with no question, unless another session has the thread.
+
 ## Contents
 
 - [The parts involved](#the-parts-involved)
@@ -23,8 +28,8 @@ which robot this session is, and what to work on.
 
 | Part | What it does at the start of a session |
 |---|---|
-| The plugin's `SessionStart` hook | Runs `tsk thread session-start`: fetches the ledger, exports `$TSK_LEDGER_WT`, and prints the context. With no thread binding, the context holds the robot question. |
-| `tsk ledger status` | With no ledger store in the clone, prints the attached nexus, what it says about this repo, whether origin holds a ledger, and a `Next` line with the step to run. |
+| The plugin's `SessionStart` hook | Runs `tsk thread session-start`: fetches the ledger, exports `$TSK_LEDGER_WT`, and prints the context. With no thread binding, the context contains the robot question. |
+| `tsk ledger status` | With no ledger store in the clone, prints the attached nexus, what its entry states about this repo, whether origin has a ledger, and a `Next` line with the step to run. |
 | `tsk thread next` | Prints `bound:<thread-id>` for a bound session. Otherwise prints the robot question. It reads the local ledger store and never fetches. |
 | The plugin's `Stop` hook | After each turn of a session with no binding, prints the same robot question. |
 | The plugin's `SessionEnd` hook | Outside a cloud session, records the end of the session on this machine. Then starts `tsk ledger push --background` and exits. |
@@ -44,7 +49,7 @@ A cloud environment's setup script installs them for you. See
 This section is for a cloud environment whose setup script runs with
 `--nexus <nexus url>`, and a repo whose ledger is in that nexus. For a repo whose ledger
 is on its own origin, steps 1 to 4 do not apply: session start fetches the ledger, and
-the session goes on at step 5.
+the session continues at step 5.
 
 ### What `--nexus` sets up
 
@@ -53,7 +58,7 @@ The setup script `ops/cloud/setup-environment.sh` with `--nexus <nexus url>`:
 1. Runs `tsk nexus add <nexus url>`, which writes the URL to the user tsk config.
 2. Adds a section to `~/.claude/AGENTS.md`. Claude Code reads it in every session of the
    environment, through `~/.claude/CLAUDE.md`.
-3. Adds three entries to `~/.claude/settings.json`, so that auto mode does not refuse the
+3. Adds three entries to `~/.claude/settings.json`, so that auto mode does not block the
    `add_repo` call:
    - `mcp__claude-code-remote__add_repo` in `permissions.allow`.
    - An `autoMode.environment` entry that names the nexus as a trusted repository.
@@ -88,8 +93,8 @@ The account's GitHub connection needs read and push access to the nexus repo.
 ### The first turn, step by step
 
 1. **Session start fails to fetch the nexus.** This is expected. A new cloud session has
-   one repository attached, the repo you opened, and the session's git proxy refuses any
-   other repository. The context says so and gives the next step, with no `Warning:`
+   one repository attached, the repo you opened, and the session's git proxy blocks any
+   other repository. The context states this and gives the next step, with no `Warning:`
    line:
 
    ```
@@ -111,25 +116,25 @@ The account's GitHub connection needs read and push access to the nexus repo.
    ```
 
 3. **The agent attaches the nexus with the `add_repo` tool.** The `--nexus` settings
-   pre-approve the call, so no permission prompt appears. The result of `add_repo` says
-   to clone the repository. The agent does not clone it and does not run
+   pre-approve the call, so no permission prompt appears. The result of `add_repo` contains
+   an instruction to clone the repository. The agent does not clone it and does not run
    `register_repo_root` for it: `tsk` fetches the nexus itself, into its own copies under
    the state directory. The grant is all that `tsk` needs.
 
 4. **The agent runs `tsk ledger status` again, then `tsk ledger fetch`.** Now the `Nexus`
-   line names the repo's entry, `ledger in the nexus`, and `Next` says
+   line names the repo's entry, `ledger in the nexus`, and `Next` reads
    `run tsk ledger fetch`. The fetch makes the ledger store. A third `tsk ledger status`
    shows the ledger, with `refs branches (nexus)`.
 
 5. **The agent runs `tsk thread next`.** With no binding and no robot, it prints every
    robot, the free robots first, then the busy robots. Each line gives the robot, `free`
    or `busy (holds <thread id> <mission>)`, and its threads, with `held by <robot>` on a
-   thread that a session holds. Then it prints the missions that are not done. A robot is
-   busy while it holds a thread: it started or resumed the thread after the thread's
-   latest pause. The ledger alone says so, so a cloud session and a terminal give the
+   thread that a session has. Then it prints the missions that are not done. A robot is
+   busy while it has a thread: it started or resumed the thread after the thread's
+   latest pause. The ledger alone shows this, so a cloud session and a terminal give the
    same answer. A busy robot stays in the list, marked, and is not hidden (ADR 0032).
 
-7. **The agent asks you one question round.** See [The question round](#the-question-round).
+7. **The agent presents one question round to you.** See [The question round](#the-question-round).
 
 8. **The agent runs the commands for your answers, then sets the session title.** In a
    cloud session, `tsk actor register`, `/tsk:start-thread`, `/tsk:resume-thread` and
@@ -139,15 +144,15 @@ The account's GitHub connection needs read and push access to the nexus repo.
    Session title: call set_session_title once, with session_id session_<id> and title "M-ABC-NAME: Some Robot Name".
    ```
 
-   The agent calls `set_session_title` with it. The line holds the `session_...` ID that
+   The agent calls `set_session_title` with it. The line contains the `session_...` ID that
    `set_session_title` takes, so the agent types no ID.
 
-Then the agent answers your first message.
+Then the agent responds to your first message.
 
 ### A session that is already bound
 
 When the session already has a binding, `tsk thread next` prints `bound:<thread-id>` and
-a line that names the thread and its mission. The agent goes on with that thread.
+a line that names the thread and its mission. The agent continues with that thread.
 
 A second session start of the same session, such as the context reload after
 `register_repo_root` for another repository, prints one line: the session is bound to the
@@ -159,12 +164,12 @@ In a terminal, the nexus is attached to the machine once with `tsk nexus add <ne
 and `git` on the machine fetches it. There is no `add_repo` step and no
 `~/.claude/AGENTS.md` section.
 
-1. **Session start fetches the ledger.** With no binding, its context holds the robot
+1. **Session start fetches the ledger.** With no binding, its context contains the robot
    question, the same text that `tsk thread next` prints.
 2. **If the fetch fails,** run `tsk ledger status`. With a nexus that cannot be fetched,
    `Next` says `check that git on this machine can fetch <nexus url>, then run tsk ledger
    fetch`. Fix the access, then run `tsk ledger fetch`.
-3. **The agent asks you the question round** and runs the commands for your answers, as in
+3. **The agent presents the question round to you** and runs the commands for your answers, as in
    a cloud session. There is no `Session title:` line and no `set_session_title` call in
    a terminal.
 
@@ -179,16 +184,16 @@ Session start outside a cloud session writes a liveness file:
 ${XDG_STATE_HOME:-~/.local/state}/tsk/live/<session id>.json
 ```
 
-The file holds the process ID and start time of the `claude` process above the hook, and
+The file contains the process ID and start time of the `claude` process above the hook, and
 the time of the last turn. The `Stop` hook updates the time after each turn. The
-`SessionEnd` hook runs `tsk session end`, which records the end. Nothing in the file goes
-into the ledger. The robot choice does not read the file: a robot is busy while it holds
+`SessionEnd` hook runs `tsk session end`, which records the end. Nothing in the file is written
+to the ledger. The robot choice does not read the file: a robot is busy while it has
 a thread, not while a session of it is open.
 
-A held thread is not offered at session start. `tsk thread resume <thread-id>` of a held
-thread exits 1 and names the holder. A holder that no longer runs (a session that ended,
-crashed or was archived with no pause) still shows as the holder. The agent then asks you
-whether to take the thread over, and on yes runs
+A thread that a session has is not offered at session start. `tsk thread resume <thread-id>`
+of such a thread exits 1 and names the holder. A holder that no longer runs (a session that ended,
+crashed or was archived with no pause) still shows as the holder. The agent then offers you
+the choice to take the thread over, and on yes runs
 `tsk thread resume <thread-id> --take-over`. See
 [missions-threads-and-continuation.md](missions-threads-and-continuation.md).
 
@@ -199,17 +204,17 @@ state of a robot is one of:
 
 | State | Meaning |
 |---|---|
-| `free` | The robot holds no thread. |
+| `free` | The robot has no thread. |
 | `busy (holds <thread id> <mission>)` | The robot started or resumed the thread after the thread's latest pause. The mission is `no-mission` for a thread with none. |
 
 A busy robot is still usable: a robot works in many sessions at once, and it takes a new
 thread or no thread. A human has `-`. The missions column lists the missions of the
-robot's threads: the held thread's mission first, then the others, latest first, at most
+robot's threads: the mission of its current thread first, then the others, latest first, at most
 three and then `+N`. `-` means none. `--json` adds a `state` field and a `missions` array.
 `--porcelain` prints name, kind, state, uid and instances, tab-separated.
 
-A robot becomes free when it pauses the thread it holds: run `/tsk:pause-thread` or
-`tsk thread pause`. A session that ended with no pause still holds its thread. Take the
+A robot becomes free when it pauses the thread it has: run `/tsk:pause-thread` or
+`tsk thread pause`. A session that ended with no pause still has its thread. Take the
 thread over with `tsk thread resume <thread-id> --take-over`.
 
 ## The tmux chooser
@@ -232,7 +237,7 @@ A tmux config written by an earlier `tsk tmux install` has the old format. Run
 | `tsk ledger status` shows `Next    run tsk ledger fetch` | `tsk ledger fetch`. |
 | The ledger is fetched and the session has no binding | `tsk thread next`. |
 | Which robots are free or busy | `tsk actor list`. |
-| Free a busy robot | Pause the thread it holds: `/tsk:pause-thread` or `tsk thread pause`. |
+| Free a busy robot | Pause the thread it has: `/tsk:pause-thread` or `tsk thread pause`. |
 
 Related guides:
 

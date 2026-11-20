@@ -3,8 +3,7 @@ name: construct-robot
 description: Construct a new robot. The robot is given a name in the style of the Culture ships of Iain M. Banks, registered as a tsk actor, and set as its session title. Invoke explicitly as /tsk:construct-robot, or when asked to name this session or to construct a robot.
 ---
 
-Backs the `/tsk:construct-robot` command. Construction is the creation of a new robot,
-the robot's birth. The name is the only part that needs inference: `tsk actor register`
+Backs the `/tsk:construct-robot` command, which creates a new robot. The name is the only part that needs inference: `tsk actor register`
 stores it.
 
 ## Steps
@@ -16,7 +15,9 @@ stores it.
 2. **Offer the free robots first, then the busy robots.** Run `tsk actor list --porcelain`.
    The first column is the name and the third the state. If I asked for a new robot in so
    many words, go to step 3. Otherwise, when one or more robots are listed, use the
-   AskUserQuestion tool: offer up to three robots and "Construct a new robot". List the
+   AskUserQuestion tool and ask "Do you want to use an existing robot (recommended)?":
+   offer up to three robots, the first free robot marked "(recommended)", and "Construct
+   a new robot" as the other choice. List the
    `free` robots first, then a robot whose state starts with `busy`, marked in its label
    (`<name> (busy)`). A robot is busy while it has a thread. A robot works in many
    sessions at once (ADR 0032), so picking a busy robot is allowed. The session then
@@ -65,14 +66,14 @@ stores it.
 
 7. **Tell me the name** and, in one sentence, what it expresses about you.
 
-## The style
+## Style of a robot name
 
 A Culture Mind names itself. The name usually expresses something about the
 Mind's attitude, character or aims. The names range from funny to cryptic. A warship's
 name can be dark.
 
 - At most four words. A phrase, a short remark, or one or two words.
-- It states an attitude, a character or an aim. It does not state the job.
+- It states an attitude, a character or an aim.
 - Dry, humorous or cryptic in tone. It can read as a remark or a quotation, and it can
   end in an ellipsis.
 - Capitals for each main word.
@@ -94,5 +95,5 @@ Not in the style:
 ## Limits
 
 - The name works as a `SendMessage` target and an @ mention.
-- At most four words, and at most 200 characters.
+- At most 200 characters.
 - It does not start with `/`.
