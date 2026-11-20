@@ -467,6 +467,34 @@ fn a_stale_writer_is_rejected_by_a_plain_push_then_merges_and_pushes_again() {
 }
 
 #[test]
+fn a_private_email_refusal_names_the_commit_and_the_email_and_is_not_retried() {
+    use std::os::unix::fs::PermissionsExt;
+    need_dolt!();
+    let fx = Fixture::published();
+    let hook = fx.origin().join("hooks/pre-receive");
+    write(
+        &hook,
+        "#!/bin/sh\necho 'GH007: Your push would publish a private email address.' >&2\nexit 1\n",
+    );
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    fx.ok("a", &["mission", "create", "M-TWO", "Two"]);
+
+    let output = fx
+        .command(&fx.clone_dir("a"), &["ledger", "push", "Private"])
+        .env("GIT_AUTHOR_EMAIL", "private@example.test")
+        .env("GIT_COMMITTER_EMAIL", "private@example.test")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let err = stderr(&output);
+    assert!(err.contains("GH007"), "{}", err);
+    assert!(err.contains("private@example.test"), "{}", err);
+    assert!(!err.contains("attempt 2/10"), "{}", err);
+    assert!(!err.contains("rejected the push 10 times"), "{}", err);
+    assert!(!err.contains("accepts only branches"), "{}", err);
+}
+
+#[test]
 fn a_task_added_to_one_mission_by_two_writers_is_renumbered_and_printed() {
     need_dolt!();
     let fx = Fixture::published();

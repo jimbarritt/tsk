@@ -10,6 +10,7 @@ pub mod fetch;
 pub mod git;
 pub mod guard;
 pub mod home;
+pub mod keep_session;
 pub mod location;
 pub mod manifest;
 pub mod migrate_docs;
@@ -17,6 +18,7 @@ pub mod migrate_home;
 pub mod migrate_transport;
 pub mod nexus;
 pub mod nexus_edit;
+pub mod private_email;
 pub mod push;
 pub mod refs;
 pub mod refs_cmd;
@@ -154,7 +156,7 @@ pub enum LedgerCommands {
         forget: bool,
     },
     #[command(
-        about = "Drop every local change that is not pushed, in the data and the documents, and reset both to origin's state; without --yes it prints what it would drop and exits 1"
+        about = "Drop every local change that is not pushed, in the data and the documents, and reset both to origin's state, except this session's thread binding and robot; without --yes it prints what it would drop and exits 1"
     )]
     Discard {
         #[arg(
@@ -496,6 +498,9 @@ fn ledger_block(store: &dyn LedgerStore) -> Vec<String> {
     if let Ok(text) = refs_cmd::summary() {
         lines.push(pad(text));
     }
+    if let Some(text) = refs_cmd::warning() {
+        lines.push(pad(text));
+    }
     if let Some(text) = workflow_line() {
         lines.push(pad(text));
     }
@@ -583,8 +588,12 @@ fn run_discard(store: &dyn LedgerStore, yes: bool, porcelain: bool) -> Result<()
                 .to_string(),
         );
     }
+    let kept = keep_session::capture(store);
     store.discard()?;
     println!("discarded");
+    for note in keep_session::restore(store, &kept) {
+        eprintln!("{}", note);
+    }
     Ok(())
 }
 

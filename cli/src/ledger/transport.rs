@@ -176,6 +176,17 @@ pub fn publish(
     let (args, output) = wt.output(["push", "--porcelain", location.remote(), refspec.as_str()])?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let custom = location.refs() == LedgerRefs::Custom;
+    if !output.status.success() {
+        if let Some(error) = super::private_email::refusal_error(
+            &wt,
+            location.ref_name(),
+            known_tip,
+            &stdout,
+            &output,
+        ) {
+            return Err(error);
+        }
+    }
     match parse_push_status(&stdout, location.ref_name()) {
         Some(status) if status.rejected() => {
             if custom && is_server_refusal(&status.summary) {

@@ -1847,6 +1847,7 @@ fn session_start_fetches_exports_the_path_and_prints_the_unbound_prompt() {
         wt.display()
     )));
     assert!(context.contains("`tsk ledger status`"));
+    assert!(context.contains("`tsk ledger scratch`"));
     assert!(!context.contains("index.md"));
     assert!(context.ends_with("run `tsk thread skip` instead."));
     assert!(context.contains("No thread binding was found for this session or worktree."));

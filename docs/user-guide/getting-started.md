@@ -34,7 +34,7 @@ tsk question list                    # open questions, all missions
 The commands that write records are `tsk mission`, `tsk task`, `tsk decision` and
 `tsk question`. Each changes the local ledger store only. `tsk ledger status` shows what
 is not pushed, `tsk ledger push` publishes it, and `tsk ledger discard --yes` drops it
-before the push.
+before the push. A discard keeps this session's thread binding and robot.
 
 **1. Fetch the ledger:**
 
@@ -69,8 +69,8 @@ every changed document). The script is the file `TSK_DOCS_HOOK` names, else
 else `.tsk/hooks/pre-docs-commit` in the repo. `tsk config docs-hook` prints which one
 applies. A non-zero exit stops the command and shows the script's output.
 After a failed `doc put` the document is written locally: correct it and put it again.
-`TSK_SKIP_DOC_CHECK=1` skips the hook. The hook is not a git hook: the git hooks of the
-code repo never run for the ledger. See [the ledger layout](../domain/ledger-layout.md#the-documents-hook-point).
+`TSK_SKIP_DOC_CHECK=1` skips the hook. The git hooks of the code repo never run for the
+ledger. See [the ledger layout](../domain/ledger-layout.md#the-documents-hook-point).
 It pushes the documents branch first and the Dolt data second, so a record never names a
 document the remote lacks. If the documents push fails, the Dolt data stays unpushed and
 the next `tsk ledger push` runs both again. `doc path` exits 1 when the document does not

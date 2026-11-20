@@ -389,6 +389,22 @@ fn move_ledger(
         ));
     }
 
+    let stale = crate::ledger::remote_move::stale_refs(&source_home.git(), &target)?;
+    if !stale.is_empty() {
+        let lines: Vec<String> = stale
+            .iter()
+            .map(|(name, sha)| format!("  {} at {}", name, short(sha)))
+            .collect();
+        let names: Vec<&str> = stale.iter().map(|(name, _)| name.as_str()).collect();
+        return Err(format!(
+            "error: the nexus holds refs of the id \"{}\" that an earlier layout or an unfinished move left, and nothing was copied:\n{}\nAn old layout name cannot sit beside {} in git, and a backup ref belongs to an unfinished move. Check that no ledger is held only there, remove them with the command below, then run tsk nexus move-ledger again (a host that protects branches may refuse the delete).\n{}",
+            entry.id,
+            lines.join("\n"),
+            target.ref_name(),
+            delete_remedy(target.remote(), &names.join(" "))
+        ));
+    }
+
     let pairs = [
         (source.clone(), target.clone()),
         (source.docs(), target.docs()),
@@ -396,6 +412,11 @@ fn move_ledger(
     // The copy goes through the bare clone of this clone's ledger home, never the code repo.
     let git = &source_home.git();
     let mut moved = Vec::new();
+    let mut to_copy: Vec<(
+        crate::ledger::location::LedgerLocation,
+        crate::ledger::location::LedgerLocation,
+        String,
+    )> = Vec::new();
     for (from, to) in &pairs {
         let tip = crate::ledger::store::dolt::remote_tip(git, from)?;
         let Some(tip) = tip else {
@@ -410,38 +431,52 @@ fn move_ledger(
         match crate::ledger::store::dolt::remote_tip(git, to)? {
             Some(held) if held == tip => {
                 moved.push(format!("{} already holds {}", to.ref_name(), short(&tip)));
-                continue;
             }
             Some(held) => {
                 return Err(format!(
-                    "error: the nexus already holds {} at {}, which is not origin's {} at {}; tsk does not overwrite a ledger",
+                    "error: the nexus already holds {} at {}, which is not origin's {} at {}; tsk does not overwrite a ledger. If the nexus copy is not needed, remove it.\n{}",
                     to.ref_name(),
                     short(&held),
                     from.ref_name(),
-                    short(&tip)
+                    short(&tip),
+                    delete_remedy(to.remote(), to.ref_name())
                 ))
             }
-            None => {}
+            None => to_copy.push((from.clone(), to.clone(), tip)),
         }
-        git.run(["fetch", "--quiet", from.remote(), from.ref_name()])?;
-        let refspec = format!("{}:{}", tip, to.ref_name());
-        git.run(["push", "--quiet", to.remote(), refspec.as_str()])
-            .map_err(|e| {
-                format!(
-                    "error: could not push {} to the nexus:\n{}",
-                    to.ref_name(),
-                    e.trim_start_matches("error: ")
-                )
-            })?;
-        moved.push(format!(
-            "copied {} {} to {} in the nexus",
-            from.ref_name(),
-            short(&tip),
-            to.ref_name()
-        ));
     }
 
-    let outcome = point_at_nexus(
+    for (from, _, _) in &to_copy {
+        git.run(["fetch", "--quiet", from.remote(), from.ref_name()])?;
+    }
+    if !to_copy.is_empty() {
+        let mut args: Vec<String> = vec!["push".into(), "--quiet".into(), "--atomic".into()];
+        args.push(to_copy[0].1.remote().to_string());
+        args.extend(
+            to_copy
+                .iter()
+                .map(|(_, to, tip)| format!("{}:{}", tip, to.ref_name())),
+        );
+        if let Err(e) = git.run(&args) {
+            let names: Vec<&str> = to_copy.iter().map(|(_, to, _)| to.ref_name()).collect();
+            return Err(format!(
+                "error: could not push {} to the nexus:\n{}\n{}",
+                names.join(" and "),
+                e.trim_start_matches("error: "),
+                undo_copy(git, &to_copy)
+            ));
+        }
+        for (from, to, tip) in &to_copy {
+            moved.push(format!(
+                "copied {} {} to {} in the nexus",
+                from.ref_name(),
+                short(tip),
+                to.ref_name()
+            ));
+        }
+    }
+
+    let pointed = point_at_nexus(
         &state_root,
         &nexus,
         &entry,
@@ -452,7 +487,23 @@ fn move_ledger(
         &mut || {
             eprintln!("note: the nexus's default branch moved before the push; fetching again and retrying once")
         },
-    )?;
+    );
+    let (outcome, push_warning) = match pointed {
+        Ok(outcome) => (outcome, None),
+        Err(e) => {
+            match crate::ledger::register::entry_holds_nexus_ledger(&state_root, &nexus, &entry.id)
+            {
+                Ok(true) => (
+                    Outcome::AlreadyRegistered {
+                        territory: String::new(),
+                        entry: serde_json::Value::Null,
+                    },
+                    Some(e),
+                ),
+                _ => return Err(format!("{}\n{}", e, undo_copy(git, &to_copy))),
+            }
+        }
+    };
     adopt_home(
         &repo,
         &state_root,
@@ -466,6 +517,14 @@ fn move_ledger(
 
     for line in &moved {
         println!("{}", line);
+    }
+    if let Some(warning) = push_warning {
+        eprintln!(
+            "warning: the push of {} reported an error, but the nexus already says the entry \"{}\" holds its ledger in the nexus, so the move completed and the copied refs stay:\n{}",
+            NEXUS_FILE,
+            entry.id,
+            warning.trim_start_matches("error: ")
+        );
     }
     match &outcome {
         Outcome::AlreadyRegistered { .. } => println!(
@@ -486,6 +545,55 @@ fn move_ledger(
         source.docs_ref_name()
     );
     Ok(())
+}
+
+fn delete_remedy(remote: &str, refs: &str) -> String {
+    format!(
+        "A person runs this in a terminal; the ledger guard blocks it for an agent, which must stop and report it:\n  git push {} --delete {}",
+        remote, refs
+    )
+}
+
+fn undo_copy(
+    git: &crate::ledger::git::Git,
+    copied: &[(
+        crate::ledger::location::LedgerLocation,
+        crate::ledger::location::LedgerLocation,
+        String,
+    )],
+) -> String {
+    if copied.is_empty() {
+        return "Nothing was copied to the nexus.".to_string();
+    }
+    let mut left = Vec::new();
+    let mut removed = 0;
+    for (_, to, tip) in copied {
+        match crate::ledger::store::dolt::remote_tip(git, to) {
+            Ok(None) => {}
+            Ok(Some(held)) if &held != tip => {}
+            _ => {
+                if git
+                    .run(["push", "--quiet", to.remote(), "--delete", to.ref_name()])
+                    .is_err()
+                {
+                    left.push(format!(
+                        "the nexus still holds {}.\n{}",
+                        to.ref_name(),
+                        delete_remedy(to.remote(), to.ref_name())
+                    ));
+                } else {
+                    removed += 1;
+                }
+            }
+        }
+    }
+    if !left.is_empty() {
+        left.join("\n")
+    } else if removed > 0 {
+        "The partial copy in the nexus is removed.".to_string()
+    } else {
+        "Nothing was copied to the nexus.".to_string()
+    }
 }
 
 /// The home of the repo's ledger in its repo becomes the home of the ledger in the nexus: the

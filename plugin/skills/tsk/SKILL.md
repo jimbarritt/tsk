@@ -9,7 +9,7 @@ tsk tracks missions and the threads that work them. The missions, their tasks, d
 and questions, the threads and their continuation state are in a **ledger**. They are
 records, typed rows in a Dolt database, written only through `tsk` commands. Free text
 (intelligence, research, reports) is Markdown documents on a second ref. The ledger is a
-Dolt database synced over a git ref on the managed repo's `origin` by default, cloned to a
+Dolt database synced over a git ref on the `origin` of the managed repo (the repository whose work tsk tracks) by default, cloned to a
 local ledger store (`ledger-db`) outside the repository. The ref contains a Dolt file remote (a
 directory of table files) transferred by `tsk` with plain `git fetch` and `git push`; a ledger
 made before 0.21.0 converts once with `tsk ledger migrate-transport`. A new ledger uses a custom ref,
@@ -35,7 +35,7 @@ To see the state of the work, run `tsk mission list` for the missions, `tsk miss
 <id> --json` for one mission in full, `tsk task list <id>`, `tsk decision list <id>` and
 `tsk question list`. There is no index document and no briefing document to read.
 
-A **binding** ties the current harness instance to a thread:
+A **binding** ties the current harness instance (a cloud session or a code worktree) to a thread:
 
 Every binding is one row of the ledger's `thread_bindings` table, keyed on the instance:
 
@@ -141,7 +141,7 @@ tsk ledger status [--local] [--porcelain]  print Local (what is not pushed) and 
 tsk ledger init --nexus|--repo [--prefix P] [--territory T [--territory-name N]] [--workflow main|pr]  create the ledger of a repo that has none, add the repo to the nexus when one is attached (with the territory name and the push workflow it is given), and push it
 tsk ledger not-used [--forget]           record that this repo works without tsk, so session start asks nothing and the stop guard blocks nothing: in the tsk field of its nexus entry when the attached nexus lists the repo, else in .git/tsk-not-used; run it only after the person says yes to remembering the choice; --forget removes the record
 tsk thread next                          print bound:<thread-id> for a bound session, else the robot-first question the Stop hook asks; run it on the first turn once the ledger is fetched. It lists the free robots first, then the busy ones: a robot is busy while it holds a thread, read from the ledger alone (ADR 0032). --open is accepted and ignored
-tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
+tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed, except this session's thread binding and robot; without --yes it only prints what it would drop and exits 1
 tsk ledger erase <commit>|--file <ref> [--yes]  remove a documents commit and every file it added or changed, or with --file every version of one file, from the whole documents history, and force-push it; without --yes it only prints what it would do and exits 1. Find the commit with tsk ledger doc log. Run it only when the person asks for it
 
 tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push (the claim)
@@ -251,9 +251,9 @@ A ledger at version 1 still keeps its documents in a Dolt table. Every command e
 Run `tsk ledger migrate-docs` once. It migrates the documents to `tsk/docs` and prints
 `migrated-docs:<count>`. `--dry-run` checks the move and pushes nothing.
 
-To see what is not pushed, run `tsk ledger status`. It prints two answers for a person:
+To see what is not pushed, run `tsk ledger status`. It prints a `Local` line for a person,
 `Local   nothing to push` or `Local   N changes not pushed` with a detail line per changed
-table or document, then `Origin` with `up to date`, `N data commits ... to fetch`, `... not
+table or document, then an `Origin` line with `up to date`, `N data commits ... to fetch`, `... not
 on origin`, `diverged: ...`, `not published yet` or `unknown`. It fetches the remote refs and
 changes nothing else. **An agent that parses the output uses `tsk ledger status --porcelain`**,
 which prints one tab-separated fact per line with no header: `data` and `docs` each `clean`
@@ -268,7 +268,9 @@ change; the porcelain form is stable.
 To undo work that is not pushed, such as a trial mission, run `tsk ledger discard`. It
 prints what it would drop (the `Local` block, or the porcelain lines with `--porcelain`) and exits 1. Run `tsk ledger discard --yes` to drop every local
 change in the data and the documents, including local commits that origin lacks, and
-reset both to origin's state. It prints `discarded`. It does not change thread bindings.
+reset both to origin's state. It prints `discarded`. It keeps this session's thread binding
+and robot, which it writes back when origin lacks them, so the Stop hook does not prompt for a
+robot and thread again.
 **Use `tsk ledger discard`, never `dolt reset`, `dolt clean` or `git reset` against the
 ledger.** Check `tsk ledger status` first: a discard cannot be undone.
 
@@ -284,7 +286,10 @@ ledger.** Check `tsk ledger status` first: a discard cannot be undone.
 - Do not pipe `tsk` output through `head`, `tail` or another command. The pipe hides the
   exit code. Run the command alone and read its exit code and its output. `--porcelain`
   and `--json` give a script the stable form.
-- An empty `list` prints one line on stderr and exits 0. It is not a failure.
+- An empty `list` prints one line on stderr and exits 0.
+- Put a sensitive or private input document (a transcript, a chat, a web page) in the folder
+  `tsk ledger scratch` prints, never in the code repo, in `tsk ledger doc put` or in a ledger
+  record. The folder is local, beside the ledger store, and `tsk` never pushes it.
 
 Outside a git repository the `ledger`, `mission`, `task`, `decision`, `question`,
 `thread` (except the `session-start` and `guard` hooks) and `events` commands stop with
@@ -370,7 +375,7 @@ and `mission set out-of-scope` fail. In `list <id> --json` both are arrays of
 
 Write freely, publish at four points. A record write (`tsk mission`, `tsk task`,
 `tsk decision`, `tsk question`, `tsk ledger doc put`) changes the local ledger store only
-and never pushes. Records go out at:
+and never pushes. Records are published at:
 
 1. thread start: the claim and the binding,
 2. thread pause: the hand-off,
@@ -396,8 +401,7 @@ reclaimed before the pause loses the records that were never published.
 A mission's tasks, decisions and open questions are data too. Record and change them only
 with these commands, and never write them as Markdown in a briefing or any other document.
 Every command changes the local store only and never pushes (see "When records are
-published"). Setting a task to `in-progress` to take it is a claim: run `tsk ledger push
-"Claim <mission> <task>"` straight after.
+published"), and a claim is pushed at once.
 
 ```
 tsk task add <mission> <description>          # prints the new ID, T-01 upward

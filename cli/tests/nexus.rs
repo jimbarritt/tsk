@@ -1411,10 +1411,215 @@ fn move_ledger_does_not_overwrite_a_different_ledger_in_the_nexus() {
     let moved = fx.tsk(&["nexus", "move-ledger", "--ledger-refs", "branches"]);
     assert!(!moved.status.success());
     assert!(
+        stderr(&moved).contains("tsk does not overwrite a ledger")
+            && stderr(&moved).contains("--delete"),
+        "{}",
+        stderr(&moved)
+    );
+    assert_eq!(
+        nexus_json(&fx)["territories"][0]["repos"][0]["ledger"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+fn move_ledger_does_not_leave_the_ledger_ref_when_the_docs_ref_conflicts() {
+    let fx = repo_ledger_seeded();
+    git(
+        &fx.managed(),
+        &[
+            "push",
+            "--quiet",
+            fx.nexus().to_str().unwrap(),
+            &format!("refs/heads/main:{}", NEXUS_DOCS_REF),
+        ],
+    );
+    let before = nexus_json(&fx);
+
+    let moved = fx.tsk(&["nexus", "move-ledger", "--ledger-refs", "branches"]);
+    assert!(!moved.status.success());
+    assert!(
         stderr(&moved).contains("tsk does not overwrite a ledger"),
         "{}",
         stderr(&moved)
     );
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    assert_eq!(nexus_json(&fx), before);
+}
+
+#[test]
+fn move_ledger_leaves_the_nexus_as_it_was_when_the_nexus_rejects_the_docs_ref() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = repo_ledger_seeded();
+    let hook = fx.nexus().join("hooks/pre-receive");
+    write(
+        &hook,
+        "#!/bin/sh\nwhile read old new ref; do\n  if [ \"$ref\" = \"refs/heads/ledgers/work-api/docs\" ]; then\n    echo rejected by the test hook >&2\n    exit 1\n  fi\ndone\n",
+    );
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let before = nexus_json(&fx);
+
+    let moved = fx.tsk(&["nexus", "move-ledger", "--ledger-refs", "branches"]);
+    assert!(!moved.status.success());
+    let err = stderr(&moved);
+    assert!(
+        err.contains(NEXUS_REF) && err.contains(NEXUS_DOCS_REF),
+        "{}",
+        err
+    );
+    assert!(err.contains("Nothing was copied"), "{}", err);
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_DOCS_REF));
+    assert_eq!(nexus_json(&fx), before);
+    assert_eq!(
+        stdout(&fx.tsk(&["ledger", "doc", "get", BRIEFING])),
+        "# Mission: example\n"
+    );
+}
+
+#[test]
+fn move_ledger_removes_the_copied_refs_when_registering_the_entry_fails() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = repo_ledger_seeded();
+    let hook = fx.nexus().join("hooks/pre-receive");
+    write(
+        &hook,
+        "#!/bin/sh\nwhile read old new ref; do\n  if [ \"$ref\" = \"refs/heads/main\" ]; then\n    echo rejected by the test hook >&2\n    exit 1\n  fi\ndone\n",
+    );
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let before = nexus_json(&fx);
+
+    let moved = fx.tsk(&["nexus", "move-ledger", "--ledger-refs", "branches"]);
+    assert!(!moved.status.success());
+    let err = stderr(&moved);
+    assert!(
+        err.contains("The partial copy in the nexus is removed"),
+        "{}",
+        err
+    );
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_DOCS_REF));
+    assert_eq!(nexus_json(&fx), before);
+}
+
+#[test]
+fn move_ledger_leaves_the_nexus_as_it_was_when_it_does_not_accept_an_atomic_push() {
+    let fx = repo_ledger_seeded();
+    git(&fx.nexus(), &["config", "receive.advertiseAtomic", "false"]);
+    let before = nexus_json(&fx);
+
+    let moved = fx.tsk(&["nexus", "move-ledger", "--ledger-refs", "branches"]);
+    assert!(!moved.status.success());
+    assert!(
+        stderr(&moved).contains("Nothing was copied"),
+        "{}",
+        stderr(&moved)
+    );
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_DOCS_REF));
+    assert_eq!(nexus_json(&fx), before);
+}
+
+#[test]
+fn move_ledger_completes_when_a_ref_already_holds_the_tip() {
+    let fx = repo_ledger_seeded();
+    let data = git_line(&fx.managed(), &["rev-parse", IN_REPO_REF]);
+    git(
+        &fx.managed(),
+        &[
+            "push",
+            "--quiet",
+            fx.nexus().to_str().unwrap(),
+            &format!("{}:{}", data, NEXUS_REF),
+        ],
+    );
+
+    let moved = fx.tsk(&["nexus", "move-ledger", "--ledger-refs", "branches"]);
+    assert_success(&moved);
+    assert!(
+        stdout(&moved).contains(&format!("{} already holds", NEXUS_REF)),
+        "{}",
+        stdout(&moved)
+    );
+    assert!(fx.ref_exists(&fx.nexus(), NEXUS_DOCS_REF));
+}
+
+#[test]
+fn move_ledger_stops_on_an_old_layout_data_ref_of_the_target_id() {
+    let fx = repo_ledger_seeded();
+    git(
+        &fx.managed(),
+        &[
+            "push",
+            "--quiet",
+            fx.nexus().to_str().unwrap(),
+            "refs/heads/main:refs/heads/ledgers/work-api",
+        ],
+    );
+
+    let moved = fx.tsk(&["nexus", "move-ledger", "--ledger-refs", "branches"]);
+    assert!(!moved.status.success());
+    let err = stderr(&moved);
+    assert!(err.contains("refs/heads/ledgers/work-api"), "{}", err);
+    assert!(err.contains("--delete"), "{}", err);
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_DOCS_REF));
+    assert_eq!(
+        nexus_json(&fx)["territories"][0]["repos"][0]["ledger"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+fn move_ledger_stops_on_an_old_layout_docs_ref_of_the_target_id() {
+    let fx = repo_ledger_seeded();
+    git(
+        &fx.managed(),
+        &[
+            "push",
+            "--quiet",
+            fx.nexus().to_str().unwrap(),
+            "refs/heads/main:refs/heads/ledgers/work-api-docs",
+        ],
+    );
+
+    let moved = fx.tsk(&["nexus", "move-ledger", "--ledger-refs", "branches"]);
+    assert!(!moved.status.success());
+    let err = stderr(&moved);
+    assert!(err.contains("refs/heads/ledgers/work-api-docs"), "{}", err);
+    assert!(err.contains("--delete"), "{}", err);
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_DOCS_REF));
+    assert_eq!(
+        nexus_json(&fx)["territories"][0]["repos"][0]["ledger"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+fn move_ledger_stops_on_a_backup_ref_of_the_target_id() {
+    let fx = repo_ledger_seeded();
+    git(
+        &fx.managed(),
+        &[
+            "push",
+            "--quiet",
+            fx.nexus().to_str().unwrap(),
+            "refs/heads/main:refs/heads/ledgers-backup/work-api/ledger",
+        ],
+    );
+
+    let moved = fx.tsk(&["nexus", "move-ledger", "--ledger-refs", "branches"]);
+    assert!(!moved.status.success());
+    let err = stderr(&moved);
+    assert!(
+        err.contains("refs/heads/ledgers-backup/work-api/ledger"),
+        "{}",
+        err
+    );
+    assert!(err.contains("--delete"), "{}", err);
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_DOCS_REF));
     assert_eq!(
         nexus_json(&fx)["territories"][0]["repos"][0]["ledger"],
         serde_json::Value::Null
