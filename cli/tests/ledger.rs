@@ -1184,3 +1184,171 @@ fn doc_commands_do_not_fetch_and_need_a_fetched_store() {
     assert!(stderr(&output).contains("Run tsk ledger fetch first"));
     assert!(!fx.clone_id_file().exists());
 }
+
+// --- erase ---
+
+/// The clone `work` pushes a secret document, then a commit that changes it again and adds
+/// a document to keep. Returns the commit that added the secret.
+fn push_secret_history(fx: &Fixture) -> String {
+    let docs = fx.fetch_docs();
+    write(&docs.join("secret.5ec4e700.md"), "secret\n");
+    assert_success(&fx.push("Add the secret"));
+    let secret = fx.origin_docs_sha();
+    write(&docs.join("secret.5ec4e700.md"), "secret, changed\n");
+    write(&docs.join("keep.6eed0001.md"), "keep\n");
+    assert_success(&fx.push("Change the secret, add a document to keep"));
+    secret
+}
+
+fn publisher(fx: &Fixture) -> PathBuf {
+    fx.root.path().join("publisher")
+}
+
+fn publisher_docs(fx: &Fixture) -> PathBuf {
+    common::ledger_home(&fx.state(), &publisher(fx)).join("docs")
+}
+
+#[test]
+fn erase_without_yes_prints_the_plan_and_changes_nothing() {
+    let fx = Fixture::with_ledger();
+    let secret = push_secret_history(&fx);
+    let before = fx.origin_docs_sha();
+
+    let output = fx.tsk(&["ledger", "erase", &secret]);
+
+    assert!(!output.status.success());
+    let out = stdout(&output);
+    assert!(
+        out.contains("removes from every commit: secret.5ec4e700.md"),
+        "stdout: {}\nstderr: {}",
+        out,
+        stderr(&output)
+    );
+    assert!(
+        stderr(&output).contains("Rerun with --yes"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fx.origin_docs_sha(), before);
+}
+
+#[test]
+fn erase_removes_the_commit_and_every_version_of_its_files_from_the_history() {
+    let fx = Fixture::with_ledger();
+    let secret = push_secret_history(&fx);
+
+    let output = fx.tsk(&["ledger", "erase", &secret, "--yes"]);
+
+    assert_success(&output);
+    let tip = fx.origin_docs_sha();
+    let commits = git(&fx.origin(), &["rev-list", DOCS_REF]);
+    assert!(
+        !commits.contains(&secret),
+        "the erased commit is still on the branch"
+    );
+    let touching = git(
+        &fx.origin(),
+        &["log", "--format=%H", DOCS_REF, "--", "secret.5ec4e700.md"],
+    );
+    assert_eq!(touching.trim(), "", "a commit still holds the secret file");
+    assert_eq!(
+        fx.origin_file(DOCS_REF, "keep.6eed0001.md").unwrap(),
+        "keep\n"
+    );
+    let marker = fx.origin_file(DOCS_REF, ".tsk-erased").unwrap();
+    assert!(marker.contains(&secret), "{}", marker);
+    assert!(
+        !git_output(
+            &fx.origin(),
+            &["cat-file", "-e", &format!("{}^{{commit}}", secret)]
+        )
+        .status
+        .success(),
+        "the erased commit is still an object in the local origin"
+    );
+    let docs = fx.fetch_docs();
+    assert_eq!(head(&docs), tip);
+    assert!(!docs.join("secret.5ec4e700.md").exists());
+    let listed = stdout(&fx.tsk(&["ledger", "doc", "list"]));
+    assert!(!listed.contains(".tsk-erased"), "{}", listed);
+}
+
+#[test]
+fn a_clone_that_holds_the_erased_commit_takes_the_new_history_at_its_next_fetch() {
+    let fx = Fixture::with_ledger();
+    let secret = push_secret_history(&fx);
+    assert_success(&fx.tsk_in(&publisher(&fx), &["ledger", "fetch"]));
+    assert!(is_ancestor(&publisher_docs(&fx), &secret, "HEAD"));
+
+    assert_success(&fx.tsk(&["ledger", "erase", &secret, "--yes"]));
+    let output = fx.tsk_in(&publisher(&fx), &["ledger", "fetch"]);
+
+    assert_success(&output);
+    assert!(
+        stderr(&output).contains("rewritten by tsk ledger erase"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(head(&publisher_docs(&fx)), fx.origin_docs_sha());
+}
+
+#[test]
+fn a_clone_with_local_work_on_the_erased_history_does_not_push_it_back() {
+    let fx = Fixture::with_ledger();
+    let secret = push_secret_history(&fx);
+    assert_success(&fx.tsk_in(&publisher(&fx), &["ledger", "fetch"]));
+    write(&publisher_docs(&fx).join("late.1a7e0001.md"), "late\n");
+
+    assert_success(&fx.tsk(&["ledger", "erase", &secret, "--yes"]));
+    let erased_tip = fx.origin_docs_sha();
+    let output = fx.tsk_in(&publisher(&fx), &["ledger", "push", "Late change"]);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("rewritten by tsk ledger erase"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fx.origin_docs_sha(), erased_tip);
+    let commits = git(&fx.origin(), &["rev-list", DOCS_REF]);
+    assert!(!commits.contains(&secret));
+}
+
+#[test]
+fn erase_refuses_while_document_changes_are_not_pushed() {
+    let fx = Fixture::with_ledger();
+    let secret = push_secret_history(&fx);
+    let docs = fx.fetch_docs();
+    write(&docs.join("draft.d4af0001.md"), "draft\n");
+    let before = fx.origin_docs_sha();
+
+    let output = fx.tsk(&["ledger", "erase", &secret, "--yes"]);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("not pushed"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(fx.origin_docs_sha(), before);
+}
+
+#[test]
+fn erase_refuses_the_first_commit_and_a_commit_outside_the_history() {
+    let fx = Fixture::with_ledger();
+    push_secret_history(&fx);
+    let first = git_line(&fx.origin(), &["rev-list", "--max-parents=0", DOCS_REF]);
+    let main = fx.origin_ref_sha("refs/heads/main");
+
+    let output = fx.tsk(&["ledger", "erase", &first, "--yes"]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("first commit"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = fx.tsk(&["ledger", "erase", &main, "--yes"]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("not"), "{}", stderr(&output));
+}

@@ -141,6 +141,7 @@ tsk ledger init --nexus|--repo [--prefix P] [--territory T [--territory-name N]]
 tsk ledger not-used [--forget]           record that this repo works without tsk, so session start asks nothing and the stop guard blocks nothing: in the tsk field of its nexus entry when the attached nexus lists the repo, else in .git/tsk-not-used; run it only after the person says yes to remembering the choice; --forget removes the record
 tsk thread next                          print bound:<thread-id> for a bound session, else the robot-first question the Stop hook asks; run it on the first turn once the ledger is fetched. It lists the free robots first, then the busy ones: a robot is busy while it holds a thread, read from the ledger alone (ADR 0032). --open is accepted and ignored
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
+tsk ledger erase <commit> [--yes]         remove a documents commit, and every file it added or changed, from the whole documents history, and force-push it; without --yes it only prints what it would do and exits 1. Run it only when the person asks for it
 
 tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push (the claim)
 tsk thread pause <thread-id> <task-id> <whats-next>                   append a continuation state entry, push, print the verification lines

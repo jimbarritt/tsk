@@ -82,6 +82,30 @@ pub fn push_worktree(
             }
 
             if !is_ancestor(&wt, remote_tip, "HEAD")? {
+                // A rebase onto a history rewritten by tsk ledger erase would replay the
+                // erased commit, so a clone that still holds it never rebases.
+                match super::erase::stale(&wt, remote_tip)? {
+                    super::erase::Stale::No => {}
+                    super::erase::Stale::ResetSafe { erased } => {
+                        eprintln!("{}", super::erase::replaced_note(location.label(), &erased));
+                        wt.run(["reset", "--hard", "--quiet", remote_tip.as_str()])?;
+                        return Ok(PushOutcome {
+                            location,
+                            path,
+                            committed,
+                            commit: remote_tip.clone(),
+                            result: PushResult::AlreadyOnRemote,
+                        });
+                    }
+                    super::erase::Stale::Blocked { erased, local } => {
+                        return Err(super::erase::blocked_message(
+                            location.label(),
+                            &erased,
+                            local,
+                            &path,
+                        ));
+                    }
+                }
                 rebase_onto(&wt, remote_tip, &location)?;
             }
         }

@@ -241,6 +241,15 @@ pub trait LedgerStore {
     /// kept outside the ledger alone.
     fn discard(&self) -> Result<(), String>;
 
+    /// Remove a commit of the documents branch, and every file it added or changed, from
+    /// the whole documents history (`tsk ledger erase`). Without `yes` it works out the
+    /// rewrite and returns its description with `false`, and pushes nothing. With `yes` it
+    /// force-pushes the rewritten branch and returns what it did with `true`.
+    fn erase(&self, commit: &str, yes: bool) -> Result<(Vec<String>, bool), String> {
+        let _ = (commit, yes);
+        Err("error: tsk ledger erase needs a Dolt ledger".to_string())
+    }
+
     /// Where the local store lives. Has no side effects. Fails when the store has no
     /// identity yet (no clone id).
     fn path(&self) -> Result<PathBuf, String>;

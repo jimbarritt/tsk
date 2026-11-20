@@ -2616,6 +2616,123 @@ impl LedgerStore for DoltStore {
         status::discard_worktree(&docs, docs_tip.as_deref())
     }
 
+    fn erase(&self, target: &str, yes: bool) -> Result<(Vec<String>, bool), String> {
+        use crate::ledger::erase;
+        let _lock = match self.hint() {
+            Some(db) => Some(clone_lock::take(&db)?),
+            None => None,
+        };
+        self.forget_checked();
+        self.forget_snapshot();
+        let db = self.db()?;
+        let location = self.repo.location(&self.state_root)?;
+        self.check_current(&db, &location)?;
+        let home = self.home_for(&location)?;
+        let docs = location.docs();
+        let wt = Git::new(&self.docs_tree()?.root);
+        let tip = self.sync_docs_tip(&location)?.ok_or_else(|| {
+            format!(
+                "error: {} holds no documents branch, so there is nothing to erase",
+                docs.label()
+            )
+        })?;
+        if !wt.run(["status", "--porcelain"])?.trim().is_empty() {
+            return Err(format!(
+                "error: {} holds document changes that are not pushed. Push them with tsk ledger push, or drop them with tsk ledger discard, then run tsk ledger erase again",
+                wt.dir().display()
+            ));
+        }
+        let head = wt.run_line(["rev-parse", "--verify", "HEAD^{commit}"])?;
+        if head != tip {
+            return Err(format!(
+                "error: the documents worktree is not at the tip of {} ({}). Run tsk ledger push or tsk ledger fetch so they match, then run tsk ledger erase again",
+                docs.ref_name(),
+                &tip[..tip.len().min(12)]
+            ));
+        }
+        let git = home.git();
+        let plan = erase::plan(&git, &tip, target)?;
+        let mut lines = plan.lines(&docs);
+        if !yes {
+            return Ok((lines, false));
+        }
+
+        let lease = format!("--force-with-lease={}:{}", docs.ref_name(), tip);
+        let refspec = format!("{}:{}", plan.new_tip, docs.ref_name());
+        let (args, output) = git.output([
+            "push",
+            "--porcelain",
+            lease.as_str(),
+            docs.remote(),
+            refspec.as_str(),
+        ])?;
+        if !output.status.success() {
+            return Err(format!(
+                "{}\n       Nothing changed on {}: the documents history is as it was",
+                crate::ledger::git::failure_message(&args, &output),
+                docs.label()
+            ));
+        }
+        wt.run(["reset", "--hard", "--quiet", plan.new_tip.as_str()])?;
+        self.note_docs_tip(&location, Some(plan.new_tip.as_str()));
+
+        lines.push(format!(
+            "erased {}: {} on {} is at {}",
+            &plan.commit[..plan.commit.len().min(12)],
+            docs.ref_name(),
+            docs.label(),
+            &plan.new_tip[..plan.new_tip.len().min(12)]
+        ));
+        if let Err(e) = erase::prune(&home.git_dir()) {
+            lines.push(format!(
+                "note: could not prune the old objects of {}: {}",
+                home.git_dir().display(),
+                e
+            ));
+        } else if erase::still_present(&home.git_dir(), &plan.commit) {
+            lines.push(format!(
+                "note: the erased commit is still an object in {}: another ref of the ledger clone reaches it",
+                home.git_dir().display()
+            ));
+        }
+        // An in-repo ledger names the code repo's remote, not its address.
+        let remote_url = self
+            .repo
+            .git
+            .run_line(["remote", "get-url", docs.remote()])
+            .unwrap_or_else(|_| docs.remote().to_string());
+        if let Some(dir) = erase::local_remote_dir(&remote_url) {
+            match erase::prune(&dir) {
+                Ok(()) if !erase::still_present(&dir, &plan.commit) => lines.push(format!(
+                    "pruned the erased commit from {}",
+                    dir.display()
+                )),
+                Ok(()) => lines.push(format!(
+                    "note: the erased commit is still an object in {}: another ref there reaches it",
+                    dir.display()
+                )),
+                Err(e) => lines.push(format!("note: could not prune {}: {}", dir.display(), e)),
+            }
+        } else {
+            lines.push(format!(
+                "note: {} may keep the old commits readable by their ids until it prunes them. On GitHub, ask GitHub Support to remove cached views",
+                docs.label()
+            ));
+        }
+        for purged in &plan.purged {
+            if let Some(id) = doc_id::id_of(&purged.path) {
+                lines.push(format!(
+                    "note: a mission that links document {} still names it: check tsk mission list <id> --json",
+                    id
+                ));
+            }
+        }
+        lines.push(
+            "note: a clone that has not fetched since keeps the old history, and so does a backup. A clone on this tsk or later replaces its copy at its next fetch or push; an older tsk can push the erased commit back, so update every clone".to_string(),
+        );
+        Ok((lines, true))
+    }
+
     fn path(&self) -> Result<PathBuf, String> {
         match self.peek_home() {
             Some(found) => Ok(found.db()),

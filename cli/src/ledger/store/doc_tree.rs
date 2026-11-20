@@ -263,7 +263,7 @@ impl DocTree {
             } else {
                 format!("{}/{}", rel, name)
             };
-            if name == ".git" {
+            if name == ".git" || (rel.is_empty() && name == crate::ledger::erase::MARKER) {
                 continue;
             }
             if entry.path().is_dir() {

@@ -5,6 +5,7 @@ pub mod doc_hook;
 pub mod doc_id;
 pub mod docs;
 pub mod dolt;
+pub mod erase;
 pub mod fetch;
 pub mod git;
 pub mod guard;
@@ -166,6 +167,19 @@ pub enum LedgerCommands {
             help = "Print the changes as tab-separated lines, the stable form for scripts, instead of the Local summary"
         )]
         porcelain: bool,
+    },
+    #[command(
+        about = "Remove a documents commit, and every file it added or changed, from the whole documents history, and force-push the rewritten branch; without --yes it prints what it would do and exits 1",
+        long_about = "Remove a documents commit, and every file it added or changed, from the whole documents history, and force-push the rewritten branch.\n\nEvery file the commit added or changed is removed from every commit of the documents branch, its earlier and later versions included, and the commit itself is dropped. A commit that becomes empty is dropped too. The rewritten branch gets a marker file, .tsk-erased, that names the erased commit, so a clone that still holds it replaces its copy at its next fetch or push, or stops when it holds local work. Erasing covers the documents only, not the Dolt data.\n\nThe documents worktree must be clean and at the remote tip. Without --yes the command prints the commits and files it would rewrite and exits 1."
+    )]
+    Erase {
+        #[arg(help = "The documents commit to erase, as a commit id")]
+        commit: String,
+        #[arg(
+            long,
+            help = "Rewrite and force-push now. Without it nothing changes and the plan is printed"
+        )]
+        yes: bool,
     },
     #[command(
         name = "migrate-docs",
@@ -419,6 +433,17 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             Ok(())
         }
         LedgerCommands::Discard { yes, porcelain } => run_discard(store.as_ref(), yes, porcelain),
+        LedgerCommands::Erase { commit, yes } => {
+            let (lines, done) = store.erase(&commit, yes)?;
+            for line in lines {
+                println!("{}", line);
+            }
+            if done {
+                Ok(())
+            } else {
+                Err("error: this would rewrite the documents history above and force-push it. Rerun with --yes to erase.".to_string())
+            }
+        }
         LedgerCommands::Doc { action } => run_doc(store.as_ref(), action),
         LedgerCommands::MigrateDocs { .. }
         | LedgerCommands::Init { .. }
