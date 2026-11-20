@@ -115,7 +115,9 @@ The command:
 2. Copies origin's ledger ref and documents ref, with their full history, to
    `ledgers/<repo-id>/ledger` and `ledgers/<repo-id>/docs` in the nexus, through the bare clone
    of the clone's ledger home. It stops when either ref in the nexus points at a different
-   commit, and skips a ref that points at the same one. It then renames the ledger home of the
+   commit, and skips a ref that points at the same one. It also stops, with the delete command,
+   when the nexus has an old layout name or a backup ref of the same id. It pushes both refs
+   in one atomic push, so the nexus is unchanged after a failed push. It then renames the ledger home of the
    repo to the home of the ledger in the nexus.
 3. Sets the repo's entry in `nexus.json` to `"ledger": "nexus"` with `ledger_refs` and the
    mission prefix, and adds the entry when the nexus has none.

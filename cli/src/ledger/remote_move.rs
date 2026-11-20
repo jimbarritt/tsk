@@ -187,6 +187,29 @@ fn list_refs(git: &Git, remote: &str, id: &str) -> Result<HashMap<String, String
         .collect())
 }
 
+pub(crate) fn stale_refs(
+    git: &Git,
+    target: &LedgerLocation,
+) -> Result<Vec<(String, String)>, String> {
+    let Some(id) = target.repo_id() else {
+        return Ok(Vec::new());
+    };
+    let held = list_refs(git, target.remote(), id)?;
+    let mut names: Vec<String> = Vec::new();
+    if let Some((data, docs)) = target.legacy_ref_names() {
+        names.extend([data, docs]);
+    }
+    if let Some((data, docs)) = target.backup_ref_names() {
+        names.extend([data, docs]);
+    }
+    let mut stale: Vec<(String, String)> = names
+        .into_iter()
+        .filter_map(|name| held.get(&name).map(|sha| (name, sha.clone())))
+        .collect();
+    stale.sort();
+    Ok(stale)
+}
+
 /// The layouts to use for this process, and the move when one is needed. `recorded` is the
 /// layout the local store was made for, when there is a store.
 ///

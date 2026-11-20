@@ -173,7 +173,7 @@ impl Fixture {
             .env("GIT_COMMITTER_EMAIL", "test@example.com")
             .env("HOME", self.home())
             .env("XDG_STATE_HOME", self.state())
-            .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
+            .env("TSK_DOLT_SERVER_IDLE_SECS", "60")
             .env("TSK_BACKGROUND_PUBLISH", "off")
             .env("XDG_CONFIG_HOME", self.home().join("config"))
             .env("TSK_HOME", self.home().join(".tsk"))
@@ -3619,6 +3619,47 @@ mod cases {
         ]
     }
 
+    pub fn discard_keeps_the_binding_and_the_robot_of_the_session() {
+        let fx = Fixture::with_briefing();
+        let a = fx.a();
+        let id = fx.started(&a, &["thread", "start", "M-CONF-01"]);
+        fx.ok(&a, &["thread", "detach"]);
+        fx.ok(&a, &["ledger", "push", "Publish the detach"]);
+        let ledger_before = fx.remote_ledger();
+
+        fx.ok(&a, &["actor", "register", "Robot Bee", "--kind", "robot"]);
+        fx.ok(&a, &["thread", "resume", &id]);
+        fx.ok(&a, &["mission", "create", "M-LOCAL", "Local only"]);
+
+        let discarded = fx.tsk(&a, &["ledger", "discard", "--yes"]);
+        assert_success(&discarded);
+        assert_eq!(stdout(&discarded), "discarded\n");
+        assert!(
+            stderr(&discarded).contains("kept this session's binding"),
+            "{}",
+            stderr(&discarded)
+        );
+        assert_eq!(fx.ok(&a, &["mission", "list", "--porcelain"]), "");
+        assert_eq!(
+            fx.ok(&a, &["thread", "binding", "--no-fetch"]),
+            format!("worktree:{}\nactor: Robot Bee\n", id)
+        );
+        assert_eq!(fx.guard_reason(&a, None), None);
+        assert_eq!(fx.remote_ledger(), ledger_before);
+    }
+
+    pub fn discard_skips_a_binding_to_a_thread_that_origin_lacks() {
+        let fx = Fixture::with_briefing();
+        let a = fx.a();
+        fx.ok(&a, &["ledger", "fetch"]);
+        let before = fx.guard_reason(&a, None);
+        assert!(before.is_some());
+        let discarded = fx.tsk(&a, &["ledger", "discard", "--yes"]);
+        assert_success(&discarded);
+        assert_eq!(stdout(&discarded), "discarded\n");
+        assert_eq!(fx.guard_reason(&a, None), before);
+    }
+
     pub fn status_and_discard_report_and_drop_local_changes() {
         let fx = Fixture::with_briefing();
         let (a, other) = (fx.a(), fx.b());
@@ -5236,6 +5277,8 @@ conformance!(
     thread_resume_reads_the_task_in_the_mission_its_entry_names,
     thread_next_asks_for_the_robot_first_then_names_the_binding,
     thread_commands_carry_local_record_and_document_changes_to_the_remote,
+    discard_keeps_the_binding_and_the_robot_of_the_session,
+    discard_skips_a_binding_to_a_thread_that_origin_lacks,
     status_and_discard_report_and_drop_local_changes,
     status_counts_commits_ahead_and_behind_origin,
     status_works_offline_and_discard_then_changes_nothing,

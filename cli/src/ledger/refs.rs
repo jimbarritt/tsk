@@ -516,6 +516,29 @@ pub fn default_mode() -> LedgerRefs {
     }
 }
 
+pub fn cloud_custom_warning(refs: LedgerRefs, source: RefsSource) -> Option<String> {
+    cloud_custom_warning_in(refs, source, in_cloud_session())
+}
+
+fn cloud_custom_warning_in(refs: LedgerRefs, source: RefsSource, in_cloud: bool) -> Option<String> {
+    (refs == LedgerRefs::Custom && in_cloud).then(|| {
+        let remedy = match source {
+            RefsSource::LedgerStore | RefsSource::Discovered => {
+                "Push the ledger from a machine outside the cloud, or move it with tsk nexus move-ledger.".to_string()
+            }
+            _ => format!(
+                "Before the first push, {}.",
+                how_to_set(source, LedgerRefs::Branches)
+            ),
+        };
+        format!(
+            "warning: this is a Claude Code cloud session, whose proxy refuses a push of a ref outside refs/heads/*, so a push of {} fails. {}",
+            LedgerRefs::Custom.ledger_ref(),
+            remedy
+        )
+    })
+}
+
 fn in_cloud_session() -> bool {
     crate::thread::session_start::is_remote()
 }
@@ -794,6 +817,32 @@ pub fn cannot_switch(held_ref: &str, held_where: &str, wanted: LedgerRefs) -> St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cloud_warning_needs_custom_refs_in_a_cloud_session() {
+        let custom = LedgerRefs::Custom;
+        assert!(
+            cloud_custom_warning_in(LedgerRefs::Branches, RefsSource::RepoConfig, true).is_none()
+        );
+        assert!(cloud_custom_warning_in(custom, RefsSource::RepoConfig, false).is_none());
+        let config = cloud_custom_warning_in(custom, RefsSource::RepoConfig, true).unwrap();
+        assert!(
+            config.contains("tsk config ledger-refs branches"),
+            "{}",
+            config
+        );
+        let env = cloud_custom_warning_in(custom, RefsSource::Env, true).unwrap();
+        assert!(env.contains(ENV_VAR), "{}", env);
+        let nexus = cloud_custom_warning_in(custom, RefsSource::Nexus, true).unwrap();
+        assert!(nexus.contains("nexus.json"), "{}", nexus);
+        let found = cloud_custom_warning_in(custom, RefsSource::Discovered, true).unwrap();
+        assert!(found.contains("outside the cloud"), "{}", found);
+        assert!(
+            !found.contains("tsk config ledger-refs branches"),
+            "{}",
+            found
+        );
+    }
 
     #[test]
     fn modes_parse_and_print() {

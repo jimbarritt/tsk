@@ -53,6 +53,15 @@ pub fn summary() -> Result<String, String> {
     ))
 }
 
+pub fn warning() -> Option<String> {
+    let repo = repo_here().ok()?;
+    let state_root = state_root_from_env().ok()?;
+    let config_file = crate::config::config_file_from_env();
+    let (_, choice, _) =
+        nexus::choose_or_unlisted(&repo, &state_root, config_file.as_deref()).ok()?;
+    refs::cloud_custom_warning(choice.refs, choice.source)
+}
+
 /// Write the repo config, and move a ledger store that was never published to the refs of
 /// the new mode. A ledger that origin holds cannot move.
 pub fn set(mode: LedgerRefs) -> Result<(), String> {

@@ -665,6 +665,31 @@ pub fn mark_nexus(
     add_entry(doc, entry, territory)
 }
 
+pub fn entry_holds_nexus_ledger(
+    state_root: &Path,
+    nexus_url: &str,
+    entry_id: &str,
+) -> Result<bool, String> {
+    let git = open_clone(state_root)?;
+    let branch = default_branch(&git, nexus_url)?;
+    let tip = remote_tip(&git, nexus_url, &branch)?;
+    let territory = TerritoryChoice {
+        id: None,
+        name: None,
+    };
+    let (doc, _) = read_nexus(&git, nexus_url, &branch, tip.as_deref(), &territory)?;
+    let held = doc["territories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["repos"].as_array())
+        .flatten()
+        .any(|repo| {
+            repo["id"].as_str() == Some(entry_id) && repo["ledger"].as_str() == Some("nexus")
+        });
+    Ok(held)
+}
+
 /// Fetch `nexus.json` from the nexus's default branch, apply `edit`, and push the result,
 /// fetching again and retrying when the branch moved.
 pub(super) fn update_nexus(

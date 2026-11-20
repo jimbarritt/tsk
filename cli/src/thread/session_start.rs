@@ -236,7 +236,7 @@ fn push_part(context: &mut String, part: &str) {
 pub const LOCAL_CHANGES_NOTE: &str = "The ledger store holds local changes that are not pushed (records or documents written since the last push). The refresh left them as they are. The next thread start, pause or stop pushes them with its own change, or run `tsk ledger push`.";
 
 /// Said at every session start, for an agent in any repo.
-pub const AGENT_RULES: &str = "Rules for the ledger: check it with `tsk ledger status`. Do not run `ls`, `find` or `git` against the ledger store. Do not pipe `tsk` output through `head` or `tail`: read its exit code.";
+pub const AGENT_RULES: &str = "Rules for the ledger: check it with `tsk ledger status`. Do not run `ls`, `find` or `git` against the ledger store. Do not pipe `tsk` output through `head` or `tail`: read its exit code. Put a sensitive or private input document (a transcript, a chat, a web page) in the folder `tsk ledger scratch` prints: it stays out of Dolt, the documents branch and git, and `tsk` never pushes it.";
 
 /// Said when the ledger holds mission records and the thread is not bound to one.
 pub const MISSION_LIST_HINT: &str = "Run `tsk mission list` to see the missions.";
@@ -749,7 +749,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.69";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.70";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {

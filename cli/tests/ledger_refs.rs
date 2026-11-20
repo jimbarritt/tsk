@@ -664,6 +664,45 @@ fn an_explicit_choice_in_a_cloud_session_is_kept() {
     assert!(stderr(&fetched).contains("origin's refs/tsk/ledger does not exist yet"));
 }
 
+#[test]
+fn status_warns_in_a_cloud_session_that_a_custom_ref_cannot_be_pushed() {
+    need_dolt!();
+    let fx = Fx::new();
+    let cloud = [("CLAUDE_CODE_REMOTE", "true")];
+    assert_success(&fx.tsk(&fx.work(), &["config", "ledger-refs", "custom"]));
+    assert_success(&fx.tsk_env(&fx.work(), &["ledger", "fetch"], &cloud));
+    let status = fx.tsk_env(&fx.work(), &["ledger", "status"], &cloud);
+    assert_success(&status);
+    assert!(
+        stdout(&status).contains("whose proxy refuses a push of a ref outside refs/heads/*")
+            && stdout(&status).contains("tsk config ledger-refs branches"),
+        "{}",
+        stdout(&status)
+    );
+    let local = fx.tsk(&fx.work(), &["ledger", "status"]);
+    assert_success(&local);
+    assert!(
+        !stdout(&local).contains("proxy refuses"),
+        "{}",
+        stdout(&local)
+    );
+}
+
+#[test]
+fn status_has_no_cloud_warning_for_the_cloud_default() {
+    need_dolt!();
+    let fx = Fx::new();
+    let cloud = [("CLAUDE_CODE_REMOTE", "true")];
+    assert_success(&fx.tsk_env(&fx.work(), &["ledger", "fetch"], &cloud));
+    let status = fx.tsk_env(&fx.work(), &["ledger", "status"], &cloud);
+    assert_success(&status);
+    assert!(
+        !stdout(&status).contains("proxy refuses"),
+        "{}",
+        stdout(&status)
+    );
+}
+
 // --- Mismatch -------------------------------------------------------------------------
 
 #[test]
