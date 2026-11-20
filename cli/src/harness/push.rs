@@ -129,6 +129,31 @@ pub fn unsaved_warning(lookup: Option<&NexusEntry>, workflow: PushWorkflow, why:
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitWorkflow {
+    Use(PushWorkflow),
+    Ask,
+    Skip,
+}
+
+pub fn init_workflow(
+    flag: Option<PushWorkflow>,
+    stored: Option<&str>,
+    terminal: bool,
+    nexus_attached: bool,
+) -> InitWorkflow {
+    if !nexus_attached {
+        return InitWorkflow::Skip;
+    }
+    if let Some(workflow) = flag {
+        return InitWorkflow::Use(workflow);
+    }
+    if stored.is_some() || !terminal {
+        return InitWorkflow::Skip;
+    }
+    InitWorkflow::Ask
+}
+
 pub fn render_question() -> Vec<String> {
     let rows = [
         (
@@ -284,5 +309,25 @@ mod tests {
         assert!(step(None, Some(PushWorkflow::PullRequest))
             .contains("create a branch named for the work"));
         assert!(step(None, None).contains("Ask me whether to push to main"));
+    }
+
+    #[test]
+    fn init_workflow_decides_between_use_ask_and_skip() {
+        let main = Some(PushWorkflow::Main);
+        assert_eq!(
+            init_workflow(main, None, false, true),
+            InitWorkflow::Use(PushWorkflow::Main)
+        );
+        assert_eq!(
+            init_workflow(main, Some("pull-request"), false, true),
+            InitWorkflow::Use(PushWorkflow::Main)
+        );
+        assert_eq!(init_workflow(main, None, true, false), InitWorkflow::Skip);
+        assert_eq!(init_workflow(None, None, true, true), InitWorkflow::Ask);
+        assert_eq!(init_workflow(None, None, false, true), InitWorkflow::Skip);
+        assert_eq!(
+            init_workflow(None, Some("main"), true, true),
+            InitWorkflow::Skip
+        );
     }
 }

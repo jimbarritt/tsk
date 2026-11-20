@@ -40,6 +40,17 @@ pub enum NexusCommands {
         url: String,
     },
     #[command(
+        about = "Create a bare git repo as a local nexus, by default ~/.local/share/tsk/nexus.git (XDG_DATA_HOME is honoured), and attach it. The folder above it is created at mode 700. A path that exists must be an empty folder or an empty bare repo. Replacing an attached nexus leaves its ledgers there"
+    )]
+    InitLocal {
+        #[arg(help = "Path of the nexus repo; defaults to nexus.git in the tsk data folder")]
+        path: Option<std::path::PathBuf>,
+        #[arg(long, help = "Do not ask before acting")]
+        yes: bool,
+        #[arg(long, help = "Attach the new nexus in place of the one attached now")]
+        replace: bool,
+    },
+    #[command(
         about = "Print the user config file path, the attached nexus URL, and the territories and repos its nexus.json lists"
     )]
     List {
@@ -182,6 +193,9 @@ pub fn run(action: NexusCommands) -> Result<(), String> {
     let file = config::required_config_file()?;
     match action {
         NexusCommands::Add { url } => config::attach_and_report(&file, &url),
+        NexusCommands::InitLocal { path, yes, replace } => {
+            crate::nexus_local::init_local(path, yes, replace)
+        }
         NexusCommands::List { json } => {
             let nexus = config::read_nexus_url(&file)?;
             let index = match &nexus {
@@ -555,19 +569,22 @@ pub fn register_for_init(
     config_file: &Path,
     id: Option<String>,
     territory: Option<String>,
+    territory_name: Option<String>,
     ledger: LedgerChoice,
     prefix: String,
+    workflow: Option<String>,
 ) -> Result<(), String> {
     let nexus = config::read_nexus_url(config_file)?
         .ok_or_else(|| "error: no nexus is attached; run tsk nexus add <url> first".to_string())?;
     let cwd = std::env::current_dir()
         .map_err(|e| format!("error: could not read the current directory: {}", e))?;
     let repo = Repo::discover(&cwd)?;
-    let entry = new_entry(&repo, id, ledger, None, false, prefix)?;
+    let mut entry = new_entry(&repo, id, ledger, None, false, prefix)?;
+    entry.workflow = workflow;
     let state_root = state_root_from_env()?;
     let territory = TerritoryChoice {
         id: territory,
-        name: None,
+        name: territory_name,
     };
     let outcome = register(&state_root, &nexus, &entry, &territory, &mut || {
         eprintln!("note: the nexus's default branch moved before the push; fetching again and retrying once")
@@ -664,6 +681,7 @@ fn new_entry(
         ledger: ledger.as_str().to_string(),
         ledger_refs,
         prefix: Some(prefix),
+        workflow: None,
     })
 }
 
@@ -869,6 +887,7 @@ mod tests {
             ledger: "nexus".to_string(),
             ledger_refs: None,
             prefix: None,
+            workflow: None,
         }
     }
 

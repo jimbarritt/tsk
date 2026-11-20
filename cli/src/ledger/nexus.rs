@@ -29,6 +29,16 @@ pub struct Entry {
     pub prefix: Option<String>,
     #[serde(default)]
     pub workflow: Option<String>,
+    #[serde(default)]
+    pub tsk: Option<String>,
+}
+
+pub const NOT_USED: &str = "not-used";
+
+impl Entry {
+    pub fn is_not_used(&self) -> bool {
+        self.tsk.as_deref() == Some(NOT_USED)
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -188,6 +198,42 @@ pub fn open_clone(state_root: &Path) -> Result<Git, String> {
     Ok(git)
 }
 
+pub fn cached_entry_not_used(repo: &Repo, state_root: &Path) -> bool {
+    let dir = nexus_clone_path(state_root);
+    if !dir.join("HEAD").is_file() {
+        return false;
+    }
+    let object = format!("{}:{}", TRACKING_REF, NEXUS_FILE);
+    let Ok(text) = Git::new(&dir).run(["show", object.as_str()]) else {
+        return false;
+    };
+    let Ok(index) = NexusIndex::parse(&text) else {
+        return false;
+    };
+    let (Ok(cached), Ok(origin)) = (repo.read_repo_id(), repo.raw_origin_url()) else {
+        return false;
+    };
+    select_entry(
+        &index,
+        cached.as_deref(),
+        origin.as_deref(),
+        machine_name().as_deref(),
+    )
+    .is_some_and(Entry::is_not_used)
+}
+
+pub fn marked_not_used(repo: &Repo) -> bool {
+    if repo.is_not_used() {
+        return true;
+    }
+    let attached = config::config_file_from_env()
+        .and_then(|file| config::read_nexus_url(&file).ok().flatten())
+        .is_some();
+    attached
+        && super::location::state_root_from_env()
+            .is_ok_and(|root| cached_entry_not_used(repo, &root))
+}
+
 pub fn load_index(state_root: &Path, nexus_url: &str) -> Result<NexusIndex, String> {
     let git = open_clone(state_root)?;
     let dir = git.dir().to_path_buf();
@@ -271,11 +317,27 @@ pub struct Placement {
     pub entry_marked: bool,
 }
 
+pub enum Placed {
+    Found(Placement),
+    Unlisted(String),
+}
+
 pub fn place(
     repo: &Repo,
     state_root: &Path,
     config_file: Option<&Path>,
 ) -> Result<Placement, String> {
+    match place_or_unlisted(repo, state_root, config_file)? {
+        Placed::Found(placement) => Ok(placement),
+        Placed::Unlisted(url) => Err(no_entry_error(&url)),
+    }
+}
+
+pub fn place_or_unlisted(
+    repo: &Repo,
+    state_root: &Path,
+    config_file: Option<&Path>,
+) -> Result<Placed, String> {
     let in_repo = || Placement {
         base: LedgerLocation::in_repo(),
         entry_refs: None,
@@ -286,7 +348,7 @@ pub fn place(
         None => None,
     };
     let Some(nexus_url) = nexus_url else {
-        return Ok(in_repo());
+        return Ok(Placed::Found(in_repo()));
     };
     let cached = repo.read_repo_id()?;
     let origin = repo.raw_origin_url()?;
@@ -301,15 +363,15 @@ pub fn place(
         // A repo the nexus does not list keeps a ledger it already has, in this clone or
         // on origin. With neither, nothing is created: tsk ledger init asks where.
         if has_local_store(repo, state_root)? || origin_holds_ledger(repo) == Some(true) {
-            return Ok(in_repo());
+            return Ok(Placed::Found(in_repo()));
         }
-        return Err(no_entry_error(&nexus_url));
+        return Ok(Placed::Unlisted(nexus_url));
     };
     let base = entry_location(entry, &nexus_url)?;
     if valid_repo_id(&entry.id) && cached.as_deref() != Some(entry.id.as_str()) {
         repo.write_repo_id(&entry.id)?;
     }
-    Ok(Placement {
+    Ok(Placed::Found(Placement {
         base,
         entry_refs: entry
             .ledger_refs
@@ -320,7 +382,7 @@ pub fn place(
             .as_deref()
             .and_then(refs::EntryRefs::parse)
             .is_some_and(|found| found.layout == RefLayout::V2),
-    })
+    }))
 }
 
 /// The id of another repo in the attached nexus that uses the mission prefix `prefix`, or
@@ -372,6 +434,29 @@ pub fn choose(
         None => refs::discover(repo, state_root, &placement.base),
     };
     Ok((placement, choice))
+}
+
+pub fn choose_or_unlisted(
+    repo: &Repo,
+    state_root: &Path,
+    config_file: Option<&Path>,
+) -> Result<(Placement, refs::RefsChoice, bool), String> {
+    let (placement, unlisted) = match place_or_unlisted(repo, state_root, config_file)? {
+        Placed::Found(placement) => (placement, false),
+        Placed::Unlisted(_) => (
+            Placement {
+                base: LedgerLocation::in_repo(),
+                entry_refs: None,
+                entry_marked: false,
+            },
+            true,
+        ),
+    };
+    let choice = match refs::configured(repo, placement.entry_refs.as_ref())? {
+        Some(choice) => choice,
+        None => refs::discover(repo, state_root, &placement.base),
+    };
+    Ok((placement, choice, unlisted))
 }
 
 pub fn resolve(
@@ -636,6 +721,7 @@ mod tests {
             ledger_refs: None,
             prefix: None,
             workflow: None,
+            tsk: None,
         };
         assert_eq!(
             entry_location(&repo, nexus).unwrap(),
@@ -660,6 +746,7 @@ mod tests {
             ledger_refs: None,
             prefix: None,
             workflow: None,
+            tsk: None,
         };
         assert!(entry_location(&entry, "n")
             .unwrap_err()

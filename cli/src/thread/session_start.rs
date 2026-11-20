@@ -749,7 +749,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.68";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.69";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -888,49 +888,74 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
     // Robot attribution (T-15, T-18): the signing set-up is written here, in the hook, before
     // the ledger fetch, so no tool call of the session reads the key and a failed fetch leaves
     // the set-up in place. The `default` identity removes an earlier set-up.
-    let session = Session::discover();
-    let signing = session
-        .as_ref()
+    let overridden = std::env::current_dir()
         .ok()
-        .map(crate::attribution::set_up_signing);
-    let mut context = session
-        .as_ref()
-        .map_err(|e| e.clone())
-        .and_then(|session| {
-            let signing = signing.as_ref().ok_or("error: no session")?;
-            context_after_fetch(session, signing, |session| {
-                // Record the session beside its harness instance (ADR 0029), after the
-                // refresh and before the reads, and give it the actors of the session it
-                // continues (ADR 0030). A failure here never fails the hook: the session
-                // still works, and has no row.
-                let _ =
-                    crate::sessions::ensure_recorded(session, format, hook_session_id.as_deref());
-                // A bound thread from an earlier session names its mission and robot on
-                // the tmux pane at once, and the new agent waits for input.
-                crate::tmux::sync_if_in_tmux(session);
-            })
-        })
-        .unwrap_or_else(|e| {
-            // In a cloud session the nexus cannot be read until the agent attaches it, so
-            // the failed fetch is expected: the context is the step, not a warning.
-            let hint = nexus_attach_hint(attached_nexus().as_deref(), is_remote())
-                .filter(|_| e.contains("could not fetch the nexus"));
-            let mut context = match &hint {
-                Some(hint) => hint.clone(),
-                None => failure_context(&e),
-            };
+        .and_then(|cwd| super::no_ledger::start_context(&cwd, is_remote()));
+    let session = if overridden.is_some() {
+        Err("this clone starts without a ledger".to_string())
+    } else {
+        Session::discover()
+    };
+    let signing = match session.as_ref() {
+        Ok(session) => Some(crate::attribution::set_up_signing(&session.repo)),
+        Err(_) if overridden.is_some() => std::env::current_dir()
+            .map_err(|e| format!("error: could not read the current directory: {}", e))
+            .and_then(|cwd| crate::ledger::location::Repo::discover(&cwd))
+            .ok()
+            .map(|repo| crate::attribution::set_up_signing(&repo)),
+        Err(_) => None,
+    };
+    let mut context = match overridden {
+        Some(mut context) => {
             if let Some(line) = signing.as_ref().and_then(signing_context) {
                 context.push(' ');
                 context.push_str(&line);
             }
-            if hint.is_none() {
-                if let Some(hint) = nexus_attach_hint(attached_nexus().as_deref(), is_remote()) {
-                    context.push(' ');
-                    context.push_str(&hint);
-                }
-            }
             context
-        });
+        }
+        None => session
+            .as_ref()
+            .map_err(|e| e.clone())
+            .and_then(|session| {
+                let signing = signing.as_ref().ok_or("error: no session")?;
+                context_after_fetch(session, signing, |session| {
+                    // Record the session beside its harness instance (ADR 0029), after the
+                    // refresh and before the reads, and give it the actors of the session it
+                    // continues (ADR 0030). A failure here never fails the hook: the session
+                    // still works, and has no row.
+                    let _ = crate::sessions::ensure_recorded(
+                        session,
+                        format,
+                        hook_session_id.as_deref(),
+                    );
+                    // A bound thread from an earlier session names its mission and robot on
+                    // the tmux pane at once, and the new agent waits for input.
+                    crate::tmux::sync_if_in_tmux(session);
+                })
+            })
+            .unwrap_or_else(|e| {
+                // In a cloud session the nexus cannot be read until the agent attaches it, so
+                // the failed fetch is expected: the context is the step, not a warning.
+                let hint = nexus_attach_hint(attached_nexus().as_deref(), is_remote())
+                    .filter(|_| e.contains("could not fetch the nexus"));
+                let mut context = match &hint {
+                    Some(hint) => hint.clone(),
+                    None => failure_context(&e),
+                };
+                if let Some(line) = signing.as_ref().and_then(signing_context) {
+                    context.push(' ');
+                    context.push_str(&line);
+                }
+                if hint.is_none() {
+                    if let Some(hint) = nexus_attach_hint(attached_nexus().as_deref(), is_remote())
+                    {
+                        context.push(' ');
+                        context.push_str(&hint);
+                    }
+                }
+                context
+            }),
+    };
     if let Ok(session) = &session {
         let urn = crate::sessions::current_urn(
             format,

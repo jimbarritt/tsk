@@ -26,7 +26,7 @@ use crate::thread::session::{worktree_actor, Session};
 use crate::thread::{binding, ops};
 
 mod names;
-mod push;
+pub(crate) mod push;
 mod state;
 
 use push::{PushSource, PushWorkflow};
@@ -582,7 +582,7 @@ pub fn parse_pick(answer: &str, count: usize, allow_new: bool) -> Option<Option<
     (1..=count).contains(&number).then(|| Some(number - 1))
 }
 
-fn read_answer(prompt: &str) -> Result<String, String> {
+pub(crate) fn read_answer(prompt: &str) -> Result<String, String> {
     print!("{} ", prompt);
     std::io::stdout()
         .flush()
@@ -598,7 +598,7 @@ fn read_answer(prompt: &str) -> Result<String, String> {
     Ok(line.trim().to_string())
 }
 
-fn ask_yes_no(prompt: &str) -> Result<bool, String> {
+pub(crate) fn ask_yes_no(prompt: &str) -> Result<bool, String> {
     loop {
         if let Some(answer) = parse_yes_no(&read_answer(prompt)?) {
             return Ok(answer);
@@ -1087,7 +1087,7 @@ fn choose_branch(
     }
 }
 
-fn ask_push() -> Result<PushWorkflow, String> {
+pub(crate) fn ask_push() -> Result<PushWorkflow, String> {
     for line in push::render_question() {
         println!("{}", line);
     }

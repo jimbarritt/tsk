@@ -119,6 +119,7 @@ impl Fixture {
             .env("XDG_STATE_HOME", self.root.path().join("state"))
             .env("TSK_DOLT_SERVER_IDLE_SECS", "3")
             .env("XDG_CONFIG_HOME", self.root.path().join("config"))
+            .env_remove("XDG_DATA_HOME")
             .env("TSK_MACHINE_NAME", "laptop")
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .output()
@@ -1110,4 +1111,234 @@ fn a_nexus_whose_head_names_a_branch_with_no_commit_is_read_from_main() {
 
     assert_success(&fx.edit(&["add-territory", "play"]));
     assert_eq!(fx.nexus_doc()["territories"][1]["id"], "play");
+}
+
+impl Fixture {
+    fn tsk_with_stdin(&self, args: &[&str], input: &str) -> Output {
+        use std::io::Write;
+        use std::process::Stdio;
+        let mut child = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
+            .args(args)
+            .current_dir(self.work())
+            .envs(git_env())
+            .env("HOME", self.root.path().join("home"))
+            .env("XDG_STATE_HOME", self.root.path().join("state"))
+            .env("XDG_CONFIG_HOME", self.root.path().join("config"))
+            .env_remove("XDG_DATA_HOME")
+            .env("TSK_MACHINE_NAME", "laptop")
+            .env("GIT_CEILING_DIRECTORIES", self.root.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        child.wait_with_output().unwrap()
+    }
+
+    fn local_path(&self) -> PathBuf {
+        self.root
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("fresh/nexus.git")
+    }
+}
+
+#[test]
+fn init_local_creates_a_bare_repo_and_attaches_it() {
+    let fx = Fixture::new();
+    let path = fx.local_path();
+    let output = fx.tsk(&["nexus", "init-local", path.to_str().unwrap(), "--yes"]);
+    assert_success(&output);
+    let text = stdout(&output);
+    let url = format!("file://{}", path.display());
+    assert!(text.starts_with("About to:"), "{}", text);
+    assert!(
+        text.contains(&format!("attached nexus {}", url)),
+        "{}",
+        text
+    );
+    assert_eq!(
+        git(&path, &["rev-parse", "--is-bare-repository"]).trim(),
+        "true"
+    );
+    assert_eq!(
+        git(&path, &["symbolic-ref", "HEAD"]).trim(),
+        "refs/heads/main"
+    );
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(path.parent().unwrap())
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o700);
+    assert!(stdout(&fx.tsk(&["nexus", "list"])).contains(&url));
+}
+
+#[test]
+fn init_local_defaults_to_the_data_folder() {
+    let fx = Fixture::new();
+    assert_success(&fx.tsk(&["nexus", "init-local", "--yes"]));
+    assert!(fx
+        .root
+        .path()
+        .join("home/.local/share/tsk/nexus.git/HEAD")
+        .exists());
+
+    let other = tempfile::tempdir().unwrap();
+    let output = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
+        .args(["nexus", "init-local", "--yes", "--replace"])
+        .current_dir(fx.work())
+        .envs(git_env())
+        .env("HOME", fx.root.path().join("home"))
+        .env("XDG_CONFIG_HOME", fx.root.path().join("config"))
+        .env("XDG_DATA_HOME", other.path())
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert!(other.path().join("tsk/nexus.git/HEAD").exists());
+}
+
+#[test]
+fn init_local_refuses_a_path_that_is_not_empty() {
+    let fx = Fixture::new();
+    let folder = fx.root.path().join("busy");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("note.txt"), "x").unwrap();
+    let file = fx.root.path().join("a-file");
+    std::fs::write(&file, "x").unwrap();
+    fx.write_nexus_json("{\"version\":1,\"territories\":[]}\n");
+
+    for path in [&folder, &file, &fx.nexus()] {
+        let output = fx.tsk(&["nexus", "init-local", path.to_str().unwrap(), "--yes"]);
+        assert_failure_mentioning(&output, &path.display().to_string());
+    }
+    assert!(!fx.config_file().exists());
+}
+
+#[test]
+fn init_local_replaces_an_attached_nexus_only_with_the_flag() {
+    let fx = Fixture::new();
+    fx.attach();
+    let path = fx.local_path();
+    let args = ["nexus", "init-local", path.to_str().unwrap(), "--yes"];
+    assert_failure_mentioning(&fx.tsk(&args), "--replace");
+    assert!(!path.exists());
+
+    let mut replace = args.to_vec();
+    replace.push("--replace");
+    let output = fx.tsk(&replace);
+    assert_success(&output);
+    assert!(
+        stdout(&output).contains("replaced nexus"),
+        "{}",
+        stdout(&output)
+    );
+
+    let again = fx.tsk(&args);
+    assert_success(&again);
+    assert_eq!(
+        stdout(&again),
+        format!("already set up: {} is the attached nexus\n", path.display())
+    );
+}
+
+#[test]
+fn init_local_asks_and_stops_on_no_or_without_input() {
+    let fx = Fixture::new();
+    let path = fx.local_path();
+    let args = ["nexus", "init-local", path.to_str().unwrap()];
+
+    let declined = fx.tsk_with_stdin(&args, "n\n");
+    assert_success(&declined);
+    assert!(stdout(&declined).contains("nothing changed"));
+    assert!(!path.exists());
+
+    let silent = fx.tsk_with_stdin(&args, "");
+    assert_failure_mentioning(&silent, "rerun with --yes");
+    assert!(!path.exists());
+
+    let accepted = fx.tsk_with_stdin(&args, "y\n");
+    assert_success(&accepted);
+    assert!(path.join("HEAD").exists());
+}
+
+#[test]
+fn a_repo_registers_in_a_local_nexus_made_by_init_local() {
+    let fx = Fixture::new();
+    let path = fx.local_path();
+    assert_success(&fx.tsk(&["nexus", "init-local", path.to_str().unwrap(), "--yes"]));
+    assert_success(&fx.register(&["--territory", "work"]));
+    let index = git(&path, &["show", "refs/heads/main:nexus.json"]);
+    assert!(index.contains("\"work-api\""), "{}", index);
+}
+
+#[test]
+fn init_local_is_idempotent_for_the_attached_nexus_even_when_it_holds_refs() {
+    let fx = Fixture::new();
+    let path = fx.local_path();
+    let args = ["nexus", "init-local", path.to_str().unwrap(), "--yes"];
+    assert_success(&fx.tsk(&args));
+    assert_success(&fx.register(&["--territory", "work"]));
+    let before = git(&path, &["rev-parse", "refs/heads/main"]);
+
+    let again = fx.tsk(&args);
+    assert_success(&again);
+    assert_eq!(
+        stdout(&again),
+        format!("already set up: {} is the attached nexus\n", path.display())
+    );
+    assert_eq!(git(&path, &["rev-parse", "refs/heads/main"]), before);
+}
+
+#[test]
+fn init_local_compares_a_path_after_resolving_dots_and_links() {
+    let fx = Fixture::new();
+    let path = fx.local_path();
+    let canonical = path.parent().unwrap();
+    assert_success(&fx.tsk(&["nexus", "init-local", path.to_str().unwrap(), "--yes"]));
+    let link = fx.root.path().join("link");
+    std::os::unix::fs::symlink(canonical, &link).unwrap();
+    let dotted = format!("{}/../fresh/nexus.git", canonical.display());
+    for text in [
+        format!("{}/nexus.git", link.display()),
+        dotted,
+        format!("{}/nexus.git/", link.display()),
+    ] {
+        let output = fx.tsk(&["nexus", "init-local", &text, "--yes"]);
+        assert_success(&output);
+        assert!(
+            stdout(&output).starts_with("already set up:"),
+            "{}: {}",
+            text,
+            stdout(&output)
+        );
+    }
+}
+
+#[test]
+fn init_local_sets_the_head_of_an_empty_bare_repo_to_main() {
+    let fx = Fixture::new();
+    let path = fx.root.path().join("empty.git");
+    git(
+        fx.root.path(),
+        &[
+            "init",
+            "--quiet",
+            "--bare",
+            "--initial-branch=master",
+            path.to_str().unwrap(),
+        ],
+    );
+    assert_success(&fx.tsk(&["nexus", "init-local", path.to_str().unwrap(), "--yes"]));
+    assert_eq!(
+        git(&path, &["symbolic-ref", "HEAD"]).trim(),
+        "refs/heads/main"
+    );
 }

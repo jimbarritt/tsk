@@ -253,6 +253,47 @@ pub fn set_repo(doc: &mut Value, repo_id: &str, fields: &RepoFields) -> Result<C
     )))
 }
 
+pub fn set_tsk(doc: &mut Value, repo_id: &str, value: Option<&str>) -> Result<Change, String> {
+    let (t, r) = find_repo(territories_mut(doc)?, repo_id)?;
+    let entry = territories_mut(doc)?[t]
+        .get_mut("repos")
+        .and_then(Value::as_array_mut)
+        .and_then(|repos| repos.get_mut(r))
+        .and_then(Value::as_object_mut)
+        .ok_or_else(invalid)?;
+    match value {
+        Some(value) => {
+            if entry.get("tsk").and_then(Value::as_str) == Some(value) {
+                return Ok(Change::Unchanged);
+            }
+            entry.insert("tsk".to_string(), json!(value));
+            Ok(Change::Done(format!("set {}: tsk {}", repo_id, value)))
+        }
+        None => match entry.remove("tsk") {
+            Some(_) => Ok(Change::Done(format!("set {}: tsk removed", repo_id))),
+            None => Ok(Change::Unchanged),
+        },
+    }
+}
+
+pub fn set_repo_tsk(
+    state_root: &Path,
+    nexus_url: &str,
+    repo_id: &str,
+    value: Option<&str>,
+    on_retry: &mut dyn FnMut(),
+) -> Result<Published, String> {
+    publish(
+        state_root,
+        nexus_url,
+        "tsk ledger not-used",
+        &format!("Set fields of {}", repo_id),
+        false,
+        on_retry,
+        &mut |doc| set_tsk(doc, repo_id, value),
+    )
+}
+
 pub fn move_repo(doc: &mut Value, repo_id: &str, territory_id: &str) -> Result<Change, String> {
     let territories = territories_mut(doc)?;
     let target = find_territory(territories, territory_id)?;

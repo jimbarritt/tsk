@@ -15,7 +15,12 @@ pub enum NexusState {
     /// The nexus could not be fetched, with the last line of the error.
     Unreachable(String),
     /// The nexus lists this repo: its id, and whether its ledger is in the nexus.
-    Entry { id: String, in_nexus: bool },
+    Entry {
+        id: String,
+        in_nexus: bool,
+        workflow: Option<String>,
+        not_used: bool,
+    },
     /// The nexus does not list this repo.
     NoEntry,
 }
@@ -85,6 +90,8 @@ pub fn report(dir: &Path, local: bool) -> Result<Option<Report>, String> {
                     Some(entry) => NexusState::Entry {
                         id: entry.id.clone(),
                         in_nexus: entry.ledger.as_deref() == Some("nexus"),
+                        workflow: entry.workflow.clone(),
+                        not_used: entry.is_not_used(),
                     },
                     None => NexusState::NoEntry,
                 }
@@ -158,14 +165,24 @@ impl Report {
             NexusState::Unreachable(reason) => {
                 format!("{}: cannot be fetched: {}", url, reason)
             }
-            NexusState::Entry { id, in_nexus: true } => {
-                format!("{}: entry {}, ledger in the nexus", url, id)
-            }
             NexusState::Entry {
                 id,
-                in_nexus: false,
+                in_nexus,
+                workflow,
+                not_used,
             } => {
-                format!("{}: entry {}, ledger in the repo", url, id)
+                format!(
+                    "{}: entry {}, ledger in the {}, workflow: {}{}",
+                    url,
+                    id,
+                    if *in_nexus { "nexus" } else { "repo" },
+                    workflow.as_deref().unwrap_or("not set"),
+                    if *not_used {
+                        ", marked as not under tsk"
+                    } else {
+                        ""
+                    }
+                )
             }
             NexusState::NoEntry => format!("{}: no entry for this repo", url),
         }
@@ -233,17 +250,25 @@ impl Report {
             self.nexus_url.as_deref().unwrap_or("-")
         ));
         let (state, entry) = match &self.nexus {
-            NexusState::None => ("none", None),
-            NexusState::Unreachable(_) => ("unreachable", None),
-            NexusState::Entry { id, in_nexus } => (
+            NexusState::None => ("none", Vec::new()),
+            NexusState::Unreachable(_) => ("unreachable", Vec::new()),
+            NexusState::Entry {
+                id,
+                in_nexus,
+                workflow,
+                ..
+            } => (
                 "entry",
-                Some(format!(
-                    "entry\t{}\t{}",
-                    id,
-                    if *in_nexus { "nexus" } else { "repo" }
-                )),
+                vec![
+                    format!(
+                        "entry\t{}\t{}",
+                        id,
+                        if *in_nexus { "nexus" } else { "repo" }
+                    ),
+                    format!("workflow\t{}", workflow.as_deref().unwrap_or("-")),
+                ],
             ),
-            NexusState::NoEntry => ("no-entry", None),
+            NexusState::NoEntry => ("no-entry", Vec::new()),
         };
         lines.push(format!("nexus-state\t{}", state));
         lines.extend(entry);
@@ -316,6 +341,8 @@ mod tests {
             NexusState::Entry {
                 id: "tsk".into(),
                 in_nexus: true,
+                workflow: Some("main".into()),
+                not_used: false,
             },
             None,
             true,
@@ -328,9 +355,30 @@ mod tests {
                 "nexus\thttps://github.com/acme/nexus",
                 "nexus-state\tentry",
                 "entry\ttsk\tnexus",
+                "workflow\tmain",
                 "next\tfetch"
             ]
         );
+    }
+
+    #[test]
+    fn an_entry_with_no_workflow_prints_a_dash_and_says_so_in_the_text() {
+        let r = report(
+            NexusState::Entry {
+                id: "tsk".into(),
+                in_nexus: true,
+                workflow: None,
+                not_used: true,
+            },
+            None,
+            true,
+        );
+        assert!(r
+            .porcelain_lines(false)
+            .contains(&"workflow\t-".to_string()));
+        let text = r.human_lines(false).join("\n");
+        assert!(text.contains("workflow: not set"), "{}", text);
+        assert!(text.contains("marked as not under tsk"), "{}", text);
     }
 
     #[test]

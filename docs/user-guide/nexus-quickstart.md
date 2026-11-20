@@ -45,7 +45,18 @@ tsk ledger init --nexus --prefix <PREFIX>
    `M-<PREFIX>-NAME`. The command checks it against the other repos in the nexus, adds the
    repo to `nexus.json` with `"ledger": "nexus"`, creates the ledger and pushes it.
 4. Add `--territory <id>` for the first repo of a new nexus, which creates `nexus.json` and
-   the territory, and whenever the nexus has more than one territory.
+   the territory, and whenever the nexus has more than one territory. `--territory-name
+   <name>` names a territory that the command creates.
+5. `--workflow main` or `--workflow pr` saves the push workflow in the repo's entry. On a
+   terminal the command prompts for the workflow when the entry has none. For an entry that
+   exists, the command writes the workflow after it creates and pushes the ledger, so the
+   entry stays as it was after a failed init. For a repo with no entry, the entry and the workflow are one commit
+   that precedes the ledger.
+6. With `[attribution] identity` set to `robot`, the command registers the robot of the
+   session in the new ledger and sets the mission prefix before its first commit. The
+   command reads the robot name from the `tsk-robot-name` file in the git directory of the
+   worktree, or from the session environment. With no name it stops before it changes anything, and names
+   `tsk actor register "<name>" --kind robot` and the `/tsk:construct-robot` skill.
 
 In Claude Code, the `/tsk:init-ledger` skill runs the same steps, with a prompt for where the ledger
 goes. See [session-start.md](session-start.md#a-repo-with-no-ledger).
@@ -85,8 +96,7 @@ A cloud session finds the ledger only when both of these are set up:
 
 A new cloud session has only the opened repo attached, so the fetch of the nexus at
 session start fails. On the first turn the agent attaches the nexus with the `add_repo`
-tool, which `--nexus` pre-approves, and runs `tsk ledger fetch`. It does not clone the
-nexus: `tsk` fetches it. See [session-start.md](session-start.md#a-cloud-session).
+tool, which `--nexus` pre-approves, and runs `tsk ledger fetch`, which fetches the nexus. See [session-start.md](session-start.md#a-cloud-session).
 
 ## Copy an existing ledger to the nexus
 
@@ -113,7 +123,7 @@ The command:
 
 The clone that ran the command, and every other clone after its next `tsk ledger fetch`,
 reads and writes the ledger in the nexus. The old refs and their history stay readable on
-origin until you delete them. Delete them once every clone has fetched. A Claude Code cloud
+origin until you delete them. Delete them after every clone runs `tsk ledger fetch`. A Claude Code cloud
 session cannot delete a branch: run the delete from a local clone.
 
 ## Edit nexus.json

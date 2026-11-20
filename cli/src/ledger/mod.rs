@@ -130,6 +130,27 @@ pub enum LedgerCommands {
             help = "Territory of the nexus entry; required when the nexus has more than one"
         )]
         territory: Option<String>,
+        #[arg(
+            long,
+            value_name = "NAME",
+            requires = "territory",
+            help = "Name of a territory the command creates; defaults to its id. An existing territory keeps its name"
+        )]
+        territory_name: Option<String>,
+        #[arg(
+            long,
+            value_name = "WORKFLOW",
+            value_parser = crate::harness::push::parse_flag,
+            help = "Push workflow of the repo, main or pr, written to the workflow field of its nexus entry. Without it the command asks on a terminal and saves nothing elsewhere"
+        )]
+        workflow: Option<crate::harness::push::PushWorkflow>,
+    },
+    #[command(
+        about = "Record that this repo works without tsk: in the tsk field of its nexus entry when the attached nexus lists the repo, else in .git/tsk-not-used of the clone. Session start then asks no question and the stop guard blocks nothing. --forget removes the record from both places. tsk ledger init removes the file too"
+    )]
+    NotUsed {
+        #[arg(long, help = "Remove the record")]
+        forget: bool,
     },
     #[command(
         about = "Drop every local change that is not pushed, in the data and the documents, and reset both to origin's state; without --yes it prints what it would drop and exits 1"
@@ -269,13 +290,33 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
         prefix,
         id,
         territory,
+        territory_name,
+        workflow,
         ..
     } = action
     {
-        return run_init(&cwd, nexus, prefix, id, territory);
+        return run_init(
+            &cwd,
+            nexus,
+            InitArgs {
+                prefix,
+                id,
+                territory,
+                territory_name,
+                workflow,
+            },
+        );
+    }
+    if let LedgerCommands::NotUsed { forget } = action {
+        return run_not_used(&cwd, forget);
     }
     if let LedgerCommands::Status { porcelain, local } = action {
         if let Some(report) = absent::report(&cwd, local)? {
+            if !porcelain
+                && location::Repo::discover(&cwd).is_ok_and(|repo| nexus::marked_not_used(&repo))
+            {
+                println!("Local   marked as not under tsk: tsk ledger not-used --forget removes the mark");
+            }
             let lines = if porcelain {
                 report.porcelain_lines(local)
             } else {
@@ -359,6 +400,11 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             for line in lines {
                 println!("{}", line);
             }
+            if porcelain {
+                if let Some(value) = workflow_value() {
+                    println!("workflow\t{}", value.as_deref().unwrap_or("-"));
+                }
+            }
             if !porcelain {
                 if let Ok(path) = store.path() {
                     println!("{}", server_line(&path));
@@ -378,6 +424,7 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
         | LedgerCommands::Init { .. }
         | LedgerCommands::MigrateTransport
         | LedgerCommands::Guard { .. }
+        | LedgerCommands::NotUsed { .. }
         | LedgerCommands::BackgroundPushRun { .. }
         | LedgerCommands::Server { .. } => {
             unreachable!("handled before the store opens")
@@ -396,6 +443,9 @@ fn ledger_block(store: &dyn LedgerStore) -> Vec<String> {
         Err(_) => return lines,
     }
     if let Ok(text) = refs_cmd::summary() {
+        lines.push(pad(text));
+    }
+    if let Some(text) = workflow_line() {
         lines.push(pad(text));
     }
     // A move of the nexus refs to the new names that did not finish (ADR 0035).
@@ -586,16 +636,104 @@ pub fn push_reporting(store: &dyn LedgerStore, message: &str) -> Result<PushRepo
     Ok(report)
 }
 
-/// `tsk ledger init`: create the ledger where the person chose, after the checks that
-/// `tsk ledger status` reports, and push it.
-fn run_init(
-    cwd: &std::path::Path,
-    want_nexus: bool,
+fn entry_prefix(cwd: &std::path::Path, url: &str) -> Option<String> {
+    let repo = location::Repo::discover(cwd).ok()?;
+    let root = location::state_root_from_env().ok()?;
+    let index = nexus::load_index(&root, url).ok()?;
+    let cached = repo.read_repo_id().ok()?;
+    let origin = repo.raw_origin_url().ok()?;
+    nexus::select_entry(
+        &index,
+        cached.as_deref(),
+        origin.as_deref(),
+        nexus::machine_name().as_deref(),
+    )?
+    .prefix
+    .clone()
+}
+
+fn nexus_entry_of(repo: &location::Repo) -> Option<(String, String)> {
+    let file = crate::config::config_file_from_env()?;
+    let url = crate::config::read_nexus_url(&file).ok().flatten()?;
+    let root = location::state_root_from_env().ok()?;
+    let index = nexus::load_index(&root, &url).ok()?;
+    let cached = repo.read_repo_id().ok()?;
+    let origin = repo.raw_origin_url().ok()?;
+    let entry = nexus::select_entry(
+        &index,
+        cached.as_deref(),
+        origin.as_deref(),
+        nexus::machine_name().as_deref(),
+    )?;
+    Some((url, entry.id.clone()))
+}
+
+fn set_entry_not_used(url: &str, id: &str, value: Option<&str>) -> Result<bool, String> {
+    let root = location::state_root_from_env()?;
+    let published = nexus_edit::set_repo_tsk(&root, url, id, value, &mut || {})?;
+    Ok(matches!(published, nexus_edit::Published::Changed { .. }))
+}
+
+fn run_not_used(cwd: &std::path::Path, forget: bool) -> Result<(), String> {
+    let repo = location::Repo::discover(cwd)?;
+    let entry = nexus_entry_of(&repo);
+    if forget {
+        let mut removed = Vec::new();
+        if let Some((url, id)) = &entry {
+            if set_entry_not_used(url, id, None)? {
+                removed.push(format!("the tsk field of the nexus entry {}", id));
+            }
+        }
+        if repo.clear_not_used()? {
+            removed.push(repo.not_used_file().display().to_string());
+        }
+        if removed.is_empty() {
+            println!("nothing to remove: this clone is not marked as not under tsk");
+        } else {
+            println!("removed {}", removed.join(" and "));
+        }
+        return Ok(());
+    }
+    match entry {
+        Some((url, id)) => {
+            set_entry_not_used(&url, &id, Some(nexus::NOT_USED))?;
+            println!(
+                "wrote tsk: not-used to the nexus entry {}: this repo works without tsk on every machine. To undo: tsk ledger not-used --forget",
+                id
+            );
+        }
+        None => {
+            repo.write_not_used()?;
+            println!(
+                "wrote {}: this clone works without tsk. To undo: tsk ledger not-used --forget",
+                repo.not_used_file().display()
+            );
+        }
+    }
+    Ok(())
+}
+
+struct InitArgs {
     prefix: Option<String>,
     id: Option<String>,
     territory: Option<String>,
-) -> Result<(), String> {
+    territory_name: Option<String>,
+    workflow: Option<crate::harness::push::PushWorkflow>,
+}
+
+/// `tsk ledger init`: create the ledger where the person chose, after the checks that
+/// `tsk ledger status` reports, and push it.
+fn run_init(cwd: &std::path::Path, want_nexus: bool, args: InitArgs) -> Result<(), String> {
+    use crate::harness::push::{self, InitWorkflow};
     use absent::{Next, NexusState};
+    use std::io::IsTerminal;
+    let InitArgs {
+        prefix,
+        id,
+        territory,
+        territory_name,
+        workflow,
+    } = args;
     let report = absent::report(cwd, false)?.ok_or_else(|| {
         "error: this clone holds a ledger already; tsk ledger status shows it".to_string()
     })?;
@@ -618,9 +756,11 @@ fn run_init(
             "error: no nexus is attached; run tsk nexus add <url> first, or use --repo".to_string(),
         );
     }
+    let robot = crate::attribution::robot_for_init()?;
     if let Some(prefix) = &prefix {
         crate::mission::prefix::check_nexus(prefix)?;
     }
+    let mut pending_workflow = None;
     match &report.nexus {
         NexusState::NoEntry => {
             let prefix = prefix.clone().ok_or_else(|| {
@@ -633,7 +773,21 @@ fn run_init(
             };
             let file = crate::config::config_file_from_env()
                 .ok_or_else(|| "error: could not locate the user config file".to_string())?;
-            crate::nexus_cmd::register_for_init(&file, id, territory, choice, prefix)?;
+            let chosen =
+                match push::init_workflow(workflow, None, std::io::stdin().is_terminal(), true) {
+                    InitWorkflow::Use(chosen) => Some(chosen),
+                    InitWorkflow::Ask => Some(crate::harness::ask_push()?),
+                    InitWorkflow::Skip => None,
+                };
+            crate::nexus_cmd::register_for_init(
+                &file,
+                id,
+                territory,
+                territory_name,
+                choice,
+                prefix,
+                chosen.map(|w| w.as_str().to_string()),
+            )?;
         }
         NexusState::Entry { in_nexus, .. } if *in_nexus != want_nexus => {
             return Err(format!(
@@ -642,18 +796,118 @@ fn run_init(
                 if *in_nexus { "nexus" } else { "repo" }
             ));
         }
+        NexusState::Entry {
+            id: entry_id,
+            workflow: stored,
+            ..
+        } => {
+            let chosen = match push::init_workflow(
+                workflow,
+                stored.as_deref(),
+                std::io::stdin().is_terminal(),
+                true,
+            ) {
+                InitWorkflow::Use(chosen) => Some(chosen),
+                InitWorkflow::Ask => Some(crate::harness::ask_push()?),
+                InitWorkflow::Skip => None,
+            };
+            pending_workflow = match (chosen, &report.nexus_url) {
+                (Some(chosen), Some(url)) => Some((url.clone(), entry_id.clone(), chosen)),
+                _ => None,
+            };
+        }
         _ => {}
     }
+    if workflow.is_some() && report.nexus_url.is_none() {
+        eprintln!("note: the workflow was not saved: no nexus is attached");
+    }
+    let prefix = match (prefix, &report.nexus, &report.nexus_url) {
+        (Some(prefix), _, _) => Some(prefix),
+        (None, NexusState::Entry { .. }, Some(url)) => entry_prefix(cwd, url),
+        _ => None,
+    };
     let store = store::open(cwd)?;
     let outcome = report_refresh(store.refresh_for_fetch()?);
     ensure_scratch(&outcome.path)?;
+    if let Some(name) = &robot {
+        register_init_robot(cwd, store.as_ref(), name)?;
+    }
     if let Some(prefix) = &prefix {
         store.set_mission_prefix(prefix)?;
     }
     let pushed = push_reporting(store.as_ref(), "Create the ledger")?;
+    if let Some((url, entry_id, chosen)) = pending_workflow {
+        save_init_workflow(&url, &entry_id, chosen);
+    }
+    if let Ok(repo) = location::Repo::discover(cwd) {
+        let _ = repo.clear_not_used();
+    }
     eprintln!("{}", pushed.head);
     println!("{}", outcome.path.display());
     Ok(())
+}
+
+fn register_init_robot(
+    cwd: &std::path::Path,
+    store: &dyn LedgerStore,
+    name: &str,
+) -> Result<(), String> {
+    let session = crate::thread::session::Session::discover_in(cwd)?;
+    let (instance, instance_kind) = session.actor_key()?.ok_or_else(|| {
+        "error: this clone has no clone ID, so the robot cannot be registered".to_string()
+    })?;
+    let urn = session.session_urn();
+    crate::actor::register(
+        store,
+        &instance,
+        instance_kind,
+        urn.as_deref(),
+        name,
+        store::ActorKind::Robot,
+        &crate::thread::clock::utc_now(),
+    )?;
+    eprintln!("registered the robot {} for this session", name);
+    Ok(())
+}
+
+fn workflow_value() -> Option<Option<String>> {
+    let cwd = std::env::current_dir().ok()?;
+    let repo = location::Repo::discover(&cwd).ok()?;
+    let root = location::state_root_from_env().ok()?;
+    let config_file = crate::config::config_file_from_env();
+    let lookup =
+        crate::harness::push::nexus_lookup(&repo, &root, config_file.as_deref()).ok()??;
+    lookup.repo_id.as_ref()?;
+    Some(lookup.workflow)
+}
+
+fn workflow_line() -> Option<String> {
+    workflow_value().map(|value| format!("workflow: {}", value.as_deref().unwrap_or("not set")))
+}
+
+fn save_init_workflow(url: &str, repo_id: &str, workflow: crate::harness::push::PushWorkflow) {
+    let saved = match location::state_root_from_env() {
+        Ok(root) => {
+            nexus_edit::set_repo_workflow(&root, url, repo_id, workflow.as_str(), &mut || {})
+        }
+        Err(e) => Err(e),
+    };
+    match saved {
+        Ok(_) => eprintln!(
+            "saved the workflow {} to the nexus entry {}",
+            workflow.as_str(),
+            repo_id
+        ),
+        Err(e) => {
+            let why = e.trim_start_matches("error: ").lines().next().unwrap_or("");
+            eprintln!(
+                "warning: the workflow was not saved ({}). Save it with: tsk nexus set-repo {} --workflow {}",
+                why,
+                repo_id,
+                workflow.as_str()
+            );
+        }
+    }
 }
 
 pub(crate) fn retry_note(attempt: usize, status: &push::PushStatus) -> String {

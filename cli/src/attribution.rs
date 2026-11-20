@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::actor::{self, Current};
+use crate::ledger::location::Repo;
 use crate::ledger::refs;
 use crate::ledger::store::ActorKind;
 use crate::thread::session::Session;
@@ -648,12 +649,13 @@ const ROBOT_KEYS: [&str; 9] = [
     "tsk.supervised",
 ];
 
+const SIGNING_NOT_WRITTEN: &str = "error: [attribution] identity is robot and the signing set-up is not written: run tsk thread session-start before a ledger write";
 const ROBOT_NAME_FILE: &str = "tsk-robot-name";
 
 pub const SESSION_VAR: &str = "TSK_SESSION";
 
-fn current_settings(session: &Session) -> Result<Settings, String> {
-    let repo_file = refs::repo_config_path(&session.repo);
+fn current_settings(repo: &Repo) -> Result<Settings, String> {
+    let repo_file = refs::repo_config_path(repo);
     let user_file = crate::config::config_file_from_env();
     settings(repo_file.as_deref(), user_file.as_deref())
 }
@@ -665,14 +667,14 @@ fn missing_email() -> String {
     )
 }
 
-pub fn set_up_signing(session: &Session) -> Result<Signing, String> {
-    let cleaned = remove_leftover_config(session)?;
-    let settings = current_settings(session)?;
+pub fn set_up_signing(repo: &Repo) -> Result<Signing, String> {
+    let cleaned = remove_leftover_config(repo)?;
+    let settings = current_settings(repo)?;
     if settings.identity != Identity::Robot {
-        return remove_signing(session, cleaned);
+        return remove_signing(repo, cleaned);
     }
     let email = settings.email.ok_or_else(missing_email)?;
-    let key_file = key_file_path(session)?;
+    let key_file = key_file_path(repo)?;
     let signers_file = key_file.with_file_name(SIGNERS_FILE_NAME);
     match settings.signing_key {
         Some(signing_key) => {
@@ -697,12 +699,12 @@ pub fn set_up_signing(session: &Session) -> Result<Signing, String> {
             )?;
         }
     }
-    let hook = install_hook(session)?;
+    let hook = install_hook(repo)?;
     Ok(Signing::Written { email, hook })
 }
 
-fn remove_leftover_config(session: &Session) -> Result<bool, String> {
-    let git = &session.repo.git;
+fn remove_leftover_config(repo: &Repo) -> Result<bool, String> {
+    let git = &repo.git;
     clear_supervised(git);
     let (_, marker) = git.output(["config", "--worktree", "--get", "tsk.attribution"])?;
     if !marker.status.success() || String::from_utf8_lossy(&marker.stdout).trim() != "robot" {
@@ -714,22 +716,22 @@ fn remove_leftover_config(session: &Session) -> Result<bool, String> {
     Ok(true)
 }
 
-fn remove_signing(session: &Session, cleaned: bool) -> Result<Signing, String> {
+fn remove_signing(repo: &Repo, cleaned: bool) -> Result<Signing, String> {
     let mut removed = cleaned;
-    if let Some(hook) = hook_path(session)? {
+    if let Some(hook) = hook_path(repo)? {
         if is_tsk_hook(&hook) {
             std::fs::remove_file(&hook)
                 .map_err(|e| format!("error: could not remove {}: {}", hook.display(), e))?;
             removed = true;
         }
     }
-    let name_file = robot_name_path(session);
+    let name_file = robot_name_path(repo);
     if name_file.exists() {
         std::fs::remove_file(&name_file)
             .map_err(|e| format!("error: could not remove {}: {}", name_file.display(), e))?;
         removed = true;
     }
-    if let Ok(key_file) = key_file_path(session) {
+    if let Ok(key_file) = key_file_path(repo) {
         for file in [key_file.with_file_name(SIGNERS_FILE_NAME), key_file] {
             if file.exists() {
                 std::fs::remove_file(&file)
@@ -745,16 +747,16 @@ fn remove_signing(session: &Session, cleaned: bool) -> Result<Signing, String> {
     })
 }
 
-fn robot_name_path(session: &Session) -> PathBuf {
-    session.git_dir.join(ROBOT_NAME_FILE)
+fn robot_name_path(repo: &Repo) -> PathBuf {
+    repo.git_dir.join(ROBOT_NAME_FILE)
 }
 
 /// The path of the commit-msg hook of this worktree, or `None` when git names no hooks
 /// directory.
-fn hook_path(session: &Session) -> Result<Option<PathBuf>, String> {
-    // `session.repo.git` turns hooks off, and git then names its stand-in hooks path. A
+fn hook_path(repo: &Repo) -> Result<Option<PathBuf>, String> {
+    // `repo.git` turns hooks off, and git then names its stand-in hooks path. A
     // code worktree helper reads the repository's own hooks path.
-    let git = crate::ledger::git::Git::in_code_worktree(session.repo.git.dir());
+    let git = crate::ledger::git::Git::in_code_worktree(repo.git.dir());
     let dir = git.run_line(["rev-parse", "--git-path", "hooks"])?;
     if dir.is_empty() || Path::new(&dir) == Path::new("/dev/null") {
         return Ok(None);
@@ -763,7 +765,7 @@ fn hook_path(session: &Session) -> Result<Option<PathBuf>, String> {
     let dir = if dir.is_absolute() {
         dir
     } else {
-        session.repo.git.dir().join(dir)
+        repo.git.dir().join(dir)
     };
     Ok(Some(dir.join("commit-msg")))
 }
@@ -792,8 +794,8 @@ pub fn hook_text() -> String {
 
 /// Write the commit-msg hook, unless a hook that tsk did not write is in place. Returns
 /// whether the tsk hook is in place.
-fn install_hook(session: &Session) -> Result<bool, String> {
-    let Some(hook) = hook_path(session)? else {
+fn install_hook(repo: &Repo) -> Result<bool, String> {
+    let Some(hook) = hook_path(repo)? else {
         return Ok(false);
     };
     if hook.symlink_metadata().is_ok() && !is_tsk_hook(&hook) {
@@ -817,7 +819,7 @@ fn install_hook(session: &Session) -> Result<bool, String> {
 }
 
 pub fn remember_robot_name(session: &Session) -> Result<Applied, String> {
-    let settings = current_settings(session)?;
+    let settings = current_settings(&session.repo)?;
     if settings.identity != Identity::Robot {
         return Ok(Applied::Unchanged);
     }
@@ -828,7 +830,7 @@ pub fn remember_robot_name(session: &Session) -> Result<Applied, String> {
         return Ok(Applied::Unchanged);
     }
     check_git_name(&name)?;
-    let file = robot_name_path(session);
+    let file = robot_name_path(&session.repo);
     std::fs::write(&file, format!("{}\n", name))
         .map_err(|e| format!("error: could not write {}: {}", file.display(), e))?;
     let email = settings.email.unwrap_or_default();
@@ -876,7 +878,7 @@ pub fn session_variables(
     session: &Session,
     session_urn: Option<&str>,
 ) -> Result<Option<Vec<(String, String)>>, String> {
-    let settings = current_settings(session)?;
+    let settings = current_settings(&session.repo)?;
     if settings.identity != Identity::Robot {
         return Ok(None);
     }
@@ -888,7 +890,7 @@ pub fn session_variables(
     }
     check_git_name(&name)?;
     let email = settings.email.clone().ok_or_else(missing_email)?;
-    let key_file = key_file_path(session)?;
+    let key_file = key_file_path(&session.repo)?;
     let signers_file = key_file.with_file_name(SIGNERS_FILE_NAME);
     let config = match &settings.signing_key {
         Some(signing_key) => {
@@ -1089,6 +1091,45 @@ fn resolve_ledger_identity() -> Result<Option<RobotIdentity>, String> {
     robot_identity_from(name, &settings, &key_file).map(Some)
 }
 
+pub fn robot_for_init() -> Result<Option<String>, String> {
+    let cwd = std::env::current_dir()
+        .map_err(|e| format!("error: could not read the current directory: {}", e))?;
+    let repo = crate::ledger::location::Repo::discover(&cwd)?;
+    let settings = current_settings(&repo)?;
+    if settings.identity != Identity::Robot {
+        return Ok(None);
+    }
+    let key_file = key_file_for(&repo)?;
+    let signers_file = key_file.with_file_name(SIGNERS_FILE_NAME);
+    let written = signers_file.exists() && (settings.signing_key.is_some() || key_file.exists());
+    if !written {
+        return Err(format!(
+            "{}\nnothing was changed: the nexus has no new entry. Run the command with {}=default, or run tsk thread session-start first",
+            SIGNING_NOT_WRITTEN, IDENTITY_ENV
+        ));
+    }
+    if settings.email.is_none() {
+        return Err(missing_email());
+    }
+    let name = read_robot_name(&repo.git_dir).or_else(|| robot_name_from_env(&repo.git_dir));
+    match name {
+        Some(name) => Ok(Some(name)),
+        None => Err(format!(
+            "error: [attribution] identity is robot and this session has no robot name, so the ledger commits have no author\nnothing was changed: the nexus has no new entry. Register a robot for this session first: tsk actor register \"<name>\" --kind robot, or the construct-robot skill (/tsk:construct-robot), then run the command again. To go on without a robot, run it with {}=default",
+            IDENTITY_ENV
+        )),
+    }
+}
+
+fn robot_name_from_env(git_dir: &Path) -> Option<String> {
+    session_from_env()?;
+    let name = std::env::var("GIT_AUTHOR_NAME").ok()?;
+    let name = name.trim();
+    check_git_name(name).ok()?;
+    std::fs::write(git_dir.join(ROBOT_NAME_FILE), format!("{}\n", name)).ok()?;
+    Some(name.to_string())
+}
+
 fn read_robot_name(git_dir: &Path) -> Option<String> {
     std::fs::read_to_string(git_dir.join(ROBOT_NAME_FILE))
         .ok()
@@ -1183,10 +1224,7 @@ fn robot_identity_from(
     };
     let written = signers_file.exists() && (settings.signing_key.is_some() || key_file.exists());
     if !written {
-        return Err(
-            "error: [attribution] identity is robot and the signing set-up is not written: run tsk thread session-start before a ledger write"
-                .to_string(),
-        );
+        return Err(SIGNING_NOT_WRITTEN.to_string());
     }
     let Some(name) = name else {
         return Err(
@@ -1227,7 +1265,7 @@ fn git_for(
 
 /// Whether the session start wrote the signing files of this clone.
 pub fn signing_is_set_up(session: &Session) -> bool {
-    key_file_path(session)
+    key_file_path(&session.repo)
         .map(|key_file| key_file.with_file_name(SIGNERS_FILE_NAME).exists())
         .unwrap_or(false)
 }
@@ -1235,7 +1273,7 @@ pub fn signing_is_set_up(session: &Session) -> bool {
 /// The signing set-up, then the robot name for ledger commits. Does nothing for the
 /// `default` identity, and records no name for a human actor.
 pub fn apply(session: &Session) -> Result<Applied, String> {
-    if let Signing::Off | Signing::Removed = set_up_signing(session)? {
+    if let Signing::Off | Signing::Removed = set_up_signing(&session.repo)? {
         return Ok(Applied::Unchanged);
     }
     remember_robot_name(session)
@@ -1364,8 +1402,8 @@ fn trailer_commands(file: &str, urn: &str, co_author: Option<&str>) -> Vec<Vec<S
     commands
 }
 
-fn key_file_path(session: &Session) -> Result<PathBuf, String> {
-    key_file_for(&session.repo)
+fn key_file_path(repo: &Repo) -> Result<PathBuf, String> {
+    key_file_for(repo)
 }
 
 fn key_file_for(repo: &crate::ledger::location::Repo) -> Result<PathBuf, String> {

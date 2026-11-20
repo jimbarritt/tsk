@@ -367,6 +367,7 @@ mod self_update;
 mod auto_update;
 
 mod nexus_cmd;
+mod nexus_local;
 
 mod tmux;
 
@@ -880,6 +881,30 @@ mod tests {
                 .command,
             Some(Commands::Nexus {
                 action: nexus_cmd::NexusCommands::List { json: true }
+            })
+        ));
+        match Cli::try_parse_from(["tsk", "nexus", "init-local", "/p", "--yes", "--replace"])
+            .unwrap()
+            .command
+        {
+            Some(Commands::Nexus {
+                action: nexus_cmd::NexusCommands::InitLocal { path, yes, replace },
+            }) => {
+                assert_eq!(path, Some(std::path::PathBuf::from("/p")));
+                assert!(yes && replace);
+            }
+            _ => panic!("not InitLocal"),
+        }
+        assert!(matches!(
+            Cli::try_parse_from(["tsk", "nexus", "init-local"])
+                .unwrap()
+                .command,
+            Some(Commands::Nexus {
+                action: nexus_cmd::NexusCommands::InitLocal {
+                    path: None,
+                    yes: false,
+                    replace: false
+                }
             })
         ));
         match Cli::try_parse_from(["tsk", "nexus", "register-repo"])
