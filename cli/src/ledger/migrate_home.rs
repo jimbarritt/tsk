@@ -586,7 +586,17 @@ impl Mover<'_> {
         let shared_git = Git::new(shared);
         let (git, mut args) = crate::attribution::ledger_git(&shared_git)?;
         args.extend(["merge", "--no-edit", "--quiet", commit.as_str()].map(String::from));
-        match git.run(args) {
+        let merged = crate::signing::run_signed_output(&git, args, || {
+            let _ = shared_git.output(["merge", "--abort"]);
+        })
+        .and_then(|output| {
+            if output.status.success() {
+                Ok(())
+            } else {
+                Err(String::new())
+            }
+        });
+        match merged {
             Ok(_) => {
                 self.note(format!(
                     "note: merged the documents of another clone into {}",

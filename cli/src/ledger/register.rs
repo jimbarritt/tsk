@@ -430,7 +430,8 @@ fn commit_nexus_json(
         args.extend(["-p".to_string(), tip.to_string()]);
     }
     args.extend(["-m".to_string(), message.to_string()]);
-    signing_git.run_line(args)
+    crate::signing::run_signed(&signing_git, args)
+        .map(|id| id.trim_end_matches(['\n', '\r']).to_string())
 }
 
 fn push_commit(

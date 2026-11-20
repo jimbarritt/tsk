@@ -764,7 +764,9 @@ impl Mover<'_> {
                 ]
                 .map(String::from),
             );
-            let (_, output) = git.output(args)?;
+            let output = crate::signing::run_signed_output(&git, args, || {
+                let _ = wt.output(["merge", "--abort"]);
+            })?;
             if !output.status.success() {
                 let _ = wt.output(["merge", "--abort"]);
                 return Err("conflict".to_string());

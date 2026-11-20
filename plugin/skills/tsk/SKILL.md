@@ -8,9 +8,10 @@ description: "Reference for the tsk command line: the ledger, threads and bindin
 tsk tracks missions and the threads that work them. The missions, their tasks, decisions
 and questions, the threads and their continuation state are in a **ledger**. They are
 records, typed rows in a Dolt database, written only through `tsk` commands. Free text
-(intelligence, research, reports) is Markdown documents on a second ref. The ledger is a
-Dolt database synced over a git ref on the `origin` of the managed repo (the repository whose work tsk tracks) by default, cloned to a
-local ledger store (`ledger-db`) outside the repository. The ref contains a Dolt file remote (a
+(intelligence, research, reports) is Markdown documents on a second ref. The managed repo is
+the repository whose work tsk tracks. By default the ledger is a Dolt database synced over a
+git ref on its `origin`, and cloned to a local ledger store (`ledger-db`) outside the
+repository. The ref contains a Dolt file remote (a
 directory of table files) transferred by `tsk` with plain `git fetch` and `git push`; a ledger
 made before 0.21.0 converts once with `tsk ledger migrate-transport`. A new ledger uses a custom ref,
 `refs/tsk/ledger`. A repo used from Claude Code cloud sessions uses the branch
@@ -171,6 +172,7 @@ tsk ledger id                                                         print the 
                                                                       (tsk mission list <id> --json prints a urn for the mission and for each task, decision and question)
 tsk actor git-identity                                                print the export lines of the registered robot's git identity, and write nothing, when [attribution] identity is robot; needs TSK_ROBOT_SIGNING_KEY
 tsk config attribution [default|robot] [--email <address>]            print the [attribution] settings and where each came from, or write them to .tsk/config.toml
+tsk signing check                                                     print whether the robot signing key is in the SSH agent that signing uses ([attribution] ssh_auth_sock), or what to do; exit 0 when it is, 1 otherwise
 tsk session find <urn|id>                                             print the harness instance and the actor of a recorded session; exit 1 when none matches
 tsk session list [--porcelain|--json]                                 list the recorded sessions: session URN, instance URN, actor, start time
 tsk thread prune-bindings [--older-than <days>] [--dry-run]           remove old cloud bindings, local; tsk ledger push publishes

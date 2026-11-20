@@ -3607,3 +3607,124 @@ fn ledger_fetch_that_creates_a_new_ledger_records_no_session() {
     let sessions = stdout(&fx.tsk_cloud("cse_fresh", &["session", "list"]));
     assert!(!sessions.contains("cse_fresh"), "{}", sessions);
 }
+
+fn write_script(path: &Path, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(path, format!("#!/bin/sh\n{}", body)).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+fn flaky_signing_fixture(fx: &Fixture, failures: u32) -> (PathBuf, Vec<(String, String)>) {
+    let program = fx.root.path().join("flaky-sign");
+    let counter = fx.root.path().join("sign-calls");
+    write_script(
+        &program,
+        &format!(
+            "n=$(cat '{counter}' 2>/dev/null || echo 0)\nn=$((n + 1))\necho $n > '{counter}'\nif [ $n -le {failures} ]; then\n  echo 'fatal: failed to fill whole buffer' >&2\n  exit 1\nfi\nfor last; do :; done\nprintf -- '-----BEGIN SSH SIGNATURE-----\\nAAAA\\n-----END SSH SIGNATURE-----\\n' > \"$last.sig\"\n",
+            counter = counter.display(),
+            failures = failures
+        ),
+    );
+    let public = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExample";
+    let envs = vec![
+        ("TSK_ATTRIBUTION_IDENTITY".to_string(), "robot".to_string()),
+        (
+            "TSK_ATTRIBUTION_EMAIL".to_string(),
+            "robots@example.test".to_string(),
+        ),
+        (
+            "TSK_ATTRIBUTION_SIGNING_KEY".to_string(),
+            format!("agent:{}", public),
+        ),
+        (
+            "TSK_ATTRIBUTION_SIGNING_PROGRAM".to_string(),
+            program.display().to_string(),
+        ),
+        ("TSK_SIGNING_RETRY_DELAY_MS".to_string(), "0".to_string()),
+    ];
+    (counter, envs)
+}
+
+fn run_with_envs(fx: &Fixture, envs: &[(String, String)], args: &[&str]) -> Output {
+    let mut command = fx.command(args, Some("cse_robot"));
+    for (name, value) in envs {
+        command.env(name, value);
+    }
+    let mut child = command
+        .env_remove("CLAUDE_ENV_FILE")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to run tsk");
+    child.stdin.take().unwrap().write_all(b"{}").unwrap();
+    child.wait_with_output().unwrap()
+}
+
+fn calls_of(counter: &Path) -> u32 {
+    std::fs::read_to_string(counter)
+        .map(|t| t.trim().parse().unwrap())
+        .unwrap_or(0)
+}
+
+#[test]
+fn a_signed_ledger_commit_retries_an_agent_failure_and_then_succeeds() {
+    let fx = Fixture::new();
+    let (counter, envs) = flaky_signing_fixture(&fx, 2);
+    assert_success(&run_with_envs(&fx, &envs, &["thread", "session-start"]));
+    assert_success(&run_with_envs(
+        &fx,
+        &envs,
+        &["actor", "register", "Flaky Agent", "--kind", "robot"],
+    ));
+    let pushed = run_with_envs(&fx, &envs, &["ledger", "push", "Publish after retries"]);
+    assert_success(&pushed);
+    assert!(calls_of(&counter) >= 3, "{}", calls_of(&counter));
+}
+
+#[test]
+fn a_signed_ledger_commit_that_keeps_failing_names_tsk_signing_check() {
+    let fx = Fixture::new();
+    let (counter, envs) = flaky_signing_fixture(&fx, 1000);
+    assert_success(&run_with_envs(&fx, &envs, &["thread", "session-start"]));
+    assert_success(&run_with_envs(
+        &fx,
+        &envs,
+        &["actor", "register", "Flaky Agent", "--kind", "robot"],
+    ));
+    let pushed = run_with_envs(&fx, &envs, &["ledger", "push", "Publish never"]);
+    assert!(!pushed.status.success());
+    let err = stderr(&pushed);
+    assert!(err.contains("tsk signing check"), "{}", err);
+    assert!(err.contains("approval may be pending"), "{}", err);
+    assert_eq!(calls_of(&counter), 3);
+}
+
+#[test]
+fn ledger_status_shows_one_signing_line_when_signing_is_configured() {
+    let fx = Fixture::new();
+    let (_, envs) = flaky_signing_fixture(&fx, 0);
+    let bin = fx.root.path().join("fake-bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    write_script(
+        &bin.join("ssh-add"),
+        "echo 'The agent has no identities.' >&2\nexit 1\n",
+    );
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut envs = envs;
+    envs.push(("PATH".to_string(), path));
+    let status = run_with_envs(&fx, &envs, &["ledger", "status", "--local"]);
+    assert_success(&status);
+    let text = stdout(&status);
+    let lines: Vec<&str> = text.lines().filter(|l| l.starts_with("Signing")).collect();
+    assert_eq!(lines.len(), 1, "{}", text);
+    assert!(lines[0].contains("tsk signing check"), "{}", lines[0]);
+
+    let plain = fx.tsk(&["ledger", "status", "--local"]);
+    assert_success(&plain);
+    assert!(!stdout(&plain).contains("Signing"), "{}", stdout(&plain));
+}

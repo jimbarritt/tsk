@@ -27,6 +27,7 @@ Start:
 Set up and maintain:
   install-plugin  Install and update the tsk plugin through a coding agent's CLI
   doctor          Check the environment and print the fix for each fault
+  signing         Check that the SSH agent that signs commits offers the robot signing key
   self-update     Upgrade tsk to the latest release
   config          Read and write the user config and the repo config
   nexus           Attach the nexus and list the repos it indexes
@@ -68,6 +69,14 @@ in https://github.com/jimbarritt/tsk.
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum SigningCommands {
+    #[command(
+        about = "Print whether the robot signing key is available in the agent that signing uses, or what to do; exit 0 when it is, 1 otherwise"
+    )]
+    Check,
 }
 
 #[derive(Subcommand)]
@@ -147,6 +156,14 @@ enum Commands {
         about = "Add the plugin marketplace, then install and update the tsk plugin through a coding agent's CLI"
     )]
     InstallPlugin(install_plugin::InstallPluginArgs),
+    #[command(
+        about = "Check that the SSH agent that signing uses offers the robot signing key",
+        long_about = "Check that the SSH agent that signing uses offers the robot signing key.\n\nIt runs ssh-add -L with SSH_AUTH_SOCK set to [attribution] ssh_auth_sock, the socket tsk's own signed commits use, and not the SSH_AUTH_SOCK of the shell. On macOS the default is the 1Password agent socket when that file exists. It prints whether the key named by signing_key is available, or what to do: unlock 1Password, approve the prompt, turn on the SSH agent. Exit 0 when the key is available, 1 otherwise."
+    )]
+    Signing {
+        #[command(subcommand)]
+        action: SigningCommands,
+    },
     #[command(
         about = "Check the environment and print what is wrong, with the fix for each: the tsk files on PATH, dolt, jq, git and the origin remote, the ledger refs, the plugin version, the Xcode licence on macOS and the Dolt server. Exit 0 when every check passes, 1 when any fails"
     )]
@@ -320,6 +337,9 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
         Some(Commands::Config { action }) => config::run(action).map(|()| 0),
         Some(Commands::Nexus { action }) => nexus_cmd::run(action).map(|()| 0),
         Some(Commands::InstallPlugin(args)) => install_plugin::run(args).map(|()| 0),
+        Some(Commands::Signing { action }) => match action {
+            SigningCommands::Check => signing::run_check(),
+        },
         Some(Commands::Doctor) => doctor::run(),
         Some(Commands::SelfUpdate(args)) => self_update::run(args).map(|()| {
             if let Some(note) = doctor::shadow_note(&doctor::tsk_on_path(std::env::var_os("PATH")))
@@ -373,6 +393,7 @@ mod tmux;
 
 mod harness;
 mod shell;
+mod signing;
 
 // ---------------------------------------------------------------------------
 // Unit tests
