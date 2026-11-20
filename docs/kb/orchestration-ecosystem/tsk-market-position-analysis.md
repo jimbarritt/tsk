@@ -1371,7 +1371,7 @@ Dust, not among the systems assessed. Two items intersect tsk:
   It was not tested.
 
 Position: no change to the three-part verdict below. The open items are in coder.md under
-"Not checked". The same file has hosting costs for one person.
+"Not checked".
 
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
