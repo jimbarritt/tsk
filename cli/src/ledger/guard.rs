@@ -9,6 +9,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::thread::session_start::HookFormat;
+
 /// `TSK_LEDGER_GUARD=off` in the environment of the hook switches the check off. A person
 /// sets it in the shell that starts the agent. A variable set inside the checked command
 /// does not reach the hook.
@@ -32,9 +34,9 @@ const HARMLESS: [&str; 8] = [
 
 #[derive(Deserialize, Default)]
 struct HookInput {
-    #[serde(default)]
+    #[serde(default, alias = "toolName")]
     tool_name: String,
-    #[serde(default)]
+    #[serde(default, alias = "toolArgs", alias = "tool_args")]
     tool_input: serde_json::Value,
     #[serde(default)]
     cwd: String,
@@ -312,15 +314,24 @@ fn command_denied(command: &str, cwd: &str, places: &Places) -> bool {
 /// The reason to deny the tool call in the hook input, or `None` to allow it.
 pub fn check(input: &str, places: &Places) -> Option<&'static str> {
     let input: HookInput = serde_json::from_str(input).ok()?;
-    let denied = match input.tool_name.as_str() {
-        "Bash" => input
-            .tool_input
+    let args = match &input.tool_input {
+        serde_json::Value::String(text) => serde_json::from_str(text).unwrap_or_default(),
+        other => other.clone(),
+    };
+    let denied = match input.tool_name.to_ascii_lowercase().as_str() {
+        "bash" => args
             .get("command")
             .and_then(|v| v.as_str())
             .is_some_and(|command| command_denied(command, &input.cwd, places)),
-        "Edit" | "Write" | "MultiEdit" | "NotebookEdit" => ["file_path", "notebook_path"]
+        "edit"
+        | "write"
+        | "multiedit"
+        | "notebookedit"
+        | "create"
+        | "str_replace_editor"
+        | "str_replace_based_edit_tool" => ["file_path", "notebook_path", "path"]
             .iter()
-            .filter_map(|key| input.tool_input.get(key).and_then(|v| v.as_str()))
+            .filter_map(|key| args.get(key).and_then(|v| v.as_str()))
             .any(|path| places.names_path(path)),
         _ => false,
     };
@@ -339,15 +350,26 @@ pub fn deny_decision(reason: &str) -> String {
     .to_string()
 }
 
+pub fn deny_decision_for(format: HookFormat, reason: &str) -> String {
+    match format {
+        HookFormat::Claude => deny_decision(reason),
+        HookFormat::Copilot => serde_json::json!({
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        })
+        .to_string(),
+    }
+}
+
 /// `tsk ledger guard`: prints a deny decision, or nothing. Always exits 0.
-pub fn run() -> Result<(), String> {
+pub fn run(format: HookFormat) -> Result<(), String> {
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
     if std::env::var(SWITCH_ENV).is_ok_and(|v| v == "off") {
         return Ok(());
     }
     if let Some(reason) = check(&input, &Places::from_env()) {
-        println!("{}", deny_decision(reason));
+        println!("{}", deny_decision_for(format, reason));
     }
     Ok(())
 }
@@ -514,6 +536,66 @@ mod tests {
         .is_some());
         assert!(tool("Write", "file_path", "/work/repo/docs/a.md").is_none());
         assert!(tool("Read", "file_path", path).is_none());
+    }
+
+    fn copilot(tool_name: &str, tool_args: serde_json::Value) -> Option<&'static str> {
+        let input = serde_json::json!({
+            "toolName": tool_name,
+            "toolArgs": tool_args,
+            "cwd": "/work/repo",
+        });
+        check(&input.to_string(), &places())
+    }
+
+    #[test]
+    fn a_copilot_bash_call_is_checked_with_args_as_a_string_or_an_object() {
+        let denied = "git fetch origin refs/heads/tsk/ledger";
+        let allowed = "git status --porcelain";
+        for name in ["bash", "Bash"] {
+            let object = serde_json::json!({"command": denied});
+            assert!(copilot(name, object).is_some(), "{}", name);
+            let text =
+                serde_json::Value::String(serde_json::json!({"command": denied}).to_string());
+            assert!(copilot(name, text).is_some(), "{}", name);
+            let object = serde_json::json!({"command": allowed});
+            assert!(copilot(name, object).is_none(), "{}", name);
+            let text =
+                serde_json::Value::String(serde_json::json!({"command": allowed}).to_string());
+            assert!(copilot(name, text).is_none(), "{}", name);
+        }
+    }
+
+    #[test]
+    fn a_copilot_file_tool_on_the_ledger_store_is_denied() {
+        let path = "/home/me/.local/state/tsk/repos/tsk-abc/docs/missions/a.md";
+        for name in ["edit", "create", "Edit", "write"] {
+            assert!(
+                copilot(name, serde_json::json!({"path": path})).is_some(),
+                "{}",
+                name
+            );
+            let text = serde_json::Value::String(serde_json::json!({"path": path}).to_string());
+            assert!(copilot(name, text).is_some(), "{}", name);
+            assert!(
+                copilot(name, serde_json::json!({"path": "/work/repo/a.md"})).is_none(),
+                "{}",
+                name
+            );
+        }
+        assert!(copilot("view", serde_json::json!({"path": path})).is_none());
+        assert!(copilot("bash", serde_json::Value::String("not json".to_string())).is_none());
+    }
+
+    #[test]
+    fn the_copilot_decision_is_a_top_level_deny_with_a_reason() {
+        let value: serde_json::Value =
+            serde_json::from_str(&deny_decision_for(HookFormat::Copilot, "why")).unwrap();
+        assert_eq!(value["permissionDecision"], "deny");
+        assert_eq!(value["permissionDecisionReason"], "why");
+        assert!(value.get("hookSpecificOutput").is_none());
+        let claude: serde_json::Value =
+            serde_json::from_str(&deny_decision_for(HookFormat::Claude, "why")).unwrap();
+        assert_eq!(claude["hookSpecificOutput"]["permissionDecision"], "deny");
     }
 
     #[test]

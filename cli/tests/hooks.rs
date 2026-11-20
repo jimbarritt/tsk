@@ -1738,10 +1738,19 @@ fn the_plugin_registers_the_pre_tool_use_guard_for_claude() {
 
 /// Runs `tsk ledger guard` with a hook input and returns its stdout and exit status.
 fn run_guard(input: &str, envs: &[(&str, &str)]) -> (bool, String) {
+    run_guard_with_envs(&[], input, envs)
+}
+
+fn run_guard_with(args: &[&str], input: &str) -> (bool, String) {
+    run_guard_with_envs(args, input, &[])
+}
+
+fn run_guard_with_envs(args: &[&str], input: &str, envs: &[(&str, &str)]) -> (bool, String) {
     let state = tempfile::tempdir().unwrap();
     let mut command = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"));
     command
         .args(["ledger", "guard"])
+        .args(args)
         .env("XDG_STATE_HOME", state.path())
         .env("HOME", state.path())
         .env_remove("TSK_LEDGER_GUARD")
@@ -1812,6 +1821,10 @@ fn the_guard_allows_a_malformed_input() {
 
 /// The PreToolUse script with a stand-in `tsk`.
 fn pre_tool_use_hook(tsk_script: Option<&str>) -> (Option<i32>, String) {
+    pre_tool_use_hook_with(tsk_script, &[])
+}
+
+fn pre_tool_use_hook_with(tsk_script: Option<&str>, args: &[&str]) -> (Option<i32>, String) {
     let root = tempfile::tempdir().unwrap();
     let bin = root.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -1821,6 +1834,7 @@ fn pre_tool_use_hook(tsk_script: Option<&str>) -> (Option<i32>, String) {
     let script = workspace().join("plugin/hooks/pre-tool-use.sh");
     let output = crate::common::cmd("/bin/bash")
         .arg(script)
+        .args(args)
         .env("PATH", bin.display().to_string())
         .stdin(Stdio::null())
         .output()
@@ -1846,4 +1860,91 @@ fn the_pre_tool_use_script_fails_open() {
         "#!/bin/sh\necho 'unrecognized subcommand' >&2\nexit 2\n",
     ));
     assert_eq!((code, out), (Some(0), String::new()));
+}
+
+#[test]
+fn the_pre_tool_use_script_passes_the_copilot_format_and_fails_open() {
+    let logging = "#!/bin/sh\necho \"$@\"\nexit 0\n";
+    assert_eq!(
+        pre_tool_use_hook_with(Some(logging), &["copilot"]),
+        (Some(0), "ledger guard --format copilot\n".to_string())
+    );
+    assert_eq!(
+        pre_tool_use_hook_with(Some(logging), &[]),
+        (Some(0), "ledger guard\n".to_string())
+    );
+    let old = "#!/bin/sh\necho 'unexpected argument' >&2\nexit 2\n";
+    assert_eq!(
+        pre_tool_use_hook_with(Some(old), &["copilot"]),
+        (Some(0), String::new())
+    );
+    assert_eq!(
+        pre_tool_use_hook_with(None, &["copilot"]),
+        (Some(0), String::new())
+    );
+}
+
+#[test]
+fn the_guard_prints_the_copilot_decision_for_copilot_input() {
+    let (ok, out) = run_guard_with(
+        &["--format", "copilot"],
+        "{\"toolName\":\"bash\",\"toolArgs\":\"{\\\"command\\\":\\\"git fetch origin refs/heads/tsk/ledger\\\"}\",\"cwd\":\"/work\"}",
+    );
+    assert!(ok);
+    let value: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(value["permissionDecision"], "deny");
+    assert!(value["permissionDecisionReason"]
+        .as_str()
+        .unwrap()
+        .contains("ADR 0028"));
+    assert!(value.get("hookSpecificOutput").is_none());
+}
+
+#[test]
+fn the_plugin_registers_the_copilot_pre_tool_use_permission_request_and_stop_hooks() {
+    let copilot: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace().join("plugin/hooks.json")).unwrap(),
+    )
+    .unwrap();
+    let pre = copilot["hooks"]["preToolUse"][0]["bash"].as_str().unwrap();
+    assert!(pre.ends_with("hooks/pre-tool-use.sh\" copilot"), "{}", pre);
+    let request = copilot["hooks"]["permissionRequest"][0]["bash"]
+        .as_str()
+        .unwrap();
+    assert!(
+        request.ends_with("hooks/tmux-state.sh\" waiting"),
+        "{}",
+        request
+    );
+    let stop = copilot["hooks"]["agentStop"][0]["bash"].as_str().unwrap();
+    assert!(
+        stop.ends_with("hooks/stop.sh\" --format copilot"),
+        "{}",
+        stop
+    );
+}
+
+#[test]
+fn the_stop_script_passes_its_arguments_to_the_guard() {
+    let root = tempfile::tempdir().unwrap();
+    let bin = root.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let log = root.path().join("tsk.log");
+    write_script(
+        &bin.join("tsk"),
+        "#!/bin/sh\necho \"$@\" >> \"$TSK_LOG\"\nexit 0\n",
+    );
+    let status = crate::common::cmd("/bin/bash")
+        .arg(workspace().join("plugin/hooks/stop.sh"))
+        .args(["--format", "copilot"])
+        .env("PATH", bin.display().to_string())
+        .env("TSK_LOG", &log)
+        .stdin(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap(),
+        "thread guard --format copilot\n"
+    );
 }

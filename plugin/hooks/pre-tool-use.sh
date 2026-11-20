@@ -5,6 +5,10 @@
 set -uo pipefail
 
 command -v tsk >/dev/null 2>&1 || exit 0
-decision="$(tsk ledger guard 2>/dev/null)" || exit 0
+if [ "${1:-}" = "copilot" ]; then
+  decision="$(tsk ledger guard --format copilot 2>/dev/null)" || exit 0
+else
+  decision="$(tsk ledger guard 2>/dev/null)" || exit 0
+fi
 [ -z "$decision" ] || printf '%s\n' "$decision"
 exit 0

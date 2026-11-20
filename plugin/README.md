@@ -1,6 +1,6 @@
 # tsk plugin
 
-The tsk plugin for Claude Code and GitHub Copilot CLI. It contains the hooks and skills that run the tsk harness
+The tsk plugin for Claude Code and GitHub Copilot CLI contains the hooks and skills that run the tsk harness
 in a session. They call the `tsk` binary and nothing else, so they have no dependency on
 this repository. They contain the minimum logic: see
 [ADR 0011](../docs/adr/0011-logic-lives-in-the-binary-not-the-plugin.md).
@@ -15,7 +15,7 @@ this repository. They contain the minimum logic: see
 | Skill | Runs |
 |---|---|
 | `tsk` | Reference for the `tsk` command line: records (missions, tasks, decisions, questions), documents, threads. |
-| `start-thread` | `tsk thread start`, only for a harness instance with no bound thread (otherwise use `switch-mission` or `resume-thread`), `tsk actor join` for a supervising human, with a mission ID or with no mission; `tsk thread skip` to work with no thread |
+| `start-thread` | `tsk thread start` with a mission ID or with no mission, only for a harness instance with no bound thread (otherwise use `switch-mission` or `resume-thread`); `tsk actor join` for a supervising human; `tsk thread skip` to work with no thread |
 | `pause-thread` | `tsk thread pause` |
 | `resume-thread` | `tsk thread resume` |
 | `switch-thread` | `tsk thread detach`, `tsk thread stop` when the line of work is finished, then the `resume-thread` skill |
@@ -31,14 +31,14 @@ this repository. They contain the minimum logic: see
 |---|---|
 | `SessionStart` | `hooks/session-start.sh`: `tsk thread session-start` |
 | `Stop` | `hooks/stop.sh`: `tsk thread guard`. Asks for a thread when none is bound. When the ledger store contains unpushed changes it publishes them in the background (`tsk ledger push --background`) and prints nothing; a failure shows as a warning on the next `tsk` command |
-| `PreToolUse` | `hooks/pre-tool-use.sh`: `tsk ledger guard`. Denies a `Bash` call that runs `git` or `dolt` against the ledger store, its refs (`tsk/ledger`, `tsk/docs`, `refs/tsk/*`, the nexus refs `ledgers/<id>/ledger` and `ledgers/<id>/docs`, and their backups) or its branches, and an `Edit`, `Write` or `NotebookEdit` call on a file in the ledger store or the ledger home (`<state>/ledgers/`, the bare clone included) (ADR 0028, ADR 0035). Allows every `tsk` command. Fails open: a missing or older `tsk` allows the call. `TSK_LEDGER_GUARD=off` in the environment that starts the agent switches it off |
+| `PreToolUse` | `hooks/pre-tool-use.sh`: `tsk ledger guard`. Denies a `Bash` call that runs `git` or `dolt` against the ledger store, its refs (`tsk/ledger`, `tsk/docs`, `refs/tsk/*`, the nexus refs `ledgers/<id>/ledger` and `ledgers/<id>/docs`, and their backups) or its branches. Also denies an `Edit`, `Write` or `NotebookEdit` call on a file in the ledger store or the ledger home (`<state>/ledgers/`, the bare clone included) (ADR 0028, ADR 0035). Allows every `tsk` command. Fails open: a missing or older `tsk` allows the call. `TSK_LEDGER_GUARD=off` in the environment that starts the agent switches it off |
 | `SessionEnd` | `hooks/session-end.sh`: `tsk session end` (records on this machine that the session ended, so its robot is free), then `tsk ledger push --background "End of session"`, detached, when `tsk ledger status --local` shows unpushed work. Best effort, always exits 0 |
 | `UserPromptSubmit`, `PostToolUse`, `Notification`, `Stop`, `SessionEnd` | `hooks/tmux-state.sh <state>`: `tsk tmux state`, which sets the agent state of the tmux pane (`working`, `waiting`, or none at the end) for the session chooser of `tsk tmux install`. Does nothing outside tmux. Always exits 0 |
 
 Records are published at thread start, thread pause or stop, the end of the session and
 when asked ([ADR 0019](../docs/adr/0019-publish-less-often-by-rule.md)).
 
-The `SessionStart` hook passes the plugin's own version to `tsk thread session-start
+The `SessionStart` hook passes the plugin's version to `tsk thread session-start
 --plugin-version`. When that version is lower than the plugin version the binary requires,
 the session context includes a request for a plugin update (`/plugin update tsk`). The expected version
 is the constant `EXPECTED_PLUGIN_VERSION` in `cli/src/thread/session_start.rs`. Bump it
@@ -51,18 +51,23 @@ this repo and `path` set to `plugin`. See [docs/kb/claude-code-plugin-packaging.
 ## GitHub Copilot CLI
 
 Copilot CLI reads the same manifest and skills. Its hooks are in `hooks.json` at the
-plugin root, in Copilot's format (`version` 1, the events `sessionStart` and
-`agentStop`). Claude Code reads only `hooks/hooks.json`.
+plugin root, in Copilot's format (`version` 1, the events `sessionStart`,
+`agentStop`, `preToolUse` and others). Claude Code reads only `hooks/hooks.json`.
 
 - `sessionStart` runs `hooks/session-start.sh --format copilot`, which prints Copilot's
   output shape, `{"additionalContext": "..."}`.
 - `agentStop` runs `hooks/stop.sh`. `tsk thread guard` prints `decision` and `reason`,
-  the fields Copilot's `agentStop` reads.
+  the fields Copilot's `agentStop` reads. The entry passes `--format copilot`, so a hook
+  input with `stop_hook_active` true prints no block and an unbound session is blocked once.
+- `preToolUse` runs `hooks/pre-tool-use.sh copilot`, which runs `tsk ledger guard --format
+  copilot`. The guard reads Copilot's `toolName` and `toolArgs` and prints a top-level
+  `permissionDecision` and `permissionDecisionReason` to deny a change to the ledger store.
+- `permissionRequest` runs `hooks/tmux-state.sh waiting`.
 - `sessionEnd` runs `hooks/session-end.sh`.
 - `userPromptSubmitted` and `postToolUse` run `hooks/tmux-state.sh working`, `agentStop` also runs `hooks/tmux-state.sh waiting`, and `sessionEnd` also runs `hooks/tmux-state.sh none`.
 - The hook commands find the plugin directory from `PLUGIN_ROOT`, `COPILOT_PLUGIN_ROOT`
   or `CLAUDE_PLUGIN_ROOT`, and otherwise from Copilot's `installed-plugins` directory.
-  The scripts find their own directory, so they read no harness variable.
+  The scripts find the directory they are in, so they read no harness variable.
 
 Copilot installs the plugin from the marketplace in this repo,
 `.github/plugin/marketplace.json`, named `tsk`, as `tsk@tsk`. Copilot does not accept the
