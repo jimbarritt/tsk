@@ -104,6 +104,25 @@ pub(crate) fn refresh_worktree(
     let wt = Git::new(path);
     ensure_worktree_of(&wt, owner_git_dir)?;
 
+    // A history rewritten by tsk ledger erase: replace a copy that holds no local work, and
+    // never keep one that does, because a later push would publish the erased commit again.
+    match super::erase::stale(&wt, commit)? {
+        super::erase::Stale::No => {}
+        super::erase::Stale::ResetSafe { erased } => {
+            eprintln!("{}", super::erase::replaced_note("the remote", &erased));
+            wt.run(["reset", "--hard", "--quiet", commit])?;
+            return Ok((Vec::new(), false));
+        }
+        super::erase::Stale::Blocked { erased, local } => {
+            return Err(super::erase::blocked_message(
+                "the remote",
+                &erased,
+                local,
+                path,
+            ));
+        }
+    }
+
     let status = wt.run(["status", "--porcelain=v2", "-z"])?;
     if !status.is_empty() {
         if keep_local {

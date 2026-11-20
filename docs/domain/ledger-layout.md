@@ -638,6 +638,41 @@ documents, so a trial mission can be undone without `dolt reset`. It is destruct
 
 Both are methods on the storage seam (`LedgerStore::status` and `LedgerStore::discard`).
 
+### Erasing a documents commit
+
+`tsk ledger erase <commit>` removes a commit of the documents branch from the whole documents
+history, and every file the commit added or changed, then force-pushes the rewritten branch. It
+covers the documents only, not the Dolt data.
+
+- Every file the commit added or changed is removed from every commit of the branch, its
+  earlier and later versions included. A file the commit changed is removed from the history
+  completely, so write it again with `tsk ledger doc put` without the part to erase.
+- The commit itself is dropped. A commit that becomes empty is dropped too. A commit whose tree
+  does not change keeps its id. The other commits keep their author, committer, dates and
+  message, and lose any signature.
+- The first commit of the branch cannot be erased.
+- The documents worktree must be clean and at the remote tip. Run `tsk ledger push` or
+  `tsk ledger discard` first.
+- Without `--yes` the command prints the files and the count of commits it would rewrite,
+  and exits 1. With `--yes` it pushes with a lease on the remote tip, so a branch that moved
+  since the fetch rejects the push and nothing changes.
+- After the push it expires the reflogs and runs `git gc --prune=now` in the ledger clone, and
+  in the remote when the remote is a directory on this machine, such as a local nexus. A
+  remote on a server, such as GitHub, can keep an unreachable commit readable by its id until
+  it prunes it.
+- The rewritten branch has a file `.tsk-erased` at its root, with one line per erase: the
+  erased commit, the documents tip before the erase, and the time. It names commits only.
+  `tsk ledger doc list` does not list it.
+- A fetch or a push in a clone whose documents `HEAD` contains an erased commit replaces the
+  copy with the new tip when the clone has no local document commit or change, and prints a
+  note. With local work it stops with an error, and pushes and rebases nothing, because a
+  rebase would replay the erased commit. Save the documents, run `tsk ledger discard --yes`,
+  and write them again.
+- A tsk without this check rebases onto the new tip and can push the erased commit back.
+  Update every clone before an erase.
+- A record that links a removed document keeps the link. The command names the id of each
+  removed document.
+
 ### Manifest version
 
 The move of the ledger state and of the nexus refs (0.70.0, ADR 0035) does not change the
