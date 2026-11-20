@@ -169,12 +169,22 @@ pub enum LedgerCommands {
         porcelain: bool,
     },
     #[command(
-        about = "Remove a documents commit, and every file it added or changed, from the whole documents history, and force-push the rewritten branch; without --yes it prints what it would do and exits 1",
-        long_about = "Remove a documents commit, and every file it added or changed, from the whole documents history, and force-push the rewritten branch.\n\nEvery file the commit added or changed is removed from every commit of the documents branch, its earlier and later versions included, and the commit itself is dropped. A commit that becomes empty is dropped too. The rewritten branch gets a marker file, .tsk-erased, that names the erased commit, so a clone that still holds it replaces its copy at its next fetch or push, or stops when it holds local work. Erasing covers the documents only, not the Dolt data.\n\nThe documents worktree must be clean and at the remote tip. Without --yes the command prints the commits and files it would rewrite and exits 1."
+        about = "Remove a documents commit, and every file it added or changed, or with --file every version of one file, from the whole documents history, and force-push the rewritten branch; without --yes it prints what it would do and exits 1",
+        long_about = "Remove a documents commit, and every file it added or changed, from the whole documents history, and force-push the rewritten branch. With --file PATH it removes every version of that one file instead.\n\nEvery file the commit added or changed is removed from every commit of the documents branch, its earlier and later versions included, and the commit itself is dropped. A commit that becomes empty is dropped too. The rewritten branch gets a marker file, .tsk-erased, that names the erased commit, so a clone that still holds it replaces its copy at its next fetch or push, or stops when it holds local work. Erasing covers the documents only, not the Dolt data.\n\nThe documents worktree must be clean and at the remote tip. Without --yes the command prints the commits and files it would rewrite and exits 1."
     )]
     Erase {
-        #[arg(help = "The documents commit to erase, as a commit id")]
-        commit: String,
+        #[arg(
+            help = "The documents commit to erase, as a commit id (tsk ledger doc log lists them)",
+            required_unless_present = "file",
+            conflicts_with = "file"
+        )]
+        commit: Option<String>,
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Erase every version of this file in place of a commit: a document path, with or without its id"
+        )]
+        file: Option<String>,
         #[arg(
             long,
             help = "Rewrite and force-push now. Without it nothing changes and the plan is printed"
@@ -250,6 +260,15 @@ pub enum DocCommands {
         prefix: Option<String>,
         #[arg(long, help = "Separate the path and the id with a tab, for a script")]
         porcelain: bool,
+    },
+    #[command(
+        about = "List the commits of the local documents branch, newest first: the short id, the date, the author and the subject, tab-separated. With a path, only the commits that changed that file. Does not fetch. tsk ledger erase takes an id from this list"
+    )]
+    Log {
+        #[arg(
+            help = "Document path relative to the ledger root, with or without its id, or the id alone; lists every commit when omitted"
+        )]
+        path: Option<String>,
     },
     #[command(
         about = "Remove a document from the local store; exit status 1 when it does not exist"
@@ -433,8 +452,15 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             Ok(())
         }
         LedgerCommands::Discard { yes, porcelain } => run_discard(store.as_ref(), yes, porcelain),
-        LedgerCommands::Erase { commit, yes } => {
-            let (lines, done) = store.erase(&commit, yes)?;
+        LedgerCommands::Erase { commit, file, yes } => {
+            let target = match (commit, file) {
+                (_, Some(path)) => erase::Target::File(path),
+                (Some(commit), None) => erase::Target::Commit(commit),
+                (None, None) => {
+                    return Err("error: name a commit, or a file with --file".to_string())
+                }
+            };
+            let (lines, done) = store.erase(&target, yes)?;
             for line in lines {
                 println!("{}", line);
             }
@@ -619,6 +645,12 @@ fn run_doc(store: &dyn LedgerStore, action: DocCommands) -> Result<(), String> {
             } else {
                 Err(no_such_document(&path))
             }
+        }
+        DocCommands::Log { path } => {
+            for line in store.doc_log(path.as_deref())? {
+                println!("{}", line);
+            }
+            Ok(())
         }
         DocCommands::Mv { from, to } => crate::mission::mv::doc_mv(store, &from, &to),
     }

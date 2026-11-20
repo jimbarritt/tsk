@@ -136,12 +136,13 @@ tsk ledger doc list [<prefix>] [--porcelain]  list document paths and ids, optio
 tsk ledger doc rm <ref>                  remove a document; changes the local store only
 tsk ledger doc mv <ref> <path>           rename a document, keep its id, update the path in the mission links
 tsk ledger doc path <ref>                print the absolute path of a document's file
+tsk ledger doc log [<ref>]               list the documents commits, newest first: id, date, author, subject; with <ref>, only the commits that changed that file; fetches nothing
 tsk ledger status [--local] [--porcelain]  print Local (what is not pushed) and Origin (ahead or behind); --local makes no network call and prints Origin as not checked; --porcelain prints tab-separated facts for scripts; read-only
 tsk ledger init --nexus|--repo [--prefix P] [--territory T [--territory-name N]] [--workflow main|pr]  create the ledger of a repo that has none, add the repo to the nexus when one is attached (with the territory name and the push workflow it is given), and push it
 tsk ledger not-used [--forget]           record that this repo works without tsk, so session start asks nothing and the stop guard blocks nothing: in the tsk field of its nexus entry when the attached nexus lists the repo, else in .git/tsk-not-used; run it only after the person says yes to remembering the choice; --forget removes the record
 tsk thread next                          print bound:<thread-id> for a bound session, else the robot-first question the Stop hook asks; run it on the first turn once the ledger is fetched. It lists the free robots first, then the busy ones: a robot is busy while it holds a thread, read from the ledger alone (ADR 0032). --open is accepted and ignored
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
-tsk ledger erase <commit> [--yes]         remove a documents commit, and every file it added or changed, from the whole documents history, and force-push it; without --yes it only prints what it would do and exits 1. Run it only when the person asks for it
+tsk ledger erase <commit>|--file <ref> [--yes]  remove a documents commit and every file it added or changed, or with --file every version of one file, from the whole documents history, and force-push it; without --yes it only prints what it would do and exits 1. Find the commit with tsk ledger doc log. Run it only when the person asks for it
 
 tsk thread start [<mission-id>]                                        mint and bind a thread, for a mission or with no mission, push (the claim)
 tsk thread pause <thread-id> <task-id> <whats-next>                   append a continuation state entry, push, print the verification lines

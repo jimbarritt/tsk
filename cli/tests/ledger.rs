@@ -1352,3 +1352,58 @@ fn erase_refuses_the_first_commit_and_a_commit_outside_the_history() {
     assert!(!output.status.success());
     assert!(stderr(&output).contains("not"), "{}", stderr(&output));
 }
+
+#[test]
+fn doc_log_lists_the_documents_commits_and_those_of_one_file() {
+    let fx = Fixture::with_ledger();
+    let secret = push_secret_history(&fx);
+
+    let all = fx.tsk(&["ledger", "doc", "log"]);
+    assert_success(&all);
+    let all = stdout(&all);
+    assert!(all.contains("Add the secret"), "{}", all);
+    assert!(
+        all.contains("Change the secret, add a document to keep"),
+        "{}",
+        all
+    );
+    assert!(all
+        .lines()
+        .any(|line| secret.starts_with(line.split('\t').next().unwrap())));
+
+    let keep = fx.tsk(&["ledger", "doc", "log", "keep.md"]);
+    assert_success(&keep);
+    let keep = stdout(&keep);
+    assert_eq!(keep.lines().count(), 1, "{}", keep);
+    assert!(
+        keep.contains("Change the secret, add a document to keep"),
+        "{}",
+        keep
+    );
+}
+
+#[test]
+fn erase_file_removes_every_version_of_one_file_and_keeps_the_rest() {
+    let fx = Fixture::with_ledger();
+    let secret = push_secret_history(&fx);
+
+    let output = fx.tsk(&["ledger", "erase", "--file", "secret.md", "--yes"]);
+
+    assert_success(&output);
+    let touching = git(
+        &fx.origin(),
+        &["log", "--format=%H", DOCS_REF, "--", "secret.5ec4e700.md"],
+    );
+    assert_eq!(touching.trim(), "", "a commit still holds the secret file");
+    assert_eq!(
+        fx.origin_file(DOCS_REF, "keep.6eed0001.md").unwrap(),
+        "keep\n"
+    );
+    let commits = git(&fx.origin(), &["rev-list", DOCS_REF]);
+    assert!(
+        !commits.contains(&secret),
+        "the commit that only added the secret is still there"
+    );
+    let marker = fx.origin_file(DOCS_REF, ".tsk-erased").unwrap();
+    assert!(marker.contains(&secret), "{}", marker);
+}

@@ -2616,7 +2616,38 @@ impl LedgerStore for DoltStore {
         status::discard_worktree(&docs, docs_tip.as_deref())
     }
 
-    fn erase(&self, target: &str, yes: bool) -> Result<(Vec<String>, bool), String> {
+    fn doc_log(&self, path: Option<&str>) -> Result<Vec<String>, String> {
+        let tree = self.docs_view()?;
+        let wt = Git::new(&tree.root);
+        let mut args = vec![
+            "log".to_string(),
+            "--date=short".to_string(),
+            "--format=%h%x09%ad%x09%an%x09%s".to_string(),
+        ];
+        let mut named = None;
+        if let Some(reference) = path {
+            let checked = super::check_docs_path(reference)?;
+            let file = tree.resolve(&checked)?.unwrap_or(checked);
+            args.push("--".to_string());
+            args.push(file.clone());
+            named = Some(file);
+        }
+        let out = wt.run(args)?;
+        let lines: Vec<String> = out.lines().map(str::to_string).collect();
+        if let (Some(file), true) = (named, lines.is_empty()) {
+            return Err(format!(
+                "error: no commit of the documents branch changes {}",
+                file
+            ));
+        }
+        Ok(lines)
+    }
+
+    fn erase(
+        &self,
+        target: &crate::ledger::erase::Target,
+        yes: bool,
+    ) -> Result<(Vec<String>, bool), String> {
         use crate::ledger::erase;
         let _lock = match self.hint() {
             Some(db) => Some(clone_lock::take(&db)?),
@@ -2651,7 +2682,17 @@ impl LedgerStore for DoltStore {
             ));
         }
         let git = home.git();
-        let plan = erase::plan(&git, &tip, target)?;
+        // A file is named as the doc commands name it: with or without its id. A file that
+        // is no longer on the branch is taken as given.
+        let target = match target {
+            erase::Target::File(reference) => {
+                let checked = super::check_docs_path(reference)?;
+                let found = self.docs_view()?.resolve(&checked)?;
+                erase::Target::File(found.unwrap_or(checked))
+            }
+            other => other.clone(),
+        };
+        let plan = erase::plan(&git, &tip, &target)?;
         let mut lines = plan.lines(&docs);
         if !yes {
             return Ok((lines, false));
