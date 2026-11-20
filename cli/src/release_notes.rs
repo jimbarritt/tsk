@@ -69,7 +69,7 @@ pub fn render(
             .filter_map(|(v, notes)| Version::parse(v).map(|v| (v, *notes)))
             .filter(|(v, _)| *v > since)
             .collect();
-        newer.sort_by(|a, b| b.0.cmp(&a.0));
+        newer.sort_by_key(|a| std::cmp::Reverse(a.0));
         let mut out = String::new();
         for (version, notes) in newer {
             if !out.is_empty() {
