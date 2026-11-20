@@ -109,7 +109,13 @@ pub fn inspect(path: &Path) -> Found {
         .unwrap_or(false);
     let own = git
         .run(["rev-parse", "--git-dir"])
-        .map(|text| text.trim() == ".")
+        .map(|text| {
+            let reported = path.join(text.trim());
+            match (reported.canonicalize(), path.canonicalize()) {
+                (Ok(reported), Ok(own_path)) => reported == own_path,
+                _ => false,
+            }
+        })
         .unwrap_or(false);
     if !(bare && own) {
         return Found::Other("a folder that is not empty and not a bare git repo".to_string());
