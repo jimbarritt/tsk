@@ -349,7 +349,7 @@ fn marker_commit(
         ]
         .map(String::from),
     );
-    git.run_line(args)
+    crate::signing::run_signed(&git, args).map(|id| id.trim_end_matches(['\n', '\r']).to_string())
 }
 
 /// A git index file of its own, so the rewrite needs no working tree and touches no index

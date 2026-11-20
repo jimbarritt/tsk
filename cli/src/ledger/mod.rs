@@ -443,6 +443,9 @@ pub fn run(action: LedgerCommands) -> Result<(), String> {
             if !porcelain {
                 if let Ok(path) = store.path() {
                     println!("{}", server_line(&path));
+                    if let Some(line) = crate::signing::status_line() {
+                        println!("{}", line);
+                    }
                     if let Some(line) = background::status_line(&path) {
                         println!("{}", line);
                     }

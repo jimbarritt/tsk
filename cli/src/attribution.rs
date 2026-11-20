@@ -35,6 +35,9 @@ pub const SIGNING_PROGRAM_ENV: &str = "TSK_ATTRIBUTION_SIGNING_PROGRAM";
 
 pub const DEFAULT_SIGNING_PROGRAM: &str = "ssh-keygen";
 
+pub const ONEPASSWORD_AGENT_SOCKET: &str =
+    "Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock";
+
 const AGENT_PREFIX: &str = "agent:";
 
 /// The name of the file the key is written to, beside the ledger store of the clone.
@@ -93,6 +96,7 @@ pub struct Section {
     pub co_author: Option<String>,
     pub signing_key: Option<String>,
     pub signing_program: Option<String>,
+    pub ssh_auth_sock: Option<String>,
 }
 
 /// The settings in force, with where each came from.
@@ -108,6 +112,8 @@ pub struct Settings {
     pub signing_key_source: Option<Source>,
     pub signing_program: Option<String>,
     pub signing_program_source: Option<Source>,
+    pub ssh_auth_sock: Option<String>,
+    pub ssh_auth_sock_source: Option<Source>,
 }
 
 /// The `[attribution]` keys of a config file. A missing file or table gives an empty section.
@@ -203,12 +209,25 @@ fn parse_section(text: &str, file: &Path) -> Result<Section, String> {
             ))
         }
     };
+    let ssh_auth_sock = match section.get("ssh_auth_sock") {
+        None => None,
+        Some(toml::Value::String(value)) if !value.trim().is_empty() => {
+            Some(value.trim().to_string())
+        }
+        Some(_) => {
+            return Err(format!(
+                "error: attribution.ssh_auth_sock in {} must be a non-empty string",
+                file.display()
+            ))
+        }
+    };
     Ok(Section {
         identity,
         email,
         co_author,
         signing_key,
         signing_program,
+        ssh_auth_sock,
     })
 }
 
@@ -298,6 +317,7 @@ pub fn resolve(
     };
     let (signing_key, signing_key_source) = resolve_signing_key(None, repo, user);
     let (signing_program, signing_program_source) = resolve_signing_program(None, repo, user);
+    let (ssh_auth_sock, ssh_auth_sock_source) = resolve_ssh_auth_sock(repo, user, None);
     Settings {
         identity,
         identity_source,
@@ -309,7 +329,38 @@ pub fn resolve(
         signing_key_source,
         signing_program,
         signing_program_source,
+        ssh_auth_sock,
+        ssh_auth_sock_source,
     }
+}
+
+pub fn resolve_ssh_auth_sock(
+    repo: &Section,
+    user: &Section,
+    home: Option<&Path>,
+) -> (Option<String>, Option<Source>) {
+    match (&repo.ssh_auth_sock, &user.ssh_auth_sock) {
+        (Some(value), _) => (Some(value.clone()), Some(Source::RepoConfig)),
+        (None, Some(value)) => (Some(value.clone()), Some(Source::UserConfig)),
+        (None, None) => match default_ssh_auth_sock(home) {
+            Some(path) => (Some(path), Some(Source::Default)),
+            None => (None, None),
+        },
+    }
+}
+
+pub fn default_ssh_auth_sock(home: Option<&Path>) -> Option<String> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let socket = home?.join(ONEPASSWORD_AGENT_SOCKET);
+    socket.exists().then(|| socket.display().to_string())
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
 }
 
 pub fn resolve_signing_key(
@@ -381,6 +432,8 @@ pub fn settings(repo_file: Option<&Path>, user_file: Option<&Path>) -> Result<Se
         &repo,
         &user,
     );
+    (resolved.ssh_auth_sock, resolved.ssh_auth_sock_source) =
+        resolve_ssh_auth_sock(&repo, &user, home_dir().as_deref());
     (resolved.signing_key, resolved.signing_key_source) =
         resolve_signing_key(env_signing_key.as_deref(), &repo, &user);
     (resolved.signing_program, resolved.signing_program_source) = resolve_signing_program(
@@ -400,6 +453,7 @@ pub fn write_section(
     co_author: Option<&str>,
     signing_key: Option<&str>,
     signing_program: Option<&str>,
+    ssh_auth_sock: Option<&str>,
 ) -> Result<(), String> {
     let text = match std::fs::read_to_string(file) {
         Ok(text) => text,
@@ -413,6 +467,7 @@ pub fn write_section(
         co_author,
         signing_key,
         signing_program,
+        ssh_auth_sock,
         file,
     )?;
     if let Some(parent) = file.parent() {
@@ -426,6 +481,7 @@ pub fn write_section(
 /// The text of a config file with `[attribution]` keys set. The other tables, keys and
 /// comments stay as they are: an existing line of the `[attribution]` table is replaced,
 /// else the line follows the table header, else a new table ends the file.
+#[allow(clippy::too_many_arguments)]
 pub fn with_section(
     text: &str,
     identity: Option<Identity>,
@@ -433,6 +489,7 @@ pub fn with_section(
     co_author: Option<&str>,
     signing_key: Option<&str>,
     signing_program: Option<&str>,
+    ssh_auth_sock: Option<&str>,
     file: &Path,
 ) -> Result<String, String> {
     parse_section(text, file)?;
@@ -463,6 +520,7 @@ pub fn with_section(
         ("co_author", co_author.map(str::to_string)),
         ("signing_key", signing_key.map(str::to_string)),
         ("signing_program", signing_program.map(str::to_string)),
+        ("ssh_auth_sock", ssh_auth_sock.map(str::to_string)),
     ] {
         let Some(value) = value else { continue };
         if value.contains(['"', '\\', '\n']) {
@@ -499,6 +557,7 @@ pub fn with_section(
         || co_author.is_some_and(|c| written.co_author.as_deref() != Some(c))
         || signing_key.is_some_and(|k| written.signing_key.as_deref() != Some(k))
         || signing_program.is_some_and(|p| written.signing_program.as_deref() != Some(p))
+        || ssh_auth_sock.is_some_and(|p| written.ssh_auth_sock.as_deref() != Some(p))
     {
         return Err(
             "error: could not set [attribution] in the config: edit the file by hand".to_string(),
@@ -1001,6 +1060,7 @@ pub struct RobotIdentity {
     pub key_file: String,
     pub signers_file: String,
     pub program: String,
+    pub ssh_auth_sock: Option<String>,
 }
 
 impl RobotIdentity {
@@ -1024,7 +1084,7 @@ impl RobotIdentity {
     /// The environment that makes `git` commit as the robot: it beats `GIT_AUTHOR_*` and
     /// `GIT_COMMITTER_*` that the platform or a person set.
     pub fn git_env(&self) -> Vec<(String, String)> {
-        ["GIT_AUTHOR", "GIT_COMMITTER"]
+        let mut env: Vec<(String, String)> = ["GIT_AUTHOR", "GIT_COMMITTER"]
             .iter()
             .flat_map(|prefix| {
                 [
@@ -1032,7 +1092,11 @@ impl RobotIdentity {
                     (format!("{}_EMAIL", prefix), self.email.clone()),
                 ]
             })
-            .collect()
+            .collect();
+        if let Some(socket) = &self.ssh_auth_sock {
+            env.push(("SSH_AUTH_SOCK".to_string(), socket.clone()));
+        }
+        env
     }
 
     /// The environment that makes `dolt` commit as the robot. Dolt has no SSH signing, so a
@@ -1241,6 +1305,10 @@ fn robot_identity_from(
         key_file: signing_key,
         signers_file: signers_file.display().to_string(),
         program,
+        ssh_auth_sock: settings
+            .signing_key
+            .as_ref()
+            .and(settings.ssh_auth_sock.clone()),
     })
 }
 
@@ -1463,6 +1531,7 @@ pub fn run_config(
     co_author: Option<String>,
     signing_key: Option<String>,
     signing_program: Option<String>,
+    ssh_auth_sock: Option<String>,
     user: bool,
 ) -> Result<(), String> {
     // With --user the command needs no repo, so a cloud setup script can run it from any
@@ -1481,6 +1550,7 @@ pub fn run_config(
         || co_author.is_some()
         || signing_key.is_some()
         || signing_program.is_some()
+        || ssh_auth_sock.is_some()
     {
         let file = if user {
             user_file.clone().ok_or_else(|| {
@@ -1504,6 +1574,7 @@ pub fn run_config(
             co_author.as_deref(),
             signing_key.as_deref(),
             signing_program.as_deref(),
+            ssh_auth_sock.as_deref(),
         )?;
         println!("wrote {}", file.display());
     }
@@ -1541,6 +1612,13 @@ pub fn run_config(
             DEFAULT_SIGNING_PROGRAM
         ),
     }
+    match (&settings.ssh_auth_sock, settings.ssh_auth_sock_source) {
+        (Some(socket), Some(source)) => {
+            println!("attribution ssh auth sock: {}", socket);
+            println!("source: {}", source.label());
+        }
+        _ => println!("attribution ssh auth sock: not set (the process SSH_AUTH_SOCK is used)"),
+    }
     Ok(())
 }
 
@@ -1555,6 +1633,7 @@ mod tests {
             key_file: "/k/key".to_string(),
             signers_file: "/k/signers".to_string(),
             program: "ssh-keygen".to_string(),
+            ssh_auth_sock: None,
         }
     }
 
@@ -1596,6 +1675,7 @@ mod tests {
             co_author: None,
             signing_key: None,
             signing_program: None,
+            ssh_auth_sock: None,
         }
     }
 
@@ -1712,7 +1792,7 @@ mod tests {
     #[test]
     fn writing_a_co_author_keeps_the_other_keys_and_validates_it() {
         let text = "[attribution]\nidentity = \"robot\"\nemail = \"a@example.com\"\n";
-        let out = with_section(text, None, None, Some(JANE), None, None, file()).unwrap();
+        let out = with_section(text, None, None, Some(JANE), None, None, None, file()).unwrap();
         let read = parse_section(&out, file()).unwrap();
         assert_eq!(read.co_author.as_deref(), Some(JANE));
         assert_eq!(read.identity, Some(Identity::Robot));
@@ -1724,12 +1804,13 @@ mod tests {
             Some("Joe <j@example.com>"),
             None,
             None,
+            None,
             file(),
         )
         .unwrap();
         assert_eq!(out.matches("co_author").count(), 1);
-        assert!(with_section("", None, None, Some("Jane"), None, None, file()).is_err());
-        assert!(with_section("", None, None, Some(""), None, None, file()).is_err());
+        assert!(with_section("", None, None, Some("Jane"), None, None, None, file()).is_err());
+        assert!(with_section("", None, None, Some(""), None, None, None, file()).is_err());
     }
 
     fn rewrite(message: &str, co_author: Option<&str>) -> String {
@@ -1977,6 +2058,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             file(),
         )
         .unwrap();
@@ -1991,8 +2073,17 @@ mod tests {
     #[test]
     fn writing_a_section_replaces_an_existing_line_and_keeps_the_other_key() {
         let text = "[attribution]\nidentity = \"robot\"\nemail = \"a@example.com\"\n\n[ledger]\nrefs = \"custom\"\n";
-        let out =
-            with_section(text, None, Some("b@example.com"), None, None, None, file()).unwrap();
+        let out = with_section(
+            text,
+            None,
+            Some("b@example.com"),
+            None,
+            None,
+            None,
+            None,
+            file(),
+        )
+        .unwrap();
         let read = parse_section(&out, file()).unwrap();
         assert_eq!(read, section(Some(Identity::Robot), Some("b@example.com")));
         assert!(out.contains("[ledger]\nrefs = \"custom\"\n"));
@@ -2001,8 +2092,17 @@ mod tests {
 
     #[test]
     fn a_value_with_a_quote_is_refused() {
-        let err =
-            with_section("", None, Some("a\"b@example.com"), None, None, None, file()).unwrap_err();
+        let err = with_section(
+            "",
+            None,
+            Some("a\"b@example.com"),
+            None,
+            None,
+            None,
+            None,
+            file(),
+        )
+        .unwrap_err();
         assert!(err.contains("cannot hold a quote"), "{}", err);
     }
 
@@ -2127,6 +2227,7 @@ mod tests {
             None,
             Some(&agent_value()),
             Some("/p/op-ssh-sign"),
+            None,
             file(),
         )
         .unwrap();
@@ -2134,7 +2235,7 @@ mod tests {
         assert_eq!(read.signing_key, Some(agent_value()));
         assert_eq!(read.signing_program.as_deref(), Some("/p/op-ssh-sign"));
         assert_eq!(read.identity, Some(Identity::Robot));
-        assert!(with_section("", None, None, None, Some(PUBLIC), None, file()).is_err());
+        assert!(with_section("", None, None, None, Some(PUBLIC), None, None, file()).is_err());
     }
 
     #[test]
@@ -2266,6 +2367,8 @@ mod tests {
             signing_key_source: signing_key.map(|_| Source::Env),
             signing_program: program.map(str::to_string),
             signing_program_source: program.map(|_| Source::Env),
+            ssh_auth_sock: None,
+            ssh_auth_sock_source: None,
         }
     }
 
@@ -2382,5 +2485,91 @@ mod tests {
             .unwrap();
         let name = robot_name_of(&git_dir, &git, None, |_| None);
         assert_eq!(name.as_deref(), Some("Older"));
+    }
+    fn socket_section(value: &str) -> Section {
+        Section {
+            ssh_auth_sock: Some(value.to_string()),
+            ..Section::default()
+        }
+    }
+
+    #[test]
+    fn ssh_auth_sock_is_read_written_and_validated() {
+        let out = with_section(
+            "[attribution]\nidentity = \"robot\"\n",
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("/s/agent.sock"),
+            file(),
+        )
+        .unwrap();
+        let read = parse_section(&out, file()).unwrap();
+        assert_eq!(read.ssh_auth_sock.as_deref(), Some("/s/agent.sock"));
+        assert_eq!(read.identity, Some(Identity::Robot));
+        let err = parse_section("[attribution]\nssh_auth_sock = \"\"\n", file()).unwrap_err();
+        assert!(err.contains("attribution.ssh_auth_sock"), "{}", err);
+    }
+
+    #[test]
+    fn the_repo_socket_beats_the_user_socket_and_both_beat_the_default() {
+        let home = tempfile::tempdir().unwrap();
+        let socket = home.path().join(ONEPASSWORD_AGENT_SOCKET);
+        std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
+        std::fs::write(&socket, "").unwrap();
+        let (value, source) = resolve_ssh_auth_sock(
+            &socket_section("/repo"),
+            &socket_section("/user"),
+            Some(home.path()),
+        );
+        assert_eq!(
+            (value.as_deref(), source),
+            (Some("/repo"), Some(Source::RepoConfig))
+        );
+        let (value, source) = resolve_ssh_auth_sock(
+            &Section::default(),
+            &socket_section("/user"),
+            Some(home.path()),
+        );
+        assert_eq!(
+            (value.as_deref(), source),
+            (Some("/user"), Some(Source::UserConfig))
+        );
+    }
+
+    #[test]
+    fn the_default_socket_is_the_one_password_socket_on_macos_when_the_file_exists() {
+        let home = tempfile::tempdir().unwrap();
+        let (value, source) =
+            resolve_ssh_auth_sock(&Section::default(), &Section::default(), Some(home.path()));
+        assert_eq!((value, source), (None, None));
+        let socket = home.path().join(ONEPASSWORD_AGENT_SOCKET);
+        std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
+        std::fs::write(&socket, "").unwrap();
+        let (value, source) =
+            resolve_ssh_auth_sock(&Section::default(), &Section::default(), Some(home.path()));
+        if cfg!(target_os = "macos") {
+            assert_eq!(value, Some(socket.display().to_string()));
+            assert_eq!(source, Some(Source::Default));
+        } else {
+            assert_eq!((value, source), (None, None));
+        }
+    }
+
+    #[test]
+    fn the_robot_git_environment_names_the_agent_socket_only_when_one_is_set() {
+        assert!(!robot()
+            .git_env()
+            .iter()
+            .any(|(key, _)| key == "SSH_AUTH_SOCK"));
+        let with_socket = RobotIdentity {
+            ssh_auth_sock: Some("/s/agent.sock".to_string()),
+            ..robot()
+        };
+        assert!(with_socket
+            .git_env()
+            .contains(&("SSH_AUTH_SOCK".to_string(), "/s/agent.sock".to_string())));
     }
 }
