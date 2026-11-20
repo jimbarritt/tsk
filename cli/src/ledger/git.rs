@@ -42,6 +42,9 @@ impl Git {
     fn command(&self) -> Command {
         let mut command = Command::new("git");
         command.current_dir(&self.dir);
+        if is_bare_repo(&self.dir) {
+            command.env("GIT_DIR", &self.dir);
+        }
         // Git hooks are off in every git process tsk starts for the ledger. The ledger
         // and docs worktrees are linked worktrees of the code repo, so git would run the
         // code repo's hooks (`pre-commit`, `pre-push`, `post-checkout` and the rest) for
@@ -135,6 +138,10 @@ impl Git {
     {
         Ok(self.run(args)?.trim_end_matches(['\n', '\r']).to_string())
     }
+}
+
+fn is_bare_repo(dir: &Path) -> bool {
+    dir.join("HEAD").is_file() && dir.join("objects").is_dir() && !dir.join(".git").exists()
 }
 
 pub fn failure_message(args: &[String], output: &Output) -> String {

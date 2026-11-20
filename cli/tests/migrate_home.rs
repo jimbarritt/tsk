@@ -1323,7 +1323,7 @@ fn a_stale_lease_changes_nothing() {
     common::install_git_shim(
         fx.root.path(),
         &format!(
-            "case \"$*\" in *--force-with-lease=refs/tsk/ledgers/work-api:*) \"$REAL_GIT\" -C '{}' update-ref refs/tsk/ledgers/work-api {};; esac",
+            "case \"$*\" in *--force-with-lease=refs/tsk/ledgers/work-api:*) env -u GIT_DIR \"$REAL_GIT\" -C '{}' update-ref refs/tsk/ledgers/work-api {};; esac",
             fx.nexus().display(),
             other
         ),

@@ -1860,3 +1860,34 @@ fn status_porcelain_prints_the_workflow_of_the_entry() {
     let human = stdout(&fx.tsk(&["ledger", "status"]));
     assert!(human.contains("workflow: pull-request"), "{}", human);
 }
+
+const EXPLICIT_BARE: [(&str, &str); 3] = [
+    ("GIT_CONFIG_COUNT", "1"),
+    ("GIT_CONFIG_KEY_0", "safe.bareRepository"),
+    ("GIT_CONFIG_VALUE_0", "explicit"),
+];
+
+#[test]
+fn the_nexus_and_the_ledger_are_fetched_and_pushed_with_safe_bare_repository_explicit() {
+    let fx = Fixture::attached_and_seeded();
+    fx.forget_local_ledger();
+
+    assert_success(&fx.tsk_env(&["ledger", "fetch"], &EXPLICIT_BARE));
+    assert_eq!(
+        stdout(&fx.tsk_env(&["ledger", "doc", "get", BRIEFING], &EXPLICIT_BARE)),
+        "# Mission: example\n"
+    );
+
+    let doc = fx.root.path().join("two.md");
+    write(&doc, "two\n");
+    assert_success(&fx.tsk_env(
+        &["ledger", "doc", "put", "two.md", doc.to_str().unwrap()],
+        &EXPLICIT_BARE,
+    ));
+    assert_success(&fx.tsk_env(&["ledger", "push", "Push under explicit"], &EXPLICIT_BARE));
+    assert_success(&fx.tsk_env(&["ledger", "fetch"], &EXPLICIT_BARE));
+    assert_eq!(
+        fx.docs_head(),
+        git_line(&fx.nexus(), &["rev-parse", NEXUS_DOCS_REF])
+    );
+}
