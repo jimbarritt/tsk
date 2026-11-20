@@ -20,6 +20,7 @@ pub struct NewEntry {
     pub ledger_refs: Option<String>,
     /// The mission prefix of the repo's ledger. Written to the entry when given.
     pub prefix: Option<String>,
+    pub workflow: Option<String>,
 }
 
 impl NewEntry {
@@ -38,6 +39,9 @@ impl NewEntry {
         }
         if let Some(prefix) = &self.prefix {
             entry.insert("prefix".to_string(), json!(prefix));
+        }
+        if let Some(workflow) = &self.workflow {
+            entry.insert("workflow".to_string(), json!(workflow));
         }
         Value::Object(entry)
     }
@@ -416,10 +420,17 @@ fn commit_nexus_json(
     records.push(format!("100644 blob {}\t{}", blob, NEXUS_FILE));
     let input: String = records.iter().map(|r| format!("{}\0", r)).collect();
     let tree = git.run_stdin(["mktree", "-z"], &input)?;
-    match tip {
-        Some(tip) => git.run_line(["commit-tree", tree.as_str(), "-p", tip, "-m", message]),
-        None => git.run_line(["commit-tree", tree.as_str(), "-m", message]),
+    let (signing_git, options) = crate::attribution::ledger_git(git)?;
+    let mut args = options.clone();
+    args.extend(["commit-tree".to_string(), tree]);
+    if !options.is_empty() {
+        args.push("-S".to_string());
     }
+    if let Some(tip) = tip {
+        args.extend(["-p".to_string(), tip.to_string()]);
+    }
+    args.extend(["-m".to_string(), message.to_string()]);
+    signing_git.run_line(args)
 }
 
 fn push_commit(
@@ -712,6 +723,7 @@ mod tests {
             ledger: "nexus".to_string(),
             ledger_refs: None,
             prefix: None,
+            workflow: None,
         }
     }
 
@@ -734,6 +746,7 @@ mod tests {
             ledger: "nexus".to_string(),
             ledger_refs: None,
             prefix: None,
+            workflow: None,
         }
     }
 

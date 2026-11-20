@@ -1,6 +1,6 @@
 ---
 name: tsk
-description: Reference for the tsk command line: the ledger, threads and bindings, continuation state, and the external event queue. Load when working with tsk missions, threads or the ledger, or when a tsk command is needed.
+description: "Reference for the tsk command line: the ledger, threads and bindings, continuation state, and the external event queue. Load when working with tsk missions, threads or the ledger, or when a tsk command is needed."
 ---
 
 # tsk: agent context
@@ -26,7 +26,7 @@ Design references in the tsk repository: every ledger file and format is in
 
 ## Core concepts
 
-A **thread** is one line of work. Its mission is its current focus (ADR 0031). Its ID is 8 characters from `[0-9a-z]`.
+A **thread** is one line of work, with an ID of 8 characters from `[0-9a-z]`. The mission of a thread is its current focus (ADR 0031).
 A thread names a mission, or has none, and has one continuation state entry per pause.
 The ledger keeps a thread in tables: a `threads` row, its continuation entries and its
 bindings.
@@ -119,6 +119,7 @@ chooses (the `init-ledger` skill prompts for the choice).
 tsk config attach-nexus <url>            record the nexus repo URL in the user config; idempotent, reports a replacement
 tsk config show                          print the user config path and the attached nexus URL
 tsk nexus add <url>                      the same as tsk config attach-nexus
+tsk nexus init-local [<path>] [--yes] [--replace]  make a bare git repo as a local nexus, by default ~/.local/share/tsk/nexus.git, and attach it; asks first unless --yes; prints `already set up` and exits 0 when the folder is the attached nexus; --replace attaches it in place of an attached nexus
 tsk nexus list [--json]                  print the config path, the nexus URL, and the territories and repos in its nexus.json
 tsk nexus register-repo [--id <id>] [--territory <id>] [--territory-name <name>] [--ledger nexus|repo] [--local]
                                          add this repo's entry to nexus.json, commit and push it; idempotent
@@ -136,7 +137,8 @@ tsk ledger doc rm <ref>                  remove a document; changes the local st
 tsk ledger doc mv <ref> <path>           rename a document, keep its id, update the path in the mission links
 tsk ledger doc path <ref>                print the absolute path of a document's file
 tsk ledger status [--local] [--porcelain]  print Local (what is not pushed) and Origin (ahead or behind); --local makes no network call and prints Origin as not checked; --porcelain prints tab-separated facts for scripts; read-only
-tsk ledger init --nexus|--repo [--prefix P]  create the ledger of a repo that has none, add the repo to the nexus when one is attached, and push it
+tsk ledger init --nexus|--repo [--prefix P] [--territory T [--territory-name N]] [--workflow main|pr]  create the ledger of a repo that has none, add the repo to the nexus when one is attached (with the territory name and the push workflow it is given), and push it
+tsk ledger not-used [--forget]           record that this repo works without tsk, so session start asks nothing and the stop guard blocks nothing: in the tsk field of its nexus entry when the attached nexus lists the repo, else in .git/tsk-not-used; run it only after the person says yes to remembering the choice; --forget removes the record
 tsk thread next                          print bound:<thread-id> for a bound session, else the robot-first question the Stop hook asks; run it on the first turn once the ledger is fetched. It lists the free robots first, then the busy ones: a robot is busy while it holds a thread, read from the ledger alone (ADR 0032). --open is accepted and ignored
 tsk ledger discard [--yes] [--porcelain] drop every local change that is not pushed; without --yes it only prints what it would drop and exits 1
 
@@ -210,7 +212,7 @@ is set. Use `tsk` 0.15.1 to read an old file ledger.
 
 Documents are plain Markdown files on a second ref, `refs/tsk/docs` or `refs/heads/tsk/docs`
 (on a nexus ledger, `refs/tsk/ledgers/<repo-id>/docs` or `refs/heads/ledgers/<repo-id>/docs`). They are checked out as a worktree beside the
-database, at `.../tsk/ledgers/<key>/docs`; it belongs to the home's bare clone, not to the
+database, at `.../tsk/ledgers/<key>/docs`; it is linked to the home's bare clone, not to the
 code repo. Read and change them with `tsk ledger doc`.
 Documents contain intelligence, research and reports. They do not contain state: a mission's
 purpose, tasks, decisions and questions are records, and a document must not repeat them.
@@ -381,7 +383,7 @@ do not push. `tsk thread stop` pushes. Progress can wait: marking a task done, a
 task, recording a decision or answering a question is published at the next of the four
 points. A stale read is acceptable.
 
-A claim must not wait, so that two actors do not take the same task. These are claims:
+A claim is published at once, so that two actors do not take the same task. These are claims:
 `tsk thread start`, which publishes by itself, and setting a task or a mission to
 `in-progress` to take it. The second is a record write and does not push, so run
 `tsk ledger push "Claim <mission> <task>"` straight after it. A container that is

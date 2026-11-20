@@ -1,9 +1,9 @@
 # Keep the nexus on local disk
 
-Use this page to run tsk on a machine that keeps every ledger on its own disk.
+Use this page to run tsk on a machine that keeps every ledger on a local disk.
 
 The set-up differs from a nexus on GitHub in one way: the nexus repo is a bare git repo in
-a folder on the machine, and tsk gets its `file://` address in place of an `https://` URL.
+a folder on the machine, and tsk takes its `file://` address, not an `https://` URL.
 Git clones from a `file://` address and pushes to it the same way as with a server, so every
 tsk command then works as normal.
 
@@ -19,15 +19,34 @@ Or download a release archive, as [installation.md](installation.md) describes. 
 need `dolt` 2.5.0 or later. The tsk plugin's session start hook installs it when it is
 missing.
 
-## 2. Create the nexus
+## 2. Create and attach the nexus
+
+```bash
+tsk nexus init-local
+```
+
+The command lists what it will do and prompts for confirmation before it acts. `--yes` skips the prompt, for
+a script or an agent. An argument names another path: `tsk nexus init-local <path>`. The
+default path is `nexus.git` in the tsk data directory, `~/.local/share/tsk`, and
+`XDG_DATA_HOME` moves it. The command fails on a path that exists and is not an empty folder
+or an empty bare repo. It fails while another nexus is attached, unless `--replace` is
+given. A nexus that `--replace` replaces keeps its ledgers: they are not moved. After it makes
+the folder, the command attaches it, as step 3 describes.
+
+The command resolves `..` and symbolic links in the existing part of the path before it
+compares the path with the attached nexus, and attaches the resolved path. When the folder
+is a bare repo that is the attached nexus, the command prints
+`already set up: <path> is the attached nexus` and exits 0, whether the repo has refs or
+not. An empty bare repo keeps its folder, and the command sets its HEAD to `refs/heads/main`.
+
+The command runs the commands below, which create the local equivalent of an empty repo on
+GitHub. A machine with an older tsk runs them by hand:
 
 ```bash
 mkdir -p ~/.local/share/tsk
 chmod 700 ~/.local/share/tsk
 git init --bare --initial-branch=main ~/.local/share/tsk/nexus.git
 ```
-
-These commands create the local equivalent of an empty repo on GitHub.
 
 - `~/.local/share/tsk` is the XDG data directory for tsk, the place for files that a user
   keeps. The nexus is the only copy of every ledger on the machine, so this guide puts it there. tsk
@@ -45,6 +64,8 @@ These commands create the local equivalent of an empty repo on GitHub.
 - The option needs git 2.28 or later.
 
 ## 3. Attach the nexus
+
+`tsk nexus init-local` attaches the nexus it makes. By hand, run:
 
 ```bash
 tsk nexus add file://$HOME/.local/share/tsk/nexus.git
@@ -129,7 +150,11 @@ tsk ledger init --nexus --prefix <PREFIX> --territory <territory>
 
 - `<PREFIX>` is 3 or 4 capital letters. It starts every mission ID in this repo.
 - `<territory>` names a territory in the nexus. The first `init` creates `nexus.json` and
-  the territory.
+  the territory. `--territory-name <name>` sets the display name of a territory that the
+  command creates, which is the id otherwise. An existing territory keeps its name.
+- `--workflow main` or `--workflow pr` saves the push workflow in the repo's entry. On a
+  terminal, without the option, the command prompts for it. With no terminal and no option
+  the workflow stays unset, and `tsk ledger status` shows `workflow: not set`.
 - The command writes the repo's entry to `nexus.json`, creates the ledger, and pushes both
   to the nexus folder. The repo itself and its origin are not changed.
 - `init` fetches the repo's origin to check it for an existing ledger, and stops when the
@@ -146,9 +171,9 @@ The nexus has the refs `ledgers/<repo-id>/ledger` and `ledgers/<repo-id>/docs`, 
 A new ledger outside a Claude Code cloud session uses these custom refs, which `git branch`
 does not list (ADR 0016).
 
-Then set the repo's push workflow, `main` or `pull-request`. `tsk ledger init` does not
-set it. `tsk harness new` reads it from the repo's entry in `nexus.json`, and states it in
-the first prompt of each new session:
+`tsk harness new` reads the push workflow, `main` or `pull-request`, from the repo's entry
+in `nexus.json`, and states it in the first prompt of each new session. `tsk ledger init`
+sets it. To change it later:
 
 ```bash
 tsk nexus set-repo <repo-id> --workflow main
@@ -161,15 +186,19 @@ tsk nexus set-repo <repo-id> --workflow main
 1. In the repo, start `claude`. Use plain `claude` for the first session, not
    `tsk harness new`: `harness new` lists the threads, robots and missions of the ledger,
    and the repo has no ledger yet.
-2. At session start the agent runs `tsk ledger status`, which names `tsk ledger init` as the
-   next step. The agent then runs the `/tsk:init-ledger` skill, which prompts you for the
-   place to keep the ledger and for the prefix. Choose the nexus.
+2. At session start in a repo with no ledger, the agent offers a choice between initialising a ledger
+   and working without tsk. With no nexus attached, it offers to create a local nexus
+   (`tsk nexus init-local`), to attach a nexus by URL, or to work without tsk. Work without
+   tsk prompts for whether to remember the choice, and on yes runs `tsk ledger not-used`. That
+   records the choice in the `tsk` field of the repo's nexus entry when the attached nexus
+   lists the repo, and in `.git/tsk-not-used` of the clone otherwise.
+   `tsk ledger not-used --forget` removes the record. To initialise, the agent runs the
+   `/tsk:init-ledger` skill, which prompts you for the place to keep the ledger, the
+   prefix and the push workflow. Choose the local nexus.
 3. To import old plan files, ask the agent to read `tsk guide import` and follow it. By the
    guide's rules, the agent shows you how it maps the plan to missions and tasks before it
    writes a record. The import does not change the plan files.
-4. Ask the agent to set the repo's push workflow with `tsk nexus set-repo <repo-id>
-   --workflow main`, or `pull-request`, as in the steps by hand above.
-5. From the next session on, start each piece of work with `tsk harness new`.
+4. From the next session on, start each piece of work with `tsk harness new`.
 
 ## 6. Back up the nexus
 

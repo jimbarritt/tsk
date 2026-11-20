@@ -18,7 +18,8 @@ pub fn show() -> Result<(), String> {
     let repo = repo_here()?;
     let state_root = state_root_from_env()?;
     let config_file = crate::config::config_file_from_env();
-    let (placement, choice) = nexus::choose(&repo, &state_root, config_file.as_deref())?;
+    let (placement, choice, unlisted) =
+        nexus::choose_or_unlisted(&repo, &state_root, config_file.as_deref())?;
     let location = nexus::display_location(&repo, &state_root, &placement, &choice);
     println!("ledger refs: {}", choice.refs.as_str());
     match (choice.source, refs::repo_config_path(&repo)) {
@@ -29,6 +30,9 @@ pub fn show() -> Result<(), String> {
     }
     println!("ledger ref: {}", location.ref_name());
     println!("docs ref: {}", location.docs_ref_name());
+    if unlisted {
+        println!("note: the attached nexus has no entry for this repo yet");
+    }
     refs::check_store(&repo, &state_root, &location)
 }
 
@@ -37,7 +41,8 @@ pub fn summary() -> Result<String, String> {
     let repo = repo_here()?;
     let state_root = state_root_from_env()?;
     let config_file = crate::config::config_file_from_env();
-    let (placement, choice) = nexus::choose(&repo, &state_root, config_file.as_deref())?;
+    let (placement, choice, _) =
+        nexus::choose_or_unlisted(&repo, &state_root, config_file.as_deref())?;
     let location = nexus::display_location(&repo, &state_root, &placement, &choice);
     Ok(format!(
         "refs {} ({}): data {}, documents {}",
@@ -57,7 +62,14 @@ pub fn set(mode: LedgerRefs) -> Result<(), String> {
     let file = refs::repo_config_path(&repo).ok_or_else(|| {
         "error: tsk config ledger-refs needs a repo with a working tree: it writes .tsk/config.toml at the top of it".to_string()
     })?;
-    let placement = nexus::place(&repo, &state_root, config_file.as_deref())?;
+    let placement = match nexus::place_or_unlisted(&repo, &state_root, config_file.as_deref())? {
+        nexus::Placed::Found(placement) => placement,
+        nexus::Placed::Unlisted(_) => nexus::Placement {
+            base: super::location::LedgerLocation::in_repo(),
+            entry_refs: None,
+            entry_marked: false,
+        },
+    };
     let wanted = placement.base.with_refs(mode, RefsSource::RepoConfig);
 
     if let Some(held_ref) = refs::store_ref(&repo, &state_root) {

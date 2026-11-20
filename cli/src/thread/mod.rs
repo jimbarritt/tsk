@@ -1,6 +1,7 @@
 pub mod binding;
 pub mod clock;
 pub mod entry;
+pub mod no_ledger;
 pub mod ops;
 pub mod session;
 pub mod session_start;
@@ -225,6 +226,13 @@ fn guard(suppress_block: bool) -> Option<String> {
 }
 
 fn guard_reason() -> Option<String> {
+    if std::env::current_dir()
+        .ok()
+        .and_then(|cwd| crate::ledger::location::Repo::discover(&cwd).ok())
+        .is_some_and(|repo| crate::ledger::nexus::marked_not_used(&repo))
+    {
+        return None;
+    }
     let Ok(session) = Session::discover() else {
         return Some(UNBOUND_PROMPT.to_string());
     };

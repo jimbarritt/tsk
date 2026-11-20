@@ -196,8 +196,18 @@ impl Fixture {
     }
 
     fn tsk_as(&self, machine: &str, args: &[&str]) -> Output {
+        self.tsk_as_env(machine, args, &[])
+    }
+
+    fn tsk_env(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
+        self.tsk_as_env("laptop", args, env)
+    }
+
+    fn tsk_as_env(&self, machine: &str, args: &[&str], env: &[(&str, &str)]) -> Output {
         crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
             .args(args)
+            .env_remove("GIT_AUTHOR_NAME")
+            .env_remove("TSK_SESSION")
             .current_dir(self.work())
             .envs(git_env())
             .env("HOME", self.root.path().join("home"))
@@ -208,6 +218,7 @@ impl Fixture {
             .env("TSK_HOME", self.root.path().join("home/.tsk"))
             .env("GIT_CEILING_DIRECTORIES", self.root.path())
             .env_remove("CLAUDE_CODE_REMOTE_SESSION_ID")
+            .envs(env.iter().copied())
             .output()
             .expect("failed to run tsk")
     }
@@ -841,6 +852,145 @@ fn init_nexus_adds_the_repo_and_creates_its_ledger_in_the_nexus() {
     assert_failure_mentioning(&again, "holds a ledger already");
 }
 
+impl Fixture {
+    fn set_empty_nexus(&self) {
+        sync_to_origin(&self.nexus_seed());
+        write(
+            &self.nexus_seed().join("nexus.json"),
+            "{\"version\":1,\"territories\":[]}\n",
+        );
+        commit_all(&self.nexus_seed(), "Empty nexus.json");
+        git(
+            &self.nexus_seed(),
+            &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
+        );
+    }
+}
+
+#[test]
+fn init_nexus_creates_a_territory_with_its_name() {
+    let fx = Fixture::new();
+    fx.set_empty_nexus();
+    fx.attach();
+
+    let missing = fx.tsk(&["ledger", "init", "--nexus", "--prefix", "WAPI"]);
+    assert_failure_mentioning(&missing, "--territory");
+    let created = fx.tsk(&[
+        "ledger",
+        "init",
+        "--nexus",
+        "--prefix",
+        "WAPI",
+        "--territory",
+        "work",
+        "--territory-name",
+        "Work",
+    ]);
+    assert_success(&created);
+    let index = nexus_json(&fx);
+    assert_eq!(index["territories"][0]["id"], "work");
+    assert_eq!(index["territories"][0]["name"], "Work");
+}
+
+#[test]
+fn init_nexus_names_a_new_territory_after_its_id_without_a_name() {
+    let fx = Fixture::new();
+    fx.set_empty_nexus();
+    fx.attach();
+
+    let created = fx.tsk(&[
+        "ledger",
+        "init",
+        "--nexus",
+        "--prefix",
+        "WAPI",
+        "--territory",
+        "work",
+    ]);
+    assert_success(&created);
+    assert_eq!(nexus_json(&fx)["territories"][0]["name"], "work");
+}
+
+#[test]
+fn init_territory_name_needs_a_territory() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+
+    let output = fx.tsk(&[
+        "ledger",
+        "init",
+        "--nexus",
+        "--prefix",
+        "WAPI",
+        "--territory-name",
+        "Work",
+    ]);
+    assert_failure_mentioning(&output, "--territory");
+}
+
+#[test]
+fn init_nexus_writes_the_workflow_to_the_new_entry() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+
+    let created = fx.tsk(&[
+        "ledger",
+        "init",
+        "--nexus",
+        "--prefix",
+        "WAPI",
+        "--workflow",
+        "pr",
+    ]);
+    assert_success(&created);
+    let index = fx
+        .file_on(&fx.nexus(), "refs/heads/main", "nexus.json")
+        .unwrap();
+    assert!(
+        index.contains("\"workflow\": \"pull-request\""),
+        "{}",
+        index
+    );
+    let status = stdout(&fx.tsk(&["ledger", "status"]));
+    assert!(status.contains("workflow: pull-request"), "{}", status);
+}
+
+#[test]
+fn init_without_a_workflow_and_with_no_terminal_leaves_it_unset() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+
+    assert_success(&fx.tsk(&["ledger", "init", "--nexus", "--prefix", "WAPI"]));
+    let index = fx
+        .file_on(&fx.nexus(), "refs/heads/main", "nexus.json")
+        .unwrap();
+    assert!(!index.contains("workflow"), "{}", index);
+    let status = stdout(&fx.tsk(&["ledger", "status"]));
+    assert!(status.contains("workflow: not set"), "{}", status);
+}
+
+#[test]
+fn init_rejects_a_workflow_that_is_not_main_or_pr() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+
+    let output = fx.tsk(&[
+        "ledger",
+        "init",
+        "--nexus",
+        "--prefix",
+        "WAPI",
+        "--workflow",
+        "trunk",
+    ]);
+    assert_failure_mentioning(&output, "not a push workflow");
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+}
+
 #[test]
 fn init_repo_adds_the_repo_with_ledger_repo_and_creates_its_ledger_on_origin() {
     let fx = Fixture::new();
@@ -1269,4 +1419,239 @@ fn move_ledger_does_not_overwrite_a_different_ledger_in_the_nexus() {
         nexus_json(&fx)["territories"][0]["repos"][0]["ledger"],
         serde_json::Value::Null
     );
+}
+
+#[test]
+fn init_takes_the_prefix_of_an_entry_that_holds_one() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(
+        r#"{"id":"work-api","url":"https://example.test/acme/work-api","ledger":"repo","prefix":"WAPI"}"#,
+    );
+    fx.attach();
+
+    assert_success(&fx.tsk(&["ledger", "init", "--repo"]));
+    assert_eq!(stdout(&fx.tsk(&["mission", "prefix"])), "WAPI\n");
+}
+
+#[test]
+fn init_with_a_robot_identity_and_no_robot_set_up_leaves_the_nexus_untouched() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+    let before = git_line(&fx.nexus(), &["rev-parse", "refs/heads/main"]);
+
+    let output = crate::common::cmd(env!("CARGO_BIN_EXE_tsk"))
+        .args(["ledger", "init", "--nexus", "--prefix", "WAPI"])
+        .current_dir(fx.work())
+        .envs(git_env())
+        .env("HOME", fx.root.path().join("home"))
+        .env("XDG_STATE_HOME", fx.root.path().join("state"))
+        .env("XDG_CONFIG_HOME", fx.root.path().join("config"))
+        .env("TSK_MACHINE_NAME", "laptop")
+        .env("TSK_HOME", fx.root.path().join("home/.tsk"))
+        .env("TSK_ATTRIBUTION_IDENTITY", "robot")
+        .env("GIT_CEILING_DIRECTORIES", fx.root.path())
+        .output()
+        .unwrap();
+    assert_failure_mentioning(&output, "nothing was changed");
+    assert_eq!(
+        git_line(&fx.nexus(), &["rev-parse", "refs/heads/main"]),
+        before
+    );
+}
+
+fn robot_session(fx: &Fixture) -> Vec<(String, String)> {
+    let key = fx.root.path().join("robot-key");
+    let generated = crate::common::cmd("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(&key)
+        .output()
+        .expect("failed to run ssh-keygen");
+    assert!(generated.status.success());
+    let private = std::fs::read_to_string(&key).unwrap();
+    let env = vec![
+        ("TSK_ATTRIBUTION_IDENTITY".to_string(), "robot".to_string()),
+        (
+            "TSK_ATTRIBUTION_EMAIL".to_string(),
+            "robots@example.test".to_string(),
+        ),
+        ("TSK_ROBOT_SIGNING_KEY".to_string(), private),
+    ];
+    let pairs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    assert_success(&fx.tsk_env(&["thread", "session-start"], &pairs));
+    env
+}
+
+#[test]
+fn init_with_a_robot_identity_and_no_robot_name_stops_and_names_the_way_out() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+    let env = robot_session(&fx);
+    let pairs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let before = git_line(&fx.nexus(), &["rev-parse", "refs/heads/main"]);
+
+    let output = fx.tsk_env(&["ledger", "init", "--nexus", "--prefix", "WAPI"], &pairs);
+    assert_failure_mentioning(&output, "tsk actor register \"<name>\" --kind robot");
+    assert_failure_mentioning(&output, "construct-robot");
+    assert_failure_mentioning(&output, "nothing was changed");
+    assert_eq!(
+        git_line(&fx.nexus(), &["rev-parse", "refs/heads/main"]),
+        before
+    );
+}
+
+#[test]
+fn init_with_a_robot_identity_registers_the_robot_of_the_session_and_sets_the_prefix() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+    let env = robot_session(&fx);
+    let pairs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    write(&fx.work().join(".git/tsk-robot-name"), "Marten\n");
+
+    let output = fx.tsk_env(&["ledger", "init", "--nexus", "--prefix", "WAPI"], &pairs);
+    assert_success(&output);
+    let actors = stdout(&fx.tsk_env(&["actor", "list", "--porcelain"], &pairs));
+    assert!(
+        actors.contains("Marten") && actors.contains("robot"),
+        "{}",
+        actors
+    );
+    assert_eq!(stdout(&fx.tsk(&["mission", "prefix"])), "WAPI\n");
+}
+
+#[test]
+fn not_used_is_recorded_in_the_nexus_entry_when_the_nexus_lists_the_repo() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(REPO_ENTRY);
+    fx.attach();
+
+    let written = fx.tsk(&["ledger", "not-used"]);
+    assert_success(&written);
+    assert!(stdout(&written).contains("nexus entry work-api"));
+    assert!(!fx.work().join(".git/tsk-not-used").exists());
+    assert_eq!(
+        nexus_json(&fx)["territories"][0]["repos"][0]["tsk"],
+        "not-used"
+    );
+
+    let started = stdout(&fx.tsk(&["thread", "session-start"]));
+    assert!(started.contains("marked as not under tsk"), "{}", started);
+    let status = stdout(&fx.tsk(&["ledger", "status"]));
+    assert!(status.contains("marked as not under tsk"), "{}", status);
+    let guard = fx.tsk(&["thread", "guard"]);
+    assert_success(&guard);
+    assert!(!stdout(&guard).contains("block"), "{}", stdout(&guard));
+
+    let forgotten = fx.tsk(&["ledger", "not-used", "--forget"]);
+    assert_success(&forgotten);
+    assert!(stdout(&forgotten).contains("removed"));
+    assert!(nexus_json(&fx)["territories"][0]["repos"][0]
+        .get("tsk")
+        .is_none());
+    let again = stdout(&fx.tsk(&["ledger", "status"]));
+    assert!(!again.contains("marked as not under tsk"), "{}", again);
+}
+
+#[test]
+fn not_used_is_recorded_in_the_clone_when_the_nexus_does_not_list_the_repo() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+
+    assert_success(&fx.tsk(&["ledger", "not-used"]));
+    assert!(fx.work().join(".git/tsk-not-used").is_file());
+    let index = fx
+        .file_on(&fx.nexus(), "refs/heads/main", "nexus.json")
+        .unwrap();
+    assert!(!index.contains("not-used"), "{}", index);
+    let started = stdout(&fx.tsk(&["thread", "session-start"]));
+    assert!(started.contains("marked as not under tsk"), "{}", started);
+
+    assert_success(&fx.tsk(&["ledger", "not-used", "--forget"]));
+    assert!(!fx.work().join(".git/tsk-not-used").exists());
+}
+
+#[test]
+fn a_repo_config_set_before_init_picks_the_refs_but_never_the_place_of_the_ledger() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+    let unset = [("TSK_LEDGER_REFS", "")];
+    assert_success(&fx.tsk_env(&["config", "ledger-refs", "custom"], &unset));
+    assert!(fx.work().join(".tsk/config.toml").is_file());
+
+    let created = fx.tsk_env(&["ledger", "init", "--nexus", "--prefix", "WAPI"], &unset);
+    assert_success(&created);
+    assert!(fx.ref_exists(&fx.nexus(), "refs/tsk/ledgers/work-api/ledger"));
+    assert!(!fx.ref_exists(&fx.managed(), "refs/tsk/ledger"));
+    assert!(!fx.ref_exists(&fx.managed(), IN_REPO_REF));
+    let entry = &nexus_json(&fx)["territories"][0]["repos"][1];
+    assert_eq!(entry["id"], "work-api");
+    assert_eq!(entry["ledger"], "nexus");
+}
+
+#[test]
+fn a_repo_config_set_before_init_does_not_move_an_in_repo_ledger_into_the_nexus() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+    let unset = [("TSK_LEDGER_REFS", "")];
+    assert_success(&fx.tsk_env(&["config", "ledger-refs", "branches"], &unset));
+
+    let created = fx.tsk_env(&["ledger", "init", "--repo", "--prefix", "WAPI"], &unset);
+    assert_success(&created);
+    assert!(fx.ref_exists(&fx.managed(), IN_REPO_REF));
+    assert!(!fx.ref_exists(&fx.nexus(), NEXUS_REF));
+    let entry = &nexus_json(&fx)["territories"][0]["repos"][1];
+    assert_eq!(entry["ledger"], "repo");
+}
+
+#[test]
+fn init_saves_the_workflow_to_an_existing_entry_only_after_the_ledger_is_created() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(
+        r#"{"id":"work-api","url":"https://example.test/acme/work-api","ledger":"repo","ledger_refs":"bogus"}"#,
+    );
+    fx.attach();
+    let unset = [("TSK_LEDGER_REFS", "")];
+
+    let failed = fx.tsk_env(&["ledger", "init", "--repo", "--workflow", "pr"], &unset);
+    assert!(!failed.status.success(), "{}", stdout(&failed));
+    let index = fx
+        .file_on(&fx.nexus(), "refs/heads/main", "nexus.json")
+        .unwrap();
+    assert!(!index.contains("workflow"), "{}", index);
+
+    fx.set_nexus_json(REPO_ENTRY);
+    let created = fx.tsk_env(&["ledger", "init", "--repo", "--workflow", "pr"], &unset);
+    assert_success(&created);
+    assert_eq!(
+        nexus_json(&fx)["territories"][0]["repos"][0]["workflow"],
+        "pull-request"
+    );
+}
+
+#[test]
+fn status_porcelain_prints_the_workflow_of_the_entry() {
+    let fx = Fixture::new();
+    fx.set_nexus_json(OTHER_ENTRY);
+    fx.attach();
+    let before = stdout(&fx.tsk(&["ledger", "status", "--porcelain"]));
+    assert!(before.contains("nexus-state\tno-entry"), "{}", before);
+
+    assert_success(&fx.tsk(&[
+        "ledger",
+        "init",
+        "--nexus",
+        "--prefix",
+        "WAPI",
+        "--workflow",
+        "pr",
+    ]));
+    let after = stdout(&fx.tsk(&["ledger", "status", "--porcelain"]));
+    assert!(after.contains("workflow\tpull-request\n"), "{}", after);
+    let human = stdout(&fx.tsk(&["ledger", "status"]));
+    assert!(human.contains("workflow: pull-request"), "{}", human);
 }

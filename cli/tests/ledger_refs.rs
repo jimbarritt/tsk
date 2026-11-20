@@ -639,7 +639,7 @@ fn the_session_start_context_of_a_new_cloud_ledger_carries_the_sentence() {
     let output = fx.tsk_env(
         &fx.work(),
         &["thread", "session-start"],
-        &[("CLAUDE_CODE_REMOTE", "true")],
+        &[("CLAUDE_CODE_REMOTE", "true"), ("TSK_NEXUS_OFFER", "off")],
     );
     assert_success(&output);
     assert!(stdout(&output).contains(CLOUD_NOTE), "{}", stdout(&output));
@@ -1063,4 +1063,178 @@ fn the_short_ref_check_catches_a_short_name() {
         short_refs("--force-with-lease=refs/tsk/docs:abc\n"),
         Vec::<String>::new()
     );
+}
+
+#[test]
+fn session_start_with_no_nexus_and_no_ledger_offers_a_nexus_and_creates_no_store() {
+    let fx = Fx::new();
+    let started = fx.tsk(&fx.work(), &["thread", "session-start"]);
+    assert_success(&started);
+    let text = stdout(&started);
+    assert!(text.contains("tsk nexus init-local --yes"), "{}", text);
+    assert!(text.contains("tsk nexus add <url>"), "{}", text);
+    assert!(text.contains("tsk ledger not-used"), "{}", text);
+    let status = fx.ok(&fx.work(), &["ledger", "status", "--local"]);
+    assert!(status.contains("no ledger in this clone"), "{}", status);
+
+    let cloud = fx.tsk_env(
+        &fx.work(),
+        &["thread", "session-start"],
+        &[("CLAUDE_CODE_REMOTE", "true")],
+    );
+    assert!(!stdout(&cloud).contains("init-local"), "{}", stdout(&cloud));
+    assert!(stdout(&cloud).contains("tsk nexus add <url>"));
+
+    let off = fx.tsk_env(
+        &fx.work(),
+        &["thread", "session-start"],
+        &[("TSK_NEXUS_OFFER", "off")],
+    );
+    assert!(!stdout(&off).contains("init-local"), "{}", stdout(&off));
+}
+
+fn find_named(dir: &Path, name: &str, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            find_named(&path, name, found);
+        } else if path.file_name().is_some_and(|n| n == name) {
+            found.push(path);
+        }
+    }
+}
+
+#[test]
+fn session_start_with_no_ledger_still_writes_the_robot_signing_set_up() {
+    let fx = Fx::new();
+    let key = fx.root.path().join("robot-key");
+    let generated = crate::common::cmd("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(&key)
+        .output()
+        .expect("failed to run ssh-keygen");
+    assert!(generated.status.success());
+    let private = std::fs::read_to_string(&key).unwrap();
+    let started = fx.tsk_env(
+        &fx.work(),
+        &["thread", "session-start"],
+        &[
+            ("TSK_ATTRIBUTION_IDENTITY", "robot"),
+            ("TSK_ATTRIBUTION_EMAIL", "robots@example.test"),
+            ("TSK_ROBOT_SIGNING_KEY", private.as_str()),
+        ],
+    );
+    assert_success(&started);
+    let text = stdout(&started);
+    assert!(text.contains("tsk nexus add <url>"), "{}", text);
+    assert!(
+        text.contains("Attribution: robot. Commits are signed as robots@example.test"),
+        "{}",
+        text
+    );
+    let mut signers = Vec::new();
+    find_named(
+        &fx.root.path().join("state"),
+        "robot-allowed-signers",
+        &mut signers,
+    );
+    assert_eq!(signers.len(), 1);
+}
+
+#[test]
+fn not_used_is_recorded_for_the_clone_and_can_be_forgotten() {
+    let fx = Fx::new();
+    let linked = fx.root.path().join("linked");
+    git(
+        &fx.work(),
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "side",
+            linked.to_str().unwrap(),
+        ],
+    );
+    let written = fx.ok(&linked, &["ledger", "not-used"]);
+    assert!(written.contains("tsk-not-used"), "{}", written);
+    assert!(fx.work().join(".git/tsk-not-used").is_file());
+
+    for dir in [fx.work(), linked.clone()] {
+        let started = stdout(&fx.tsk(&dir, &["thread", "session-start"]));
+        assert!(started.contains("marked as not under tsk"), "{}", started);
+        assert!(!started.contains("init-local"), "{}", started);
+        let status = fx.ok(&dir, &["ledger", "status"]);
+        assert!(status.contains("marked as not under tsk"), "{}", status);
+    }
+
+    let guard = fx.tsk(&fx.work(), &["thread", "guard"]);
+    assert_success(&guard);
+    assert!(!stdout(&guard).contains("block"), "{}", stdout(&guard));
+
+    let forgotten = fx.ok(&fx.work(), &["ledger", "not-used", "--forget"]);
+    assert!(forgotten.contains("removed"), "{}", forgotten);
+    assert!(!fx.work().join(".git/tsk-not-used").exists());
+    let again = stdout(&fx.tsk(&fx.work(), &["thread", "session-start"]));
+    assert!(again.contains("init-local"), "{}", again);
+}
+
+#[test]
+fn session_start_with_a_nexus_that_lists_no_entry_offers_two_options() {
+    let fx = Fx::new();
+    bare_with_main(fx.root.path(), "nexus");
+    assert_success(&fx.tsk(
+        &fx.work(),
+        &["config", "attach-nexus", fx.nexus().to_str().unwrap()],
+    ));
+    let started = stdout(&fx.tsk(&fx.work(), &["thread", "session-start"]));
+    assert!(started.contains("two options"), "{}", started);
+    assert!(started.contains("/tsk:init-ledger"), "{}", started);
+    assert!(!started.contains("init-local"), "{}", started);
+}
+
+#[test]
+fn ledger_refs_can_be_set_with_a_nexus_that_lists_no_entry() {
+    let fx = Fx::new();
+    let url = "https://example.test/acme/work-api";
+    git(&fx.work(), &["remote", "set-url", "origin", url]);
+    git(
+        &fx.work(),
+        &[
+            "config",
+            &format!("url.{}.insteadOf", fx.origin().display()),
+            url,
+        ],
+    );
+    bare_with_main(fx.root.path(), "nexus");
+    assert_success(&fx.tsk(
+        &fx.work(),
+        &["config", "attach-nexus", fx.nexus().to_str().unwrap()],
+    ));
+
+    let shown = fx.ok(&fx.work(), &["config", "ledger-refs"]);
+    assert!(shown.contains("no entry for this repo yet"), "{}", shown);
+
+    let set = fx.tsk(&fx.work(), &["config", "ledger-refs", "branches"]);
+    assert_success(&set);
+    assert!(fx.work().join(".tsk/config.toml").is_file());
+
+    assert_success(&fx.tsk(
+        &fx.work(),
+        &[
+            "ledger",
+            "init",
+            "--nexus",
+            "--prefix",
+            "WAPI",
+            "--territory",
+            "work",
+        ],
+    ));
+    let index = git(&fx.nexus(), &["show", "refs/heads/main:nexus.json"]);
+    assert!(index.contains("ledger_refs"), "{}", index);
+    assert!(index.contains("branches"), "{}", index);
 }

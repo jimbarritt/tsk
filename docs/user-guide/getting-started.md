@@ -161,6 +161,7 @@ to `total_count` only after every event up to it is processed.
 tsk nexus add <nexus url>   # the same as tsk config attach-nexus <nexus url>
 tsk nexus list              # config path, nexus URL, territories and repos
 tsk nexus list --json       # the same as one JSON object
+tsk nexus init-local        # make a bare git repo as a local nexus and attach it
 tsk nexus register-repo     # add this repo's entry to nexus.json, commit and push it
 ```
 

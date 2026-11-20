@@ -15,6 +15,7 @@ pub const CLONE_ID_FILE: &str = "tsk-clone-id";
 const CLONE_ID_SUFFIX_LEN: usize = 8;
 
 pub const REPO_ID_FILE: &str = "tsk-repo-id";
+pub const NOT_USED_FILE: &str = "tsk-not-used";
 
 /// Which names the data ref and the documents ref of a nexus ledger have (ADR 0035).
 ///
@@ -324,6 +325,36 @@ impl Repo {
         )?;
         super::refs::memo_set(self, state_root, &location);
         Ok(location)
+    }
+
+    pub fn not_used_file(&self) -> PathBuf {
+        self.common_dir.join(NOT_USED_FILE)
+    }
+
+    pub fn is_not_used(&self) -> bool {
+        self.not_used_file().is_file()
+    }
+
+    pub fn write_not_used(&self) -> Result<(), String> {
+        std::fs::write(self.not_used_file(), "not used\n").map_err(|e| {
+            format!(
+                "error: could not write {}: {}",
+                self.not_used_file().display(),
+                e
+            )
+        })
+    }
+
+    pub fn clear_not_used(&self) -> Result<bool, String> {
+        match std::fs::remove_file(self.not_used_file()) {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(format!(
+                "error: could not remove {}: {}",
+                self.not_used_file().display(),
+                e
+            )),
+        }
     }
 
     pub fn repo_id_file(&self) -> PathBuf {

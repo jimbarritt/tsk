@@ -29,7 +29,7 @@ start, with no question, unless another session has the thread.
 | Part | What it does at the start of a session |
 |---|---|
 | The plugin's `SessionStart` hook | Runs `tsk thread session-start`: fetches the ledger, exports `$TSK_LEDGER_WT`, and prints the context. With no thread binding, the context contains the robot question. |
-| `tsk ledger status` | With no ledger store in the clone, prints the attached nexus, what its entry states about this repo, whether origin has a ledger, and a `Next` line with the step to run. |
+| `tsk ledger status` | With no ledger store in the clone, prints the attached nexus and what its entry states about this repo. Also prints whether origin has a ledger and a `Next` line with the step to run. |
 | `tsk thread next` | Prints `bound:<thread-id>` for a bound session. Otherwise prints the robot question. It reads the local ledger store and never fetches. |
 | The plugin's `Stop` hook | After each turn of a session with no binding, prints the same robot question. |
 | The plugin's `SessionEnd` hook | Outside a cloud session, records the end of the session on this machine. Then starts `tsk ledger push --background` and exits. |
@@ -247,3 +247,26 @@ Related guides:
 - [missions-threads-and-continuation.md](missions-threads-and-continuation.md): threads,
   pause and resume.
 - [tmux.md](tmux.md): the tmux chooser and sidebar.
+
+## A repo with no ledger
+
+With no ledger in the clone, session start does not fetch a ledger. It gives the agent a
+question to ask.
+
+- With no nexus attached and a repo whose origin has no ledger, the agent offers to create
+  a local nexus with `tsk nexus init-local --yes`, to attach a nexus by URL with
+  `tsk nexus add <url>`, or to work without tsk. A cloud session is not offered a local
+  nexus. A repo with a `[ledger]` choice in `.tsk/config.toml` is not asked.
+  `TSK_NEXUS_OFFER=off` switches the offer off. An unattended start offers nothing.
+- With a nexus attached that lists no entry for the repo, the agent offers two options:
+  initialise a ledger with `/tsk:init-ledger`, or work without tsk. The agent does not offer
+  to register the repo: initialising does that.
+- After the person chooses work without tsk, the agent offers to remember the choice,
+  and runs `tsk ledger not-used` only on yes. The command records the choice in the field
+  `"tsk": "not-used"` of the repo's nexus entry when a nexus is attached and lists the repo,
+  so it applies on every machine. An older tsk ignores the field. With no nexus attached, or
+  a nexus that lists no entry for the repo, it writes `.git/tsk-not-used` in the clone, and
+  every worktree of the clone shares the file. Session start then prints one line saying
+  so, creates no ledger store, and the stop guard blocks nothing. `tsk ledger status` shows
+  the mark. `tsk ledger not-used --forget` removes the field and the file, and `tsk ledger
+  init` removes the file on success.
