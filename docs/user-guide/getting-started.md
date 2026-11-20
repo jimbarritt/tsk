@@ -17,7 +17,9 @@ are in [session-continuation-design.md](../domain/session-continuation-design.md
 To bring an existing plan into a ledger, run `tsk guide import`. It prints a guide for an
 agent: what the ledger contains, how a plan maps onto records, and the steps to write
 missions, tasks, decisions and questions through the `tsk` commands. The session start
-context names the command while the ledger has no missions.
+context names the command while the ledger has no missions. In a session with the plugin,
+`/tsk:migrate-plan [<path>]` runs the import: the agent finds the planning material in any
+format, proposes missions and tasks, and writes records only after you confirm.
 
 The ledger contains records and documents. Missions, tasks, decisions and questions are
 records, and `tsk mission list` is the index of them. Documents are free text, such as
@@ -71,7 +73,7 @@ applies. A non-zero exit stops the command and shows the script's output.
 After a failed `doc put` the document is written locally: correct it and put it again.
 `TSK_SKIP_DOC_CHECK=1` skips the hook. The git hooks of the code repo never run for the
 ledger. See [the ledger layout](../domain/ledger-layout.md#the-documents-hook-point).
-It pushes the documents branch first and the Dolt data second, so a record never names a
+`tsk ledger push` pushes the documents branch first and the Dolt data second, so a record never names a
 document the remote lacks. If the documents push fails, the Dolt data stays unpushed and
 the next `tsk ledger push` runs both again. `doc path` exits 1 when the document does not
 exist.
@@ -87,7 +89,7 @@ tsk thread start M-TSK-BOOT-04
 ```
 
 The mission has a record (see `tsk mission list`). With no mission ID the thread has no
-mission and no tasks, and `tsk thread set mission <id>` attaches one later. The command mints a thread ID, stores the thread
+mission and no tasks, and `tsk thread set mission <id>` attaches one later. The command generates a thread ID, stores the thread
 and its mission on the ledger, binds the current code worktree (or cloud session) to
 it, pushes, and prints `started:<thread-id>`. It fails with an error for an unknown mission ID. With a
 binding already in place it prints `resume-required:<thread-id>` and exits with status 2.
@@ -99,8 +101,7 @@ To work without a thread, run `tsk thread skip`.
 tsk thread pause <thread-id> T-05 "Thread commands done; next: T-06"
 ```
 
-The mission is the thread's mission. When the mission has a record, the task must be one of
-its tasks. The command appends a continuation state entry, pushes, and prints `paused:<thread-id>`. It
+When the thread's mission has a record, the task must be one of its tasks. The command appends a continuation state entry, pushes, and prints `paused:<thread-id>`. It
 fails when the repository's `HEAD` is not on origin's default branch (for example
 `main`, `master` or `trunk`).
 
@@ -234,8 +235,8 @@ To release:
    and needs only Python 3 and cargo.
 2. Optional: write a summary in `docs/releases/v<version>.md`.
 3. Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D
-   warnings` and `cargo test --workspace --locked`, and read the exit status of each. Do not pipe it into
-   another command, which replaces the status with its own.
+   warnings` and `cargo test --workspace --locked`, and read the exit status of each. Do not pipe a
+   command into another command, which replaces the status with the status of the last one.
 4. Commit and push to `main`.
 
 A push with the version unchanged releases nothing.

@@ -8,8 +8,8 @@ On macOS (Apple silicon or Intel) or Linux (x86_64 or arm64) with Homebrew:
 brew install jimbarritt/tap/tsk
 ```
 
-The formula installs a prebuilt `tsk` binary, with `dolt` and `jq` as dependencies. It
-needs no Rust toolchain. `brew upgrade tsk` upgrades it. The release workflow writes the
+The formula installs a prebuilt `tsk` binary, with `dolt` and `jq` as dependencies, and
+needs no Rust toolchain. `brew upgrade tsk` upgrades the binary. The release workflow writes the
 formula, `Formula/tsk.rb` in `jimbarritt/homebrew-tap`, for every release.
 
 With Homebrew, skip the prerequisites and the `cargo install` step, and go to
@@ -41,7 +41,7 @@ mise use -g rust@latest
 **dolt** (version 2.5.0 or later): the default ledger backend stores the ledger in a Dolt
 database and runs the external `dolt` binary. Both `SessionStart` hooks install 2.5.0
 when no `dolt` 2.5.0 or later is installed: the plugin's hook in any repo, and the tsk
-repo's own script. Each runs `plugin/hooks/install-dolt.sh`, which installs to `/usr/local/bin` when
+repo's script. Each runs `plugin/hooks/install-dolt.sh`, which installs to `/usr/local/bin` when
 that directory is writable, otherwise to `$HOME/.local/bin`, and sets a Dolt identity when
 none is set. By hand, download the archive for your platform from
 `https://github.com/dolthub/dolt/releases/download/v2.5.0/` (`dolt-linux-amd64.tar.gz`,
@@ -210,6 +210,13 @@ the path and exits with an error. Rerun it with sufficient permissions, for exam
 `tsk self-update --check` only reports. It prints whether a newer release exists, and never
 installs.
 
+`tsk release-notes` prints the release notes embedded in the binary. With no argument it
+prints the notes of the installed version. `tsk release-notes <version>` prints the notes of
+that version. `tsk release-notes --since <version>` prints the notes of every later release,
+newest first, each under a heading line that names the version. An unknown version exits 1
+and prints an error. In a cloud session, session start adds a line after it updates tsk. The
+line names `tsk release-notes --since <old version>`.
+
 `tsk thread session-start` adds a sentence to the session context when a newer release
 exists: `tsk <new> is available (running <old>). Run `tsk self-update` to upgrade.` The
 lookup stops after 5 seconds, and a failure adds nothing.
@@ -222,7 +229,7 @@ sentence above is followed by `The release check is cached: it last ran <n> hour
 and runs once a day. Set TSK_UPDATE_CHECK=always to check now.` A new release can appear
 up to a day late. `tsk self-update` always queries the network.
 
-`TSK_UPDATE_CHECK` changes the rule:
+`TSK_UPDATE_CHECK` changes how often the lookup runs:
 
 - `always` looks up the release at every session start.
 - `never` skips the lookup. `TSK_NO_UPDATE_CHECK=1` does the same.
@@ -280,7 +287,7 @@ command migrates the state. No step by hand.
 - **What remains.** The old directories are renamed to
   `<state>/repos/<clone-id>/legacy-leftovers/`, and tsk prints the path and the size once. Delete
   them when the ledger works. The code repo's object database keeps the data that older
-  versions fetched into it, until git's own garbage collection drops them (two weeks after
+  versions fetched into it, until git's garbage collection drops them (two weeks after
   they are unreachable). tsk never runs `git gc` or `git prune` in your repo.
 - **Two clones of one repo on a machine** end with one shared home. The second copy is merged
   in, with its tasks renumbered when both clones added one to the same mission, and the copy is kept in
@@ -297,6 +304,18 @@ command migrates the state. No step by hand.
   move.
 - **One version per machine.** Do not run an older tsk and the new one against one ledger in a
   repo on one machine. The older one starts a separate copy in `repos/<clone-id>`.
+
+## Optional features
+
+An optional feature runs at session start only when the user config lists it. Run
+`tsk config features software-english` to enable Software English. The command writes
+`[features] enabled = ["software-english"]` to `~/.config/tsk/config.toml` and keeps the
+other keys and comments. At each session start `tsk` then installs the swe pre-commit check
+in the session's repo and in each git checkout beside it, unless one is there. It needs the
+swe plugin at user scope. `tsk config features` prints the list, and
+`tsk config features --none` empties it. A cloud environment passes `--features
+software-english` to `ops/cloud/setup-environment.sh`, as
+[new-cloud-environment.md](new-cloud-environment.md) describes.
 
 ## First session in a repo
 

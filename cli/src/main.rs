@@ -29,6 +29,7 @@ Set up and maintain:
   doctor          Check the environment and print the fix for each fault
   signing         Check that the SSH agent that signs commits offers the robot signing key
   self-update     Upgrade tsk to the latest release
+  release-notes   Print the release notes of this version, of a version, or of every release since one
   config          Read and write the user config and the repo config
   nexus           Attach the nexus and list the repos it indexes
   tmux            Show each agent's mission, robot and state in the tmux session chooser
@@ -203,6 +204,8 @@ enum Commands {
         #[command(subcommand)]
         action: shell::InstallCommands,
     },
+    #[command(about = "Print the release notes of a version, or of every release since one")]
+    ReleaseNotes(release_notes::ReleaseNotesArgs),
     #[command(about = "Print guides for agents, such as importing an existing plan")]
     Guide {
         #[command(subcommand)]
@@ -348,6 +351,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
             }
             0
         }),
+        Some(Commands::ReleaseNotes(args)) => release_notes::run(args).map(|()| 0),
         Some(Commands::Tmux { action }) => tmux::run(action),
         Some(Commands::Harness { action }) => harness::run(action),
         Some(Commands::ShellInit { shell }) => shell::run_shell_init(&shell),
@@ -359,6 +363,7 @@ fn run_cli(cli: Cli) -> Result<i32, String> {
 
 mod config;
 mod live;
+mod release_notes;
 
 mod doctor;
 
@@ -372,6 +377,7 @@ mod thread;
 
 mod actor;
 mod attribution;
+mod features;
 
 mod sessions;
 mod urn;

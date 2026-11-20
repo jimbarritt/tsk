@@ -1,6 +1,6 @@
 # A new nexus on a clean machine
 
-These steps set up tsk on a machine that has never run it, with a new nexus that contains
+These steps set up tsk on a machine that has never run it, with a new nexus, a git repo that contains
 the ledger of a repo you work in. Use them when you cannot push a
 ledger branch to the repo itself, or choose not to: a work repo, for example.
 
@@ -56,7 +56,7 @@ git remote add origin <nexus url>
 
 One file, `nexus.json`, on the default branch. `tsk nexus register-repo` creates it on
 the first registration in step 6, or you write it in step 4, and the command adds each
-managed repo's entry. tsk creates the ledger branches. Nothing else is required.
+managed repo's entry. tsk creates the ledger branches.
 
 ```
 <name>-nexus
@@ -269,7 +269,7 @@ ledger, exports its path as `$TSK_LEDGER_WT`, and prints the thread binding prom
    ```
 
 2. Check it with `tsk mission list`. To bring in an existing plan instead, run
-   `tsk guide import`.
+   `tsk guide import`, or run `/tsk:migrate-plan`.
 3. Push the ledger:
 
    ```bash

@@ -749,7 +749,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.71";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.72";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -873,14 +873,18 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
     // hibernation, say) is replaced now, in the background, so the first command finds a
     // live one. A live server costs one connection.
     start_server_in_background();
+    crate::features::run_session_start();
     let cloud_install = install_plugin && is_remote();
     let mut warnings = Vec::new();
+    let mut updated_from = None;
     if cloud_install {
         // A cloud session reuses a cached setup result, so the installed tsk can be
         // old. Upgrade it before the plugin install. This run goes on with the old
         // binary already in memory, and the next command finds the new one.
-        if let CloudUpgrade::Failed(e) = upgrade_for_cloud() {
-            warnings.push(upgrade_warning(&e));
+        match upgrade_for_cloud() {
+            CloudUpgrade::Failed(e) => warnings.push(upgrade_warning(&e)),
+            CloudUpgrade::Updated(old) => updated_from = Some(old),
+            CloudUpgrade::Current => {}
         }
         warnings.extend(install_plugin_warning());
     }
@@ -968,6 +972,10 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
             Some(Ok(crate::attribution::Signing::Written { .. }))
         );
         let _ = crate::attribution::update_session_env(session, urn.as_deref(), robot);
+    }
+    if let Some(old) = updated_from {
+        context.push(' ');
+        context.push_str(&crate::release_notes::session_line(old));
     }
     if !cloud_install {
         if let Some(notice) = session_notice() {

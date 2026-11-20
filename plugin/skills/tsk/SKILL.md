@@ -80,6 +80,9 @@ and is never in the ledger.
 `tsk self-update` upgrades the binary to the latest release by the method it was installed
 with (Homebrew, Cargo or a release binary). `tsk self-update --check` only reports. When
 the session context shows a newer tsk as available, run `tsk self-update`.
+`tsk release-notes` prints the notes of the installed version, `tsk release-notes <version>`
+those of a version, and `tsk release-notes --since <version>` those of every later release.
+When the session context reports that tsk was updated, run the command it names.
 
 ## Ledger refs
 
@@ -172,6 +175,7 @@ tsk ledger id                                                         print the 
                                                                       (tsk mission list <id> --json prints a urn for the mission and for each task, decision and question)
 tsk actor git-identity                                                print the export lines of the registered robot's git identity, and write nothing, when [attribution] identity is robot; needs TSK_ROBOT_SIGNING_KEY
 tsk config attribution [default|robot] [--email <address>]            print the [attribution] settings and where each came from, or write them to .tsk/config.toml
+tsk config features [<name>...] [--none]                              print the optional features enabled in the user config ([features] enabled), or replace the list; known: software-english, which installs the swe pre-commit check at session start
 tsk signing check                                                     print whether the robot signing key is in the SSH agent that signing uses ([attribution] ssh_auth_sock), or what to do; exit 0 when it is, 1 otherwise
 tsk session find <urn|id>                                             print the harness instance and the actor of a recorded session; exit 1 when none matches
 tsk session list [--porcelain|--json]                                 list the recorded sessions: session URN, instance URN, actor, start time
@@ -526,14 +530,15 @@ skipping them.
 ### Thread skills
 
 The plugin provides `/tsk:start-thread`, `/tsk:pause-thread`, `/tsk:resume-thread`,
-`/tsk:detach-thread`, `/tsk:stop-thread`, `/tsk:switch-thread` and `/tsk:switch-mission`. Each wraps the
-`tsk thread` commands above.
+`/tsk:detach-thread`, `/tsk:stop-thread`, `/tsk:switch-thread` and `/tsk:switch-mission`. Each runs the
+matching `tsk thread` commands.
 
 `/tsk:switch-mission` changes the focus (the mission) of the thread this session is bound to and
 keeps the thread. It pauses on the old focus, runs `tsk thread set mission`, and sets the title.
 
 Other skills: `/tsk:construct-robot` names this session as a robot, `/tsk:register-repo`
-registers the repo in the nexus, `/tsk:self-update` updates the `tsk` binary, and
+registers the repo in the nexus, `/tsk:migrate-plan` imports an existing plan of any format into the
+ledger after the person confirms the proposed mapping, `/tsk:self-update` updates the `tsk` binary, and
 `/tsk:regenerate-cloud-instance` replaces a cloud session with a new one on the same thread
 and robot.
 

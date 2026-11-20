@@ -5,7 +5,7 @@ BIN="${BIN:-/usr/local/bin}"
 SETUP_DIR="${SETUP_DIR:-/usr/local/share/tsk-setup}"
 
 # Options, passed by the environment's setup script as
-#   curl -sSfL <this file's URL> | bash -s -- [--use-robot-attribution <email>] [--co-author "<Name <email>>"] [--nexus <url>]
+#   curl -sSfL <this file's URL> | bash -s -- [--use-robot-attribution <email>] [--co-author "<Name <email>>"] [--nexus <url>] [--features <names>]
 # --use-robot-attribution <email>: turn on robot commit attribution (M-TSK-ATTRIB) for the
 # sessions of this environment, with <email> as the robot's git email. The environment also
 # needs the secret TSK_ROBOT_SIGNING_KEY. Without the option, attribution stays off.
@@ -19,6 +19,11 @@ SETUP_DIR="${SETUP_DIR:-/usr/local/share/tsk-setup}"
 # tool, so the agent attaches the nexus repo to a new session on its first turn. The
 # account's GitHub connection needs access to the nexus repo. Without the option, no nexus
 # is attached.
+# --features <names>: write the comma separated names to [features] enabled in the user
+# config, so tsk thread session-start runs those optional features. The known feature is
+# software-english, which installs the swe pre-commit check in each repo at session start.
+# Without the option, no feature is enabled, except where an earlier version of this script
+# installed the swe check: software-english stays enabled there.
 # The options go to a file in home, so plugin/hooks/refresh-setup.sh can run this script
 # again with them at session start, when this file on main changes.
 SETUP_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsk/setup"
@@ -28,6 +33,7 @@ if [ "$#" -gt 0 ]; then printf '%s\n' "$@"; fi > "$SETUP_STATE_DIR/args"
 ROBOT_EMAIL=""
 CO_AUTHOR=""
 NEXUS_URL=""
+FEATURES=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --use-robot-attribution)
@@ -43,6 +49,11 @@ while [ "$#" -gt 0 ]; do
     --nexus)
       [ -n "${2:-}" ] || { echo "--nexus needs a URL" >&2; exit 1; }
       NEXUS_URL="$2"
+      shift 2
+      ;;
+    --features)
+      [ -n "${2:-}" ] || { echo "--features needs a comma separated list of names" >&2; exit 1; }
+      FEATURES="$2"
       shift 2
       ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
@@ -155,48 +166,54 @@ else
   echo "WARNING: claude is not on PATH, so the plugins are not installed" >&2
 fi
 
-# The swe pre-commit check in every repo, from a SessionStart hook in the user settings
-# (M-TSK-ENV T-45). .git/ is never cloned, so each new clone needs the check installed
-# again. At each session start the hook installs it in the session's repo and in every git
-# checkout beside it, unless one is there. This is interim: M-TSK-ENV T-44 moves it behind
-# a switch for tsk's optional features, so tsk's own session start does not force swe on
-# every tsk user.
-mkdir -p "$HOME/.claude/hooks"
-cat > "$HOME/.claude/hooks/swe-install-commit-hook.sh" <<'SH'
-#!/bin/sh
-# Installs the swe pre-commit check in the session's repo and in each git checkout beside
-# it. Written by ops/cloud/setup-environment.sh. Prints nothing and exits 0 on any failure.
-installer=$(ls -d "$HOME"/.claude/plugins/cache/*/swe/*/scripts/install-commit-hook.sh 2>/dev/null | sort -V | tail -1)
-[ -n "$installer" ] || exit 0
-top=$(git rev-parse --show-toplevel 2>/dev/null) || top="$PWD"
-for repo in "$top" "$(dirname "$top")"/*/; do
-  repo="${repo%/}"
-  git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || continue
-  hook="$(git -C "$repo" rev-parse --git-path hooks)/pre-commit"
-  case "$hook" in /*) ;; *) hook="$repo/$hook" ;; esac
-  grep -q swe "$hook" 2>/dev/null && continue
-  "$installer" "$repo" >/dev/null 2>&1 || true
-done
-exit 0
-SH
-chmod +x "$HOME/.claude/hooks/swe-install-commit-hook.sh"
-python3 - "$HOME/.claude/settings.json" <<'PY'
+# Optional features (M-TSK-ENV T-44), with --features only. The names go to [features]
+# enabled in the user config, and tsk thread session-start runs each enabled feature.
+# software-english installs the swe pre-commit check in the session's repo and in each git
+# checkout beside it, because .git/ is never cloned. An earlier version of this script
+# installed that check from a SessionStart hook in the user settings. When that hook file is
+# there and the option is absent, software-english stays enabled, and the hook is removed.
+INTERIM_HOOK="$HOME/.claude/hooks/swe-install-commit-hook.sh"
+REMOVE_INTERIM_HOOK=0
+if [ -f "$INTERIM_HOOK" ]; then
+  case ",$FEATURES," in *,software-english,*) ;; *) FEATURES="${FEATURES:+$FEATURES,}software-english" ;; esac
+  REMOVE_INTERIM_HOOK=1
+fi
+FEATURES_WRITTEN=1
+if [ -n "$FEATURES" ]; then
+  FEATURES_WRITTEN=0
+  # shellcheck disable=SC2086
+  if "$BIN/tsk" config features $(printf '%s' "$FEATURES" | tr ',' ' '); then
+    FEATURES_WRITTEN=1
+  else
+    echo "WARNING: tsk config features failed, so the features are not enabled and the interim swe hook is kept" >&2
+  fi
+fi
+if [ "$REMOVE_INTERIM_HOOK" = 1 ] && [ "$FEATURES_WRITTEN" = 1 ]; then
+  rm -f "$INTERIM_HOOK"
+  if [ -f "$HOME/.claude/settings.json" ]; then
+    python3 - "$HOME/.claude/settings.json" <<'PY'
 import json, os, sys
 path = sys.argv[1]
-settings = {}
-if os.path.exists(path):
-    with open(path) as f:
-        settings = json.load(f)
+with open(path) as f:
+    settings = json.load(f)
 command = "sh ~/.claude/hooks/swe-install-commit-hook.sh"
-groups = settings.setdefault("hooks", {}).setdefault("SessionStart", [])
-if not any(h.get("command") == command for g in groups for h in g.get("hooks", [])):
-    groups.append({"hooks": [{"type": "command", "command": command, "timeout": 10}]})
+hooks = settings.get("hooks", {})
+groups = hooks.get("SessionStart", [])
+for g in groups:
+    g["hooks"] = [h for h in g.get("hooks", []) if h.get("command") != command]
+hooks["SessionStart"] = [g for g in groups if g.get("hooks")]
+if not hooks["SessionStart"]:
+    del hooks["SessionStart"]
+if not hooks:
+    settings.pop("hooks", None)
 tmp = path + ".new"
 with open(tmp, "w") as f:
     json.dump(settings, f, indent=2)
     f.write("\n")
 os.replace(tmp, path)
 PY
+  fi
+fi
 
 # Robot attribution, with --use-robot-attribution only. The user config turns it on, and
 # tsk thread session-start then writes the signing set-up from TSK_ROBOT_SIGNING_KEY.

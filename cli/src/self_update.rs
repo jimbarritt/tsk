@@ -658,7 +658,7 @@ pub fn notice_for(lookup: Lookup, current: Version, now: u64) -> Option<String> 
 pub enum CloudUpgrade {
     /// Nothing to do: tsk is current, the check is off, or the lookup failed.
     Current,
-    Updated,
+    Updated(Version),
     Failed(String),
 }
 
@@ -681,7 +681,7 @@ pub fn upgrade_for_cloud() -> CloudUpgrade {
     match install(latest) {
         Ok(method) => {
             eprintln!("updated tsk {} -> {} ({})", current, latest, method.label());
-            CloudUpgrade::Updated
+            CloudUpgrade::Updated(current)
         }
         Err(e) => {
             eprintln!("{}", e);

@@ -15,7 +15,7 @@ this repository. They contain the minimum logic: see
 | Skill | Runs |
 |---|---|
 | `tsk` | Reference for the `tsk` command line: records (missions, tasks, decisions, questions), documents, threads. |
-| `start-thread` | `tsk thread start` with a mission ID or with no mission, only for a harness instance with no bound thread (otherwise use `switch-mission` or `resume-thread`); `tsk actor join` for a supervising human; `tsk thread skip` to work with no thread |
+| `start-thread` | `tsk thread start` with a mission ID or with no mission. Use it only for a harness instance with no bound thread: otherwise use `switch-mission` or `resume-thread`. Also `tsk actor join` for a supervising human, and `tsk thread skip` to work with no thread |
 | `pause-thread` | `tsk thread pause` |
 | `resume-thread` | `tsk thread resume` |
 | `switch-thread` | `tsk thread detach`, `tsk thread stop` when the line of work is finished, then the `resume-thread` skill |
@@ -24,14 +24,15 @@ this repository. They contain the minimum logic: see
 | `stop-thread` | `tsk thread stop` |
 | `register-repo` | `tsk nexus register-repo` |
 | `init-ledger` | `tsk ledger status`, then `tsk ledger init --nexus` or `--repo`, for a repo with no ledger |
-| `construct-robot` | `tsk actor list`, then `tsk actor register --kind robot` with a name the robot picks in the style of the Culture ships (the actor becomes the primary actor of the session), `tsk ledger push`, and the session title |
-| `regenerate-cloud-instance` | `tsk thread pause`, `tsk ledger push`, then `create_session` for a new cloud session that resumes the thread and joins the same robot, and a `to archive-` prefix on the old session's title |
+| `migrate-plan` | `tsk guide import`, then `tsk mission`, `tsk task`, `tsk decision`, `tsk question` and `tsk ledger doc` commands. Imports a plan of any format into the ledger after a person confirms the proposed missions and tasks |
+| `construct-robot` | `tsk actor list`, then `tsk actor register --kind robot` with a name the robot picks in the style of the Culture ships, then `tsk ledger push` and the session title. The actor becomes the primary actor of the session |
+| `regenerate-cloud-instance` | `tsk thread pause`, `tsk ledger push`, then `create_session` for a new cloud session that resumes the thread and joins the same robot. The old session's title gets a `to archive-` prefix |
 
 | Hook | Runs |
 |---|---|
 | `SessionStart` | `hooks/session-start.sh`: `tsk thread session-start` |
-| `Stop` | `hooks/stop.sh`: `tsk thread guard`. Asks for a thread when none is bound. When the ledger store contains unpushed changes it publishes them in the background (`tsk ledger push --background`) and prints nothing; a failure shows as a warning on the next `tsk` command |
-| `PreToolUse` | `hooks/pre-tool-use.sh`: `tsk ledger guard`. Denies a `Bash` call that runs `git` or `dolt` against the ledger store, its refs (`tsk/ledger`, `tsk/docs`, `refs/tsk/*`, the nexus refs `ledgers/<id>/ledger` and `ledgers/<id>/docs`, and their backups) or its branches. Also denies an `Edit`, `Write` or `NotebookEdit` call on a file in the ledger store or the ledger home (`<state>/ledgers/`, the bare clone included) (ADR 0028, ADR 0035). Allows every `tsk` command. Fails open: a missing or older `tsk` allows the call. `TSK_LEDGER_GUARD=off` in the environment that starts the agent switches it off |
+| `Stop` | `hooks/stop.sh`: `tsk thread guard`. Asks for a thread when none is bound. When the ledger store contains unpushed changes it publishes them in the background (`tsk ledger push --background`) and prints nothing. A failure shows as a warning on the next `tsk` command |
+| `PreToolUse` | `hooks/pre-tool-use.sh`: `tsk ledger guard`. Denies a `Bash` call that runs `git` or `dolt` against the ledger store or its branches. It denies the same call against the ledger refs (`tsk/ledger`, `tsk/docs`, `refs/tsk/*`, the nexus refs `ledgers/<id>/ledger` and `ledgers/<id>/docs`, and their backups). It denies an `Edit`, `Write` or `NotebookEdit` call on a file in the ledger store or the ledger home (`<state>/ledgers/`, the bare clone included). ADR 0028 and ADR 0035 set these denials. Allows every `tsk` command. Fails open: a missing or older `tsk` allows the call. `TSK_LEDGER_GUARD=off` in the environment that starts the agent switches it off |
 | `SessionEnd` | `hooks/session-end.sh`: `tsk session end` (records on this machine that the session ended, so its robot is free), then `tsk ledger push --background "End of session"`, detached, when `tsk ledger status --local` shows unpushed work. Best effort, always exits 0 |
 | `UserPromptSubmit`, `PostToolUse`, `Notification`, `Stop`, `SessionEnd` | `hooks/tmux-state.sh <state>`: `tsk tmux state`, which sets the agent state of the tmux pane (`working`, `waiting`, or none at the end) for the session chooser of `tsk tmux install`. Does nothing outside tmux. Always exits 0 |
 

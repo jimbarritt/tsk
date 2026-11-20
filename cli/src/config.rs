@@ -95,6 +95,20 @@ pub enum ConfigCommands {
         )]
         path: Option<String>,
     },
+    #[command(
+        name = "features",
+        about = "Print the optional features enabled in the user config, or set them in [features] enabled",
+        long_about = "Print the optional features enabled in the user config, or set them in [features] enabled.\n\nAn optional feature runs at session start only when the user config lists it: [features] enabled = [\"software-english\"]. Known features: software-english, which installs the swe pre-commit check in the session's repo and in each git checkout beside it, when the swe plugin is installed at user scope. With one or more names, the command replaces the list and keeps the other keys and comments of the file. With --none, it writes an empty list. With neither, it prints the list."
+    )]
+    Features {
+        #[arg(
+            value_name = "NAME",
+            help = "The features to write to [features] enabled in the user config, replacing the list; omit them to print the list"
+        )]
+        names: Vec<String>,
+        #[arg(long, help = "Write an empty list: no optional feature runs")]
+        none: bool,
+    },
     LedgerRefs {
         #[arg(
             value_parser = ["branches", "custom"],
@@ -126,7 +140,7 @@ pub fn config_file_from_env() -> Option<PathBuf> {
     )
 }
 
-fn read_table(file: &Path) -> Result<toml::Table, String> {
+pub fn read_table(file: &Path) -> Result<toml::Table, String> {
     match std::fs::read_to_string(file) {
         Ok(text) => text.parse::<toml::Table>().map_err(|e| {
             format!(
@@ -339,6 +353,73 @@ pub fn with_string_key(text: &str, table: &str, key: &str, value: &str) -> Resul
         .and_then(|v| v.as_str());
     if set != Some(value) {
         return Err(fail("edit the file by hand"));
+    }
+    Ok(out)
+}
+
+pub fn with_string_list(
+    text: &str,
+    table: &str,
+    key: &str,
+    values: &[String],
+) -> Result<String, String> {
+    let items: Vec<String> = values
+        .iter()
+        .map(|v| format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\"")))
+        .collect();
+    let line = format!("{} = [{}]", key, items.join(", "));
+    let header_text = format!("[{}]", table);
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    match lines.iter().position(|l| l.trim() == header_text) {
+        None => {
+            if !lines.is_empty() && !lines.last().is_some_and(|l| l.trim().is_empty()) {
+                lines.push(String::new());
+            }
+            lines.push(header_text);
+            lines.push(line);
+        }
+        Some(start) => {
+            let end = lines[start + 1..]
+                .iter()
+                .position(|l| l.trim_start().starts_with('['))
+                .map_or(lines.len(), |i| start + 1 + i);
+            let existing = (start + 1..end).find(|&i| {
+                lines[i]
+                    .trim_start()
+                    .strip_prefix(key)
+                    .is_some_and(|rest| rest.trim_start().starts_with('='))
+            });
+            match existing {
+                Some(i) => lines[i] = line,
+                None => lines.insert(start + 1, line),
+            }
+        }
+    }
+    let mut out = lines.join("\n");
+    out.push('\n');
+    let parsed = out.parse::<toml::Table>().map_err(|e| {
+        format!(
+            "error: could not set [{}] {} in the config: {}",
+            table,
+            key,
+            e.message()
+        )
+    })?;
+    let set: Option<Vec<String>> = parsed
+        .get(table)
+        .and_then(|t| t.as_table())
+        .and_then(|t| t.get(key))
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        });
+    if set.as_deref() != Some(values) {
+        return Err(format!(
+            "error: could not set [{}] {} in the config: edit the file by hand",
+            table, key
+        ));
     }
     Ok(out)
 }
@@ -561,6 +642,9 @@ pub fn run(action: ConfigCommands) -> Result<(), String> {
             user,
         );
     }
+    if let ConfigCommands::Features { names, none } = action {
+        return crate::features::run_config(names, none);
+    }
     if let ConfigCommands::LedgerServer { mode } = action {
         return ledger_server(mode);
     }
@@ -586,6 +670,7 @@ pub fn run(action: ConfigCommands) -> Result<(), String> {
         ConfigCommands::LedgerRefs { .. } => unreachable!("handled above"),
         ConfigCommands::Attribution { .. } => unreachable!("handled above"),
         ConfigCommands::LedgerServer { .. } => unreachable!("handled above"),
+        ConfigCommands::Features { .. } => unreachable!("handled above"),
         ConfigCommands::AttachNexus { url } => attach_and_report(&file, &url),
         ConfigCommands::Show => {
             println!("config: {}", file.display());
