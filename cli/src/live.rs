@@ -170,6 +170,7 @@ pub fn ended(state_root: &Path, session_id: &str) {
 /// The input of a hook: the session ID.
 #[derive(Deserialize, Default)]
 struct HookSession {
+    #[serde(alias = "sessionId")]
     session_id: Option<String>,
 }
 
@@ -222,6 +223,10 @@ mod tests {
         assert!(read(&path).unwrap().ended.is_some());
         started(root.path(), "../x");
         assert!(!live_dir(root.path()).join("../x.json").exists());
+        assert_eq!(
+            hook_session_id(r#"{"sessionId":"copilot-1"}"#).as_deref(),
+            Some("copilot-1")
+        );
         assert_eq!(
             hook_session_id(r#"{"session_id":"abc"}"#).as_deref(),
             Some("abc")
