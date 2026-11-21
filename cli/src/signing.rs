@@ -121,6 +121,11 @@ fn current_settings() -> Result<Settings, String> {
 
 pub fn run_check() -> Result<i32, String> {
     let settings = current_settings()?;
+    if settings.signing_key.is_none() {
+        if let Some(value) = settings.signing_key_file.as_deref() {
+            return Ok(check_key_file_mode(value));
+        }
+    }
     let Some(signing_key) = settings.signing_key.as_deref() else {
         println!(
             "no signing key is configured: signing_key is not set, so no SSH agent signs. Set it with tsk config attribution --signing-key \"agent:ssh-ed25519 <base64 key>\""
@@ -133,8 +138,34 @@ pub fn run_check() -> Result<i32, String> {
     Ok(if availability.is_available() { 0 } else { 1 })
 }
 
+fn check_key_file_mode(value: &str) -> i32 {
+    match attribution::key_file_public_key(value) {
+        Ok((path, public)) => {
+            println!(
+                "the robot signing key file {} exists, is readable and is owner-only. Its public key is {}. No SSH agent is needed",
+                path.display(),
+                public
+            );
+            0
+        }
+        Err(message) => {
+            println!("{}", message);
+            1
+        }
+    }
+}
+
 pub fn status_line() -> Option<String> {
     let settings = current_settings().ok()?;
+    if settings.signing_key.is_none() {
+        if let Some(value) = settings.signing_key_file.as_deref() {
+            let text = match attribution::check_key_file(value) {
+                Ok(path) => format!("robot key file {}", path.display()),
+                Err(_) => "robot key file not usable, run tsk signing check".to_string(),
+            };
+            return Some(format!("{:<8}{}", "Signing", text));
+        }
+    }
     let signing_key = settings.signing_key.as_deref()?;
     let socket = settings.ssh_auth_sock.as_deref();
     let availability = check_agent(socket, signing_key, Duration::from_secs(1));

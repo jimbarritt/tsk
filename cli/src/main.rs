@@ -159,7 +159,7 @@ enum Commands {
     InstallPlugin(install_plugin::InstallPluginArgs),
     #[command(
         about = "Check that the SSH agent that signing uses offers the robot signing key",
-        long_about = "Check that the SSH agent that signing uses offers the robot signing key.\n\nIt runs ssh-add -L with SSH_AUTH_SOCK set to [attribution] ssh_auth_sock, the socket tsk's own signed commits use, and not the SSH_AUTH_SOCK of the shell. On macOS the default is the 1Password agent socket when that file exists. It prints whether the key named by signing_key is available, or what to do: unlock 1Password, approve the prompt, turn on the SSH agent. Exit 0 when the key is available, 1 otherwise."
+        long_about = "Check that the robot signing key is usable.\n\nWith signing_key_file set and signing_key not, it checks that the key file exists, is readable and is owner-only, prints its public key from ssh-keygen -y and needs no SSH agent. Otherwise it checks the SSH agent that signing uses. It runs ssh-add -L with SSH_AUTH_SOCK set to [attribution] ssh_auth_sock, the socket tsk's own signed commits use, and not the SSH_AUTH_SOCK of the shell. On macOS the default is the 1Password agent socket when that file exists. It prints whether the key named by signing_key is available, or what to do: unlock 1Password, approve the prompt, turn on the SSH agent. Exit 0 when the key is usable, 1 otherwise."
     )]
     Signing {
         #[command(subcommand)]

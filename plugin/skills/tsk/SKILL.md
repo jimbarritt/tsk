@@ -179,7 +179,7 @@ tsk ledger id                                                         print the 
 tsk actor git-identity                                                print the export lines of the registered robot's git identity, and write nothing, when [attribution] identity is robot; needs TSK_ROBOT_SIGNING_KEY
 tsk config attribution [default|robot] [--email <address>]            print the [attribution] settings and where each came from, or write them to .tsk/config.toml
 tsk config features [<name>...] [--none]                              print the optional features enabled in the user config ([features] enabled), or replace the list; known: software-english, which installs the swe pre-commit check at session start
-tsk signing check                                                     print whether the robot signing key is in the SSH agent that signing uses ([attribution] ssh_auth_sock), or what to do; exit 0 when it is, 1 otherwise
+tsk signing check                                                     print whether the robot signing key is usable: in the SSH agent that signing uses ([attribution] ssh_auth_sock), or the owner-only file of signing_key_file; exit 0 when it is, 1 otherwise
 tsk session find <urn|id>                                             print the harness instance and the actor of a recorded session; exit 1 when none matches
 tsk session list [--porcelain|--json]                                 list the recorded sessions: session URN, instance URN, actor, start time
 tsk thread prune-bindings [--older-than <days>] [--dry-run]           remove old cloud bindings, local; tsk ledger push publishes
@@ -408,8 +408,7 @@ reclaimed before the pause loses the records that were never published.
 
 A mission's tasks, decisions and open questions are data too. Record and change them only
 with these commands, and never write them as Markdown in a briefing or any other document.
-Every command changes the local store only and never pushes (see "When records are
-published"), and a claim is pushed at once.
+Publishing follows the rules in "When records are published", and a claim is pushed at once.
 
 ```
 tsk task add <mission> <description>          # prints the new ID, T-01 upward
@@ -486,7 +485,7 @@ to stderr.
 | `thread guard` | nothing when bound, after `thread skip`, or when the ledger has no missions; `{"decision":"block","reason":"..."}` otherwise, asking for a thread. With unpushed changes it also starts `tsk ledger push --background` and prints nothing | |
 
 `thread prune-bindings` removes the bindings of cloud sessions that ended, which collect in
-the ledger because a cloud session rarely detaches. It removes a cloud row registered more
+the ledger because a cloud session rarely runs `thread detach`. It removes a cloud row registered more
 than `--older-than` days ago (30 by default), except the row of the session that runs it.
 It never removes a worktree row. It is a local write like the record commands, so run `tsk
 ledger push` to publish it. Try `--dry-run` first.

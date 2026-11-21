@@ -5,7 +5,7 @@
 //! `identity` is `default` or `robot`, `default` when unset. `default` exports nothing.
 //! `robot` exports the registered actor's name, the `email` setting, and the SSH signing
 //! settings. `email` has no built-in value. The key comes from `TSK_ROBOT_SIGNING_KEY`, or from
-//! an SSH agent when `signing_key` is set.
+//! an SSH agent when `signing_key` is set, or from the file that `signing_key_file` names.
 
 use std::path::{Path, PathBuf};
 
@@ -30,6 +30,8 @@ pub const IDENTITY_ENV: &str = "TSK_ATTRIBUTION_IDENTITY";
 pub const KEY_ENV: &str = "TSK_ROBOT_SIGNING_KEY";
 
 pub const SIGNING_KEY_ENV: &str = "TSK_ATTRIBUTION_SIGNING_KEY";
+
+pub const SIGNING_KEY_FILE_ENV: &str = "TSK_ATTRIBUTION_SIGNING_KEY_FILE";
 
 pub const SIGNING_PROGRAM_ENV: &str = "TSK_ATTRIBUTION_SIGNING_PROGRAM";
 
@@ -95,6 +97,7 @@ pub struct Section {
     pub email: Option<String>,
     pub co_author: Option<String>,
     pub signing_key: Option<String>,
+    pub signing_key_file: Option<String>,
     pub signing_program: Option<String>,
     pub ssh_auth_sock: Option<String>,
 }
@@ -110,6 +113,8 @@ pub struct Settings {
     pub co_author_source: Option<Source>,
     pub signing_key: Option<String>,
     pub signing_key_source: Option<Source>,
+    pub signing_key_file: Option<String>,
+    pub signing_key_file_source: Option<Source>,
     pub signing_program: Option<String>,
     pub signing_program_source: Option<Source>,
     pub ssh_auth_sock: Option<String>,
@@ -197,6 +202,22 @@ fn parse_section(text: &str, file: &Path) -> Result<Section, String> {
                 ))
             }
         };
+    let signing_key_file = match section.get("signing_key_file") {
+        None => None,
+        Some(toml::Value::String(value)) => Some(check_key_file_value(value).map_err(|e| {
+            format!(
+                "error: attribution.signing_key_file in {} {}",
+                file.display(),
+                e
+            )
+        })?),
+        Some(_) => {
+            return Err(format!(
+                "error: attribution.signing_key_file in {} must be a non-empty string",
+                file.display()
+            ))
+        }
+    };
     let signing_program = match section.get("signing_program") {
         None => None,
         Some(toml::Value::String(value)) if !value.trim().is_empty() => {
@@ -226,9 +247,90 @@ fn parse_section(text: &str, file: &Path) -> Result<Section, String> {
         email,
         co_author,
         signing_key,
+        signing_key_file,
         signing_program,
         ssh_auth_sock,
     })
+}
+
+pub fn check_key_file_value(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("must be a non-empty string".to_string());
+    }
+    if value.contains(['\n', '\r']) || !(value.starts_with('/') || value.starts_with("~/")) {
+        return Err(format!(
+            "is \"{}\"; it must be an absolute path or start with ~/",
+            value
+        ));
+    }
+    Ok(value.to_string())
+}
+
+pub fn expand_key_file(value: &str) -> Result<PathBuf, String> {
+    match value.strip_prefix("~/") {
+        Some(rest) => {
+            let home = home_dir().ok_or_else(|| {
+                format!(
+                    "error: the signing key file {} needs HOME, which is not set",
+                    value
+                )
+            })?;
+            Ok(home.join(rest))
+        }
+        None => Ok(PathBuf::from(value)),
+    }
+}
+
+pub fn check_key_file(value: &str) -> Result<PathBuf, String> {
+    let path = expand_key_file(value)?;
+    let meta = std::fs::metadata(&path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "error: the signing key file {} does not exist: create it, or change signing_key_file with tsk config attribution --signing-key-file",
+                path.display()
+            )
+        } else {
+            format!(
+                "error: could not read the signing key file {}: {}",
+                path.display(),
+                e
+            )
+        }
+    })?;
+    if !meta.is_file() {
+        return Err(format!(
+            "error: the signing key file {} is not a file",
+            path.display()
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = meta.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 || mode & 0o400 == 0 {
+            return Err(format!(
+                "error: the signing key file {} has mode {:04o}: only the owner may read it. Run chmod 600 {}",
+                path.display(),
+                mode,
+                path.display()
+            ));
+        }
+    }
+    std::fs::File::open(&path).map_err(|e| {
+        format!(
+            "error: could not read the signing key file {}: {}",
+            path.display(),
+            e
+        )
+    })?;
+    Ok(path)
+}
+
+pub fn key_file_public_key(value: &str) -> Result<(PathBuf, String), String> {
+    let path = check_key_file(value)?;
+    let public = public_key(&path)?;
+    Ok((path, public))
 }
 
 pub fn check_signing_key(value: &str) -> Result<String, String> {
@@ -316,6 +418,7 @@ pub fn resolve(
         (None, None, None) => (None, None),
     };
     let (signing_key, signing_key_source) = resolve_signing_key(None, repo, user);
+    let (signing_key_file, signing_key_file_source) = resolve_signing_key_file(None, repo, user);
     let (signing_program, signing_program_source) = resolve_signing_program(None, repo, user);
     let (ssh_auth_sock, ssh_auth_sock_source) = resolve_ssh_auth_sock(repo, user, None);
     Settings {
@@ -327,6 +430,8 @@ pub fn resolve(
         co_author_source,
         signing_key,
         signing_key_source,
+        signing_key_file,
+        signing_key_file_source,
         signing_program,
         signing_program_source,
         ssh_auth_sock,
@@ -370,6 +475,20 @@ pub fn resolve_signing_key(
 ) -> (Option<String>, Option<Source>) {
     let env_key = env_key.map(str::trim).filter(|v| !v.is_empty());
     match (env_key, &repo.signing_key, &user.signing_key) {
+        (Some(value), _, _) => (Some(value.to_string()), Some(Source::Env)),
+        (None, Some(value), _) => (Some(value.clone()), Some(Source::RepoConfig)),
+        (None, None, Some(value)) => (Some(value.clone()), Some(Source::UserConfig)),
+        (None, None, None) => (None, None),
+    }
+}
+
+pub fn resolve_signing_key_file(
+    env_file: Option<&str>,
+    repo: &Section,
+    user: &Section,
+) -> (Option<String>, Option<Source>) {
+    let env_file = env_file.map(str::trim).filter(|v| !v.is_empty());
+    match (env_file, &repo.signing_key_file, &user.signing_key_file) {
         (Some(value), _, _) => (Some(value.to_string()), Some(Source::Env)),
         (None, Some(value), _) => (Some(value.clone()), Some(Source::RepoConfig)),
         (None, None, Some(value)) => (Some(value.clone()), Some(Source::UserConfig)),
@@ -425,6 +544,13 @@ pub fn settings(repo_file: Option<&Path>, user_file: Option<&Path>) -> Result<Se
         ),
         _ => None,
     };
+    let env_signing_key_file = match std::env::var(SIGNING_KEY_FILE_ENV) {
+        Ok(value) if !value.trim().is_empty() => Some(
+            check_key_file_value(&value)
+                .map_err(|e| format!("error: {} {}", SIGNING_KEY_FILE_ENV, e))?,
+        ),
+        _ => None,
+    };
     let mut resolved = resolve(
         env_identity,
         std::env::var(EMAIL_ENV).ok().as_deref(),
@@ -436,6 +562,8 @@ pub fn settings(repo_file: Option<&Path>, user_file: Option<&Path>) -> Result<Se
         resolve_ssh_auth_sock(&repo, &user, home_dir().as_deref());
     (resolved.signing_key, resolved.signing_key_source) =
         resolve_signing_key(env_signing_key.as_deref(), &repo, &user);
+    (resolved.signing_key_file, resolved.signing_key_file_source) =
+        resolve_signing_key_file(env_signing_key_file.as_deref(), &repo, &user);
     (resolved.signing_program, resolved.signing_program_source) = resolve_signing_program(
         std::env::var(SIGNING_PROGRAM_ENV).ok().as_deref(),
         &repo,
@@ -446,12 +574,14 @@ pub fn settings(repo_file: Option<&Path>, user_file: Option<&Path>) -> Result<Se
 
 /// Write `[attribution]` in a config file and keep every other key. A value of `None`
 /// leaves that key as it is. Creates the directory.
+#[allow(clippy::too_many_arguments)]
 pub fn write_section(
     file: &Path,
     identity: Option<Identity>,
     email: Option<&str>,
     co_author: Option<&str>,
     signing_key: Option<&str>,
+    signing_key_file: Option<&str>,
     signing_program: Option<&str>,
     ssh_auth_sock: Option<&str>,
 ) -> Result<(), String> {
@@ -470,6 +600,7 @@ pub fn write_section(
         ssh_auth_sock,
         file,
     )?;
+    let text = with_signing_key_file(&text, signing_key_file, file)?;
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("error: could not create {}: {}", parent.display(), e))?;
@@ -566,6 +697,81 @@ pub fn with_section(
     Ok(out)
 }
 
+/// The text of a config file with `[attribution] signing_key_file` set, or removed when
+/// `value` is empty. `None` leaves the key as it is.
+pub fn with_signing_key_file(
+    text: &str,
+    value: Option<&str>,
+    file: &Path,
+) -> Result<String, String> {
+    let Some(value) = value else {
+        return Ok(text.to_string());
+    };
+    parse_section(text, file)?;
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let is_key = |line: &str| {
+        line.trim_start()
+            .strip_prefix("signing_key_file")
+            .is_some_and(|rest| rest.trim_start().starts_with('='))
+    };
+    let table = lines.iter().position(|l| l.trim() == "[attribution]");
+    if value.trim().is_empty() {
+        if let Some(start) = table {
+            let end = lines[start + 1..]
+                .iter()
+                .position(|l| l.trim_start().starts_with('['))
+                .map_or(lines.len(), |i| start + 1 + i);
+            let kept: Vec<String> = lines
+                .iter()
+                .enumerate()
+                .filter(|(i, line)| !(*i > start && *i < end && is_key(line)))
+                .map(|(_, line)| line.clone())
+                .collect();
+            lines = kept;
+        }
+        let mut out = lines.join("\n");
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        return Ok(out);
+    }
+    let value = check_key_file_value(value)
+        .map_err(|e| format!("error: the signing key file value {}", e))?;
+    if value.contains(['"', '\\']) {
+        return Err(
+            "error: the signing_key_file value cannot hold a quote or a backslash".to_string(),
+        );
+    }
+    let line = format!("signing_key_file = \"{}\"", value);
+    let start = match table {
+        Some(start) => start,
+        None => {
+            if !lines.is_empty() && !lines.last().is_some_and(|l| l.trim().is_empty()) {
+                lines.push(String::new());
+            }
+            lines.push("[attribution]".to_string());
+            lines.len() - 1
+        }
+    };
+    let end = lines[start + 1..]
+        .iter()
+        .position(|l| l.trim_start().starts_with('['))
+        .map_or(lines.len(), |i| start + 1 + i);
+    match (start + 1..end).find(|&i| is_key(&lines[i])) {
+        Some(i) => lines[i] = line,
+        None => lines.insert(start + 1, line),
+    }
+    let mut out = lines.join("\n");
+    out.push('\n');
+    let written = parse_section(&out, file)?;
+    if written.signing_key_file.as_deref() != Some(value.as_str()) {
+        return Err(
+            "error: could not set [attribution] in the config: edit the file by hand".to_string(),
+        );
+    }
+    Ok(out)
+}
+
 /// The key text with real line breaks and one trailing line break. A key stored on one
 /// line, with `\n` in place of each line break, is accepted.
 pub fn normalise_key(raw: &str) -> Result<String, String> {
@@ -605,6 +811,24 @@ pub fn signing_settings(
         ),
         ("commit.gpgsign", "true".to_string()),
     ]
+}
+
+pub fn file_signing_settings(
+    email: &str,
+    key_file: &Path,
+    program: &str,
+    signers_file: &Path,
+) -> Vec<(&'static str, String)> {
+    signing_settings(email, key_file, signers_file)
+        .into_iter()
+        .map(|(key, value)| {
+            if key == "gpg.ssh.program" {
+                (key, program.to_string())
+            } else {
+                (key, value)
+            }
+        })
+        .collect()
 }
 
 pub fn agent_signing_settings(
@@ -647,7 +871,7 @@ fn public_key(key_file: &Path) -> Result<String, String> {
     if !output.status.success() {
         return Err(format!(
             "error: ssh-keygen could not read the key in {}: {}",
-            KEY_ENV,
+            key_file.display(),
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
@@ -735,8 +959,17 @@ pub fn set_up_signing(repo: &Repo) -> Result<Signing, String> {
     let email = settings.email.ok_or_else(missing_email)?;
     let key_file = key_file_path(repo)?;
     let signers_file = key_file.with_file_name(SIGNERS_FILE_NAME);
-    match settings.signing_key {
-        Some(signing_key) => {
+    match (settings.signing_key, settings.signing_key_file) {
+        (None, Some(value)) => {
+            let (_, public) = key_file_public_key(&value)?;
+            if key_file.exists() {
+                std::fs::remove_file(&key_file).map_err(|e| {
+                    format!("error: could not remove {}: {}", key_file.display(), e)
+                })?;
+            }
+            write_key_file(&signers_file, &signers_line(&email, &public))?;
+        }
+        (Some(signing_key), _) => {
             let public = agent_public_key(&signing_key).to_string();
             if key_file.exists() {
                 std::fs::remove_file(&key_file).map_err(|e| {
@@ -745,7 +978,7 @@ pub fn set_up_signing(repo: &Repo) -> Result<Signing, String> {
             }
             write_key_file(&signers_file, &signers_line(&email, &public))?;
         }
-        None => {
+        (None, None) => {
             let key = std::env::var(KEY_ENV)
                 .ok()
                 .filter(|v| !v.trim().is_empty())
@@ -951,20 +1184,21 @@ pub fn session_variables(
     let email = settings.email.clone().ok_or_else(missing_email)?;
     let key_file = key_file_path(&session.repo)?;
     let signers_file = key_file.with_file_name(SIGNERS_FILE_NAME);
-    let config = match &settings.signing_key {
-        Some(signing_key) => {
-            let program = settings
-                .signing_program
-                .clone()
-                .unwrap_or_else(|| DEFAULT_SIGNING_PROGRAM.to_string());
-            agent_signing_settings(
-                &email,
-                agent_public_key(signing_key),
-                &program,
-                &signers_file,
-            )
+    let program = settings
+        .signing_program
+        .clone()
+        .unwrap_or_else(|| DEFAULT_SIGNING_PROGRAM.to_string());
+    let config = match (&settings.signing_key, &settings.signing_key_file) {
+        (Some(signing_key), _) => agent_signing_settings(
+            &email,
+            agent_public_key(signing_key),
+            &program,
+            &signers_file,
+        ),
+        (None, Some(value)) => {
+            file_signing_settings(&email, &check_key_file(value)?, &program, &signers_file)
         }
-        None => signing_settings(&email, &key_file, &signers_file),
+        (None, None) => signing_settings(&email, &key_file, &signers_file),
     };
     Ok(Some(robot_variables(&name, &email, &config, session_urn)))
 }
@@ -1165,7 +1399,7 @@ pub fn robot_for_init() -> Result<Option<String>, String> {
     }
     let key_file = key_file_for(&repo)?;
     let signers_file = key_file.with_file_name(SIGNERS_FILE_NAME);
-    let written = signers_file.exists() && (settings.signing_key.is_some() || key_file.exists());
+    let written = signers_file.exists() && (own_key(&settings) || key_file.exists());
     if !written {
         return Err(format!(
             "{}\nnothing was changed: the nexus has no new entry. Run the command with {}=default, or run tsk thread session-start first",
@@ -1267,26 +1501,32 @@ fn robot_lookup_thread(cwd: &Path, session: &str) -> Option<String> {
     receiver.recv_timeout(LOOKUP_TIMEOUT).ok().flatten()
 }
 
+fn own_key(settings: &Settings) -> bool {
+    settings.signing_key.is_some() || settings.signing_key_file.is_some()
+}
+
 fn robot_identity_from(
     name: Option<String>,
     settings: &Settings,
     key_file: &Path,
 ) -> Result<RobotIdentity, String> {
     let signers_file = key_file.with_file_name(SIGNERS_FILE_NAME);
-    let (signing_key, program) = match &settings.signing_key {
-        Some(signing_key) => (
+    let program = settings
+        .signing_program
+        .clone()
+        .unwrap_or_else(|| DEFAULT_SIGNING_PROGRAM.to_string());
+    let (signing_key, program) = match (&settings.signing_key, &settings.signing_key_file) {
+        (Some(signing_key), _) => (
             format!("key::{}", agent_public_key(signing_key).trim()),
-            settings
-                .signing_program
-                .clone()
-                .unwrap_or_else(|| DEFAULT_SIGNING_PROGRAM.to_string()),
+            program,
         ),
-        None => (
+        (None, Some(value)) => (check_key_file(value)?.display().to_string(), program),
+        (None, None) => (
             key_file.display().to_string(),
             DEFAULT_SIGNING_PROGRAM.to_string(),
         ),
     };
-    let written = signers_file.exists() && (settings.signing_key.is_some() || key_file.exists());
+    let written = signers_file.exists() && (own_key(settings) || key_file.exists());
     if !written {
         return Err(SIGNING_NOT_WRITTEN.to_string());
     }
@@ -1525,11 +1765,13 @@ pub fn run_git_identity() -> Result<i32, String> {
 }
 
 /// `tsk config attribution`: print the settings, or write them to the repo config.
+#[allow(clippy::too_many_arguments)]
 pub fn run_config(
     identity: Option<String>,
     email: Option<String>,
     co_author: Option<String>,
     signing_key: Option<String>,
+    signing_key_file: Option<String>,
     signing_program: Option<String>,
     ssh_auth_sock: Option<String>,
     user: bool,
@@ -1549,6 +1791,7 @@ pub fn run_config(
         || email.is_some()
         || co_author.is_some()
         || signing_key.is_some()
+        || signing_key_file.is_some()
         || signing_program.is_some()
         || ssh_auth_sock.is_some()
     {
@@ -1573,6 +1816,7 @@ pub fn run_config(
             email.as_deref(),
             co_author.as_deref(),
             signing_key.as_deref(),
+            signing_key_file.as_deref(),
             signing_program.as_deref(),
             ssh_auth_sock.as_deref(),
         )?;
@@ -1601,6 +1845,13 @@ pub fn run_config(
             println!("source: {}", source.label());
         }
         _ => println!("attribution signing key: not set"),
+    }
+    match (&settings.signing_key_file, settings.signing_key_file_source) {
+        (Some(file), Some(source)) => {
+            println!("attribution signing key file: {}", file);
+            println!("source: {}", source.label());
+        }
+        _ => println!("attribution signing key file: not set"),
     }
     match (&settings.signing_program, settings.signing_program_source) {
         (Some(program), Some(source)) => {
@@ -1674,6 +1925,7 @@ mod tests {
             email: email.map(str::to_string),
             co_author: None,
             signing_key: None,
+            signing_key_file: None,
             signing_program: None,
             ssh_auth_sock: None,
         }
@@ -2365,6 +2617,8 @@ mod tests {
             co_author_source: None,
             signing_key: signing_key.map(str::to_string),
             signing_key_source: signing_key.map(|_| Source::Env),
+            signing_key_file: None,
+            signing_key_file_source: None,
             signing_program: program.map(str::to_string),
             signing_program_source: program.map(|_| Source::Env),
             ssh_auth_sock: None,
@@ -2571,5 +2825,123 @@ mod tests {
         assert!(with_socket
             .git_env()
             .contains(&("SSH_AUTH_SOCK".to_string(), "/s/agent.sock".to_string())));
+    }
+
+    fn key_file_section(value: &str) -> Section {
+        Section {
+            signing_key_file: Some(value.to_string()),
+            ..Section::default()
+        }
+    }
+
+    #[test]
+    fn the_signing_key_file_is_read_from_the_environment_then_the_repo_then_the_user_config() {
+        let repo = key_file_section("/repo/key");
+        let user = key_file_section("/user/key");
+        let (value, source) = resolve_signing_key_file(Some("/env/key"), &repo, &user);
+        assert_eq!(value.as_deref(), Some("/env/key"));
+        assert_eq!(source, Some(Source::Env));
+        let (value, source) = resolve_signing_key_file(None, &repo, &user);
+        assert_eq!(value.as_deref(), Some("/repo/key"));
+        assert_eq!(source, Some(Source::RepoConfig));
+        let (value, source) = resolve_signing_key_file(Some(" "), &Section::default(), &user);
+        assert_eq!(value.as_deref(), Some("/user/key"));
+        assert_eq!(source, Some(Source::UserConfig));
+        assert_eq!(
+            resolve_signing_key_file(None, &Section::default(), &Section::default()),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn a_signing_key_file_must_be_an_absolute_path_or_start_with_a_tilde() {
+        assert!(check_key_file_value("/k/key").is_ok());
+        assert!(check_key_file_value("~/k/key").is_ok());
+        assert!(check_key_file_value("k/key").is_err());
+        assert!(check_key_file_value("  ").is_err());
+        let err = parse_section("[attribution]\nsigning_key_file = \"key\"\n", file()).unwrap_err();
+        assert!(err.contains("attribution.signing_key_file"), "{}", err);
+    }
+
+    #[test]
+    fn the_signing_key_file_is_written_replaced_and_removed_with_the_other_keys_kept() {
+        let text = "[attribution]\nidentity = \"robot\"\n\n[other]\nsigning_key_file = \"keep\"\n";
+        let out = with_signing_key_file(text, Some("~/k"), file()).unwrap();
+        assert!(
+            out.contains("[attribution]\nsigning_key_file = \"~/k\"\nidentity"),
+            "{}",
+            out
+        );
+        let out = with_signing_key_file(&out, Some("/abs/k"), file()).unwrap();
+        assert_eq!(out.matches("signing_key_file").count(), 2, "{}", out);
+        assert!(out.contains("signing_key_file = \"/abs/k\""));
+        let out = with_signing_key_file(&out, Some(""), file()).unwrap();
+        assert!(!out.contains("/abs/k"), "{}", out);
+        assert!(out.contains("identity = \"robot\""));
+        assert!(out.contains("signing_key_file = \"keep\""));
+        assert_eq!(with_signing_key_file(text, None, file()).unwrap(), text);
+        assert!(with_signing_key_file(text, Some("relative"), file()).is_err());
+        let fresh = with_signing_key_file("", Some("/k"), file()).unwrap();
+        assert_eq!(fresh, "[attribution]\nsigning_key_file = \"/k\"\n");
+    }
+
+    #[test]
+    fn a_key_file_with_an_owner_only_mode_passes_and_a_loose_or_missing_one_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let key = dir.path().join("key");
+        std::fs::write(&key, "k").unwrap();
+        for (mode, ok) in [
+            (0o600, true),
+            (0o400, true),
+            (0o640, false),
+            (0o604, false),
+            (0o200, false),
+        ] {
+            std::fs::set_permissions(&key, std::fs::Permissions::from_mode(mode)).unwrap();
+            let result = check_key_file(key.to_str().unwrap());
+            assert_eq!(result.is_ok(), ok, "{:o}: {:?}", mode, result);
+        }
+        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let err = check_key_file(key.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("chmod 600"), "{}", err);
+        let missing = dir.path().join("absent");
+        let err = check_key_file(missing.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("does not exist"), "{}", err);
+    }
+
+    #[test]
+    fn the_key_file_signing_settings_use_the_file_and_the_chosen_program() {
+        let config = file_signing_settings(
+            "r@example.test",
+            Path::new("/k/key"),
+            "/p/op-ssh-sign",
+            Path::new("/k/signers"),
+        );
+        let get = |name: &str| config.iter().find(|(k, _)| *k == name).unwrap().1.clone();
+        assert_eq!(get("user.signingkey"), "/k/key");
+        assert_eq!(get("gpg.ssh.program"), "/p/op-ssh-sign");
+        assert_eq!(get("gpg.format"), "ssh");
+        assert_eq!(get("commit.gpgsign"), "true");
+    }
+
+    #[test]
+    fn a_key_file_identity_signs_with_the_file_and_the_agent_key_wins_over_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let key = dir.path().join("key");
+        std::fs::write(&key, "k").unwrap();
+        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let copy = dir.path().join(KEY_FILE_NAME);
+        std::fs::write(dir.path().join(SIGNERS_FILE_NAME), "s").unwrap();
+        let mut settings = settings_with(None, None);
+        settings.signing_key_file = Some(key.display().to_string());
+        let identity = robot_identity_from(Some("R".to_string()), &settings, &copy).unwrap();
+        assert_eq!(identity.key_file, key.display().to_string());
+        assert_eq!(identity.program, DEFAULT_SIGNING_PROGRAM);
+        assert_eq!(identity.ssh_auth_sock, None);
+        settings.signing_key = Some("agent:ssh-ed25519 AAAA".to_string());
+        let identity = robot_identity_from(Some("R".to_string()), &settings, &copy).unwrap();
+        assert_eq!(identity.key_file, "key::ssh-ed25519 AAAA");
     }
 }

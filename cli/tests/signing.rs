@@ -222,3 +222,131 @@ fn the_ssh_auth_sock_defaults_to_the_one_password_socket_when_that_file_exists()
     );
     assert!(out.contains("source: default"), "{}", out);
 }
+
+fn generate_key(path: &Path) -> String {
+    let generated = crate::common::cmd("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(generated.status.success());
+    let public = std::fs::read_to_string(path.with_extension("pub")).unwrap();
+    public.split_whitespace().nth(1).unwrap().to_string()
+}
+
+fn file_config(key: &Path) -> String {
+    format!(
+        "[attribution]\nidentity = \"robot\"\nemail = \"r@example.test\"\nsigning_key_file = \"{}\"\n",
+        key.display()
+    )
+}
+
+#[test]
+fn signing_check_with_a_key_file_needs_no_agent_and_prints_the_public_key() {
+    let setup = Setup::new("", "exit 2\n");
+    let key = setup.dir.path().join("robot-key");
+    let blob = generate_key(&key);
+    std::fs::write(
+        setup.dir.path().join("config/tsk/config.toml"),
+        file_config(&key),
+    )
+    .unwrap();
+    let output = setup.tsk(&["signing", "check"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+    assert!(text(&output).contains(&blob), "{}", text(&output));
+    assert!(text(&output).contains("No SSH agent"), "{}", text(&output));
+    assert_eq!(setup.seen(), "");
+}
+
+#[test]
+fn signing_check_with_a_missing_key_file_exits_1() {
+    let setup = Setup::new("", "exit 0\n");
+    let key = setup.dir.path().join("absent-key");
+    std::fs::write(
+        setup.dir.path().join("config/tsk/config.toml"),
+        file_config(&key),
+    )
+    .unwrap();
+    let output = setup.tsk(&["signing", "check"]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
+    assert!(
+        text(&output).contains("does not exist"),
+        "{}",
+        text(&output)
+    );
+}
+
+#[test]
+fn signing_check_with_a_group_readable_key_file_exits_1_and_names_chmod() {
+    use std::os::unix::fs::PermissionsExt;
+    let setup = Setup::new("", "exit 0\n");
+    let key = setup.dir.path().join("robot-key");
+    generate_key(&key);
+    std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o640)).unwrap();
+    std::fs::write(
+        setup.dir.path().join("config/tsk/config.toml"),
+        file_config(&key),
+    )
+    .unwrap();
+    let output = setup.tsk(&["signing", "check"]);
+    assert_eq!(output.status.code(), Some(1), "{}", text(&output));
+    assert!(text(&output).contains("chmod 600"), "{}", text(&output));
+}
+
+#[test]
+fn signing_check_expands_a_leading_tilde_in_the_key_file() {
+    let setup = Setup::new("", "exit 2\n");
+    let key = setup.dir.path().join("robot-key");
+    generate_key(&key);
+    std::fs::write(
+        setup.dir.path().join("config/tsk/config.toml"),
+        "[attribution]\nsigning_key_file = \"~/robot-key\"\n",
+    )
+    .unwrap();
+    let output = setup.tsk(&["signing", "check"]);
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output));
+}
+
+#[test]
+fn config_attribution_writes_shows_and_clears_the_signing_key_file() {
+    let setup = Setup::new("[attribution]\nidentity = \"robot\"\n", "");
+    let written = setup.tsk(&[
+        "config",
+        "attribution",
+        "--user",
+        "--signing-key-file",
+        "~/keys/robot",
+    ]);
+    assert_eq!(written.status.code(), Some(0), "{}", text(&written));
+    assert!(
+        text(&written).contains("attribution signing key file: ~/keys/robot"),
+        "{}",
+        text(&written)
+    );
+    assert!(text(&written).contains("source: user config"));
+    let file = std::fs::read_to_string(setup.dir.path().join("config/tsk/config.toml")).unwrap();
+    assert!(file.contains("identity = \"robot\""), "{}", file);
+    assert!(
+        file.contains("signing_key_file = \"~/keys/robot\""),
+        "{}",
+        file
+    );
+    let cleared = setup.tsk(&["config", "attribution", "--user", "--signing-key-file", ""]);
+    assert_eq!(cleared.status.code(), Some(0), "{}", text(&cleared));
+    assert!(
+        text(&cleared).contains("attribution signing key file: not set"),
+        "{}",
+        text(&cleared)
+    );
+    let file = std::fs::read_to_string(setup.dir.path().join("config/tsk/config.toml")).unwrap();
+    assert!(file.contains("identity = \"robot\""), "{}", file);
+    assert!(!file.contains("signing_key_file"), "{}", file);
+    let relative = setup.tsk(&[
+        "config",
+        "attribution",
+        "--user",
+        "--signing-key-file",
+        "key",
+    ]);
+    assert_eq!(relative.status.code(), Some(1));
+}
