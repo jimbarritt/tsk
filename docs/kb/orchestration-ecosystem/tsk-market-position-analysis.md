@@ -14,7 +14,8 @@ system, not a system assessed. It is the first read that models parts of Product
 and it models no Navigation or Scale. LangChain's post "From tasks to goals" was added on
 2026-11-17 as a statement of principles, not a system assessed. Dust was added on 2026-11-17
 as a related platform, not a system assessed. Coder was added on 2026-11-19 as a related platform,
-not a system assessed.
+not a system assessed. Steve Yegge's post on pacing agents and on chief-of-staff agents was
+added on 2026-11-21, with Martin Fowler's comment on it.
 
 ## Status
 
@@ -1373,6 +1374,55 @@ Dust, not among the systems assessed. Two items intersect tsk:
 
 Position: no change to the three-part verdict below. The open items are in coder.md under
 "Not checked".
+
+## Yegge on pacing agents, factories and chiefs of staff
+
+Sources: a post by Steve Yegge on X, read from screenshots that Jim supplied on 2026-11-21
+([post](https://x.com/steve_yegge/status/2121671447810888185)), and Martin Fowler's
+[Fragments: November 20](https://martinfowler.com/fragments/2026-11-20.html), which quotes it.
+Yegge wrote the post after talks on his software factories at two conferences. It gives
+three "hot takes".
+
+- **Pace AI to human speed.** Almost nobody goes fast with AI: engineering keeps to
+  engineering speed, and business is slower still. Teams that push too hard see downtime.
+  Yegge's own agents overwhelmed his players with features, his accountant with emails, his
+  merge queue with tickets and his machines with load. They angered his admins, made messes
+  in his game and launched broken open source software without permission.
+- **Most teams do not need a software factory.** A factory needs an extraordinary amount of
+  upkeep in time and tokens. Yegge rewrote his previous five, because rewriting became
+  cheaper than fixing. A factory becomes specific to its domain, because it supports the
+  product as well as building it. He calls it "a company in a box", and his advice is to
+  build one, not buy one.
+- **Everyone gets a chief-of-staff agent.** Yegge's prediction: each person will have a personal
+  chief-of-staff agent, or an entourage of helper agents, and will bring it to work.
+  Protocols will form for entourages that negotiate work between people. His advice: build
+  your own chief of staff first, because your entourage defines how you work with others.
+
+Fowler's comment: when agents run faster than people can follow, people lose sight of what
+the agents do, which adds risk. He argues for agents at a speed people can govern. That
+speed can rise as people learn to govern agents, and the people the agents serve set its
+limit.
+
+Where it meets tsk:
+
+- **Visibility.** tsk records the work as records a person reads: missions, tasks,
+  decisions, questions and thread continuation entries. That is the visibility in Fowler's
+  comment. tsk sets no limit on the pace of an agent.
+- **A factory or a studio.** Jim's draft term for a group of robots and people that build a
+  product is a robot studio, not a factory
+  ([robot-studio-not-a-factory.md](../robot-studio-not-a-factory.md)). Yegge's "company in a
+  box" also builds and supports one product.
+- **The chief of staff.** Jim's position, 2026-11-21: he reached the same idea on his own
+  before this post. To work across many threads, a person needs a single point of
+  interaction. That is one reason the nexus has its own ledger: a chief of staff session
+  works from it across every repo in the nexus. An agent now starts a new harness when asked
+  to, so the chief of staff can start the sessions that do the work. Once agents can send
+  messages to each other, one place can coordinate them. That messaging is the subject of
+  the ledger's robot communication protocols mission, not yet started.
+
+Position: no change to the three-part verdict. The online game in the post is Wyvern, and the
+Seats section below covers Wheelhouse, Yegge's harness for it. His chief of staff is closest to
+a Post in tsk's terms: a standing position, here one that a robot fills for one person.
 
 ## Seats (Wheelhouse), and tsk's Actor plus Thread continuation
 
