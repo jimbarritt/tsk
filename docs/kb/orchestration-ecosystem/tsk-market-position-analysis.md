@@ -1343,8 +1343,8 @@ Sources:
 
 ## Coder: a platform that hosts agents, not a system that tracks the work
 
-Research: [coder.md](coder.md). Captured 2026-11-19 from a summary that Jim pasted, then
-checked the same day against Coder's documentation, two Coder blog posts and its repository.
+Research: [coder.md](coder.md). Read on 2026-11-19 from Coder's documentation, two Coder
+blog posts and its repository.
 The core is open source (AGPL v3.0). A Premium licence covers support and AI governance.
 
 Coder is a self-hosted platform for running AI coding agents and cloud development
@@ -1363,7 +1363,7 @@ announced in December 2025 add governance:
 Coder's blog states that AI Bridge and Agent Boundaries need the Premium AI Governance
 Add-On, and that Coder renamed them AI Gateway and Agent Firewall in April 2026.
 
-Coder occupies the layer where an agent runs and the policy around it. The summary describes no
+Coder occupies the layer where an agent runs and the policy around it. Coder's pages describe no
 mission, objective, decision or continuation record, so it is listed beside Herdr and
 Dust, not among the systems assessed. Two items intersect tsk:
 
@@ -1380,7 +1380,7 @@ Position: no change to the three-part verdict below. The open items are in coder
 Research: [yegge-pace-factories-and-chiefs-of-staff.md](yegge-pace-factories-and-chiefs-of-staff.md),
 which maps each part of the post to tsk's model and its gaps.
 
-Sources: a post by Steve Yegge on X, read on 2026-11-21 from screenshots of the post
+Sources: a post by Steve Yegge on X, read on 2026-11-21
 ([post](https://x.com/steve_yegge/status/2121671447810888185)), and Martin Fowler's
 [Fragments: November 20](https://martinfowler.com/fragments/2026-11-20.html), which quotes it.
 Yegge wrote the post after talks on his software factories at two conferences. It gives
