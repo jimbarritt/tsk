@@ -2,9 +2,9 @@
 
 Steve Yegge's position has three parts: pace agents to human speed, build a software factory only when you need one, and give each person a chief-of-staff agent. tsk's design matches all three, and has the visibility, the single point of interaction and the separation of work records from code that they need. tsk lacks a limit on the pace of an agent, a scope of authority for an actor, and messages between agents.
 
-Status: analysis note, 2026-11-21. The analysis sections are the note's own inference, except where a paragraph names Jim's position.
+Status: analysis note, 2026-11-21. The two mapping sections are the note's own inference.
 
-Sources: a post by Steve Yegge on X ([post](https://x.com/steve_yegge/status/2121671447810888185)), read from screenshots that Jim supplied on 2026-11-21, and Martin Fowler's [Fragments: November 20](https://martinfowler.com/fragments/2026-11-20.html), which quotes it. The summary is in the Yegge section of [tsk-market-position-analysis.md](tsk-market-position-analysis.md).
+Sources: a post by Steve Yegge on X ([post](https://x.com/steve_yegge/status/2121671447810888185)), read on 2026-11-21 from screenshots of the post, and Martin Fowler's [Fragments: November 20](https://martinfowler.com/fragments/2026-11-20.html), which quotes it. The summary is in the Yegge section of [tsk-market-position-analysis.md](tsk-market-position-analysis.md).
 
 ## Yegge's position
 
@@ -21,13 +21,13 @@ Fowler adds that the speed of agents should be one people can govern. That speed
 
 **The ledger is the visibility.** A person learns what a robot did from the pause entry of its thread, the task list, the decisions and the open questions of a mission. These are records a person reads without reading every diff. Fowler's risk is a person who loses sight of the agents. The ledger is tsk's answer to it.
 
-**A chief of staff needs a single point of interaction.** Jim's position, 2026-11-21: he reached the chief of staff idea on his own before this post. To work across many threads, a person needs one place to talk to the work. That is one reason the nexus has its own ledger: a chief of staff session works from it across every repo in the nexus. The same need is recorded twice in the ledger, as one session where Jim discusses the work across the nexus, and as one point where Jim interacts with the network of robots. An agent now starts a new harness when asked, and a regenerated session keeps its robot name and thread. So the chief of staff can start the sessions that do the work.
+**A chief of staff needs a single point of interaction.** To work across many threads, a person needs one place to talk to the work. In tsk that place is a session on the nexus's own ledger, which covers every repo in the nexus. An agent starts a new harness when asked, and a regenerated session keeps its robot name and thread. So a chief of staff session can start the sessions that do the work.
 
 **Work records sit outside the factory's code.** Yegge rewrote five factories. tsk keeps the state of the work in a ledger that is separate from the code repo (ADR 0035): missions, decisions, questions and continuation entries. A rewrite of a factory's code does not change these records. This was not tested on a rewrite.
 
 **Build, not buy.** The market analysis's verdict is that tsk is not a head-to-head orchestrator, and its premise is that its model does not depend on one vendor's harness. A bespoke factory of Yegge's kind can use tsk as a component for its records. That matches his advice better than a factory product would.
 
-**A studio builds and supports one product.** Yegge's "company in a box" builds the product and supports it. Jim's draft term for a group of robots and people that build a product is a robot studio, not a factory ([robot-studio-not-a-factory.md](../robot-studio-not-a-factory.md)). The two terms name the same kind of unit.
+**A studio builds and supports one product.** Yegge's "company in a box" builds the product and supports it. The draft term in [robot-studio-not-a-factory.md](../robot-studio-not-a-factory.md) for a group of robots and people that build a product is a robot studio, not a factory. The two terms name the same kind of unit.
 
 ## Where tsk has gaps
 
