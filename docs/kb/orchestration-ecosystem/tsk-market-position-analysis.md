@@ -1408,6 +1408,9 @@ limit.
 
 Where it meets tsk:
 
+- **Pace.** A mission gives people and agents one shared briefing that a person can read and
+  agree to. That shared understanding sets the speed of the work, which is the pacing to
+  human speed that Yegge argues for.
 - **Visibility.** tsk records the work as records a person reads: missions, tasks,
   decisions, questions and thread continuation entries. That is the visibility in Fowler's
   comment. A limit on the pace of an agent, through budgets, is planned and not yet built.
