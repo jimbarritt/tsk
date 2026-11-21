@@ -1,11 +1,18 @@
 name: Binaries and Homebrew formula
 
 # Builds the tsk binary for macOS and Linux at a release tag, attaches one archive per
-# platform to the GitHub release, then writes Formula/tsk.rb in jimbarritt/homebrew-tap
-# so that `brew install jimbarritt/tap/tsk` installs that release.
+# platform to the GitHub release and attests its build provenance, publishes the release,
+# then writes Formula/tsk.rb in jimbarritt/homebrew-tap so that
+# `brew install jimbarritt/tap/tsk` installs that release.
 #
-# release.yml calls this workflow after it creates a release. The run from the Actions
-# tab takes a tag, for a release made before this workflow existed, or a run that failed.
+# release.yml calls this workflow after it creates a draft release. The release is
+# immutable once published, so every archive is attached to the draft first and the
+# release is published after the last build, before the formula is written.
+# `gh attestation verify <archive> --repo jimbarritt/tsk` checks an archive.
+#
+# The run from the Actions tab takes a tag, for a release made before this workflow
+# existed, or a run that failed. For a release that is published and not immutable,
+# the upload replaces the archive and the publish step changes nothing.
 #
 # Archives: tsk-<version>-<target>.tar.gz, holding the `tsk` binary at the root.
 #
@@ -44,6 +51,11 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-22.04-arm
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     env:
       TAG: ${{ inputs.tag }}
       TARGET: ${{ matrix.target }}
@@ -68,9 +80,30 @@ jobs:
           archive="tsk-${TAG#v}-$TARGET.tar.gz"
           tar -czf "$archive" -C "target/$TARGET/release" tsk
           gh release upload "$TAG" "$archive" --clobber
+          echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+
+      - name: Attest the build provenance of the archive
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ env.ARCHIVE }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # All four archives are attached. A published release is immutable from here.
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
 
   formula:
-    needs: build
+    needs: publish
     runs-on: ubuntu-latest
     environment: release
     env:
