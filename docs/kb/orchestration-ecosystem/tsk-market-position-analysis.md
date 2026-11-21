@@ -928,8 +928,7 @@ thread or ledger. Four items intersect tsk:
 - **Signals into the agent's context**: it ingests the production and product systems that
   tsk's Product dimension names and does not model.
 - **Permissions at query time**: Data Shield enforces the requesting user's access and
-  reconciles identities across systems. This is the permission question that tsk's Post and
-  the [removed] research raise.
+  reconciles identities across systems. This is the permission question that tsk's Post raises.
 - **Conventions mined from review feedback**: recurring pull request comments become
   per-repository rules. tsk writes standing instructions by hand.
 - **Measuring the effect of context**: open-source harnesses run one task with and without
