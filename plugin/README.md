@@ -63,7 +63,7 @@ plugin root, in Copilot's format (`version` 1, the events `sessionStart`,
 - `preToolUse` runs `hooks/pre-tool-use.sh copilot`, which runs `tsk ledger guard --format
   copilot`. The guard reads Copilot's `toolName` and `toolArgs` and prints a top-level
   `permissionDecision` and `permissionDecisionReason` to deny a change to the ledger store.
-- Copilot runs its hooks outside the repo. `tsk thread session-start` and `tsk thread guard` read the repo from the `cwd` of the hook input in the `copilot` format. `hooks/session-end.sh` changes to that directory before it runs `tsk`.
+- Copilot runs its hooks outside the repo. `tsk thread session-start` and `tsk thread guard` read the repo from the `cwd` of the hook input in the `copilot` format. `hooks/session-start.sh` and `hooks/session-end.sh` change to that directory before they run `tsk`.
 - `permissionRequest` runs `hooks/tmux-state.sh waiting`.
 - `sessionEnd` runs `hooks/session-end.sh`.
 - `userPromptSubmitted` and `postToolUse` run `hooks/tmux-state.sh working`, `agentStop` also runs `hooks/tmux-state.sh waiting`, and `sessionEnd` also runs `hooks/tmux-state.sh none`.
