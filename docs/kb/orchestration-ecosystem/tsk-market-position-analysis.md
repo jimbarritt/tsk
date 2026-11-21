@@ -1380,7 +1380,7 @@ Position: no change to the three-part verdict below. The open items are in coder
 Research: [yegge-pace-factories-and-chiefs-of-staff.md](yegge-pace-factories-and-chiefs-of-staff.md),
 which maps each part of the post to tsk's model and its gaps.
 
-Sources: a post by Steve Yegge on X, read from screenshots that Jim supplied on 2026-11-21
+Sources: a post by Steve Yegge on X, read on 2026-11-21 from screenshots of the post
 ([post](https://x.com/steve_yegge/status/2121671447810888185)), and Martin Fowler's
 [Fragments: November 20](https://martinfowler.com/fragments/2026-11-20.html), which quotes it.
 Yegge wrote the post after talks on his software factories at two conferences. It gives
@@ -1411,15 +1411,14 @@ Where it meets tsk:
 - **Visibility.** tsk records the work as records a person reads: missions, tasks,
   decisions, questions and thread continuation entries. That is the visibility in Fowler's
   comment. tsk sets no limit on the pace of an agent.
-- **A factory or a studio.** Jim's draft term for a group of robots and people that build a
-  product is a robot studio, not a factory
-  ([robot-studio-not-a-factory.md](../robot-studio-not-a-factory.md)). Yegge's "company in a
+- **A factory or a studio.** The draft term in
+  [robot-studio-not-a-factory.md](../robot-studio-not-a-factory.md) for a group of robots and
+  people that build a product is a robot studio, not a factory. Yegge's "company in a
   box" also builds and supports one product.
-- **The chief of staff.** Jim's position, 2026-11-21: he reached the same idea on his own
-  before this post. To work across many threads, a person needs a single point of
-  interaction. That is one reason the nexus has its own ledger: a chief of staff session
-  works from it across every repo in the nexus. An agent now starts a new harness when asked
-  to, so the chief of staff can start the sessions that do the work. Once agents can send
+- **The chief of staff.** To work across many threads, a person needs a single point of
+  interaction. In tsk that is a session on the nexus's own ledger, which covers every repo in
+  the nexus. An agent starts a new harness when asked to, so a chief of staff session can
+  start the sessions that do the work. Once agents can send
   messages to each other, one place can coordinate them. That messaging is the subject of
   the ledger's robot communication protocols mission, not yet started.
 
