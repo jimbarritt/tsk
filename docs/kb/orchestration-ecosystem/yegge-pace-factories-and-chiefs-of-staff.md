@@ -1,6 +1,6 @@
 # Yegge on pace, factories and chiefs of staff, mapped to tsk
 
-Steve Yegge's position has three parts: pace agents to human speed, build a software factory only when you need one, and give each person a chief-of-staff agent. tsk's design matches all three, and has the visibility, the single point of interaction and the separation of work records from code that they need. A limit on the pace of an agent, a scope of authority for an actor, and messages between agents are planned and not yet built.
+Steve Yegge's position has three parts: pace agents to human speed, build a software factory only when you need one, and give each person a chief-of-staff agent. tsk's design matches all three. Its missions give people and agents one shared briefing that a person understands, and it has the visibility, the single point of interaction and the separation of work records from code that the three parts need. A limit on the pace of an agent, a scope of authority for an actor, and messages between agents are planned and not yet built.
 
 Status: analysis note, 2026-11-21. The two mapping sections are the note's own inference.
 
@@ -16,6 +16,8 @@ Sources: a post by Steve Yegge on X ([post](https://x.com/steve_yegge/status/212
 Fowler adds that the speed of agents should be one people can govern. That speed rises as people learn to govern agents, and the people the agents serve set its limit.
 
 ## Where tsk matches Yegge's position
+
+**Missions pace the work to people.** A mission is the way an agent or a human receives instructions, and it contains the state of the work: purpose, objective, constraints, decisions and questions ([ubiquitous-language.md](../../domain/ubiquitous-language.md#mission)). A briefing renders the mission for each actor, for a person as well as for an agent. People and agents work from one shared definition of the work that a person can read and agree to. The shared understanding sets the speed of the work, which is Yegge's pacing to human speed. The mission record exists today. The briefing as a rendering of the record is planned and not yet built.
 
 **The human sets the pace.** The README states tsk's objective as scaling humans: the less supervision the work needs, the more work one human delegates ([supervisory-engineering-and-the-record-of-supervision.md](../supervisory-engineering-and-the-record-of-supervision.md)). That is Fowler's limit: the work one person can supervise bounds the pace, and the bound rises as supervision needs less of the person. tsk's bootstrap runs in supervised mode, with one human in every position.
 
