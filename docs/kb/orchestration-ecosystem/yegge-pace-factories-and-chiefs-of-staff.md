@@ -4,7 +4,7 @@ Steve Yegge's position has three parts: pace agents to human speed, build a soft
 
 Status: analysis note, 2026-11-21. The two mapping sections are the note's own inference.
 
-Sources: a post by Steve Yegge on X ([post](https://x.com/steve_yegge/status/2121671447810888185)), read on 2026-11-21 from screenshots of the post, and Martin Fowler's [Fragments: November 20](https://martinfowler.com/fragments/2026-11-20.html), which quotes it. The summary is in the Yegge section of [tsk-market-position-analysis.md](tsk-market-position-analysis.md).
+Sources: a post by Steve Yegge on X ([post](https://x.com/steve_yegge/status/2121671447810888185)), read on 2026-11-21, and Martin Fowler's [Fragments: November 20](https://martinfowler.com/fragments/2026-11-20.html), which quotes it. The summary is in the Yegge section of [tsk-market-position-analysis.md](tsk-market-position-analysis.md).
 
 ## Yegge's position
 
@@ -45,7 +45,7 @@ Fowler adds that the speed of agents should be one people can govern. That speed
 
 ## Not established
 
-- The rest of Yegge's thread, if any, beyond the four screenshots.
+- Any reply in Yegge's thread after the post itself.
 - Whether a tsk ledger stays usable after a rewrite of a factory's code.
 - Whether a chief of staff session can supervise robots in other sessions before the messaging between agents exists.
 

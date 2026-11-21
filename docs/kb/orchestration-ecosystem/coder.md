@@ -2,7 +2,7 @@
 
 Coder is a self-hosted platform that runs AI coding agents in Terraform-defined workspaces. Its core is open source. Its governance features for model access and agent policy need a paid Premium licence.
 
-Status: core under the AGPL v3.0, with a Premium licence for enhanced support, custom deployments and AI governance. Captured 2026-11-19 from a summary that Jim pasted. Checked the same day against the Coder pages listed under Sources. Claims are Coder's own and were not run here.
+Status: core under the AGPL v3.0, with a Premium licence for enhanced support, custom deployments and AI governance. Read on 2026-11-19 from the Coder pages listed under Sources. Claims are Coder's own and were not run here.
 
 Sources, read on 2026-11-19:
 
@@ -11,7 +11,7 @@ Sources, read on 2026-11-19:
 - The blog post [Secure agentic AI, now production ready](https://coder.com/blog/secure-agentic-ai-now-production-ready), 3 February 2026.
 - The [coder/coder repository](https://github.com/coder/coder).
 
-The summary also cites InfoQ (May 2026) and Contrary Research. Those two were not read.
+InfoQ (May 2026) and Contrary Research also cover Coder. Those two were not read.
 
 ## What Coder is
 
@@ -84,4 +84,4 @@ coder server
 - Whether Coder runs on arm64.
 - The memory and CPU that a workspace needs for one Claude Code agent.
 - Whether a workspace can read from and push to a private Git repository, such as the nexus.
-- The InfoQ and Contrary Research pages that the summary cites.
+- The InfoQ and Contrary Research coverage of Coder.
