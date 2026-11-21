@@ -10,8 +10,8 @@ name: Release
 #    `cargo fmt` and `cargo clippy` with warnings denied pass, and the whole test suite
 #    passes with `dolt` installed, all with the locked dependencies. A failure stops the
 #    release before it creates a tag.
-# 3. Creates the tag on the pushed commit and the GitHub release `tsk <version>`. The
-#    notes are `docs/releases/v<version>.md` when that file exists, then the subject of
+# 3. Creates the tag on the pushed commit and a draft GitHub release `tsk <version>`. The
+#    release is published by binaries.yml after it attaches the archives. The notes are `docs/releases/v<version>.md` when that file exists, then the subject of
 #    every commit since the previous `v*` tag, then the compare link GitHub generates.
 # 4. Calls publish-crates.yml to publish tsk-bin to crates.io, in the environment
 #    `release`.
@@ -155,8 +155,15 @@ jobs:
               git log --no-merges --format='- %s (%h)' HEAD
             fi
           } > notes.md
+          # The release is a draft, so the archives can be attached before it is published:
+          # a published release is immutable (Settings, General, Releases), and an immutable
+          # release rejects a later upload. binaries.yml publishes it. The tag is made here
+          # because a draft makes none, and the build checks out the tag.
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" >/dev/null
           gh release create "$TAG" \
-            --target "$GITHUB_SHA" \
+            --draft \
+            --verify-tag \
             --title "tsk $VERSION" \
             --notes-file notes.md \
             --generate-notes
@@ -175,6 +182,9 @@ jobs:
     if: needs.release.outputs.created == 'true'
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     uses: ./.github/workflows/binaries.yml
     with:
       tag: ${{ needs.release.outputs.tag }}
