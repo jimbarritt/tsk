@@ -368,6 +368,7 @@ mod release_notes;
 mod doctor;
 
 mod gitenv;
+mod hook_cwd;
 
 mod ledger;
 
