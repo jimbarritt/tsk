@@ -1377,6 +1377,9 @@ Position: no change to the three-part verdict below. The open items are in coder
 
 ## Yegge on pacing agents, factories and chiefs of staff
 
+Research: [yegge-pace-factories-and-chiefs-of-staff.md](yegge-pace-factories-and-chiefs-of-staff.md),
+which maps each part of the post to tsk's model and its gaps.
+
 Sources: a post by Steve Yegge on X, read from screenshots that Jim supplied on 2026-11-21
 ([post](https://x.com/steve_yegge/status/2121671447810888185)), and Martin Fowler's
 [Fragments: November 20](https://martinfowler.com/fragments/2026-11-20.html), which quotes it.
@@ -1583,6 +1586,8 @@ collision above).
   Dify, n8n, Dust and StackAI tested as places to run tsk, cited in the Dust section above.
 - [langchain-from-tasks-to-goals.md](langchain-from-tasks-to-goals.md): the full reference
   for the From tasks to goals section above, with each principle mapped to tsk's terms.
+- [yegge-pace-factories-and-chiefs-of-staff.md](yegge-pace-factories-and-chiefs-of-staff.md): the full
+  analysis for the Yegge section above, with where tsk matches and where it has gaps.
 - [coder.md](coder.md): the full reference for the Coder section above, with a comparison
   against tsk and a list of what was not checked.
 - [copilot-dynamic-workflows.md](copilot-dynamic-workflows.md): the full reference for the
