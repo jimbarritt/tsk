@@ -34,6 +34,7 @@ pub struct HookInput {
     #[serde(alias = "sessionId")]
     pub session_id: Option<String>,
     pub source: Option<String>,
+    pub cwd: Option<String>,
 }
 
 impl HookInput {
@@ -749,7 +750,7 @@ fn context_after_fetch(
 
 /// The plugin version this binary expects, the `version` in `plugin/.claude-plugin/plugin.json`.
 /// A unit test keeps the two equal.
-pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.74";
+pub const EXPECTED_PLUGIN_VERSION: &str = "0.3.75";
 
 /// The numbers of a `major.minor.patch` version. A pre-release or build suffix is ignored.
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
@@ -854,6 +855,7 @@ pub fn run(format: HookFormat, install_plugin: bool, plugin_version: Option<&str
     let mut bytes = Vec::new();
     let _ = std::io::stdin().read_to_end(&mut bytes);
     let input = HookInput::parse(&bytes);
+    crate::hook_cwd::enter(format, &bytes);
     if let Ok(state_root) = state_root_from_env() {
         let dir = state_root.join(CLAIM_DIR);
         let earlier = has_earlier_claim(&dir, &input);
@@ -1015,6 +1017,7 @@ mod tests {
         let input = |source: &str| HookInput {
             session_id: Some("abc".to_string()),
             source: Some(source.to_string()),
+            cwd: None,
         };
         let now = SystemTime::now();
         assert!(!has_earlier_claim(dir.path(), &input("startup")));
@@ -1024,6 +1027,7 @@ mod tests {
         let other = HookInput {
             session_id: Some("abcd".to_string()),
             source: Some("resume".to_string()),
+            cwd: None,
         };
         assert!(!has_earlier_claim(dir.path(), &other));
     }
@@ -1074,6 +1078,7 @@ mod tests {
         );
         assert_eq!(parsed.session_id.as_deref(), Some("abc-1"));
         assert_eq!(parsed.source.as_deref(), Some("new"));
+        assert_eq!(parsed.cwd.as_deref(), Some("/x"));
         assert_eq!(parsed.claim_name().as_deref(), Some("abc-1.new"));
         let unsafe_id = HookInput::parse(b"{\"sessionId\":\"../x\"}");
         assert!(unsafe_id.claim_name().is_none());
@@ -1159,6 +1164,7 @@ mod tests {
         HookInput {
             session_id: session_id.map(str::to_string),
             source: source.map(str::to_string),
+            cwd: None,
         }
     }
 

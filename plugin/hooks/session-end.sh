@@ -11,6 +11,13 @@ INPUT="$(cat 2>/dev/null || true)"
 
 command -v tsk >/dev/null 2>&1 || exit 0
 
+# GitHub Copilot CLI runs this hook outside the repo and names the repo in the `cwd` of
+# the hook input. Claude Code runs it in the project folder.
+HOOK_CWD="$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || true)"
+case "$HOOK_CWD" in
+  /*) [ -d "$HOOK_CWD" ] && cd "$HOOK_CWD" 2>/dev/null ;;
+esac
+
 # Record on this machine that the session ended, so its robot is free again (tsk 0.60.0).
 printf '%s' "$INPUT" | tsk session end >/dev/null 2>&1 || true
 

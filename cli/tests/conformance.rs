@@ -10257,6 +10257,42 @@ fn a_session_start_records_the_session_and_tsk_session_find_names_its_instance()
     assert_eq!(json[0]["actor"], "alice");
 }
 
+/// Copilot runs its hooks outside the repo and names the repo in the `cwd` of the hook input.
+#[test]
+fn a_copilot_session_start_outside_the_repo_enters_the_cwd_of_the_hook_input() {
+    if !dolt_installed() {
+        eprintln!("note: dolt is not installed; skipping");
+        return;
+    }
+    let fx = Fixture::fetched();
+    let a = fx.a();
+    assert_success(&fx.tsk(&a, &["actor", "register", "alice", "--kind", "robot"]));
+    let elsewhere = fx.root.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let input = serde_json::json!({
+        "sessionId": "copilot-test-1",
+        "source": "new",
+        "cwd": a,
+    })
+    .to_string();
+    let output = fx.tsk_stdin(
+        &elsewhere,
+        &["thread", "session-start", "--format", "copilot"],
+        &input,
+    );
+    assert_success(&output);
+    let out = stdout(&output);
+    assert!(!out.contains("not inside a git repository"), "{}", out);
+    assert!(out.contains("The ledger was fetched"), "{}", out);
+    let list = fx.ok(&a, &["session", "list", "--porcelain"]);
+    assert!(
+        list.lines()
+            .any(|l| l.starts_with("urn:tsk:session:copilot-cli:copilot-test-1\t")),
+        "{}",
+        list
+    );
+}
+
 /// A cloud session is named by the cloud session ID, which is also its instance key.
 #[test]
 fn a_cloud_session_start_records_the_cloud_session_as_its_own_instance() {
