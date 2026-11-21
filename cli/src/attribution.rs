@@ -624,6 +624,10 @@ pub fn with_section(
     file: &Path,
 ) -> Result<String, String> {
     parse_section(text, file)?;
+    let remove_signing_key = signing_key.is_some_and(|v| v.trim().is_empty());
+    let remove_signing_program = signing_program.is_some_and(|v| v.trim().is_empty());
+    let signing_key = signing_key.filter(|v| !v.trim().is_empty());
+    let signing_program = signing_program.filter(|v| !v.trim().is_empty());
     let signing_key = match signing_key {
         Some(value) => Some(
             check_signing_key(value).map_err(|e| format!("error: the signing key value {}", e))?,
@@ -644,6 +648,33 @@ pub fn with_section(
             lines.push(String::new());
         }
         lines.push("[attribution]".to_string());
+    }
+    for (remove, key) in [
+        (remove_signing_key, "signing_key"),
+        (remove_signing_program, "signing_program"),
+    ] {
+        if !remove {
+            continue;
+        }
+        let start = lines
+            .iter()
+            .position(|l| l.trim() == "[attribution]")
+            .expect("the table header was added above");
+        let end = lines[start + 1..]
+            .iter()
+            .position(|l| l.trim_start().starts_with('['))
+            .map_or(lines.len(), |i| start + 1 + i);
+        let mut index = 0;
+        lines.retain(|line| {
+            let drop = index > start
+                && index < end
+                && line
+                    .trim_start()
+                    .strip_prefix(key)
+                    .is_some_and(|rest| rest.trim_start().starts_with('='));
+            index += 1;
+            !drop
+        });
     }
     for (key, value) in [
         ("identity", identity.map(|i| i.as_str().to_string())),

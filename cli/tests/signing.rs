@@ -350,3 +350,36 @@ fn config_attribution_writes_shows_and_clears_the_signing_key_file() {
     ]);
     assert_eq!(relative.status.code(), Some(1));
 }
+
+#[test]
+fn config_attribution_clears_the_signing_key_and_the_signing_program() {
+    let setup = Setup::new("[attribution]\nidentity = \"robot\"\n", "");
+    let written = setup.tsk(&[
+        "config",
+        "attribution",
+        "--user",
+        "--signing-key",
+        "agent:ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample",
+        "--signing-program",
+        "/usr/bin/op-ssh-sign",
+    ]);
+    assert_eq!(written.status.code(), Some(0), "{}", text(&written));
+    let path = setup.dir.path().join("config/tsk/config.toml");
+    let file = std::fs::read_to_string(&path).unwrap();
+    assert!(file.contains("signing_key = "), "{}", file);
+    assert!(file.contains("signing_program = "), "{}", file);
+    let cleared = setup.tsk(&[
+        "config",
+        "attribution",
+        "--user",
+        "--signing-key",
+        "",
+        "--signing-program",
+        "",
+    ]);
+    assert_eq!(cleared.status.code(), Some(0), "{}", text(&cleared));
+    let file = std::fs::read_to_string(&path).unwrap();
+    assert!(file.contains("identity = \"robot\""), "{}", file);
+    assert!(!file.contains("signing_key"), "{}", file);
+    assert!(!file.contains("signing_program"), "{}", file);
+}

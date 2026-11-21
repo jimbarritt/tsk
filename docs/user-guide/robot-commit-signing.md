@@ -46,7 +46,7 @@ in force and where each value came from.
 
 A robot commit is signed and shows Verified only after steps 1 to 5 are done, and a session
 reads the signing key from the environment variable `TSK_ROBOT_SIGNING_KEY`. Without the signing key, `tsk`
-prints a warning and commits keep the default author. It needs `tsk` 0.37.0 or later.
+prints a warning and commits keep the default author. Robot signing needs `tsk` 0.37.0 or later.
 
 ## What a robot commit looks like
 
@@ -65,7 +65,7 @@ The robot account must have "Keep my email addresses private" turned on in Setti
 Emails, so that GitHub accepts the noreply address. The number before the `+` in the address
 is the account's user ID.
 
-## What you need
+## Prerequisites
 
 - Access to the `jimbarritt.com` mailbox for `robots@jimbarritt.com`. GitHub sends a
   message to it in step 2.
@@ -309,7 +309,11 @@ config. Write them with these commands, and add `--user` to write the user confi
 ```bash
 tsk config attribution --signing-key "agent:ssh-ed25519 AAAA..."
 tsk config attribution --signing-program <path of the signing program>
+tsk config attribution --signing-key ""
+tsk config attribution --signing-program ""
 ```
+
+An empty value removes the setting from the config file.
 
 tsk rejects a `signing_key` value that does not start with `agent:` and contain `ssh-`, a key
 type and a base64 key. On macOS with 1Password, set `signing_program` to the path of the
@@ -370,9 +374,9 @@ delay in milliseconds.
 
 ## Sign with a key file
 
-A key file on the machine signs with no SSH agent and no environment variable. It suits a
-machine with a private key file and no agent. It also suits a session that cannot connect
-to an agent.
+Signing with a key file on the machine needs no SSH agent and no environment variable. The
+method suits a machine with a private key file and no agent, and a session that cannot
+connect to an agent.
 
 | Setting | Value | Environment variable |
 |---|---|---|
@@ -449,4 +453,4 @@ A fresh container has no package lists, so `apt-get install` alone fails with `h
 
 To see the trailers as well, run `git log -1 --format='%an <%ae> %G?%n%(trailers:only,unfold)'`. A robot commit has the `Agent-Session` trailer.
 
-The platform Stop hook names an unpushed robot commit as Unverified. `~/.claude/AGENTS.md` tells a session to ignore its advice and push.
+The platform Stop hook names an unpushed robot commit as Unverified. `~/.claude/AGENTS.md` instructs a session to push the commit regardless of the hook's advice.
