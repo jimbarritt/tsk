@@ -12,6 +12,16 @@ if [ "${1:-}" = "--format" ] && [ -n "${2:-}" ]; then
 fi
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# The hook input is read once, so no helper script below takes it from tsk. GitHub Copilot
+# CLI runs this hook outside the repo and names the repo in the `cwd` of the input.
+INPUT="$(cat 2>/dev/null || true)"
+if [ "$FORMAT" = "copilot" ]; then
+  HOOK_CWD="$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || true)"
+  case "$HOOK_CWD" in
+    /*) [ -d "$HOOK_CWD" ] && cd "$HOOK_CWD" 2>/dev/null ;;
+  esac
+fi
+
 # Prints one hook output object for the context in $1, in the harness's shape.
 emit() {
   if [ "$FORMAT" = "copilot" ]; then
@@ -74,12 +84,14 @@ if [ -n "$PLUGIN_VERSION" ] &&
 fi
 
 if [ -z "$SETUP_MSG$DOLT_MSG$TSK_INSTALL_MSG" ] && [ "$FORMAT" != "copilot" ]; then
-  exec tsk thread session-start ${PLUGIN_VERSION_ARGS[@]+"${PLUGIN_VERSION_ARGS[@]}"}
+  exec tsk thread session-start ${PLUGIN_VERSION_ARGS[@]+"${PLUGIN_VERSION_ARGS[@]}"} <<<"$INPUT"
 fi
 
 # Add the dolt and install warnings to the context that tsk prints, and convert it to the
 # harness's shape. tsk prints nothing when another hook already claimed the event.
-TSK_OUTPUT="$(tsk thread session-start ${PLUGIN_VERSION_ARGS[@]+"${PLUGIN_VERSION_ARGS[@]}"})"
+TSK_FORMAT_ARGS=()
+[ "$FORMAT" = "copilot" ] && TSK_FORMAT_ARGS=(--format copilot)
+TSK_OUTPUT="$(tsk thread session-start ${TSK_FORMAT_ARGS[@]+"${TSK_FORMAT_ARGS[@]}"} ${PLUGIN_VERSION_ARGS[@]+"${PLUGIN_VERSION_ARGS[@]}"} <<<"$INPUT")"
 # When another hook claimed the event, tsk prints nothing. The set-up and install messages
 # come from this hook alone, so print them on their own.
 if [ -z "$TSK_OUTPUT" ]; then
@@ -87,5 +99,5 @@ if [ -z "$TSK_OUTPUT" ]; then
   [ -n "$REST" ] && emit "$REST"
   exit 0
 fi
-TSK_MSG="$(printf '%s' "$TSK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
+TSK_MSG="$(printf '%s' "$TSK_OUTPUT" | jq -r '.additionalContext // .hookSpecificOutput.additionalContext // empty' 2>/dev/null)"
 emit "$(printf '%s %s %s %s' "$TSK_MSG" "$SETUP_MSG" "$TSK_INSTALL_MSG" "$DOLT_MSG" | sed 's/^ *//; s/ *$//')"
