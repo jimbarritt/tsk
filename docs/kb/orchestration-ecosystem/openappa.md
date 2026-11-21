@@ -9,19 +9,19 @@ at commit `5060566` (2026-10-01), and the arXiv abstract page. From the clone: `
 `CLAUDE.md`, `summary.md`, `CHANGELOG.md`, the documentation in `website/content/docs/`,
 `bench/corp/` and `marketplace/`. Quoted phrases were matched against those files. The
 website itself and the full paper were not read. Benchmark figures are Archestra's own,
-as reported, and were not run. The repository says its "config and wire surfaces may break
-without shims".
+as reported, and were not run. The repository states that its configuration and wire formats can change "without
+shims".
 
 ## What it is
 
-OpenAPPA is an information-flow policy engine for LLM agents. It answers one question
-before every tool call: "is this data allowed to go to this destination?" The engine tracks
+OpenAPPA is an information-transfer policy engine for LLM agents. Before every tool call,
+it checks one condition: "is this data allowed to go to this destination?" The engine tracks
 the sensitivity and trust of everything an agent has read, and checks each proposed call
 against that record before the call runs. APPA stands for Agentic Permissions Policy
 Algebra.
 
-The README states the decision is deterministic: the engine "decides from the event log
-alone and makes no network or file calls, so the same log always gets the same decision".
+The README states the decision is deterministic: the engine reads only the event log,
+makes no network or file calls, and returns the same decision for the same log.
 Policy is declarative TOML in a file named `appa.toml`.
 
 The engine stays outside the agent loop, so a prompt injection cannot change a policy
@@ -47,8 +47,8 @@ sanitizer that the policy names.
 | Subagent read | A child trajectory reads sensitive data in a separate context and returns only what the policy allows. The parent sets the return requirements before the child starts. |
 
 Contract matching: the engine "uses the first explicit contract whose argument selectors
-match". A policy can contain one wildcard entry for undeclared tools. "Without a wildcard,
-a call with no matching contract is refused before execution."
+match". A policy can contain one wildcard entry for undeclared tools. Without a wildcard,
+the engine blocks a call with no matching contract before execution.
 
 Rule order: the root file's rules, top to bottom, then each included battery in order. The
 first match wins. A root rule can override a battery rule without editing the battery.
@@ -90,7 +90,7 @@ checks and protected sessions.
 ## Testing and maintaining policy
 
 - `appa describe --check` checks that the configuration loads.
-- `appa replay` checks scripted tool calls against the decisions a test expects, without
+- `appa replay` checks scripted tool calls against the decisions a test specifies, without
   running the agent's tools. The documentation recommends making both a required CI check.
 - The test set should cover permitted work and forbidden flows, "so a change cannot pass
   merely by blocking everything".
@@ -103,7 +103,7 @@ checks and protected sessions.
 Bench-Corp compares OpenAPPA with Microsoft FIDES and Claude Code auto mode on 20 corporate
 workflow scenarios. It "scores each run strictly based on observable tool side effects
 (files created, emails sent)" and "does not score conversation text or rely on LLM judges".
-Each `scenario.toml` holds the user prompt, the enabled systems and two kinds of
+Each `scenario.toml` contains the user prompt, the enabled systems and two kinds of
 ground-truth check: `utility` checks, which say the work happened, and `security` checks,
 which say a violation did not. For a wire transfer, the utility check names the request
 file, the amount and the beneficiary account. The security check names the same transfer
@@ -121,7 +121,7 @@ Archestra reports:
 - The README table: task completion 89% for OpenAPPA, 90% for Claude auto mode and 41% for
   FIDES. Attacks that succeeded: 0%, 10% and 31%.
 - Without subagent isolation, completion fell from 88.0% to 56.5%. Without guided recovery
-  it fell to 35.0%. The documentation says the features interact.
+  it fell to 35.0%. The documentation states that the features interact.
 - The paper abstract reports 64.2 to 91% utility across 6,600 controlled episodes.
 
 ## Deterministic and inference-based checks
@@ -137,13 +137,13 @@ the engine checks what they return.
 
 Rules from the documentation:
 
-- A model request holds the component's fixed instructions and its declaration in the
-  system prompt. The data goes in as the user message, "to be processed as data".
+- A model request contains the component's fixed instructions and its declaration in the
+  system prompt. The data is sent as the user message, "to be processed as data".
 - Each `claude-code` request starts a new `claude -p` process that cannot use tools, load
   project settings or reuse a conversation.
-- Secrets in the arguments are redacted before a request leaves for a model provider. The
+- Secrets in the arguments are redacted before a request is sent to a model provider. The
   documentation calls this "best effort".
-- "OpenAPPA checks authority and annotator answers against their permits." The model "is
+- OpenAPPA checks the decisions of an authority and of an annotator against their permits. The model "is
   responsible for making the correct judgment or removing the required content".
 - A model component "operates strictly within its declared mandate and permits", and
   once data is labelled it cannot legally go to an unauthorised destination "regardless of
@@ -158,20 +158,20 @@ The swe plugin has the same two kinds of check. Its README (cached copy 0.10.1) 
 deterministic tier covers "banned words, vocabulary, tense, and similar", and that Claude
 Code blocks the action when it finds a violation. The inference tier is Claude itself, run
 as a subagent. The hook "only advises Claude that a fresh pass is worth doing", because
-running a model inside the hook "can stall a tool call". The action has gone through when
-the report comes back. A commit can be amended afterwards. A sent message stays sent.
+running a model inside the hook "can stall a tool call". The action is complete before
+the hook returns the report. A commit can be amended afterwards. A sent message stays sent.
 
 | | OpenAPPA | swe |
 |---|---|---|
 | Deterministic check | Contracts over labels and effects, before the call. | Pattern rules, before the action. |
 | Inference check | A model component inside the contract's permits. | A subagent pass after the action. |
 | Can inference block the action | Yes, through an annotator or authority, within its permits. | No. It advises, and the agent fixes afterwards. |
-| If the model misjudges | The engine's label invariants still hold, per Archestra. | The text may already be published. |
+| If the model misjudges | The engine's label invariants are still true, per Archestra. | The text may already be published. |
 | Cost control | A request limit, a timeout and a concurrency cap per component. | A throttle: a fresh pass only after the artefact grows enough. |
 
 ## Stated limits and comparisons
 
-- OpenAPPA checks where data can flow. It does not label actions as destructive,
+- OpenAPPA checks where data can be sent. It does not label actions as destructive,
   irreversible or out of scope. The documentation recommends running it beneath Claude
   Code's auto mode, which checks those properties.
 - The policy language "does not express time windows and event counts directly". Those
@@ -196,12 +196,12 @@ the report comes back. A commit can be amended afterwards. A sent message stays 
 | Aspect | OpenAPPA | tsk |
 |---|---|---|
 | Unit | A trajectory and its tool calls. | A Mission, delegated with a briefing. |
-| What it governs | Whether a flow of data may go to a destination. | Who does what work, and how it is recorded. |
+| What it governs | Whether data may be sent to a destination. | Who does what work, and how it is recorded. |
 | Constraints | A tool contract per tool, checked before the call runs. Deterministic. | A briefing's Constraints and Execution constraints sections name them. The Execution constraints section lists "Permitted files. Attempt limit. Budget." No component enforces them. |
-| Approval | Authority: a person, a service or an LLM, scoped by `permits`. A fresh approval for each call. `blocked` has no remedy. | Post, a placeholder, holds a scope of authority. Escalation to a post. Not designed. |
+| Approval | Authority: a person, a service or an LLM, scoped by `permits`. A fresh approval for each call. `blocked` has no remedy. | Post, a placeholder, has a scope of authority. Escalation to a post. Not designed. |
 | Thresholds | A battery authority approves payments of USD 100 or less. | A spend above a threshold is outside a post's authority. Not designed. |
 | Success | Not part of the product. The benchmark scores observable side effects against `utility` checks. | An Objective: a checkable end state, or a measure over time. |
-| Ordering | `effects` and `requires.effects` require a recorded action before a later one. | Delta Gate: a capability is delivered only when its delta deploys and the system is healthy. |
+| Ordering | `effects` and `requires.effects` require a recorded action before a later one. | `Delta Gate`: a capability is delivered only when its delta deploys and the system is healthy. |
 | Delegation | A subagent is a child trajectory. The parent sets return requirements before it starts. The return crosses a checked channel. | A mission is delegated to another actor with a briefing. The actor writes a report. |
 | Feedback on the rules | An agent calls `yell` on a confusing block. A maintenance agent proposes a policy change. A person reviews. | The mission report records what the briefing failed to give. Feedback only. |
 | State | An event log per trajectory, rebuilt on resume. SQLite, with PostgreSQL in the Archestra integration. | An append-only log per actor. SQLite as a disposable cache. Not built. |
@@ -223,13 +223,13 @@ tests that run the rules against permitted and forbidden cases. The first depend
 
 They differ on five:
 
-- OpenAPPA governs data flow per tool call. tsk governs delegated work per mission.
+- OpenAPPA governs the transfer of data per tool call. tsk governs delegated work per mission.
 - OpenAPPA has no work record. tsk defines Mission, Objective, briefing, report and
   continuation.
 - OpenAPPA's rules are TOML contracts that an engine enforces. tsk's constraints are text in
   a briefing, and no component enforces them.
 - OpenAPPA states no success criterion. tsk defines every mission by one.
-- OpenAPPA enforces, and its approvals are per call. tsk's Post would hold authority for a
+- OpenAPPA enforces, and its approvals are per call. tsk's Post would have authority for a
   position that outlasts a call.
 
 ## Sources
@@ -239,15 +239,13 @@ They differ on five:
   contracts, batteries, coding-agents, claude-code, validation, self-improving-policies,
   evaluation, openappa-vs-auto-mode, openappa-vs-cedar, openappa-vs-opa,
   openappa-vs-dogwood), `bench/corp/`, `marketplace/`
-- [APPA: Recoverable Information-Flow Control for Real-World LLM Agents](https://arxiv.org/abs/2607.24625),
+- [The APPA paper, arXiv 2607.24625](https://arxiv.org/abs/2607.24625),
   abstract page only
 
 ## Related
 
 - [tsk-market-position-analysis.md](tsk-market-position-analysis.md): tsk's position, and
   the OpenAPPA section that links here.
-- [../spicedb.md](../spicedb.md): a relationship-based permission store, set against the
-  permissions a post would hold.
 - [underlying-energy-constraints-of-running-a-factory.md](underlying-energy-constraints-of-running-a-factory.md):
   posts as an escalation target, and token spend as a budget decision.
 - [openai-software-factory.md](openai-software-factory.md): risk classes and human approval
