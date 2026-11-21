@@ -2614,6 +2614,115 @@ fn ledger_commits_are_the_robots_and_stop_until_a_robot_actor_is_registered() {
     assert_eq!(rows[0]["email"], "robots@example.test");
 }
 
+fn generate_key(path: &Path) {
+    let generated = crate::common::cmd("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(path)
+        .output()
+        .expect("failed to run ssh-keygen");
+    assert!(generated.status.success(), "{}", stderr(&generated));
+}
+
+#[test]
+fn a_signing_key_file_signs_the_ledger_commits_and_session_start_writes_no_key_copy() {
+    let fx = Fixture::new();
+    let key = fx.root.path().join("robot-key");
+    generate_key(&key);
+    let key_text = key.display().to_string();
+    let env_file = fx.root.path().join("claude-env");
+    let robot = |args: &[&str]| -> Output {
+        let mut command = fx.command(args, Some("cse_robot"));
+        let mut child = command
+            .env("TSK_ATTRIBUTION_IDENTITY", "robot")
+            .env("TSK_ATTRIBUTION_EMAIL", "robots@example.test")
+            .env("TSK_ATTRIBUTION_SIGNING_KEY_FILE", &key_text)
+            .env("CLAUDE_ENV_FILE", &env_file)
+            .env_remove("TSK_ATTRIBUTION_SIGNING_KEY")
+            .env_remove("TSK_ROBOT_SIGNING_KEY")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to run tsk");
+        child.stdin.take().unwrap().write_all(b"{}").unwrap();
+        child.wait_with_output().unwrap()
+    };
+    assert_success(&robot(&["thread", "session-start"]));
+    let mut copies = Vec::new();
+    files_named(&fx.state(), "robot-signing-key", &mut copies);
+    assert!(copies.is_empty(), "{:?}", copies);
+    let mut signer_files = Vec::new();
+    files_named(&fx.state(), "robot-allowed-signers", &mut signer_files);
+    assert_eq!(signer_files.len(), 1);
+
+    assert_success(&robot(&[
+        "actor",
+        "register",
+        "Keyed By File",
+        "--kind",
+        "robot",
+    ]));
+    assert_success(&robot(&["thread", "session-start"]));
+    let exported = std::fs::read_to_string(&env_file).unwrap();
+    assert!(
+        exported.contains(&format!("export GIT_CONFIG_VALUE_3='{}'\n", key_text)),
+        "{}",
+        exported
+    );
+    assert!(
+        exported.contains("export GIT_CONFIG_VALUE_2='ssh-keygen'\n"),
+        "{}",
+        exported
+    );
+    assert_success(&robot(&["ledger", "push", "Publish with a key file"]));
+
+    let signers = signer_files[0].display().to_string();
+    let log = git(
+        &fx.origin(),
+        &[
+            "-c",
+            &format!("gpg.ssh.allowedSignersFile={}", signers),
+            "log",
+            "-1",
+            "--format=%an <%ae>|%G?",
+            LEDGER_REF,
+        ],
+    );
+    assert_eq!(log.trim(), "Keyed By File <robots@example.test>|G");
+    let mut copies = Vec::new();
+    files_named(&fx.state(), "robot-signing-key", &mut copies);
+    assert!(copies.is_empty(), "{:?}", copies);
+}
+
+#[test]
+fn a_signing_key_file_with_a_loose_mode_stops_the_robot_set_up() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = Fixture::new();
+    let key = fx.root.path().join("robot-key");
+    generate_key(&key);
+    std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let mut command = fx.command(&["thread", "session-start"], None);
+    let mut child = command
+        .env("TSK_ATTRIBUTION_IDENTITY", "robot")
+        .env("TSK_ATTRIBUTION_EMAIL", "robots@example.test")
+        .env("TSK_ATTRIBUTION_SIGNING_KEY_FILE", &key)
+        .env_remove("TSK_ATTRIBUTION_SIGNING_KEY")
+        .env_remove("TSK_ROBOT_SIGNING_KEY")
+        .env_remove("CLAUDE_ENV_FILE")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to run tsk");
+    child.stdin.take().unwrap().write_all(b"{}").unwrap();
+    let output = child.wait_with_output().unwrap();
+    let all = format!("{}{}", stderr(&output), session_context(&output));
+    assert!(all.contains("only the owner may read it"), "{}", all);
+    let mut signer_files = Vec::new();
+    files_named(&fx.state(), "robot-allowed-signers", &mut signer_files);
+    assert!(signer_files.is_empty());
+}
+
 #[test]
 fn session_start_exits_0_with_a_warning_outside_a_repository() {
     let fx = Fixture::new();

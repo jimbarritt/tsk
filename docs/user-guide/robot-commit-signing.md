@@ -8,7 +8,7 @@ and 8 check the result.
 
 ## Robot attribution is optional
 
-The feature is off unless a repo or a user turns it on. With nothing set, tsk writes no git
+Robot attribution is off unless a repo or a user turns it on. With nothing set, tsk writes no git
 config, and commits keep the author that the environment gives them.
 
 To turn it on for yourself on one machine, in every repo, write the user config
@@ -109,7 +109,7 @@ The command writes these files:
 - `~/tsk-robot-signing-key`, the private key.
 - `~/tsk-robot-signing-key.pub`, the public key.
 
-The passphrase is empty because a session cannot type one. Use this key for nothing else.
+The passphrase is empty because a session has no way to supply one. Use this key for nothing else.
 
 ## 4. Register the public key on GitHub as a signing key
 
@@ -146,12 +146,12 @@ the variable. A session that was already running does not.
 The environment stores variable values in plain text, and every person who can edit the
 environment can read them. Every process in a session can read the variable. Revoke the signing key on GitHub (Settings, SSH
 and GPG keys, Delete) if you suspect a leak. A revoked key stops new commits from showing
-Verified. I did not check what GitHub shows for commits signed before the revocation.
+Verified. What GitHub shows for commits signed before the revocation is not known.
 
 ## 6. What a robot session does
 
 Robot attribution runs only when `[attribution] identity = "robot"` is set (see
-"Choose the setting" below). With `identity = "default"`, or with no setting, tsk exports no
+"Choose the attribution setting" below). With `identity = "default"`, or with no setting, tsk exports no
 identity and the cloud environment's identity stays.
 
 When the identity is `robot`, `tsk thread session-start` writes these settings as `export`
@@ -176,13 +176,13 @@ The exported variables take precedence over the cloud environment's global confi
 names Claude and Anthropic's key. A git command a person runs in their own terminal does not
 see them. tsk stores the robot name for ledger commits in the file `tsk-robot-name`
 in the worktree git directory. Session start removes a robot set-up that an older tsk wrote
-to a worktree config. tsk never prints the private key. The command exits 1 and names
+to a worktree config. tsk never prints the private key. `tsk actor git-identity` exits 1 and names
 the problem when no actor is registered or `TSK_ROBOT_SIGNING_KEY` is unset. It accepts the
 key with real line breaks, or with `\n` in place of them. `tsk actor register` and the session
 start do not fail on this: they print a warning, and commits keep the default author.
 A human actor gets no change.
 
-## Choose the setting
+## Choose the attribution setting
 
 ```toml
 [attribution]
@@ -368,14 +368,51 @@ failure tsk prints an error that names `tsk signing check` and reports that a 1P
 approval may be pending. The environment variable `TSK_SIGNING_RETRY_DELAY_MS` sets the
 delay in milliseconds.
 
+## Sign with a key file
+
+A key file on the machine signs with no SSH agent and no environment variable. It suits a
+machine with a private key file and no agent. It also suits a session that cannot connect
+to an agent.
+
+| Setting | Value | Environment variable |
+|---|---|---|
+| `signing_key_file` | The path of an existing private key file: absolute, or starting with `~/` | `TSK_ATTRIBUTION_SIGNING_KEY_FILE` |
+
+```bash
+tsk config attribution --user --signing-key-file ~/.ssh/robot-signing-key
+tsk config attribution --user --signing-key-file ""
+```
+
+The first command writes the setting. The second removes it. The setting is read from the
+environment variable, then `.tsk/config.toml`, then the user config.
+
+The file must be owner-only: mode 0600 or 0400. A file with any group or other permission
+stops the set-up with an error that names `chmod 600`. A missing file stops it too.
+
+With `identity = "robot"` and `signing_key_file` set, `tsk thread session-start` writes no
+copy of the private key. It exports `user.signingkey = <the file>`, `gpg.format = ssh`,
+`gpg.ssh.program` (`signing_program`, `ssh-keygen` when unset) and `commit.gpgsign`. The
+ledger commits of tsk use the same file. tsk writes the public key of the file to the allowed
+signers file.
+
+Precedence: `signing_key` (agent) wins over `signing_key_file`, which wins over
+`TSK_ROBOT_SIGNING_KEY`.
+
+`tsk signing check` reports the file, its mode and its public key from `ssh-keygen -y -f`.
+It exits 0 when the file is usable and 1 otherwise. `tsk ledger status` shows a `Signing`
+line with the same answer.
+
+The trade-off: any process that runs as your user can read the file. An SSH agent does not
+expose the private key to a process, and a key in 1Password needs an approval to sign.
+
 ## Rotate the signing key
 
 1. Repeat steps 3 and 4 with a new key.
 2. Replace the value of `TSK_ROBOT_SIGNING_KEY` (step 5).
 3. Delete the old key from the robot account.
 
-New commits use the new key. I did not check what GitHub shows for commits signed with the
-old key after you delete it.
+New commits use the new key. What GitHub shows for commits signed with the
+old key after you delete it is not known.
 
 ## Replace the emails in the ledger history
 
