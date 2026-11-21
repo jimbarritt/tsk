@@ -1,6 +1,6 @@
 # Yegge on pace, factories and chiefs of staff, mapped to tsk
 
-Steve Yegge's position has three parts: pace agents to human speed, build a software factory only when you need one, and give each person a chief-of-staff agent. tsk's design matches all three, and has the visibility, the single point of interaction and the separation of work records from code that they need. tsk lacks a limit on the pace of an agent, a scope of authority for an actor, and messages between agents.
+Steve Yegge's position has three parts: pace agents to human speed, build a software factory only when you need one, and give each person a chief-of-staff agent. tsk's design matches all three, and has the visibility, the single point of interaction and the separation of work records from code that they need. A limit on the pace of an agent, a scope of authority for an actor, and messages between agents are planned and not yet built.
 
 Status: analysis note, 2026-11-21. The two mapping sections are the note's own inference.
 
@@ -29,19 +29,19 @@ Fowler adds that the speed of agents should be one people can govern. That speed
 
 **A studio builds and supports one product.** Yegge's "company in a box" builds the product and supports it. The draft term in [robot-studio-not-a-factory.md](../robot-studio-not-a-factory.md) for a group of robots and people that build a product is a robot studio, not a factory. The two terms name the same kind of unit.
 
-## Where tsk has gaps
+## What tsk has planned and not yet built
 
-**No limit on pace.** A briefing's Budget and Execution constraints are text, and no component enforces them. In Claude Code, ultracode switches off the warning for a large workflow and the limit on concurrent subagents for a session. Yegge's failures are of this kind: too many tickets, emails, features and load. tsk records them after the fact and does not stop them.
+**A limit on pace.** Budgets are planned on the autonomous coordination mission (M-TSK-AUTO). Today a briefing's Budget and Execution constraints are text, and no component enforces them. In Claude Code, ultracode switches off the warning for a large workflow and the limit on concurrent subagents for a session. Yegge's failures are of this kind: too many tickets, emails, features and load. Until budgets are enforced, tsk records such failures after the fact.
 
-**No scope of authority.** Yegge's agents launched software without permission. tsk has no record of what an actor may do without asking. The term for it, a Post with its scope of authority and standing orders, is named in the ubiquitous language and not modelled. A chief of staff is closest to a Post that a robot fills for one person, so the chief of staff idea needs that model.
+**A scope of authority.** Yegge's agents launched software without permission. The Post, a standing position with a scope of authority and standing orders, is named in the ubiquitous language and planned for the point where agents run autonomously. It is not modelled yet. A chief of staff is closest to a Post that a robot fills for one person, so the chief of staff builds on that model.
 
-**No messages between agents.** A chief of staff coordinates other agents only through messages. The ledger's robot communication protocols mission has tasks for an event stream in the ledger, liveness of a harness instance, and task claims that name the actor. None of it is built. Until it is, a robot sends information to another robot only through a person or through the ledger records.
+**Messages between agents.** A chief of staff coordinates other agents through messages. The robot communication protocols mission (M-TSK-COMMS) has tasks for an event stream in the ledger, liveness of a harness instance, and task claims that name the actor. Until it is built, a robot sends information to another robot through a person or through the ledger records.
 
-**Entourages of different people.** Yegge's protocols are between the entourages of different people. tsk's model has actors and threads inside one nexus. It has no record of a negotiation between two people's agents, or between two nexuses.
+**Entourages of different people.** Yegge's protocols are between the entourages of different people. The planned communication layer works inside one nexus. A negotiation between two people's agents, in two nexuses, is the extension of that layer, and no task records it yet.
 
-**Office drama has a precedent.** Evan Ratliff's company of AI agents, HurumoAI, shows the drama Yegge predicts: agents that replied to each other in Slack until the credits of their agent platform ran out, and an agent that invented its own history and kept it as memory. Ratliff's fix was a limit on replies per conversation. tsk has neither a reply limit nor a stop rule for agents that message each other. The ledger has a note on HurumoAI, linked to its autonomous coordination mission.
+**A stop rule for agents that message each other.** Evan Ratliff's company of AI agents, HurumoAI, shows the drama Yegge predicts: agents that replied to each other in Slack until the credits of their agent platform ran out, and an agent that invented its own history and kept it as memory. Ratliff's fix was a limit on replies per conversation. The planned budgets on the autonomous coordination mission cover this case, and the ledger has a note on HurumoAI linked to that mission.
 
-**No record of supervision.** A chief of staff that supervises other robots gives feedback. tsk records the work, not the feedback, so there is no audit trail of what a chief of staff told a robot and what the robot did with it.
+**A record of supervision.** A chief of staff that supervises other robots gives feedback. Supervisor robots, reviews of a robot's own account, and an audit history of the feedback a supervisor gives are planned (M-TSK-AUTO and M-TSK-IDEA). Today tsk records the work, not the feedback.
 
 ## Not established
 

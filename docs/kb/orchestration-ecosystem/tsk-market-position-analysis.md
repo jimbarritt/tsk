@@ -1410,7 +1410,7 @@ Where it meets tsk:
 
 - **Visibility.** tsk records the work as records a person reads: missions, tasks,
   decisions, questions and thread continuation entries. That is the visibility in Fowler's
-  comment. tsk sets no limit on the pace of an agent.
+  comment. A limit on the pace of an agent, through budgets, is planned and not yet built.
 - **A factory or a studio.** The draft term in
   [robot-studio-not-a-factory.md](../robot-studio-not-a-factory.md) for a group of robots and
   people that build a product is a robot studio, not a factory. Yegge's "company in a
