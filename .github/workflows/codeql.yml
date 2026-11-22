@@ -37,4 +37,4 @@ jobs:
         run: cargo build --locked --all-features
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d # v3.39.4
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
