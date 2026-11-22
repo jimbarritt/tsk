@@ -165,23 +165,12 @@ pub fn stop_servers(root: &Path, graceful: bool) {
 
 /// The number of `dolt sql-server` processes whose command line holds `needle`.
 pub fn servers_running(needle: &str) -> usize {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
+    let Ok(listing) = Command::new("ps").args(["-axo", "command="]).output() else {
         return 0;
     };
-    entries
-        .flatten()
-        .filter(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .is_some_and(|n| n.chars().all(|c| c.is_ascii_digit()))
-        })
-        .filter(|entry| {
-            std::fs::read(entry.path().join("cmdline")).is_ok_and(|bytes| {
-                let line = String::from_utf8_lossy(&bytes).replace('\0', " ");
-                line.contains("sql-server") && line.contains(needle)
-            })
-        })
+    String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .filter(|line| line.contains("sql-server") && line.contains(needle))
         .count()
 }
 
@@ -236,6 +225,9 @@ pub fn cmd<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
     command
         .env_remove("TMUX")
         .env_remove("TMUX_PANE")
-        .env_remove("TSK_TMUX_BIN");
+        .env_remove("TSK_TMUX_BIN")
+        .env_remove("TSK_UNATTENDED")
+        .env_remove("TSK_SESSION")
+        .env_remove("TSK_LEDGER_WT");
     command
 }

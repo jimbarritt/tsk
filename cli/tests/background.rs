@@ -162,23 +162,15 @@ impl Fixture {
 
     /// Processes of `background-push-run` for the message `message`.
     fn children(&self, message: &str) -> Vec<i32> {
-        let mut pids = Vec::new();
-        for entry in std::fs::read_dir("/proc").unwrap().flatten() {
-            let Some(pid) = entry
-                .file_name()
-                .to_str()
-                .and_then(|n| n.parse::<i32>().ok())
-            else {
-                continue;
-            };
-            if let Ok(bytes) = std::fs::read(entry.path().join("cmdline")) {
-                let line = String::from_utf8_lossy(&bytes).replace('\0', " ");
-                if line.contains("background-push-run") && line.contains(message) {
-                    pids.push(pid);
-                }
-            }
-        }
-        pids
+        let listing = Command::new("ps")
+            .args(["-axo", "pid=,command="])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&listing.stdout)
+            .lines()
+            .filter(|line| line.contains("background-push-run") && line.contains(message))
+            .filter_map(|line| line.split_whitespace().next()?.parse::<i32>().ok())
+            .collect()
     }
 
     fn origin_sha(&self) -> String {

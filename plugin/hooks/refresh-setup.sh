@@ -47,8 +47,10 @@ URL="${TSK_SETUP_URL:-$(raw_url jimbarritt/tsk ops/cloud/setup-environment.sh)}"
 STATE_DIR="${XDG_STATE_HOME:-${HOME:-/nonexistent}/.local/state}/tsk/setup"
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 
-exec 9>"$STATE_DIR/lock"
-flock -w 300 9 || { echo "WARNING: the environment set-up check timed out waiting for another run"; exit 0; }
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$STATE_DIR/lock"
+  flock -w 300 9 || { echo "WARNING: the environment set-up check timed out waiting for another run"; exit 0; }
+fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

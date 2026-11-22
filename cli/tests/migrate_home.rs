@@ -920,8 +920,8 @@ fn in_repo_bare_clone_takes_the_origin_url_including_a_relative_one_and_follows_
     force_config_stamp_refresh(&bare);
     assert_success(&fx.tsk(&work, &["ledger", "status"]));
     assert_eq!(
-        git(&bare, &["config", "remote.origin.url"]),
-        other.to_string_lossy()
+        std::fs::canonicalize(git(&bare, &["config", "remote.origin.url"])).unwrap(),
+        other.canonicalize().unwrap()
     );
 }
 
@@ -968,8 +968,8 @@ fn in_repo_bare_clone_follows_a_repo_local_url_insteadof_and_credential_config()
     assert_success(&fx.tsk(&work, &["ledger", "status"]));
     // The resolved URL, not the one the repo names; the settings are copied; `url.*` is not.
     assert_eq!(
-        git(&bare, &["config", "remote.origin.url"]),
-        origin.to_string_lossy()
+        std::fs::canonicalize(git(&bare, &["config", "remote.origin.url"]).trim_end()).unwrap(),
+        origin.canonicalize().unwrap()
     );
     assert_eq!(
         git(&bare, &["config", "credential.helper"]),

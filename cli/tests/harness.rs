@@ -438,7 +438,10 @@ fn new_with_detach_makes_a_detached_worktree_the_state_and_the_tmux_session() {
     assert_eq!(state["name"], "otter");
     assert_eq!(state["worktree"], path.to_str().unwrap());
     assert_eq!(state["branch"], "");
-    assert_eq!(state["main_worktree"], fx.work().to_str().unwrap());
+    assert_eq!(
+        state["main_worktree"],
+        fx.work().canonicalize().unwrap().to_str().unwrap()
+    );
     assert_eq!(state["tmux_session"], "M-TEST-01");
     assert_eq!(state["robot"], "Marvin");
     assert_eq!(state["mission"], "M-TEST-01");
