@@ -161,7 +161,10 @@ fn a_passing_docs_hook_gets_the_paths_the_directory_and_the_environment() {
         .map(|dir| Path::new(dir).canonicalize().unwrap())
         .collect();
     assert!(
-        !env_dirs.is_empty() && env_dirs.iter().all(|dir| *dir == docs.canonicalize().unwrap()),
+        !env_dirs.is_empty()
+            && env_dirs
+                .iter()
+                .all(|dir| *dir == docs.canonicalize().unwrap()),
         "{} / {}",
         text,
         docs.display()
@@ -298,7 +301,10 @@ fn the_hook_is_looked_up_in_the_environment_then_the_clone_then_the_user_then_th
     marker_hook(&repo, "repo", &log);
     let shown = hook_source(&fx, None);
     assert!(
-        shown.contains(&format!("docs hook: {}\n", repo.canonicalize().unwrap().display())),
+        shown.contains(&format!(
+            "docs hook: {}\n",
+            repo.canonicalize().unwrap().display()
+        )),
         "{}",
         shown
     );
