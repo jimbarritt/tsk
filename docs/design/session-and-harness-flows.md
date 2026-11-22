@@ -210,7 +210,7 @@ The ledger records these as decisions of M-TSK-ENV, tasks T-30 and T-31, and que
 | `tsk harness new` | asks the questions above, creates the worktree and the tmux session, starts `claude` |
 | `tsk harness list` | lists the harnesses, and which ones sleep |
 | `tsk harness sleep` | pauses the thread, stops `claude` and the tmux session, keeps the worktree |
-| `tsk harness wake` | starts the tmux session and `claude` again in the worktree. It resumes the recorded `claude` session (`claude --resume <id>`) when its transcript exists, else starts a new one (`claude --session-id <id>`), and records the ID. The first prompt resumes the thread |
+| `tsk harness wake` | starts the tmux session and `claude` again in the worktree. When the tmux session exists and its pane runs a shell, it sends `claude` to that pane. It resumes the recorded `claude` session (`claude --resume <id>`) when its transcript exists, else starts a new one (`claude --session-id <id>`), and records the ID. The first prompt resumes the thread |
 | `tsk harness delete` | stops `claude`, removes the worktree and kills the tmux session |
 
 Sleep and wake give durable state: a set of harnesses can sleep, the machine can restart,

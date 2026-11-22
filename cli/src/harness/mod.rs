@@ -84,7 +84,7 @@ pub enum HarnessCommands {
     },
     #[command(
         about = "Wake a harness: start its tmux session again and resume its thread in claude",
-        long_about = "Wake a harness: start its tmux session again and resume its thread in claude.\n\nThe tmux session has the mission code as its name, else the harness name. The command reads the ledger for the latest claude session recorded for this harness's worktree. When that session's transcript exists, claude resumes it with --resume. Otherwise claude starts a new session with --session-id. Either way the first prompt registers the robot, when it is known, and resumes the thread. With no flag, the command then attaches to the session, or switches to it inside tmux."
+        long_about = "Wake a harness: start its tmux session again and resume its thread in claude.\n\nThe tmux session has the mission code as its name, else the harness name. The command reads the ledger for the latest claude session recorded for this harness's worktree. When that session's transcript exists, claude resumes it with --resume. Otherwise claude starts a new session with --session-id. When the tmux session exists and its pane runs a shell, the command sends the claude command to that pane and starts no second session. Either way the first prompt registers the robot, when it is known, and resumes the thread. With no flag, the command then attaches to the session, or switches to it inside tmux."
     )]
     Wake {
         #[arg(help = "The harness name, or a prefix that matches one harness")]
@@ -450,12 +450,38 @@ fn start_session(
         TMUX_OPTION,
         &harness.name,
     ])?;
-    if let Some(command) = start_claude {
+    send_command(session, start_claude)
+}
+
+fn send_command(session: &str, command: Option<&str>) -> Result<(), String> {
+    if let Some(command) = command {
         let target = format!("={}:", session);
         tmux_checked(&["send-keys", "-t", &target, "-l", command])?;
         tmux_checked(&["send-keys", "-t", &target, "Enter"])?;
     }
     Ok(())
+}
+
+pub fn is_shell_command(command: &str) -> bool {
+    matches!(
+        command.trim().trim_start_matches('-'),
+        "zsh" | "bash" | "sh" | "fish" | "dash" | "ksh" | "tcsh"
+    )
+}
+
+fn pane_is_idle_shell(session: &str) -> bool {
+    let target = format!("={}:", session);
+    tmux(&[
+        "display-message",
+        "-p",
+        "-t",
+        &target,
+        "#{pane_current_command}",
+    ])
+    .ok()
+    .filter(|o| o.status.success())
+    .map(|o| is_shell_command(&String::from_utf8_lossy(&o.stdout)))
+    .unwrap_or(false)
 }
 
 fn attach(session: &str) -> Result<(), String> {
@@ -1591,10 +1617,15 @@ fn wake(name: &str, no_claude: bool, no_attach: bool) -> Result<i32, String> {
             harness.name
         ));
     }
-    if has_session(&harness.tmux_session) {
+    let existing = has_session(&harness.tmux_session);
+    if existing && !pane_is_idle_shell(&harness.tmux_session) {
         println!("harness {} is awake already", harness.name);
     } else {
-        let session = session_name(harness.mission.as_deref(), &harness.name, has_session);
+        let session = if existing {
+            harness.tmux_session.clone()
+        } else {
+            session_name(harness.mission.as_deref(), &harness.name, has_session)
+        };
         harness.tmux_session = session.clone();
         let branch = (!harness.branch.is_empty()).then_some(harness.branch.as_str());
         let start = (!no_claude).then(|| {
@@ -1616,8 +1647,13 @@ fn wake(name: &str, no_claude: bool, no_attach: bool) -> Result<i32, String> {
         );
         ctx.save(&harness)?;
         let command = start.as_ref().map(|start| claude_command(start, &prompt));
-        start_session(&session, &harness, command.as_deref())?;
-        println!("harness {} wakes", harness.name);
+        if existing {
+            send_command(&session, command.as_deref())?;
+            println!("harness {} wakes in its tmux session", harness.name);
+        } else {
+            start_session(&session, &harness, command.as_deref())?;
+            println!("harness {} wakes", harness.name);
+        }
         println!("tmux session: {}", session);
     }
     if !no_attach {
@@ -1749,6 +1785,14 @@ fn delete(name: &str, force: bool) -> Result<i32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shell_in_the_pane_is_idle_and_claude_is_not() {
+        assert!(is_shell_command("zsh\n"));
+        assert!(is_shell_command("-bash"));
+        assert!(!is_shell_command("claude"));
+        assert!(!is_shell_command("node"));
+    }
 
     #[test]
     fn wake_push_prefers_the_stored_workflow_then_the_state() {
