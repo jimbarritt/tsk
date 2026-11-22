@@ -18,6 +18,10 @@ pub const DEFAULT_REPO_URL: &str = "https://github.com/jimbarritt/tsk";
 pub const DEFAULT_DOWNLOAD_URL: &str = "https://github.com/jimbarritt/tsk/releases/download";
 pub const BREW_FORMULA: &str = "jimbarritt/tap/tsk";
 pub const CRATE_NAME: &str = "tsk-bin";
+pub const REQUIRE_ATTESTATION_VAR: &str = "TSK_REQUIRE_ATTESTATION";
+const ATTESTATION_REPO: &str = "jimbarritt/tsk";
+const ATTESTATION_SIGNER_WORKFLOW: &str = "jimbarritt/tsk/.github/workflows/binaries.yml";
+const ATTESTATION_ERROR_PREFIX: &str = "error: the attestation of the release archive";
 
 /// How long `tsk self-update` waits for the tag lookup.
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(60);
@@ -511,6 +515,78 @@ fn replace_binary(new: &Path, exe: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum Attestation {
+    Verified,
+    NotApplicable(String),
+    Unavailable(String),
+    Rejected(String),
+}
+
+pub fn attestation_policy(
+    result: Attestation,
+    require: Option<&str>,
+) -> Result<Option<String>, String> {
+    match result {
+        Attestation::Verified => Ok(Some(format!(
+            "verified gh attestation: binary built by GitHub Actions in {}",
+            ATTESTATION_REPO
+        ))),
+        Attestation::NotApplicable(reason) if require == Some("1") => Err(format!(
+            "{} cannot be verified and {}=1: {}",
+            ATTESTATION_ERROR_PREFIX, REQUIRE_ATTESTATION_VAR, reason
+        )),
+        Attestation::NotApplicable(_) => Ok(None),
+        Attestation::Rejected(reason) => Err(format!(
+            "{} did not verify: {}",
+            ATTESTATION_ERROR_PREFIX, reason
+        )),
+        Attestation::Unavailable(reason) if require == Some("1") => Err(format!(
+            "{} cannot be verified and {}=1: {}",
+            ATTESTATION_ERROR_PREFIX, REQUIRE_ATTESTATION_VAR, reason
+        )),
+        Attestation::Unavailable(reason) => Ok(Some(format!(
+            "warning: the attestation of the release archive was not verified: {}. Set {}=1 to stop an install that cannot verify.",
+            reason, REQUIRE_ATTESTATION_VAR
+        ))),
+    }
+}
+
+fn verify_attestation(archive: &Path) -> Attestation {
+    if download_base() != DEFAULT_DOWNLOAD_URL {
+        return Attestation::NotApplicable(
+            "the download URL is not the default release URL".into(),
+        );
+    }
+    let logged_in = Command::new("gh")
+        .args(["auth", "status"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    match logged_in {
+        Err(_) => return Attestation::Unavailable("gh is not installed".into()),
+        Ok(status) if !status.success() => {
+            return Attestation::Unavailable("gh has no login and GH_TOKEN is not set".into())
+        }
+        Ok(_) => {}
+    }
+    let output = Command::new("gh")
+        .args(["attestation", "verify"])
+        .arg(archive)
+        .args(["--repo", ATTESTATION_REPO])
+        .args(["--signer-workflow", ATTESTATION_SIGNER_WORKFLOW])
+        .output();
+    match output {
+        Ok(out) if out.status.success() => Attestation::Verified,
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let first = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+            Attestation::Rejected(first.trim().to_string())
+        }
+        Err(e) => Attestation::Unavailable(e.to_string()),
+    }
+}
+
 fn install_release_binary(exe: &Path, version: Version) -> Result<(), String> {
     let target = target_for(std::env::consts::OS, std::env::consts::ARCH)?;
     let url = archive_url(&download_base(), version, target);
@@ -521,6 +597,11 @@ fn install_release_binary(exe: &Path, version: Version) -> Result<(), String> {
     let result = (|| {
         let archive = tmp.join("archive");
         run_streaming("curl", &["-sSfL", "-o", &archive.to_string_lossy(), &url])?;
+        let require = std::env::var(REQUIRE_ATTESTATION_VAR).ok();
+        if let Some(warning) = attestation_policy(verify_attestation(&archive), require.as_deref())?
+        {
+            eprintln!("{}", warning);
+        }
         run_streaming(
             "tar",
             &[
@@ -563,6 +644,9 @@ fn install(version: Version) -> Result<Method, String> {
         // installed (no archive for the platform, or no release asset yet).
         Method::Cargo => {
             if let Err(e) = install_release_binary(&exe, version) {
+                if e.starts_with(ATTESTATION_ERROR_PREFIX) {
+                    return Err(e);
+                }
                 eprintln!("{}", e);
                 eprintln!("falling back to cargo install");
                 run_streaming(
@@ -693,6 +777,62 @@ pub fn upgrade_for_cloud() -> CloudUpgrade {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_verified_archive_installs_and_says_so() {
+        for require in [None, Some("1")] {
+            let message = attestation_policy(Attestation::Verified, require)
+                .unwrap()
+                .unwrap();
+            assert!(message.starts_with("verified gh attestation"));
+            assert!(message.contains(ATTESTATION_REPO));
+        }
+    }
+
+    #[test]
+    fn an_archive_that_fails_verification_stops_the_install() {
+        let failed = Attestation::Rejected("no attestations found".into());
+        let error = attestation_policy(failed, None).unwrap_err();
+        assert!(error.starts_with(ATTESTATION_ERROR_PREFIX));
+        assert!(error.contains("no attestations found"));
+    }
+
+    #[test]
+    fn an_archive_that_cannot_be_verified_warns_and_installs_by_default() {
+        let warning =
+            attestation_policy(Attestation::Unavailable("gh is not installed".into()), None)
+                .unwrap()
+                .unwrap();
+        assert!(warning.starts_with("warning:"));
+        assert!(warning.contains("gh is not installed"));
+        assert!(warning.contains(REQUIRE_ATTESTATION_VAR));
+    }
+
+    #[test]
+    fn a_custom_download_url_skips_the_check_unless_the_require_switch_is_on() {
+        let custom = || Attestation::NotApplicable("the download URL is not the default".into());
+        assert_eq!(attestation_policy(custom(), None), Ok(None));
+        let error = attestation_policy(custom(), Some("1")).unwrap_err();
+        assert!(error.starts_with(ATTESTATION_ERROR_PREFIX));
+    }
+
+    #[test]
+    fn the_require_switch_stops_an_archive_that_cannot_be_verified() {
+        let unavailable = Attestation::Unavailable("gh is not installed".into());
+        let error = attestation_policy(unavailable, Some("1")).unwrap_err();
+        assert!(error.starts_with(ATTESTATION_ERROR_PREFIX));
+        assert!(error.contains(REQUIRE_ATTESTATION_VAR));
+    }
+
+    #[test]
+    fn only_the_value_one_turns_the_require_switch_on() {
+        for value in ["0", "", "true", "yes"] {
+            let unavailable = Attestation::Unavailable("gh is not installed".into());
+            assert!(attestation_policy(unavailable, Some(value))
+                .unwrap()
+                .is_some());
+        }
+    }
     use std::cell::RefCell;
 
     struct FakeBrew {

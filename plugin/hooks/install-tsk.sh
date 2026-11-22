@@ -97,6 +97,34 @@ release_version() {
 }
 
 # Downloads the release archive and installs its binary as the file $1.
+verify_attestation() {
+  local archive="$1" reason="" out
+  if [ "$DOWNLOAD_BASE" != "https://github.com/jimbarritt/tsk/releases/download" ]; then
+    if [ "${TSK_REQUIRE_ATTESTATION:-}" = "1" ]; then
+      warn "the attestation of the release archive cannot be verified and TSK_REQUIRE_ATTESTATION=1: the download URL is not the default release URL"
+      return 1
+    fi
+    return 0
+  elif ! command -v gh >/dev/null 2>&1; then
+    reason="gh is not installed"
+  elif ! gh auth status >/dev/null 2>&1; then
+    reason="gh has no login and GH_TOKEN is not set"
+  else
+    if out="$(gh attestation verify "$archive" --repo jimbarritt/tsk --signer-workflow jimbarritt/tsk/.github/workflows/binaries.yml 2>&1)"; then
+      echo "tsk: verified gh attestation: binary built by GitHub Actions in jimbarritt/tsk" >&2
+      return 0
+    fi
+    warn "the attestation of the release archive did not verify: $(printf '%s\n' "$out" | grep -v '^$' | head -n 1)"
+    return 1
+  fi
+  if [ "${TSK_REQUIRE_ATTESTATION:-}" = "1" ]; then
+    warn "the attestation of the release archive cannot be verified and TSK_REQUIRE_ATTESTATION=1: $reason"
+    return 1
+  fi
+  warn "the attestation of the release archive was not verified: $reason. Set TSK_REQUIRE_ATTESTATION=1 to stop an install that cannot verify."
+  return 0
+}
+
 install_archive_as() {
   local dest="$1" dest_dir target version url
   dest_dir="$(dirname "$dest")"
@@ -113,6 +141,9 @@ install_archive_as() {
   fi
   if ! curl -fsSL --connect-timeout 20 --max-time 300 --retry 2 "$url" -o "$WORK/archive.tar.gz" 2>"$WORK/curl.log"; then
     warn "downloading tsk $version failed: $(tr '\n' ' ' <"$WORK/curl.log")"
+    return 1
+  fi
+  if ! verify_attestation "$WORK/archive.tar.gz"; then
     return 1
   fi
   if ! tar -xzf "$WORK/archive.tar.gz" -C "$WORK" 2>"$WORK/tar.log" || [ ! -f "$WORK/tsk" ]; then

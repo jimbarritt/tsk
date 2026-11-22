@@ -989,6 +989,29 @@ fn bad_base() -> (&'static str, String) {
 }
 
 #[test]
+fn the_tsk_installer_stops_on_a_custom_download_url_when_an_attestation_is_required() {
+    let Some(i) = Installer::new() else {
+        return;
+    };
+    let target = i.dir("install");
+    let out = i.run(
+        &[],
+        &[
+            ("TSK_INSTALL_DIR", target.display().to_string()),
+            ("TSK_REQUIRE_ATTESTATION", "1".to_string()),
+        ],
+    );
+    assert!(
+        out.contains("TSK_REQUIRE_ATTESTATION=1")
+            && out.contains("cannot be verified")
+            && out.contains("the download URL is not the default release URL"),
+        "{}",
+        out
+    );
+    assert!(!target.join("tsk").exists());
+}
+
+#[test]
 fn the_tsk_installer_installs_the_release_when_there_is_no_tsk() {
     let Some(i) = Installer::new() else {
         return;

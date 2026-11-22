@@ -207,6 +207,24 @@ The release binary method, and the archive step of the Cargo method, need `curl`
 one and renames it over the old one. When the directory is not writable, the command names
 the path and exits with an error. Rerun it with sufficient permissions, for example with `sudo`.
 
+### Release archive attestation
+
+Each release archive has a GitHub attestation: a signed statement that GitHub Actions built the
+archive from `jimbarritt/tsk`, in the workflow `binaries.yml`. Before the release binary method
+unpacks an archive, `tsk self-update`, the upgrade at the start of a cloud session and
+`plugin/hooks/install-tsk.sh` run
+`gh attestation verify` on it, and print `verified gh attestation: binary built by GitHub Actions in
+jimbarritt/tsk` when it passes.
+
+- A failed verification stops the install with an error. The Cargo fallback does not run.
+- Without `gh`, without a `gh` login or `GH_TOKEN`, the install warns that the archive was not
+  verified and continues.
+- `TSK_REQUIRE_ATTESTATION=1` stops an install that cannot verify. Set it on a machine that
+  must not install an unverified archive.
+- A custom download URL (`TSK_RELEASE_DOWNLOAD_URL`) skips the check, unless
+  `TSK_REQUIRE_ATTESTATION=1` is set. A Homebrew install and a `cargo install` build take no
+  attestation check.
+
 `tsk self-update --check` only reports. It prints whether a newer release exists, and never
 installs.
 
