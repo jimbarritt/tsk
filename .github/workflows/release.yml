@@ -85,6 +85,11 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      - name: Audit the dependencies
+        run: |
+          cargo install cargo-audit --version 0.23.0 --locked
+          cargo audit
+
       - name: Install dolt
         run: |
           bash plugin/hooks/install-dolt.sh
